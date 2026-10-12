@@ -1,7 +1,7 @@
 {
   "name": "vltn-tone-studio",
   "productName": "VLTN Tone Studio",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Desktop editor and librarian for the Valeton GP-5, GP-50 and GP-200 family",
   "homepage": "https://github.com/grzmol/VLTN-Tone-Studio",
