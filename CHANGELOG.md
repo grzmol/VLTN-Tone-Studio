@@ -2,7 +2,7 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
-## [Unreleased]
+## [0.5.1] - 2026-10-12
 
 ### Added
 - **Session log.** Tone Studio logs every connection step, connection and request error, change in what the host sees (USB, driver, interfaces, Valeton apps), long job, and every MIDI message with its decoded text and all bytes in hex. It doesn't depend on the MIDI monitor being on. The desktop app writes it to `logs/` in its data folder: 4 MB files, the newest 20 MB kept. The browser build keeps it in memory for the tab. *Device › Diagnostics › Session log* saves it as one file (*Save log*) or opens the folder. The diagnostic report says where it is. The log includes the presets read from and written to the pedal.
@@ -93,6 +93,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - TONE3000 sign-in, tone lists and downloads.
 - Release builds for macOS (`.dmg`), Windows (NSIS) and Linux (AppImage, `.deb`).
 
+[0.5.1]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.2.0...v0.3.0
