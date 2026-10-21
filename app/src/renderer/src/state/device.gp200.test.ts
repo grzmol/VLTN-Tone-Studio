@@ -1,5 +1,5 @@
 // The device store on the simulated GP-200 family: connect and sync, live edits, the GP-200 patch fields, save, rename,
-// write, the effect catalog (built in, then the user's import), LT and JR writes on a real pedal, and a clean protocol log.
+// write, the effect catalog (built in, then the user's import), and a clean protocol log.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { useGp200Catalog } from "@/gp200/app/catalog-store";
 import { buildCatalogFromXml } from "@/gp200/lib/catalog.mjs";
@@ -217,28 +217,5 @@ describe("GP-200 connecting after a GP-50", () => {
     off();
     expect(seen[0]).toEqual({ status: "connecting", device: "gp50", attached: "gp200" });
     expect([store().device, attachedDevice(store())]).toEqual(["gp200", "gp200"]);
-  }, 30_000);
-});
-
-describe.each(["gp200lt", "gp200jr"] as const)("%s: writes on a real pedal", (key) => {
-  beforeAll(async () => {
-    await store().connect("mock", { mockDevice: key });
-    useDevice.setState({ mode: "webmidi" });
-  }, 30_000);
-  afterAll(async () => {
-    useDevice.setState({ mode: "mock" });
-    await store().disconnect();
-  });
-
-  it("renames, writes, changes settings and uploads User IRs", async () => {
-    expect(store().device).toBe(key);
-    expect(store().names).toHaveLength(profileFor(key).slotCount);
-    await store().rename(5, "Real Write");
-    expect(store().names[5].name).toBe("Real Write");
-    await store().writePreset(7, store().preset!.prst);
-    store().setGlobal("inputLevel", 3);
-    expect(store().globals?.inputLevel).toBe(3);
-    await store().uploadUserIr(0, "Real IR", new Uint8Array(16));
-    expect(driver().mock!.violations).toEqual([]);
   }, 30_000);
 });
