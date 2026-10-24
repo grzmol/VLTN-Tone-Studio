@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { useGp200Catalog } from "@/gp200/app/catalog-store";
 import { host } from "@/host";
-import { profileFor, type DeviceProfile } from "@shared/devices";
+import { deviceForPortName, profileFor, type DeviceProfile } from "@shared/devices";
 import { pedalOnUsb } from "@shared/host/device";
 import { refineConnectionError, toConnectionError } from "./connection-error";
 import { DIR_LABEL, MidiLogDecoder, hex, midiLog, pushMidiLog } from "./midi-log";
@@ -305,7 +305,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       await d.close().catch(() => {});
       // Anything the pedal sent, even a reply the handshake didn't wait for, means the port isn't silent ("busy"); a
       // pedal that already identified itself and then stalls is no wrong device.
-      throw toConnectionError(e, rxFrames > rxBefore, d.device ?? get().device, d.device !== null);
+      throw toConnectionError(e, rxFrames > rxBefore, d.device ?? deviceForPortName(d.portName) ?? get().device, d.device !== null);
     }
   };
 
@@ -464,6 +464,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     },
 
     async connect(mode = get().mode, opts) {
+      if (mode === "bluetooth") throw new Error("Bluetooth editor management is disabled. Connect by USB to manage the pedal. Bluetooth MIDI remains available for performance controls.");
       if (get().status === "connecting") return;
       stopWatch();
       userDisconnected = false;

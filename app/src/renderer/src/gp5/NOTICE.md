@@ -11,7 +11,7 @@ This toolkit reimplements and ports protocol knowledge and code from:
 
 The empty GP-50 preset built by `blankGp50Prst` (`lib/prst.mjs`) reproduces the MIT fixture `gp50-blank.prst` above. The simulator's native GP-50 bank (`lib/mock-bank.mjs`) is made of the caller's MIT presets and presets generated from the catalog; it contains no Valeton factory preset.
 
-GP-50 protocol facts (globals record map, patch-setting/EXP records, footswitch masks, chain order, delete/paste/move, export and is-modified reads, device→host layouts, SnapTone name rule, catalog enum labels and Sync bindings) come from static reverse engineering of Valeton Suite 2.1.0 and GP-50 firmware 1.1.0: facts and byte vectors only, no vendor code or data.
+The GP-50 protocol implementation covers globals, patch settings, EXP records, footswitch masks, chain order, delete/copy/move, export, modified-state reads, device replies, SnapTone naming and catalog bindings. Protocol tests use facts and byte vectors; no vendor code is included.
 
 Facts only, no code copied: flameshikari/valeton-suite-en (GPL-3.0), kabir0st/gp200-studio (GPL-3.0), majabojarska/Valeton-GP180-Rev-Eng (GPL-3.0), lshug/valeton-gp200-english-patch (GPL-3.0), lucascantarelli/gp100-nextgen-editor, lucascantarelli/gp-100-patch-architect, jmiskovic/webgp-200, leocosta1/pocket-cortex, drewmerc302/nam-a2a1-converter.
 

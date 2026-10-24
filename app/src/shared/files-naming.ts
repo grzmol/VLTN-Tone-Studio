@@ -1,5 +1,5 @@
 // Pure naming rules for the library on disk (main) and in IndexedDB (browser build). Owner: Library.
-import { DEVICE_KEYS, profileFor, sniffPrst, type DeviceKey } from "./devices";
+import { DEVICE_KEYS, isDeviceKey, profileFor, sniffPrst, type DeviceKey } from "./devices";
 
 const ILLEGAL = /[<>:"/\\|?*\u0000-\u001f\u007f]/g;
 const RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
@@ -63,12 +63,18 @@ export function parseBackupDirName(dir: string): { date: Date; device: DeviceKey
 }
 
 /** The one model all `presets` belong to (see sniffPrst); null when there are none, one is not a preset, or they mix models. */
-export function commonModel(presets: Iterable<Uint8Array>): DeviceKey | null {
+export function commonModel(presets: Iterable<Uint8Array>, sourceDevice?: DeviceKey): DeviceKey | null {
   let model: DeviceKey | null = null;
   for (const p of presets) {
     const m = sniffPrst(p);
     if (!m || (model && m !== model)) return null;
     model = m;
+  }
+  // GP-150/180 (and GP-200 variants) share a file format. Preserve the connected model,
+  // but only when every file is compatible; an arbitrary label must not bypass validation.
+  if (sourceDevice !== undefined) {
+    if (!model || !isDeviceKey(sourceDevice) || profileFor(sourceDevice).prst !== profileFor(model).prst) return null;
+    return sourceDevice;
   }
   return model;
 }

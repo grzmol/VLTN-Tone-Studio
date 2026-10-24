@@ -147,6 +147,10 @@ export interface SaveFile {
 }
 
 export interface SongHostApi {
+  /** Desktop-only renewable sleep prevention while stage playback is active. */
+  stagePower?(token:string, enabled:boolean):Promise<void>;
+  /** Desktop managed song library, including copied PCM audio and ordered playlists. */
+  library?: import("../song-library").SongLibraryApi;
   /** Local names (ModelFile.file) of the model files downloaded and checked already */
   downloadedFiles(): Promise<string[]>;
   /**

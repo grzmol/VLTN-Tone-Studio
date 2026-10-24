@@ -189,9 +189,9 @@ export const webFiles: FilesApi = {
     return (await presetRows(id)).map(toPreset);
   },
 
-  async saveBackup(slots) {
+  async saveBackup(slots, sourceDevice) {
     if (!slots.length) throw new HostError("invalid", "Nothing to back up");
-    const device = commonModel(slots.map((s) => s.prst));
+    const device = commonModel(slots.map((s) => s.prst), sourceDevice);
     if (!device) throw new HostError("invalid", "A backup holds the presets of one pedal model");
     const now = new Date();
     const dirs = (await allCollections()).filter((c) => c.kind === "backup").map((c) => parseCollectionId(c.id)!.dir);

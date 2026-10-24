@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import { useSong } from "@/song/store";
 import { useNav } from "@/state/nav";
 
-export type SongTab = "stems" | "tone";
+export type SongTab = "stems" | "tone" | "performance" | "songs";
 
-const isSongTab = (param: string | null): param is SongTab => param === "stems" || param === "tone";
+const isSongTab = (param: string | null): param is SongTab => param === "songs" || param === "stems" || param === "tone" || param === "performance";
 
 /**
  * The tab last opened by name. AppShell mounts only the active screen, so this lives outside React: a bare
@@ -23,6 +23,6 @@ export function useSongTab(): [SongTab, (tab: SongTab) => void] {
   useEffect(() => {
     if (isSongTab(param)) lastTab = param;
   }, [param]);
-  const tab: SongTab = isSongTab(param) ? param : lastTab === "tone" && hasStems ? "tone" : "stems";
+  const tab: SongTab = isSongTab(param) ? param : (lastTab === "performance" || lastTab === "songs") ? lastTab : lastTab === "tone" && hasStems ? "tone" : "stems";
   return [tab, (next) => useNav.getState().go("song", next)];
 }

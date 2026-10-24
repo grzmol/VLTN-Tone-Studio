@@ -81,7 +81,7 @@ export interface FilesApi {
    * Save a full (or partial) pedal backup as a new `backups/<model>-YYYY-MM-DD[-n]` folder of
    * `<slot label>-Name.prst` files (`gp5-…`, `gp50-…`, `gp200-…`). The model is read from the presets, which must all belong to one model.
    */
-  saveBackup(slots: BackupSlot[]): Promise<CollectionInfo>;
+  saveBackup(slots: BackupSlot[], sourceDevice?: DeviceKey): Promise<CollectionInfo>;
   createCollection(title: string): Promise<CollectionInfo>;
   renameCollection(id: string, title: string): Promise<CollectionInfo>;
   /** Deletes a user collection (backups are read-only and cannot be deleted from the app). */

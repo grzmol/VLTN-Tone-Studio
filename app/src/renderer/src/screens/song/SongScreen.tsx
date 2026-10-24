@@ -6,13 +6,20 @@ import { notifyError } from "@/app/notify";
 import { useFileHandler, type OpenFile } from "@/state/ui";
 import { usePedalNameOrBoth } from "@/state/device";
 import { AUDIO_ACCEPT } from "@/song/decode";
+import { useSongLibrary } from "@/song/library";
+import { useNav } from "@/state/nav";
 import { useSong } from "@/song/store";
 import { StemsPanel } from "./stems/StemsPanel";
 import { ToneMatchPanel } from "./tonematch/ToneMatchPanel";
+import { SongLibraryPanel } from "./SongLibraryPanel";
+import { PerformancePanel } from "./PerformancePanel";
 import { useSongTab, type SongTab } from "./tab";
 
 /** Decode `file`; the Stems tab then offers the model and quality choice before the split. */
 export async function openSong(file: File): Promise<void> {
+  if (useSongLibrary.getState().busy) return;
+  useSongLibrary.getState().pausePlaylist();
+  useNav.getState().go("song", "stems");
   await useSong.getState().load(file);
 }
 
@@ -56,8 +63,10 @@ export function SongScreen() {
           </p>
           <div className="col-start-2 row-span-2 row-start-1 flex items-center gap-3">
             <TabsList aria-label="Song">
+              <TabsTrigger value="songs">Songs & playlists</TabsTrigger>
               <TabsTrigger value="stems">Stems</TabsTrigger>
               <TabsTrigger value="tone">Tone match</TabsTrigger>
+              <TabsTrigger value="performance">Performance</TabsTrigger>
             </TabsList>
             {source && (
               <Button variant="outline" onClick={pick}>
@@ -67,11 +76,15 @@ export function SongScreen() {
             )}
           </div>
         </div>
+        <TabsContent value="songs" className="flex min-h-0 flex-col"><SongLibraryPanel onPick={pick} /></TabsContent>
         <TabsContent value="stems" className="flex min-h-0 flex-col">
           <StemsPanel onPick={pick} />
         </TabsContent>
         <TabsContent value="tone" className="flex min-h-0 flex-col">
           <ToneMatchPanel />
+        </TabsContent>
+        <TabsContent value="performance" className="flex min-h-0 flex-col">
+          <PerformancePanel />
         </TabsContent>
       </Tabs>
     </div>

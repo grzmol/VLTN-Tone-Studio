@@ -1,11 +1,17 @@
 <div align="center">
 
+## GP-150 and GP-180 support
+
+GP-150 and GP-180 share the editor protocol, preset format and performance MIDI command set. GP-150 has two footswitches and a built-in expression pedal; GP-180 has three footswitches. Both are supported over USB and for Bluetooth performance MIDI. Separate model identities and footswitch layouts are preserved. The command builder offers both models, and setup presets cover both. Existing GP-180 saved settings and cues remain compatible. Physical validation in this project used GP-180; GP-150 has not been hardware-tested in this session.
+
 <br>
 
 # VLTN Tone Studio
 
 A desktop editor and librarian for Valeton multi-effects:<br>
 **GP-5 · GP-50 · GP-150 · GP-180 · GP-200 · GP-200LT · GP-200JR**
+
+GP-180 firmware 1.1.1 has been tested for USB read-only inspection and backup of all 200 presets. GP-150 and GP-180 USB editor connections allow preset selection, edits and uploads without a write-unlock switch. Editor writes remain unverified on physical hardware. Bluetooth MIDI remains available for performance controls, but Bluetooth editor management is disabled. Use USB to manage presets and settings. See [hardware evidence and Bluetooth support](BLUETOOTH.md) and [Performance features](PERFORMANCE.md).
 
 Shape tones live, sort and back up every slot, match a song's guitar tone, and bring NAM captures and IRs from TONE3000 straight to the pedal.
 
@@ -483,3 +489,5 @@ VLTN Tone Studio is free software under the [GNU General Public License v3.0](LI
 <br>
 
 </div>
+
+Saved audio, stems and live playlists: see [Song library](SONG-LIBRARY.md). [Performance](PERFORMANCE.md) includes editable song-key estimates, combined lyrics/chords and remembered MIDI setup presets. See the [generic interface previews](PERFORMANCE.md#preview-screens) and [review notes/recommended follow-ups](docs/PR-REVIEW.md).

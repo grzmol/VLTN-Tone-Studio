@@ -5,7 +5,7 @@ import { invoke } from "./invoke";
 export const filesApi: FilesApi = {
   listCollections: () => invoke("files:listCollections"),
   listPresets: (id) => invoke("files:listPresets", id),
-  saveBackup: (slots) => invoke("files:saveBackup", slots),
+  saveBackup: (slots, sourceDevice) => invoke("files:saveBackup", slots, sourceDevice),
   createCollection: (title) => invoke("files:createCollection", title),
   renameCollection: (id, title) => invoke("files:renameCollection", id, title),
   deleteCollection: (id) => invoke("files:deleteCollection", id),

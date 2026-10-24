@@ -78,6 +78,8 @@ mac:
   hardenedRuntime: true
   # Notarization runs when APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are set (CI release builds).
   extendInfo:
+    NSBluetoothAlwaysUsageDescription: Tone Studio connects to your pedal for Bluetooth MIDI performance control.
+    NSBluetoothPeripheralUsageDescription: Tone Studio connects to your pedal for Bluetooth MIDI performance control.
     # The capture editor auditions NAM captures through the audio interface input (audio only).
     NSMicrophoneUsageDescription: Tone Studio plays your guitar through NAM captures in the capture editor.
 dmg:

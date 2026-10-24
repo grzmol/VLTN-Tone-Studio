@@ -17,6 +17,7 @@ import { StemPlayer } from "@/song/stems/player";
 import { encodeWav } from "@/song/wav";
 import { STEM_NAMES, type StemName, type Stems, type SplitInfo } from "@/song/types";
 import { findModel } from "@shared/host/song";
+import { performanceKey, readOptions } from "@/song/performance/settings";
 import { SplitOptions } from "./SplitOptions";
 
 const PANEL = "glass rounded-xl min-w-0 min-h-0";
@@ -59,12 +60,13 @@ function splitSummary({ model, quality, seconds, backends }: SplitInfo): string 
 /** Transport, one row per stem (mute, solo, volume, waveform, level), the export and splitting again. */
 export function StemMixer({ stems, songName }: { stems: Stems; songName: string }) {
   const lastSplit = useSong((s) => s.lastSplit);
+  const settingsKey = performanceKey(useSong(s => s.source));
   // Created in an effect so StrictMode's mount/unmount/mount gets a live AudioContext.
   const [player, setPlayer] = useState<StemPlayer | null>(null);
   const names = useMemo(() => STEM_NAMES.filter((n) => stems[n]), [stems]);
   const first = stems[names[0]]!;
   const duration = first.channels[0].length / first.sampleRate;
-  const [mix, setMix] = useState<Mix>(defaultMix);
+  const [mix, setMix] = useState<Mix>(() => readOptions(settingsKey, { mix: defaultMix() }).mix);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState<Partial<Record<StemName, number>> | null>(null);
@@ -86,6 +88,10 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
   }, [stems]);
 
   useEffect(() => player?.setMix(mix), [player, mix]);
+  useEffect(() => {
+    try { localStorage.setItem(settingsKey + ':options', JSON.stringify({ ...readOptions(settingsKey, {}), mix })); }
+    catch (e) { notifyError('Could not save mixer settings', e); }
+  }, [settingsKey, mix]);
 
   // Position and meters follow the audio clock while playing.
   useEffect(() => {

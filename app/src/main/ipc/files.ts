@@ -6,6 +6,7 @@ import type { BackupSlot, ExportItem, NewPreset } from "@shared/host/files";
 import { isSafePresetFileName, sanitizeFileName, uniqueFileName } from "@shared/files-naming";
 import { handle, showOpenDialog, showSaveDialog } from "./handle";
 import { LibraryStore, readPrstPaths } from "./files-store";
+import type { DeviceKey } from '@shared/devices';
 
 const PRST_FILTER = [{ name: "Valeton presets", extensions: ["prst"] }];
 
@@ -21,7 +22,7 @@ export function registerFilesIpc(getWindow: () => BrowserWindow | null): void {
 
   handle("files:listCollections", () => store.listCollections());
   handle("files:listPresets", (_e, id: string) => store.listPresets(id));
-  handle("files:saveBackup", (_e, slots: BackupSlot[]) => store.saveBackup(slots));
+  handle("files:saveBackup", (_e, slots: BackupSlot[], sourceDevice?: DeviceKey) => store.saveBackup(slots, new Date(), sourceDevice));
   handle("files:createCollection", (_e, title: string) => store.createCollection(title));
   handle("files:renameCollection", (_e, id: string, title: string) => store.renameCollection(id, title));
   handle("files:deleteCollection", (_e, id: string) => store.deleteCollection(id));

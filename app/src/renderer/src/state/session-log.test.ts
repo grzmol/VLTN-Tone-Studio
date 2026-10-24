@@ -21,6 +21,7 @@ const host = (over: Partial<DeviceHostStatus> = {}): DeviceHostStatus => ({
 describe("deviceLogEntries", () => {
   it("logs connection steps and failures", () => {
     expect(deviceLogEntries(at({ status: "idle" }), at({ status: "connecting", mode: "webmidi" }))).toEqual([["Event", "Connecting (USB MIDI)"]]);
+    expect(deviceLogEntries(at({ status: "idle" }), at({ status: "connecting", mode: "bluetooth" }))).toEqual([["Event", "Connecting (Bluetooth MIDI)"]]);
     expect(deviceLogEntries(at({ status: "connecting" }), at({ status: "connected", device: "gp200", portName: "GP-200 MIDI 1" }))).toEqual([["Event", 'Connected to the GP-200 on "GP-200 MIDI 1"']]);
     const failed = deviceLogEntries(at({ status: "connecting" }), at({ status: "error", error: { code: "busy", message: "silent", ports: [] } }));
     expect(failed).toEqual([["Error", "Connection failed: busy: silent (visible ports: none)"]]);

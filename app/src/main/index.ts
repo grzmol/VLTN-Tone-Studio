@@ -15,6 +15,7 @@ import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
+import { installBluetoothChooser } from './bluetooth';
 
 // One app instance = one MIDI session (the pedal's port is exclusive on Windows).
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -24,9 +25,9 @@ if (!app.requestSingleInstanceLock()) app.quit();
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } }]);
 const RENDERER_DIR = resolve(import.meta.dirname, "../renderer");
 const RENDERER_URL = "app://bundle/index.html";
-// CSP for the app's own pages. TONE3000 images and API are the only network origins; wasm for the NAM engine.
+// CSP: tone service, pinned OpenMIDI data and Hugging Face model downloads; transcription audio stays local.
 const CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; connect-src 'self' ws://localhost:* https://*.tone3000.com https://tone3000.com";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; connect-src 'self' ws://localhost:* https://*.tone3000.com https://tone3000.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com";
 // Dev server only: @vitejs/plugin-react injects an inline React Refresh preamble into index.html.
 const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
 // Cross-origin isolation: the stem splitter's CPU path (onnxruntime-web wasm, song/stems/worker.ts) only gets threads
@@ -119,6 +120,7 @@ async function createWindow() {
       backgroundThrottling: false, // backups and writes must not be throttled
     },
   });
+  installBluetoothChooser(win);
   win.once("ready-to-show", () => {
     if (maximized) win?.maximize();
     win?.show();
@@ -179,6 +181,18 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
     permission === "media" ? details.mediaType === "audio" : allowed.has(permission),
   );
+  session.defaultSession.setBluetoothPairingHandler((details, callback) => {
+    if (!win || details.frame !== win.webContents.mainFrame) return callback({ confirmed: false });
+    if (details.pairingKind === 'providePin') {
+      void dialog.showMessageBox(win, { type: 'info', message: 'Pair this MIDI device in Windows Bluetooth settings first', detail: 'The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.' });
+      return callback({ confirmed: false });
+    }
+    void dialog.showMessageBox(win, {
+      type: 'question', title: 'Bluetooth pairing', message: `Pair with ${details.deviceId}?`,
+      detail: details.pairingKind === 'confirmPin' ? `Confirm that the device shows PIN ${details.pin}.` : 'Allow this device to connect for MIDI control.',
+      buttons: ['Cancel', 'Pair'], defaultId: 0, cancelId: 0,
+    }).then(({ response }) => callback({ confirmed: response === 1 })).catch(() => callback({ confirmed: false }));
+  });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {

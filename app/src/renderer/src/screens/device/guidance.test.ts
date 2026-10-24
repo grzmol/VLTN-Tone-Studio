@@ -77,9 +77,16 @@ describe("connectionView", () => {
 
   it("Windows: GP-5 on USB but no port = driver problem with the Windows 11 guide opened", () => {
     const v = err("not-found", { platform: "win32", hostStatus: host({ usb: [gp5], driver: "usbmidi2, USB MIDI 2.0 Device" }) });
-    expect(v).toMatchObject({ kind: "driver", led: "fault", chip: "Driver problem", action: "show-fix", openGuide: true });
+    expect(v).toMatchObject({ kind: "driver", led: "fault", chip: "Check driver", action: "show-fix", openGuide: true });
     expect(v.note).toMatch(/MIDI 2\.0/);
     expect(v.steps.some((s) => s.includes("USB Audio Device"))).toBe(true);
+  });
+
+  it('distinguishes an open but silent MIDI 2.0 port from a missing port', () => {
+    const v = err('busy', { platform: 'win32', portName: 'GP-180 MIDI', hostStatus: host({ usb: [{ vendorId: 0x84ef, productId: 0x0188, product: 'GP-180' }], driver: 'USBMidi2' }) });
+    expect(v.detail).toContain('port opened');
+    expect(v.note).toContain('does not establish the cause');
+    expect(v.statusText).toContain('GP-180');
   });
 
   it("a GP-50 on USB is a supported pedal: driver guidance names it, never update mode", () => {
@@ -133,6 +140,13 @@ describe("connectionView", () => {
 
   it("silent port without Suite on Windows opens the driver guide", () => {
     expect(err("busy", { platform: "win32", hostStatus: host() })).toMatchObject({ kind: "silent", openGuide: true });
+  });
+
+  it('recognizes the already-installed legacy driver without asserting another app holds the port', () => {
+    const v = err('busy', { platform: 'win32', portName: 'GP-180 MIDI', hostStatus: host({ driver: 'usbaudio, GP-180 MIDI' }) });
+    expect(v.note).toContain('already installed');
+    expect(v.note).toContain('official editor');
+    expect(v.note).not.toContain('Another app holds');
   });
 
   it("silent GP-200 on the Windows MIDI 2.0 driver = driver guide", () => {

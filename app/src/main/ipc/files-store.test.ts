@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { LibraryStore, readPrstPaths } from "./files-store";
 import { IMPORTED_ID, REPLACED_ID } from "@shared/host/files";
 import { PRST_MODELS } from "@shared/devices";
+import { applyPatchEdits } from '../../renderer/src/gp150/lib/prst.mjs';
 
 /** Minimal bytes with the model's header and a name at 0x19 (the store only reads those). */
 function fakePrst(name: string, device: "gp5" | "gp50" = "gp5"): Uint8Array {
@@ -35,6 +36,14 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 
 describe("backups", () => {
   const day = new Date(2026, 9, 7, 14, 32);
+
+  it('retains the GP-180 source model despite its shared GP-150 preset format', async () => {
+    const prst = applyPatchEdits(null, { name: 'Inspection', slot: 14 });
+    const info = await store.saveBackup([{ slot: 14, name: 'Inspection', prst }], day, 'gp180');
+    expect(info).toMatchObject({ id: 'backups/gp180-2026-10-07', device: 'gp180', count: 1 });
+    expect((await store.listPresets(info.id))[0].prst).toEqual(prst);
+    await expect(store.saveBackup([{ slot: 14, name: 'Inspection', prst }], day, 'gp5')).rejects.toThrow(/one pedal model/);
+  });
 
   it("writes NN-Name.prst files into gp5-YYYY-MM-DD and numbers a second backup of the day", async () => {
     const slots = [

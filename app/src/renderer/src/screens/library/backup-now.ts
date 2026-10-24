@@ -24,7 +24,7 @@ export async function runBackupNow(): Promise<CollectionInfo | null> {
   useLibrary.setState({ backupStartedAt: Date.now() });
   try {
     const entries = await d.backupAll({ onProgress: (f) => void host.app.setProgress(f).catch(() => {}) });
-    const info = await host.files.saveBackup(entries);
+    const info = await host.files.saveBackup(entries, d.device ?? undefined);
     useLibrary.getState().noteBackup(info, entries);
     await useLibrary.getState().refreshCollections();
     notifyBackupDone({ folder: info.id.slice(info.id.indexOf("/") + 1), path: info.path, count: entries.length });

@@ -1,8 +1,8 @@
-import { app, net, type BrowserWindow } from "electron";
+import { app, net, powerSaveBlocker, type BrowserWindow } from "electron";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   findModel,
   MODEL_CHECKSUM_ERROR,
@@ -18,6 +18,10 @@ import {
 import { sanitizeFileName } from "@shared/files-naming";
 import { HostError } from "@shared/ipc";
 import { handle, showOpenDialog, showSaveDialog } from "./handle";
+import { songSaveFilters } from './song-save-options';
+import { StagePower } from './stage-power';
+import { SongLibraryStore } from './song-library-store';
+import type { LibrarySong, Playlist } from '@shared/song-library';
 
 // The Song screen's separation models (src/shared/host/song.ts): each file is downloaded on first use into
 // userData/models, resumed from a `.part` file after an interrupted download, checked against its pinned SHA-256
@@ -100,6 +104,41 @@ async function ensureFile(f: ModelFile, onBytes: (received: number) => void): Pr
 }
 
 export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
+  const stagePower=new StagePower(powerSaveBlocker), watched=new Set<number>();
+  handle('song:stagePower',(event,token:string,enabled:boolean)=>{
+    const owner=event.sender.id;
+    if(!watched.has(owner)){
+      watched.add(owner);
+      event.sender.once('destroyed',()=>{stagePower.release(owner);watched.delete(owner);});
+      event.sender.on('render-process-gone',()=>stagePower.release(owner));
+    }
+    stagePower.update(owner,token,enabled);
+  });
+  app.once('will-quit',()=>stagePower.close());
+  const library = new SongLibraryStore(join(app.getPath('userData'), 'song-library'));
+  handle('song:library:preflight', (_e, ids: string[]) => library.preflight(ids));
+  handle('song:library:index', () => library.index());
+  handle('song:library:begin', (_e, song: LibrarySong) => library.begin(song));
+  handle('song:library:write', (_e, token: string, name: string, bytes: Uint8Array) => library.write(token, name, bytes));
+  handle('song:library:commit', (_e, token: string) => library.commit(token));
+  handle('song:library:abort', (_e, token: string) => library.abort(token));
+  handle('song:library:audio', (_e, id: string, name: string) => library.audio(id, name));
+  handle('song:library:playlists', (_e, playlists: Playlist[]) => library.playlists(playlists));
+  handle('song:library:settings', (_e, id: string, values: Record<string, string>) => library.settings(id, values));
+  handle('song:library:remove', (_e, id: string) => library.remove(id));
+  const transferProgress=(value: import('../../shared/song-library').LibraryTransferProgress)=>getWindow()?.webContents.send('song:library:progress',value);
+  handle('song:library:exportBackup', async()=>{
+    const selection=await showSaveDialog(getWindow(),{title:'Export portable song library',defaultPath:join(app.getPath('documents'),'Tone-Studio-library-'+new Date().toISOString().slice(0,10)+'.tar.gz'),filters:[{name:'Portable song library',extensions:['tar.gz']}]});
+    if(selection.canceled || !selection.filePath)return null;
+    const result=await library.exportBackup(selection.filePath,transferProgress);
+    return {...result,fileName:basename(selection.filePath)};
+  });
+  handle('song:library:restoreBackup', async()=>{
+    const selection=await showOpenDialog(getWindow(),{title:'Restore song library as new copies',properties:['openFile'],filters:[{name:'Portable song library',extensions:['gz','tgz']}]});
+    if(selection.canceled || !selection.filePaths[0])return null;
+    const path=selection.filePaths[0],result=await library.restoreBackup(path,transferProgress);
+    return {...result,fileName:basename(path)};
+  });
   // One download per file at a time; a second request (retry, another model sharing the file) joins it.
   const pending = new Map<string, Promise<void>>();
   const progress = (p: ModelProgress) => getWindow()?.webContents.send("song:modelProgress", p);
@@ -154,7 +193,7 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
     const win = getWindow();
     if (names.length === 1) {
       const name = sanitizeFileName(names[0], "Audio");
-      const opts = { title, defaultPath: join(app.getPath("music"), name), filters: [{ name: "WAV audio", extensions: ["wav"] }] };
+      const opts = { title, defaultPath: join(app.getPath("music"), name), filters: songSaveFilters(name) };
       const res = await showSaveDialog(win, opts);
       target = res.canceled || !res.filePath ? null : { kind: "file", path: res.filePath };
     } else {

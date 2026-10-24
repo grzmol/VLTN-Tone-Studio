@@ -8,6 +8,7 @@ import { pedalOnUsb, runningPortHolder } from "@shared/host/device";
 import { useDevice } from "@/state/device";
 import { pedalName, slotLabel, vendorApps } from "@/state/device-model";
 import { clock, pedalModelName, requestErrorLine, type ConnectionView, type Led } from "./guidance";
+import { BluetoothControls } from '@/bluetooth/BluetoothControls';
 
 /** Models the Device screen offers to simulate (registry profiles with a simulator). */
 const SIMULATED = DEVICE_KEYS.filter((k) => profileFor(k).simulator);
@@ -35,7 +36,7 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
     })),
   );
   const connected = d.status === "connected";
-  const onUsb = d.mode !== "mock" ? pedalOnUsb(d.hostStatus) : null;
+  const onUsb = d.mode === "webmidi" ? pedalOnUsb(d.hostStatus) : null;
   const errorLine = connected ? requestErrorLine(d.lastError) : null;
 
   const lookForPedal = () => void d.connect("webmidi").catch(() => {});
@@ -114,6 +115,7 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 pb-0.5">
+        <BluetoothControls editor />
         {connected ? (
           <>
             <Button variant="ghost" onClick={readAgain} disabled={!!d.busy}>

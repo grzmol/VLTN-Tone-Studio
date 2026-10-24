@@ -179,9 +179,9 @@ export class LibraryStore {
     );
   }
 
-  async saveBackup(slots: BackupSlot[], now = new Date()): Promise<CollectionInfo> {
+  async saveBackup(slots: BackupSlot[], now = new Date(), sourceDevice?: DeviceKey): Promise<CollectionInfo> {
     if (!slots.length) throw new HostError("invalid", "Nothing to back up");
-    const device = commonModel(slots.map((s) => s.prst));
+    const device = commonModel(slots.map((s) => s.prst), sourceDevice);
     if (!device) throw new HostError("invalid", "A backup holds the presets of one pedal model");
     await mkdir(this.backupsDir, { recursive: true });
     const dir = backupDirName(now, await listDirs(this.backupsDir), device);

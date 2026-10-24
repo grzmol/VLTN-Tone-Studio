@@ -47,7 +47,7 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
   }, [source, stems, status.kind]);
   const splitButton = <Button onClick={() => void useSong.getState().split()}>{missing ? `Download ${missing} MB and split` : "Split into stems"}</Button>;
 
-  if (stems && source) return <StemMixer key={source.name} stems={stems} songName={source.name} />;
+  if (stems && source) return <StemMixer key={source.libraryId ?? source.name} stems={stems} songName={source.name} />;
 
   if (status.kind === "decoding") return <Working title="Reading the song" />;
   if (status.kind === "model") {

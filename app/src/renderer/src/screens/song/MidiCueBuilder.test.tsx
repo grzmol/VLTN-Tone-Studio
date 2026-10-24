@@ -1,0 +1,23 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { MidiCueBuilder } from './MidiCueBuilder';
+afterEach(cleanup);
+it('builds timed PC/CC cues with independent target channels and tests the same bytes', () => {
+  const add = vi.fn(), test = vi.fn();
+  render(<MidiCueBuilder time={12.5} cues={[]} onAdd={add} onTest={test} canTest />);
+  fireEvent.click(screen.getByText('Use playback time'));
+  fireEvent.change(screen.getByLabelText('Cue MIDI channel'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Cue command number'), { target: { value: '7' } });
+  fireEvent.click(screen.getByText('Add MIDI cue'));
+  expect(add).toHaveBeenLastCalledWith('[00:12.50] {midi:pc 3 7}');
+  fireEvent.change(screen.getByLabelText('Cue command'), { target: { value: 'cc' } });
+  fireEvent.change(screen.getByLabelText('Cue CC value'), { target: { value: '64' } });
+  fireEvent.click(screen.getByText('Add MIDI cue'));
+  expect(add).toHaveBeenLastCalledWith('[00:12.50] {midi:cc 3 7 64}');
+  fireEvent.click(screen.getByText('Send MIDI now'));
+  expect(test).toHaveBeenCalledWith([0xb2, 7, 64]);
+  fireEvent.change(screen.getByLabelText('Cue MIDI channel'), { target: { value: '17' } });
+  fireEvent.click(screen.getByText('Add MIDI cue'));
+  expect(add).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('alert').textContent).toContain('Invalid MIDI');
+});

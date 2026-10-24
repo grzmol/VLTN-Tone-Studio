@@ -15,6 +15,7 @@ export interface PcmAudio {
 
 /** The decoded song, resampled to the separation rate (44.1 kHz stereo). */
 export interface SongSource {
+  libraryId?: string;
   /** File name as dropped or picked, shown in the UI */
   name: string;
   audio: PcmAudio;
