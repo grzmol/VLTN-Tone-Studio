@@ -1,8 +1,9 @@
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
 import type { AppEvent, MenuCommand } from "@shared/ipc";
+import { sendTo } from "./ipc/handle";
 
 export function buildMenu(getWindow: () => BrowserWindow | null): void {
-  const send = (command: MenuCommand) => () => getWindow()?.webContents.send("app:event", { type: "menu", command } satisfies AppEvent);
+  const send = (command: MenuCommand) => () => sendTo(getWindow, "app:event", { type: "menu", command } satisfies AppEvent);
   const isMac = process.platform === "darwin";
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
