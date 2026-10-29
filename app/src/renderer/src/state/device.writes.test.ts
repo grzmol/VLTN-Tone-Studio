@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { profileFor } from "@shared/devices";
+import { sha256Hex } from "@shared/host/song";
 import { DeviceError, getDriver, useDevice } from "./device";
 import { globalSpecsFor } from "./device-model";
 import { SUPPORTED_DEVICE_KEYS } from "./driver/types";
@@ -91,6 +92,12 @@ describe("unsaved edits and other slots (mock gp5)", () => {
     expect(store().slot).toBe(slotB);
     expect(store().preset!.volume).toBe(edited);
     expect(store().unsavedChanges).toBe(0);
+  });
+
+  it("remembers the bytes a write put in the slot, for the backup check", async () => {
+    const prst = store().preset!.prst;
+    await store().writePreset(slotB, prst, { discardUnsaved: true });
+    expect(store().slotHashes.get(slotB)).toBe(await sha256Hex(prst));
   });
 
   it("writePreset with discardUnsaved writes to another slot with edits pending", async () => {

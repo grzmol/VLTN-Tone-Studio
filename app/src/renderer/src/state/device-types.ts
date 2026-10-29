@@ -291,6 +291,11 @@ export interface DeviceState {
   preset: PresetState | null;
   /** The preset as last read/saved, for "Compare with saved" and the unsaved-changes count */
   saved: PresetState | null;
+  /**
+   * SHA-256 (hex) of the full preset bytes each slot had when the store last read or wrote it on this connection.
+   * Cleared on disconnect and on a new connection. A backup copy is trusted only when its bytes hash the same.
+   */
+  slotHashes: ReadonlyMap<number, string>;
   /** Number of differing params/blocks between preset and saved */
   unsavedChanges: number;
   globals: Globals | null;
