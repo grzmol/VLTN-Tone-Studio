@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LibraryStore, readPrstPaths } from "./files-store";
@@ -186,5 +186,60 @@ describe("readPrstPaths", () => {
     expect(b.error).toBe(`Not a ${PRST_MODELS} preset.`);
     expect(c.error).toBe("Not a .prst preset file.");
     expect(d.error).toMatch(/Couldn't read/);
+  });
+});
+
+describe("interrupted backups", () => {
+  const day = new Date(2026, 9, 7, 14, 32);
+  const slots = (n: number) => Array.from({ length: n }, (_, i) => ({ slot: i, name: `P${i}`, prst: fakePrst(`P${i}`) }));
+
+  it("leaves no backup listed when a write fails partway, and no temp folder either", async () => {
+    let writes = 0;
+    const flaky = new LibraryStore(root, async (path, bytes) => {
+      if (++writes === 5) throw new Error("disk full");
+      await writeFile(path, bytes);
+    });
+    await expect(flaky.saveBackup(slots(6), day)).rejects.toThrow("disk full");
+    expect(await flaky.listCollections()).toEqual([]);
+    expect(await readdir(join(root, "backups"))).toEqual([]);
+  });
+
+  it("never lists a temp folder, even one with a complete-looking backup.json", async () => {
+    const temp = join(root, "backups", ".tmp-abc");
+    await mkdir(temp, { recursive: true });
+    await writeFile(join(temp, "00-A.prst"), fakePrst("A"));
+    expect(await store.listCollections()).toEqual([]);
+  });
+
+  it("sweeps temp folders older than an hour and keeps recent ones", async () => {
+    const old = join(root, "backups", ".tmp-old");
+    const fresh = join(root, "backups", ".tmp-fresh");
+    await mkdir(old, { recursive: true });
+    await mkdir(fresh, { recursive: true });
+    const hourAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    await utimes(old, hourAgo, hourAgo);
+    expect(await store.sweepTempBackups()).toBe(1);
+    expect(await readdir(join(root, "backups"))).toEqual([".tmp-fresh"]);
+  });
+
+  it("flags a backup whose backup.json lists a file that is now missing", async () => {
+    const info = await store.saveBackup(slots(3), day);
+    await rm(join(root, info.id, "01-P1.prst"));
+    const [listed] = await store.listCollections();
+    expect(listed).toMatchObject({ id: info.id, incomplete: true, count: 2 });
+  });
+
+  it("does not flag a complete backup or a hand-made folder with no backup.json", async () => {
+    await store.saveBackup(slots(2), day);
+    await mkdir(join(root, "backups", "gp5-2026-01-02"), { recursive: true });
+    await writeFile(join(root, "backups", "gp5-2026-01-02", "05-Pure Clean.prst"), fakePrst("Pure Clean"));
+    expect((await store.listCollections()).map((c) => c.incomplete)).toEqual([false, false]);
+  });
+
+  it("names a second backup of the day with a suffix once the first is renamed into place", async () => {
+    const first = await store.saveBackup(slots(1), day);
+    const second = await store.saveBackup(slots(1), day);
+    expect([first.id, second.id]).toEqual(["backups/gp5-2026-10-07", "backups/gp5-2026-10-07-2"]);
+    expect(await readdir(join(root, "backups"))).toEqual(["gp5-2026-10-07", "gp5-2026-10-07-2"]);
   });
 });

@@ -12,6 +12,8 @@ const PRST_FILTER = [{ name: "Valeton presets", extensions: ["prst"] }];
 /** Desktop implementation of FilesApi (src/shared/host/files.ts) over userData. */
 export function registerFilesIpc(getWindow: () => BrowserWindow | null): void {
   const store = new LibraryStore(app.getPath("userData"));
+  // Copies an earlier run left half-written; a backup taking place now is never this old.
+  void store.sweepTempBackups().catch(() => {});
 
   const openFolder = async (path: string) => {
     await mkdir(path, { recursive: true });
