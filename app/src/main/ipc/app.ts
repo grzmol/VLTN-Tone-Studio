@@ -1,9 +1,10 @@
 import { app, BrowserWindow, shell } from "electron";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { join, dirname, resolve } from "node:path";
 import { DEFAULT_SETTINGS, type AppSettings } from "@shared/host/app";
 import { HostError } from "@shared/ipc";
-import { handle } from "./handle";
+import { handle, shellPaths } from "./handle";
+import { isExecutable, suiteToLaunch } from "./shell-paths";
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
 let cache: AppSettings | null = null;
@@ -26,6 +27,11 @@ async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   return next;
 }
 
+/** Store the Valeton Suite path the user chose in the file dialog (device:pickSuitePath). The only writer of it. */
+export function chooseSuitePath(path: string): Promise<AppSettings> {
+  return saveSettings({ valetonSuitePath: path, suitePathPicked: true });
+}
+
 /** A backup or write is running (the renderer reports its progress); window close asks first. */
 let jobProgress: number | null = null;
 export const isJobRunning = () => jobProgress !== null;
@@ -38,17 +44,39 @@ export function queueOpenedFiles(paths: string[]): void {
 
 const isHttp = (url: string) => /^https?:\/\//i.test(url);
 
+/** Checks a renderer-supplied path against what main handed out; returns the absolute path to pass to shell. */
+async function allowedShellPath(path: unknown): Promise<string> {
+  if (typeof path !== "string" || !(await shellPaths.isAllowed(path))) throw new HostError("invalid", "Tone Studio only opens its own folders and files you chose");
+  return resolve(path);
+}
+
 export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
   handle("app:version", () => app.getVersion());
   handle("app:getSettings", () => loadSettings());
-  handle("app:setSettings", (_e, patch: Partial<AppSettings>) => saveSettings(patch));
+  handle("app:setSettings", (_e, patch: Partial<AppSettings>) => {
+    // The Suite path only changes through device:pickSuitePath, which runs the file dialog.
+    const { valetonSuitePath, suitePathPicked, ...rest } = patch;
+    return saveSettings(rest);
+  });
   handle("app:openExternal", async (_e, url: string) => {
     if (!isHttp(url)) throw new HostError("invalid", "Only http(s) links can be opened");
     await shell.openExternal(url);
   });
-  handle("app:showItemInFolder", (_e, path: string) => shell.showItemInFolder(path));
+  handle("app:showItemInFolder", async (_e, path: string) => {
+    shell.showItemInFolder(await allowedShellPath(path));
+  });
   handle("app:openPath", async (_e, path: string) => {
-    const err = await shell.openPath(path);
+    const full = await allowedShellPath(path);
+    const info = await stat(full).catch(() => null);
+    if (isExecutable(full, info, process.platform)) throw new HostError("invalid", "Tone Studio doesn't open programs");
+    const err = await shell.openPath(full);
+    if (err) throw new HostError("io", err);
+  });
+  handle("app:launchSuite", async () => {
+    const suite = suiteToLaunch(await loadSettings(), process.platform);
+    if (!suite) throw new HostError("invalid", "Choose Valeton Suite in Settings first");
+    // Launching a program is this channel's job, so it skips the executable check openPath applies.
+    const err = await shell.openPath(suite);
     if (err) throw new HostError("io", err);
   });
   handle("app:setProgress", (_e, fraction: number | null) => {
