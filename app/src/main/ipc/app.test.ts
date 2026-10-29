@@ -124,3 +124,23 @@ describe("settings file", () => {
     expect(res.data).toMatchObject({ showValues: true, checkForUpdates: false });
   });
 });
+
+describe("routeOpenedFile", () => {
+  const window = (loading: boolean, destroyed = false) => ({ isDestroyed: () => destroyed, webContents: { isLoading: () => loading } });
+
+  it("sends to a window that has loaded", async () => {
+    const { routeOpenedFile } = await import("./app");
+    expect(routeOpenedFile(window(false))).toBe("send");
+  });
+
+  it("queues while the window is still loading", async () => {
+    const { routeOpenedFile } = await import("./app");
+    expect(routeOpenedFile(window(true))).toBe("queue");
+  });
+
+  it("queues when there is no window, or it was destroyed", async () => {
+    const { routeOpenedFile } = await import("./app");
+    expect(routeOpenedFile(null)).toBe("queue");
+    expect(routeOpenedFile(window(false, true))).toBe("queue");
+  });
+});

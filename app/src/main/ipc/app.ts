@@ -63,6 +63,11 @@ export function queueOpenedFiles(paths: string[]): void {
   openedFiles.push(...paths);
 }
 
+/** Where an OS-opened file goes: to a window that has loaded, or to the queue the renderer takes on mount (app:takeOpenedFiles). */
+export function routeOpenedFile(win: { isDestroyed(): boolean; webContents: { isLoading(): boolean } } | null): "send" | "queue" {
+  return win && !win.isDestroyed() && !win.webContents.isLoading() ? "send" : "queue";
+}
+
 const isHttp = (url: string) => /^https?:\/\//i.test(url);
 
 /** Checks a renderer-supplied path against what main handed out; returns the absolute path to pass to shell. */

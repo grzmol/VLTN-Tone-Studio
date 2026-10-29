@@ -6,7 +6,7 @@ import { basename, extname, join } from "node:path";
 import { HostError } from "@shared/ipc";
 import type { AccountState, FlowRequest, FlowResult, SendRequest, SlotLink, SnapToneSource, T3kModel, T3kTone, T3kUser, TonePage, ToneRecord, ToneSearchParams, TonesEvent, ToneListKind, UserIrSource, ViewBounds } from "@shared/host/tones";
 import { assertWav, NamCheckError, prepareNam } from "@shared/nam";
-import { handle } from "./handle";
+import { handle, sendTo } from "./handle";
 import { normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
 import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens";
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
@@ -230,7 +230,7 @@ async function image(url: string): Promise<string | null> {
 }
 
 function emit(getWindow: () => BrowserWindow | null, event: TonesEvent): void {
-  getWindow()?.webContents.send("tones:event", event);
+  sendTo(getWindow, "tones:event", event);
 }
 
 interface DownloadedModel {
