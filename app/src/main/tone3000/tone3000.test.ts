@@ -134,7 +134,10 @@ describe("TONE3000 host scoping", () => {
     return { fetchFn, seen };
   }
 
-  function clientWith(fetchFn: (url: string, init?: RequestInit) => Promise<Response>, refresh = vi.fn(async () => ({ access_token: "a2", refresh_token: "r2", expires_in: 3600 }))) {
+  function clientWith(
+    fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+    refresh = vi.fn(async () => ({ access_token: "a2", refresh_token: "r2", expires_in: 3600 })),
+  ) {
     const store = memoryStore({ access_token: "a1", refresh_token: "r1", expires_at: T0 + 3_600_000 });
     return { client: new T3kClient(new TokenManager(store, refresh, () => T0), fetchFn), refresh };
   }

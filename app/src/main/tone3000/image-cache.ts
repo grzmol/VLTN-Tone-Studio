@@ -64,7 +64,10 @@ export async function trimCache(dir: string, maxBytes = CACHE_MAX_BYTES, lowByte
   return removed;
 }
 
-/** A trim function that runs `trimCache` at most once per CACHE_TRIM_EVERY_MS. `dir` and `now` are functions so nothing is read until the first call (`app` isn't ready at import). */
+/**
+ * A trim function that runs `trimCache` at most once per CACHE_TRIM_EVERY_MS. `dir` and `now` are functions so nothing is
+ * read until the first call (`app` isn't ready at import).
+ */
 export function throttledTrim(dir: () => string, now: () => number = Date.now): () => Promise<number> {
   let last = Number.NEGATIVE_INFINITY;
   return async () => {

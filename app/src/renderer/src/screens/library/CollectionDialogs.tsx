@@ -58,7 +58,8 @@ export function CollectionDialogs({ dialog, onClose }: { dialog: CollectionDialo
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {c.title}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Its {c.count === 1 ? "preset is" : `${c.count} presets are`} {isElectron ? "moved to the Trash" : "removed from this computer"}. Nothing changes on the pedal.
+              Its {c.count === 1 ? "preset is" : `${c.count} presets are`} {isElectron ? "moved to the Trash" : "removed from this computer"}.
+              Nothing changes on the pedal.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && <p role="alert" className="text-sm text-led-fault">{error}</p>}

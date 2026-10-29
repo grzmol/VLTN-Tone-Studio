@@ -154,7 +154,17 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
   );
 }
 
-function Working({ title, detail, fraction, onCancel = () => useSong.getState().cancel() }: { title: string; detail?: string; fraction?: number; onCancel?: () => void }) {
+function Working({
+  title,
+  detail,
+  fraction,
+  onCancel = () => useSong.getState().cancel(),
+}: {
+  title: string;
+  detail?: string;
+  fraction?: number;
+  onCancel?: () => void;
+}) {
   const percent = fraction === undefined ? null : Math.round(fraction * 100);
   return (
     <div className="grid flex-1 place-items-center p-6">
