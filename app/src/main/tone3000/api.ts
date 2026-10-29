@@ -137,9 +137,9 @@ export class T3kClient {
     return res;
   }
 
-  /** Fetch a model file. Same rules as `request`: the token goes only to TONE3000 hosts. */
-  download(url: string): Promise<Response> {
-    return this.request(url);
+  /** Fetch a model file. Same rules as `request`: the token goes only to TONE3000 hosts. `init.signal` lets the download watchdog stop it. */
+  download(url: string, init: RequestInit = {}): Promise<Response> {
+    return this.request(url, init);
   }
 
   private async send(url: string, init: RequestInit, token: string | null): Promise<Response> {
