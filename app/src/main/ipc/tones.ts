@@ -12,6 +12,7 @@ import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "../tone3000/records";
 import { streamToFile } from "../tone3000/files";
+import { mergeJson } from "./fs-atomic";
 
 declare global {
   interface ImportMetaEnv {
@@ -54,8 +55,9 @@ async function readState(): Promise<T3kState> {
   }
 }
 
-async function patchState(patch: Partial<T3kState>): Promise<void> {
-  await writeFile(statePath(), JSON.stringify({ ...(await readState()), ...patch }, null, 2));
+/** Merges into the state file one update at a time, so concurrent calls can't drop each other's keys. */
+function patchState(patch: Partial<T3kState>): Promise<void> {
+  return mergeJson(statePath(), patch);
 }
 
 async function config(): Promise<{ clientId: string | null; redirectUri: string }> {
