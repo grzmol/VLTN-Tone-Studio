@@ -6,13 +6,16 @@ import { basename, extname, join } from "node:path";
 import { HostError } from "@shared/ipc";
 import type { AccountState, FlowRequest, FlowResult, SendRequest, SlotLink, SnapToneSource, T3kModel, T3kTone, T3kUser, TonePage, ToneRecord, ToneSearchParams, TonesEvent, ToneListKind, UserIrSource, ViewBounds } from "@shared/host/tones";
 import { assertWav, NamCheckError, prepareNam } from "@shared/nam";
+import { modelDownloadError } from "@shared/host/song";
 import { handle, sendTo } from "./handle";
-import { normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
+import { isT3kUrl, normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
+import { throttledTrim } from "../tone3000/image-cache";
 import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens";
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "../tone3000/records";
 import { streamToFile } from "../tone3000/files";
 import { mergeJson } from "./fs-atomic";
+import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort } from "@shared/idle-abort";
 
 declare global {
   interface ImportMetaEnv {
@@ -36,6 +39,8 @@ const MAX_LOCAL_NAM = 64 * 1024 * 1024;
 const userData = () => app.getPath("userData");
 const tonesDir = () => join(userData(), "tones");
 const cacheDir = () => join(userData(), "tone-cache");
+/** Caps tone-cache at 50 MB, checked at most once a minute (tone3000/image-cache.ts). */
+const trimImageCache = throttledTrim(cacheDir);
 const statePath = () => join(userData(), "tone3000.json");
 const tokenPath = () => join(userData(), "t3k-tokens.enc");
 
@@ -203,17 +208,20 @@ async function search(raw: unknown, page: number, refresh = false): Promise<Tone
 
 /** Fetch an image once, store a downscaled JPEG in tone-cache, hand it to the renderer as a data: URL. */
 async function image(url: string): Promise<string | null> {
-  if (!/^https:\/\//i.test(url)) return null;
+  // The renderer names the URL, so only TONE3000's own hosts (where the API's images live) are fetched.
+  if (!isT3kUrl(url)) return null;
   const file = join(cacheDir(), `${createHash("sha1").update(url).digest("hex")}.jpg`);
   try {
     return `data:image/jpeg;base64,${(await readFile(file)).toString("base64")}`;
   } catch {
     /* not cached */
   }
+  const watch = idleAbort(DOWNLOAD_TIMEOUTS);
   try {
-    const res = await net.fetch(url);
+    const res = await raceAbort(net.fetch(url, { signal: watch.signal }), watch.signal);
     if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+    watch.touch();
+    const buf = Buffer.from(await raceAbort(res.arrayBuffer(), watch.signal));
     let img = nativeImage.createFromBuffer(buf);
     if (img.isEmpty()) {
       const type = res.headers.get("content-type") ?? "image/png";
@@ -223,9 +231,12 @@ async function image(url: string): Promise<string | null> {
     const jpeg = img.toJPEG(82);
     await mkdir(cacheDir(), { recursive: true });
     await writeFile(file, jpeg);
+    void trimImageCache().catch((e) => console.error("[tones] image cache trim failed", e));
     return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
   } catch {
     return null;
+  } finally {
+    watch.finish();
   }
 }
 
@@ -251,8 +262,15 @@ async function downloadModel(getWindow: () => BrowserWindow | null, toneId: numb
   const path = join(tonesDir(), String(toneId), fileName);
   let bytes = (await stat(path).catch(() => null))?.size ?? 0;
   if (!bytes) {
-    const res = await client.download(model.model_url);
-    bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }));
+    const watch = idleAbort(DOWNLOAD_TIMEOUTS);
+    try {
+      const res = await raceAbort(client.download(model.model_url, { signal: watch.signal }), watch.signal).catch(() => {
+        throw new HostError("network", modelDownloadError(null));
+      });
+      bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }), watch);
+    } finally {
+      watch.finish();
+    }
   }
   const record = await writeRecord(tonesDir(), buildRecord(await readRecord(tonesDir(), toneId), tone, models, { model, file: fileName, bytes }, new Date()));
   return { path, bytes, record, tone, model, models };
