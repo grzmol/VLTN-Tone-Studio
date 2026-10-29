@@ -6,6 +6,7 @@ import type { CaptureDraft, CaptureKey, CaptureRecipe, CaptureState, CaptureVers
 import type { ToneRecord } from "@shared/host/tones";
 import { HostError } from "@shared/ipc";
 import { handle, showSaveDialog } from "./handle";
+import { writeJsonAtomic } from "./fs-atomic";
 
 // Layout: see src/shared/host/capture.ts. Tones' files (meta.json, <model_id>.nam) are only read here.
 const userData = () => app.getPath("userData");
@@ -55,7 +56,7 @@ async function importText(fileName: string, text: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   const original = join(dir, "original.nam");
   if (!(await exists(original))) await writeFile(original, text, "utf8");
-  await writeFile(join(dir, "source.json"), JSON.stringify({ fileName: basename(String(fileName)), importedAt: new Date().toISOString() }));
+  await writeJsonAtomic(join(dir, "source.json"), { fileName: basename(String(fileName)), importedAt: new Date().toISOString() });
   return ref;
 }
 
@@ -126,7 +127,7 @@ async function saveVersion(key: CaptureKey, input: { recipe: CaptureRecipe; summ
     ...(input.restoredFrom ? { restoredFrom: input.restoredFrom } : {}),
   };
   await writeFile(join(vdir, `v${n}.nam`), input.file, "utf8");
-  await writeFile(join(vdir, `v${n}.json`), JSON.stringify(version, null, 2));
+  await writeJsonAtomic(join(vdir, `v${n}.json`), version);
   await rm(join(vdir, "draft.json"), { force: true });
   return version;
 }
@@ -142,7 +143,7 @@ async function saveDraft(key: CaptureKey, draft: CaptureDraft | null): Promise<v
   const vdir = versionsDir(key);
   if (draft === null) return rm(join(vdir, "draft.json"), { force: true });
   await mkdir(vdir, { recursive: true });
-  await writeFile(join(vdir, "draft.json"), JSON.stringify(draft));
+  await writeJsonAtomic(join(vdir, "draft.json"), draft);
 }
 
 /** File names we write: no path separators, `.nam` extension. */
