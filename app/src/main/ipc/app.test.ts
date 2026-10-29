@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,5 +96,31 @@ describe("app:setSettings and the Suite path", () => {
     const res = await call("app:launchSuite");
     expect(res.ok).toBe(true);
     expect(electron.shell.openPath).toHaveBeenCalledWith("/opt/Valeton Suite.app");
+  });
+});
+
+describe("settings file", () => {
+  it("moves a damaged settings.json aside instead of overwriting it with defaults", async () => {
+    await writeFile(join(electron.userData, "settings.json"), '{ "showValues": tru');
+    const res = await call("app:getSettings");
+    expect(res.data).toMatchObject({ showValues: false });
+    const files = await readdir(electron.userData);
+    expect(files).not.toContain("settings.json");
+    expect(files.some((f) => /^settings\.corrupt-.+\.json$/.test(f))).toBe(true);
+  });
+
+  it("keeps the damaged file when the next setting is saved", async () => {
+    await writeFile(join(electron.userData, "settings.json"), "not json");
+    await call("app:setSettings", { showValues: true });
+    const files = await readdir(electron.userData);
+    expect(files.some((f) => /^settings\.corrupt-.+\.json$/.test(f))).toBe(true);
+    const saved = JSON.parse(await readFile(join(electron.userData, "settings.json"), "utf8"));
+    expect(saved).toMatchObject({ showValues: true });
+  });
+
+  it("lands two saves made at the same time", async () => {
+    await Promise.all([call("app:setSettings", { showValues: true }), call("app:setSettings", { checkForUpdates: false })]);
+    const res = await call("app:getSettings");
+    expect(res.data).toMatchObject({ showValues: true, checkForUpdates: false });
   });
 });
