@@ -4,7 +4,7 @@
   "version": "0.9.0",
   "private": true,
   "license": "GPL-3.0-only",
-  "description": "Desktop editor and librarian for the Valeton GP-5, GP-50 and GP-200 family",
+  "description": "Editor and librarian for Valeton GP-5, GP-50, GP-150, GP-180 and GP-200 pedals",
   "homepage": "https://github.com/grzmol/VLTN-Tone-Studio",
   "main": "./out/main/index.js",
   "type": "module",
