@@ -7,6 +7,7 @@ import type { ToneRecord } from "@shared/host/tones";
 import { HostError } from "@shared/ipc";
 import { handle, showSaveDialog } from "./handle";
 import { writeJsonAtomic } from "./fs-atomic";
+import { createTrash, type TrashFn } from "./trash";
 
 // Layout: see src/shared/host/capture.ts. Tones' files (meta.json, <model_id>.nam) are only read here.
 const userData = () => app.getPath("userData");
@@ -132,11 +133,11 @@ async function saveVersion(key: CaptureKey, input: { recipe: CaptureRecipe; summ
   return version;
 }
 
-async function deleteVersion(key: CaptureKey, n: number): Promise<void> {
+async function deleteVersion(key: CaptureKey, n: number, trash: TrashFn): Promise<void> {
   if (!Number.isInteger(n) || n < 1) throw new HostError("invalid", "The original can't be deleted");
   const vdir = versionsDir(key);
-  await rm(join(vdir, `v${n}.json`), { force: true });
-  await rm(join(vdir, `v${n}.nam`), { force: true });
+  await trash(join(vdir, `v${n}.json`));
+  await trash(join(vdir, `v${n}.nam`));
 }
 
 async function saveDraft(key: CaptureKey, draft: CaptureDraft | null): Promise<void> {
@@ -164,7 +165,9 @@ export function registerCaptureIpc(getWindow: () => BrowserWindow | null): void 
   handle("capture:importText", (_e, fileName: string, text: string) => importText(fileName, text));
   handle("capture:open", (_e, ref: string, modelId?: number | null) => open(ref, modelId));
   handle("capture:saveVersion", (_e, key: CaptureKey, input: Parameters<typeof saveVersion>[1]) => saveVersion(key, input));
-  handle("capture:deleteVersion", (_e, key: CaptureKey, n: number) => deleteVersion(key, n));
+  // A deleted version goes to the OS Trash; the userData .trash folder only when the OS refuses.
+  const trash = createTrash(userData(), (path) => shell.trashItem(path));
+  handle("capture:deleteVersion", (_e, key: CaptureKey, n: number) => deleteVersion(key, n, trash));
   handle("capture:saveDraft", (_e, key: CaptureKey, draft: CaptureDraft | null) => saveDraft(key, draft));
   handle("capture:showFiles", async (_e, key: CaptureKey) => {
     const vdir = versionsDir(key);
