@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CACHE_MAX_BYTES, CACHE_TRIM_TO_BYTES, throttledTrim, trimCache } from "./image-cache";
+import { idleAbort } from "@shared/idle-abort";
+import { CACHE_MAX_BYTES, CACHE_TRIM_TO_BYTES, isImageResponse, MAX_IMAGE_BYTES, readImageBody, throttledTrim, trimCache } from "./image-cache";
 
 const MB = 1024 * 1024;
 let dir: string;
@@ -69,5 +70,47 @@ describe("throttledTrim", () => {
     expect(await trim()).toBe(0);
     clock += 1_000;
     expect(await trim()).toBeGreaterThan(0);
+  });
+});
+
+describe("isImageResponse", () => {
+  const response = (headers: Record<string, string>) => new Response(null, { headers });
+
+  it("accepts an image of a reasonable size", () => {
+    expect(isImageResponse(response({ "content-type": "image/jpeg", "content-length": "20000" }))).toBe(true);
+  });
+
+  it("refuses anything that isn't an image, such as an HTML error page", () => {
+    expect(isImageResponse(response({ "content-type": "text/html" }))).toBe(false);
+    expect(isImageResponse(response({}))).toBe(false);
+  });
+
+  it("refuses an image whose declared length is over the cap", () => {
+    expect(isImageResponse(response({ "content-type": "image/png", "content-length": String(MAX_IMAGE_BYTES + 1) }))).toBe(false);
+  });
+});
+
+describe("readImageBody", () => {
+  const streamOf = (...parts: string[]) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+          controller.close();
+        },
+      }),
+    );
+  const watch = () => idleAbort({ connectMs: 30_000, idleMs: 60_000 });
+
+  it("returns the whole body when it is under the cap", async () => {
+    const w = watch();
+    expect((await readImageBody(streamOf("ab", "cd"), w, 10))?.toString()).toBe("abcd");
+    w.finish();
+  });
+
+  it("gives up with null once the bytes pass the cap, even when the length header was missing", async () => {
+    const w = watch();
+    expect(await readImageBody(streamOf("abcdef", "ghijkl"), w, 10)).toBeNull();
+    w.finish();
   });
 });

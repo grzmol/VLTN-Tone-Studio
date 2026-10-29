@@ -2,9 +2,10 @@ import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { finished } from "node:stream/promises";
-import { modelDownloadError } from "@shared/host/song";
-import { raceAbort, type IdleAbort } from "@shared/idle-abort";
-import { HostError } from "@shared/ipc";
+import { raceAbort, transferError, type IdleAbort } from "@shared/idle-abort";
+
+/** Shown when a TONE3000 file can't be downloaded and the cause isn't a server answer with its own message. */
+export const TONE_DOWNLOAD_ERROR = "Couldn't download the tone. Check your internet connection and try again.";
 
 /**
  * Stream a response body to `path` (via a .part file) reporting bytes received. Returns the byte count.
@@ -26,11 +27,10 @@ export async function streamToFile(
   let received = 0;
   let lastReport = 0;
   watch.touch();
-  const failed = () => (watch.cancelled() ? new HostError("cancelled", "The download was cancelled.") : new HostError("network", modelDownloadError(null)));
   try {
     for (;;) {
-      const { done, value } = await raceAbort(reader.read(), watch.signal).catch(() => {
-        throw failed();
+      const { done, value } = await raceAbort(reader.read(), watch.signal).catch((e) => {
+        throw transferError(e, watch, TONE_DOWNLOAD_ERROR);
       });
       if (done) break;
       watch.touch();

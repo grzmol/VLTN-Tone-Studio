@@ -6,16 +6,15 @@ import { basename, extname, join } from "node:path";
 import { HostError } from "@shared/ipc";
 import type { AccountState, FlowRequest, FlowResult, SendRequest, SlotLink, SnapToneSource, T3kModel, T3kTone, T3kUser, TonePage, ToneRecord, ToneSearchParams, TonesEvent, ToneListKind, UserIrSource, ViewBounds } from "@shared/host/tones";
 import { assertWav, NamCheckError, prepareNam } from "@shared/nam";
-import { modelDownloadError } from "@shared/host/song";
 import { handle, sendTo } from "./handle";
-import { isT3kUrl, normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
-import { throttledTrim } from "../tone3000/image-cache";
+import { normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
+import { isImageResponse, readImageBody, throttledTrim } from "../tone3000/image-cache";
 import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens";
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "../tone3000/records";
-import { streamToFile } from "../tone3000/files";
+import { streamToFile, TONE_DOWNLOAD_ERROR } from "../tone3000/files";
 import { mergeJson } from "./fs-atomic";
-import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort } from "@shared/idle-abort";
+import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort, transferError } from "@shared/idle-abort";
 
 declare global {
   interface ImportMetaEnv {
@@ -208,8 +207,8 @@ async function search(raw: unknown, page: number, refresh = false): Promise<Tone
 
 /** Fetch an image once, store a downscaled JPEG in tone-cache, hand it to the renderer as a data: URL. */
 async function image(url: string): Promise<string | null> {
-  // The renderer names the URL, so only TONE3000's own hosts (where the API's images live) are fetched.
-  if (!isT3kUrl(url)) return null;
+  // The renderer names the URL, so only https is fetched. The host isn't checked: avatars and images come from more than one place.
+  if (!/^https:\/\//i.test(url)) return null;
   const file = join(cacheDir(), `${createHash("sha1").update(url).digest("hex")}.jpg`);
   try {
     return `data:image/jpeg;base64,${(await readFile(file)).toString("base64")}`;
@@ -219,9 +218,10 @@ async function image(url: string): Promise<string | null> {
   const watch = idleAbort(DOWNLOAD_TIMEOUTS);
   try {
     const res = await raceAbort(net.fetch(url, { signal: watch.signal }), watch.signal);
-    if (!res.ok) return null;
+    if (!res.ok || !isImageResponse(res)) return null;
     watch.touch();
-    const buf = Buffer.from(await raceAbort(res.arrayBuffer(), watch.signal));
+    const buf = await readImageBody(res, watch);
+    if (!buf) return null;
     let img = nativeImage.createFromBuffer(buf);
     if (img.isEmpty()) {
       const type = res.headers.get("content-type") ?? "image/png";
@@ -264,8 +264,9 @@ async function downloadModel(getWindow: () => BrowserWindow | null, toneId: numb
   if (!bytes) {
     const watch = idleAbort(DOWNLOAD_TIMEOUTS);
     try {
-      const res = await raceAbort(client.download(model.model_url, { signal: watch.signal }), watch.signal).catch(() => {
-        throw new HostError("network", modelDownloadError(null));
+      // Only an abort or a transport failure becomes the generic message; a HostError from the client keeps its own.
+      const res = await raceAbort(client.download(model.model_url, { signal: watch.signal }), watch.signal).catch((e) => {
+        throw transferError(e, watch, TONE_DOWNLOAD_ERROR);
       });
       bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }), watch);
     } finally {

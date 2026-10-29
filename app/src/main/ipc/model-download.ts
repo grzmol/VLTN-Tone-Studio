@@ -1,6 +1,6 @@
 import { open, rm, stat } from "node:fs/promises";
 import { modelDownloadError } from "@shared/host/song";
-import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort } from "@shared/idle-abort";
+import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort, transferError } from "@shared/idle-abort";
 import { HostError } from "@shared/ipc";
 
 // Downloads one model file into its `.part` file, resuming from the bytes already there (HTTP Range). The watchdog
@@ -29,14 +29,14 @@ export async function downloadPart(
   const watch = idleAbort(DOWNLOAD_TIMEOUTS);
   if (signal?.aborted) watch.cancel();
   else signal?.addEventListener("abort", () => watch.cancel(), { once: true });
-  const failed = () => (watch.cancelled() ? new HostError("cancelled", "The download was cancelled.") : new HostError("network", modelDownloadError(null)));
+  const failed = (e: unknown) => transferError(e, watch, modelDownloadError(null));
   try {
-    if (watch.signal.aborted) throw failed();
+    if (watch.signal.aborted) throw failed(watch.signal.reason);
     let res: Response;
     try {
       res = await raceAbort(fetchFn(url, { headers: have ? { Range: `bytes=${have}-` } : {}, signal: watch.signal }), watch.signal);
-    } catch {
-      throw failed();
+    } catch (e) {
+      throw failed(e);
     }
     if (res.status !== 200 && res.status !== 206) throw new HostError("network", modelDownloadError(res.status));
     watch.touch();
@@ -49,8 +49,8 @@ export async function downloadPart(
       onBytes(received);
       const reader = res.body!.getReader();
       for (;;) {
-        const chunk = await raceAbort(reader.read(), watch.signal).catch(() => {
-          throw failed();
+        const chunk = await raceAbort(reader.read(), watch.signal).catch((e) => {
+          throw failed(e);
         });
         if (chunk.done) break;
         watch.touch();
