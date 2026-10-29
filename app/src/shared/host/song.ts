@@ -155,6 +155,11 @@ export interface SongHostApi {
    * "network" when offline, "invalid" on a checksum mismatch.
    */
   downloadModel(id: SeparationModelId): Promise<void>;
+  /**
+   * Stop the running downloadModel(id). The files it finished stay; the partial one stays too, so the next download resumes it.
+   * Does nothing when no download of `id` is running.
+   */
+  cancelDownload(id: SeparationModelId): Promise<void>;
   /** The bytes of a downloaded model file (ModelFile.file). Throws HostError "not-found" when it isn't downloaded. */
   modelFile(file: string): Promise<Uint8Array>;
   /** Delete model `id`'s files (files another model shares go too) and partial downloads, to free disk space */
