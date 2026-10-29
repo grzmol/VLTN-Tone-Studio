@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { describeError } from "@/components/write/write-helpers";
-import { host } from "@/host";
+import { notifySuccess } from "@/app/notify";
+import { host, isElectron } from "@/host";
 import type { CollectionInfo } from "@shared/host/files";
 import { useLibrary } from "./store";
 
@@ -57,7 +58,7 @@ export function CollectionDialogs({ dialog, onClose }: { dialog: CollectionDialo
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {c.title}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Its {c.count === 1 ? "preset is" : `${c.count} presets are`} removed from this computer. Nothing changes on the pedal.
+              Its {c.count === 1 ? "preset is" : `${c.count} presets are`} {isElectron ? "moved to the Trash" : "removed from this computer"}. Nothing changes on the pedal.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && <p role="alert" className="text-sm text-led-fault">{error}</p>}
@@ -70,6 +71,7 @@ export function CollectionDialogs({ dialog, onClose }: { dialog: CollectionDialo
                 void run(async () => {
                   await host.files.deleteCollection(c.id);
                   await useLibrary.getState().refreshCollections();
+                  notifySuccess(isElectron ? `Moved ${c.title} to the Trash` : `Removed ${c.title}`);
                 })
               }
             >
