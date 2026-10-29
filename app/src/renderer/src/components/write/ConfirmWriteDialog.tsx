@@ -82,11 +82,12 @@ export function ConfirmWriteDialog({ open, onOpenChange, title, slot, replacing,
 
   const canBackUp = replacing !== null && source?.kind !== "none";
   const doBackup = canBackUp && backupFirst;
+  const backupDate = source?.kind === "backup" ? new Date(source.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
   const backupHint =
     source?.kind === "none"
       ? source.reason
       : source?.kind === "backup"
-        ? `Saves the copy from the backup of ${new Date(source.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} to Replaced presets (reading the slot now would drop your unsaved changes)`
+        ? `Saves the copy from the backup of ${backupDate} to Replaced presets (reading the slot now would drop your unsaved changes)`
         : "Saves it to Replaced presets on this computer";
   const chain = incoming.prst ? summarize(incoming.prst) : null;
 
@@ -187,6 +188,9 @@ export function ConfirmWriteDialog({ open, onOpenChange, title, slot, replacing,
                   Back up slot {label} first{!replacing && " (not needed, the slot is empty)"}
                 </span>
                 {replacing && <span className="text-xs text-pretty text-silkscreen-3">{backupHint}</span>}
+                {source?.kind === "backup" && source.stale && (
+                  <span className="text-xs text-pretty text-led-fault">This copy is from {backupDate} and may be older than what's on the pedal.</span>
+                )}
               </Label>
             </div>
           </>
