@@ -1,4 +1,5 @@
 import { app, BrowserWindow, nativeImage, net, safeStorage, session, type Session } from "electron";
+import { tokenEncryptionAvailable, type SafeStorageState } from "./token-storage";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -73,10 +74,25 @@ async function config(): Promise<{ clientId: string | null; redirectUri: string 
   };
 }
 
+/** What safeStorage can do here. The Linux backend tells a real keyring from the basic_text fallback (see token-storage.ts). */
+function safeStorageState(): SafeStorageState {
+  return {
+    platform: process.platform,
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    backend: process.platform === "linux" ? safeStorage.getSelectedStorageBackend() : null,
+  };
+}
+
 /** Tokens are encrypted with the OS keychain (safeStorage). Without one they live in memory for this run only. */
 const tokenStore: TokenStore = {
   async load() {
-    if (!safeStorage.isEncryptionAvailable() || !existsSync(tokenPath())) return null;
+    const state = safeStorageState();
+    if (!existsSync(tokenPath())) return null;
+    if (!tokenEncryptionAvailable(state)) {
+      // The basic_text fallback wrote this file with a constant key, so nothing can read it safely: drop it.
+      if (state.backend === "basic_text") await rm(tokenPath(), { force: true });
+      return null;
+    }
     try {
       return JSON.parse(safeStorage.decryptString(await readFile(tokenPath()))) as TokenSet;
     } catch {
@@ -84,7 +100,7 @@ const tokenStore: TokenStore = {
     }
   },
   async save(tokens) {
-    if (!safeStorage.isEncryptionAvailable()) return;
+    if (!tokenEncryptionAvailable(safeStorageState())) return;
     await writeFile(tokenPath(), safeStorage.encryptString(JSON.stringify(tokens)));
   },
   async clear() {
@@ -145,6 +161,8 @@ async function account(): Promise<AccountState> {
     configured: Boolean(clientId),
     appKey: s.clientId || null,
     splashSeen: Boolean(s.splashSeen),
+    // Linux without a real keyring: tokens are kept for this run only, so the settings say so.
+    insecureStorage: process.platform === "linux" && !tokenEncryptionAvailable(safeStorageState()),
   };
 }
 

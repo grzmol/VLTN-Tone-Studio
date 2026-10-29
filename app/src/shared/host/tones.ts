@@ -88,6 +88,8 @@ export interface AccountState {
   appKey: string | null;
   /** The partnership splash has been shown and continued once */
   splashSeen: boolean;
+  /** Linux without a keyring: tokens are not kept on disk, so the user stays signed in only for this run */
+  insecureStorage: boolean;
 }
 
 /** Authorize-URL options for the embedded flow. */

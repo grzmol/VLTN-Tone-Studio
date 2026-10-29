@@ -341,7 +341,17 @@ function AccountRow() {
 
   const user = account?.status === "signed-in" ? account.user : null;
   return (
-    <Row label="TONE3000" description="Browse and download NAM captures and IRs. Signing in happens on TONE3000's own page.">
+    <Row
+      label="TONE3000"
+      description={
+        <>
+          Browse and download NAM captures and IRs. Signing in happens on TONE3000's own page.
+          {account?.insecureStorage && (
+            <span className="block">No system keyring was found, so the TONE3000 sign-in lasts only this session. Install a keyring to stay signed in.</span>
+          )}
+        </>
+      }
+    >
       {!account ? null : user ? (
         <>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
