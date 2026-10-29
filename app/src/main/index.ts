@@ -2,10 +2,10 @@ import { app, BrowserWindow, dialog, net, protocol, screen, session } from "elec
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { buildMenu } from "./menu";
 import { isJobRunning, queueOpenedFiles, registerAppIpc } from "./ipc/app";
 import { registerFilesIpc } from "./ipc/files";
+import { writeJsonAtomicSync } from "./ipc/fs-atomic";
 import { registerTonesIpc } from "./ipc/tones";
 import { registerCaptureIpc } from "./ipc/capture";
 import { registerDeviceIpc } from "./ipc/device";
@@ -85,9 +85,8 @@ async function loadBounds(): Promise<SavedBounds> {
 
 function saveBounds(w: BrowserWindow): void {
   try {
-    mkdirSync(app.getPath("userData"), { recursive: true });
     // Sync: the app may quit right after the window closes.
-    writeFileSync(boundsPath(), JSON.stringify({ ...w.getNormalBounds(), maximized: w.isMaximized() } satisfies SavedBounds));
+    writeJsonAtomicSync(boundsPath(), { ...w.getNormalBounds(), maximized: w.isMaximized() } satisfies SavedBounds);
   } catch {
     // bounds are a convenience
   }

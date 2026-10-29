@@ -1,10 +1,11 @@
 // Local tone records: `<tonesDir>/<tone_id>/meta.json` plus the downloaded model files beside it.
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { SlotLink, T3kModel, T3kTone, ToneRecord } from "@shared/host/tones";
 import { isDeviceKey } from "@shared/devices";
 import { HostError } from "@shared/ipc";
 import { modelsVerdict } from "@shared/tone3000";
+import { writeJsonAtomic } from "../ipc/fs-atomic";
 
 export const metaPath = (tonesDir: string, toneId: number) => join(tonesDir, String(toneId), "meta.json");
 
@@ -16,13 +17,9 @@ export async function readRecord(tonesDir: string, toneId: number): Promise<Tone
   }
 }
 
-/** Atomic write (tmp + rename) so a crash never leaves half a meta.json. */
+/** Atomic write, so a crash never leaves half a meta.json. */
 export async function writeRecord(tonesDir: string, record: ToneRecord): Promise<ToneRecord> {
-  const dir = join(tonesDir, String(record.tone_id));
-  await mkdir(dir, { recursive: true });
-  const tmp = join(dir, "meta.json.tmp");
-  await writeFile(tmp, JSON.stringify(record, null, 2));
-  await rename(tmp, metaPath(tonesDir, record.tone_id));
+  await writeJsonAtomic(metaPath(tonesDir, record.tone_id), record);
   return record;
 }
 

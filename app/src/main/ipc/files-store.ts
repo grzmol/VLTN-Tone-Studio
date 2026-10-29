@@ -1,9 +1,10 @@
 // The library on disk (no Electron imports, so it is testable against a temp dir).
 //   <root>/backups/<device key>-YYYY-MM-DD[-n]/<slot label>-Name.prst (+ backup.json)   read-only snapshots of the pedal
 //   <root>/library/<dir>/collection.json + *.prst                                       Imported files, Replaced presets, user collections
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
+import { writeJsonAtomic } from "./fs-atomic";
 import type { BackupSlot, CollectionInfo, CollectionKind, LocalPreset, NewPreset, PickedFile } from "@shared/host/files";
 import { MAX_PRST_BYTES, PRST_MODELS, isDeviceKey, profileFor, prstName, sniffPrst, type DeviceKey } from "@shared/devices";
 import {
@@ -104,10 +105,7 @@ export class LibraryStore {
   }
 
   private async writeMeta(dir: string, meta: CollectionMeta): Promise<void> {
-    const path = join(this.libraryDir, dir, "collection.json");
-    const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(meta, null, 2));
-    await rename(tmp, path);
+    await writeJsonAtomic(join(this.libraryDir, dir, "collection.json"), meta);
   }
 
   private async prstFiles(path: string): Promise<string[]> {
