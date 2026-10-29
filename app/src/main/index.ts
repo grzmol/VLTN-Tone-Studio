@@ -16,6 +16,7 @@ import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
+import { isOwnRenderer } from "./permissions";
 
 // One app instance = one MIDI session (the pedal's port is exclusive on Windows). The second copy exits here,
 // before the rest of this file registers IPC or a window; the first copy gets its files and focus via "second-instance".
@@ -197,17 +198,21 @@ app.on("open-file", (e, path) => {
 app.whenReady().then(async () => {
   // WebMIDI with SysEx in the renderer (src/renderer/src/gp5/), plus audio-only capture for the capture editor's
   // NAM audition (audio interface input). Nothing else is granted; video is always denied.
+  // Only our own pages get them (isOwnRenderer): the default session is shared with anything else that loads there.
   const allowed = new Set(["midi", "midiSysex"]);
+  const devUrl = process.env.ELECTRON_RENDERER_URL;
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb, details) => {
+    if (!isOwnRenderer(details.requestingUrl, devUrl)) return cb(false);
     if (permission === "media") {
       const types = "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
       return cb(types.length > 0 && types.every((t) => t === "audio"));
     }
     cb(allowed.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
-    permission === "media" ? details.mediaType === "audio" : allowed.has(permission),
-  );
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+    if (!isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
+    return permission === "media" ? details.mediaType === "audio" : allowed.has(permission);
+  });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
