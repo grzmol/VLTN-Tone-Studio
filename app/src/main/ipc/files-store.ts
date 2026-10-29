@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
 import { writeJsonAtomic } from "./fs-atomic";
+import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
 import type { BackupSlot, CollectionInfo, CollectionKind, LocalPreset, NewPreset, PickedFile } from "@shared/host/files";
 import { MAX_PRST_BYTES, PRST_MODELS, isDeviceKey, profileFor, prstName, sniffPrst, type DeviceKey } from "@shared/devices";
 import {
@@ -83,6 +84,8 @@ export class LibraryStore {
     private readonly root: string,
     /** Writes one preset file of a backup. Tests replace it to fail partway through. */
     private readonly writePreset: (path: string, bytes: Uint8Array) => Promise<void> = (path, bytes) => writeFile(path, bytes),
+    /** Takes deleted collections and presets out of the library. Desktop passes the OS Trash; the default keeps them in `<root>/.trash`. */
+    private readonly trash: TrashFn = createTrash(root),
   ) {}
 
   get backupsDir(): string {
@@ -275,7 +278,12 @@ export class LibraryStore {
     const { root, dir, path } = this.collectionPath(id);
     if (root !== "library") throw new HostError("invalid", "Backups are read-only");
     if ((await this.readMeta(dir)).kind !== "collection") throw new HostError("invalid", "Only your own collections can be deleted");
-    await rm(path, { recursive: true, force: true });
+    await this.trash(path);
+  }
+
+  /** Drops entries that have been in the in-library Trash for 30 days. Run at start-up. */
+  async sweepTrash(): Promise<number> {
+    return sweepLibraryTrash(this.root);
   }
 
   async addPresets(id: string, items: NewPreset[]): Promise<LocalPreset[]> {
@@ -299,7 +307,7 @@ export class LibraryStore {
   async removePreset(id: string, presetId: string): Promise<void> {
     const { dir, path } = await this.ensureLibrary(id);
     if (!isSafePresetFileName(presetId)) throw new HostError("invalid", "Unknown preset");
-    await rm(join(path, presetId), { force: true });
+    await this.trash(join(path, presetId));
     const meta = await this.readMeta(dir);
     delete meta.items[presetId];
     meta.order = meta.order.filter((f) => f !== presetId);
