@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell } from "electron";
 import { readFile, rename, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { DEFAULT_SETTINGS, type AppSettings } from "@shared/host/app";
+import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings } from "@shared/host/app";
 import { HostError } from "@shared/ipc";
 import { handle, shellPaths } from "./handle";
 import { serial, writeJsonAtomic } from "./fs-atomic";
@@ -21,7 +21,7 @@ async function readSettings(): Promise<AppSettings> {
     return { ...DEFAULT_SETTINGS };
   }
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(text) };
+    return { ...DEFAULT_SETTINGS, ...readSettingsFile(JSON.parse(text)) };
   } catch {
     // Keep the damaged file for the user to look at; saving defaults over it would lose every setting.
     const aside = join(app.getPath("userData"), `settings.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
@@ -74,11 +74,8 @@ async function allowedShellPath(path: unknown): Promise<string> {
 export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
   handle("app:version", () => app.getVersion());
   handle("app:getSettings", () => loadSettings());
-  handle("app:setSettings", (_e, patch: Partial<AppSettings>) => {
-    // The Suite path only changes through device:pickSuitePath, which runs the file dialog.
-    const { valetonSuitePath, suitePathPicked, ...rest } = patch;
-    return saveSettings(rest);
-  });
+  // The sanitiser drops unknown keys, wrong types and the Suite path: only device:pickSuitePath sets that.
+  handle("app:setSettings", (_e, patch: unknown) => saveSettings(sanitizeSettingsPatch(patch)));
   handle("app:openExternal", async (_e, url: string) => {
     if (!isHttp(url)) throw new HostError("invalid", "Only http(s) links can be opened");
     await shell.openExternal(url);

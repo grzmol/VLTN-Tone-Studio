@@ -30,6 +30,37 @@ export const DEFAULT_SETTINGS: AppSettings = {
   gp50Extras: false,
 };
 
+const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(DEFAULT_SETTINGS));
+
+/** Set only by the main process (device:pickSuitePath opens the file dialog), so a renderer patch may not carry them. */
+const MAIN_ONLY_KEYS: ReadonlySet<string> = new Set(["valetonSuitePath", "suitePathPicked"]);
+
+/** A value of the type its default has; the nullable settings also take null. */
+function hasSettingType(key: keyof AppSettings, value: unknown): boolean {
+  const fallback = DEFAULT_SETTINGS[key];
+  return fallback === null ? value === null || typeof value === "string" : typeof value === typeof fallback;
+}
+
+function knownSettings(input: unknown, allowMainOnly: boolean): Partial<AppSettings> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!KNOWN_KEYS.has(key) || (!allowMainOnly && MAIN_ONLY_KEYS.has(key))) continue;
+    if (hasSettingType(key as keyof AppSettings, value)) out[key] = value;
+  }
+  return out as Partial<AppSettings>;
+}
+
+/** A settings patch from the renderer, reduced to the settings this version knows, with the right types. Drops the Suite path. */
+export function sanitizeSettingsPatch(patch: unknown): Partial<AppSettings> {
+  return knownSettings(patch, false);
+}
+
+/** settings.json from any version: the same reduction, but the Suite path a previous save stored is kept. */
+export function readSettingsFile(value: unknown): Partial<AppSettings> {
+  return knownSettings(value, true);
+}
+
 export interface AppApi {
   version(): Promise<string>;
   getSettings(): Promise<AppSettings>;
