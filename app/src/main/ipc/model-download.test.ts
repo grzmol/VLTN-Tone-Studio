@@ -118,6 +118,11 @@ describe("downloadPart", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it("keeps a 404 with the server's status in its message", async () => {
+    const error = await settle(downloadPart(URL_, 20, part, async () => new Response("gone", { status: 404 }), () => {}));
+    expect(error).toMatchObject({ code: "network", message: modelDownloadError(404) });
+  });
+
   it("maps an HTTP error status to a network error without touching the .part", async () => {
     await writeFile(part, "0123456789");
     const error = await settle(downloadPart(URL_, 20, part, async () => new Response("nope", { status: 503 }), () => {}));

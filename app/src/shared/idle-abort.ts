@@ -1,10 +1,22 @@
 // Watchdog for downloads. A total timeout would cut off a healthy 280 MB model on a slow link, so this aborts only
 // when the transfer stalls: no response within `connectMs`, then no bytes for `idleMs`. Every chunk calls `touch()`.
 // The abort reason is an Error for a stall and a DOMException for a cancel, so callers can tell them apart.
+import { HostError } from "./ipc";
+
 // Shared by the main process (models, TONE3000 files) and the browser build (models, Cache Storage).
 
 /** Downloads: 30 s for the response, then 60 s without a chunk. A healthy transfer never comes near either. */
 export const DOWNLOAD_TIMEOUTS: IdleAbortOptions = { connectMs: 30_000, idleMs: 60_000 };
+
+/**
+ * The error a failed transfer throws. A cancel is "cancelled". A HostError from the code that asked for the transfer (a
+ * 404, an expired sign-in, a 429) keeps its own message. Anything else (a stall, a socket error) becomes `message`.
+ */
+export function transferError(e: unknown, watch: IdleAbort, message: string): HostError {
+  if (watch.cancelled()) return new HostError("cancelled", "The download was cancelled.");
+  if (e instanceof HostError) return e;
+  return new HostError("network", message);
+}
 
 export interface IdleAbortOptions {
   /** Longest wait for the response headers */
