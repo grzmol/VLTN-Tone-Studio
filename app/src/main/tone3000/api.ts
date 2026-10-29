@@ -34,9 +34,6 @@ export function searchPath(p: ToneSearchParams, page: number): string {
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Redirects followed by hand before giving up. A model download needs at most a couple. */
-const MAX_REDIRECTS = 5;
-
 /** True for https URLs on tone3000.com or one of its subdomains. Only these hosts may receive the access token. */
 export function isT3kUrl(url: string): boolean {
   try {
@@ -45,6 +42,17 @@ export function isT3kUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Copy of `headers` without any Authorization header (any letter case) unless `url` is a TONE3000 URL.
+ * Electron's webRequest hook calls this for every hop of a request, so a redirect to another host drops the token.
+ */
+export function withoutForeignAuthorization(url: string, headers: Record<string, string>): Record<string, string> {
+  if (isT3kUrl(url)) return { ...headers };
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) if (name.toLowerCase() !== "authorization") out[name] = value;
+  return out;
 }
 
 function assertHttps(url: string): void {
@@ -108,26 +116,25 @@ export class T3kClient {
   ) {}
 
   /**
-   * Request an https URL. A TONE3000 URL gets the access token and, on 401, one refresh and retry.
-   * Any other host gets no token. Redirects are followed by hand so that a hop to another host
-   * never carries the token; a hop back to TONE3000 gets it again.
+   * Request an https URL. Only a TONE3000 URL gets the access token, and only a TONE3000 response
+   * gets the one refresh-and-retry on 401. The fetch follows redirects; the session strips the token
+   * from any hop to another host (see `withoutForeignAuthorization`). A response that ends on a
+   * non-https URL is refused.
    */
   async request(url: string, init: RequestInit = {}, forbidden?: HostError): Promise<Response> {
-    let current = url;
-    for (let hop = 0; ; hop++) {
-      assertHttps(current);
-      const token = isT3kUrl(current) ? await this.tokens.accessToken() : null;
-      let res = await this.send(current, init, token);
-      if (token && res.status === 401) res = await this.send(current, init, await this.tokens.forceRefresh());
-      const location = res.headers.get("location");
-      if (res.status >= 300 && res.status < 400 && location) {
-        if (hop >= MAX_REDIRECTS) throw new HostError("network", "TONE3000 sent too many redirects. Try again in a moment.");
-        current = new URL(location, current).toString();
-        continue;
-      }
-      if (!res.ok) throw await failure(res, forbidden);
-      return res;
+    assertHttps(url);
+    const token = isT3kUrl(url) ? await this.tokens.accessToken() : null;
+    let res = await this.send(url, init, token);
+    // res.url is the final URL after redirects; it is empty for a response built by hand.
+    const finalUrl = res.url || url;
+    if (res.url && new URL(res.url).protocol !== "https:") throw new HostError("invalid", "TONE3000 sent a download that isn't https.");
+    if (token && res.status === 401 && isT3kUrl(finalUrl)) res = await this.send(url, init, await this.tokens.forceRefresh());
+    if (!res.ok) {
+      if (!isT3kUrl(finalUrl) && (res.status === 401 || res.status === 403))
+        throw new HostError("network", "The download link from TONE3000 was refused. Try again in a moment.");
+      throw await failure(res, forbidden);
     }
+    return res;
   }
 
   /** Fetch a model file. Same rules as `request`: the token goes only to TONE3000 hosts. */
@@ -139,7 +146,7 @@ export class T3kClient {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
     if (token) headers.Authorization = `Bearer ${token}`;
     try {
-      return await this.fetchFn(url, { ...init, headers, redirect: "manual" });
+      return await this.fetchFn(url, { ...init, headers });
     } catch (e) {
       throw networkError(e);
     }

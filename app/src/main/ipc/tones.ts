@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, net, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, net, safeStorage, session, type Session } from "electron";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { HostError } from "@shared/ipc";
 import type { AccountState, FlowRequest, FlowResult, SendRequest, SlotLink, SnapToneSource, T3kModel, T3kTone, T3kUser, TonePage, ToneRecord, ToneSearchParams, TonesEvent, ToneListKind, UserIrSource, ViewBounds } from "@shared/host/tones";
 import { assertWav, NamCheckError, prepareNam } from "@shared/nam";
 import { handle } from "./handle";
-import { normalizeSearch, postToken, T3kClient } from "../tone3000/api";
+import { normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
 import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens";
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "../tone3000/records";
@@ -86,7 +86,21 @@ const tokenStore: TokenStore = {
   },
 };
 
-const fetchFn = (url: string, init?: RequestInit) => net.fetch(url, init);
+let apiSessionCache: Session | null = null;
+
+/**
+ * In-memory session for the TONE3000 API and model downloads. Its webRequest hook runs for every hop,
+ * so a redirect to another host goes without the Authorization header. Created on first use, after app ready.
+ */
+function apiSession(): Session {
+  if (!apiSessionCache) {
+    apiSessionCache = session.fromPartition("tone3000-api");
+    apiSessionCache.webRequest.onBeforeSendHeaders((details, cb) => cb({ requestHeaders: withoutForeignAuthorization(details.url, details.requestHeaders) }));
+  }
+  return apiSessionCache;
+}
+
+const fetchFn = (url: string, init?: RequestInit) => apiSession().fetch(url, init);
 
 const tokens = new TokenManager(tokenStore, async (refreshToken) => {
   const { clientId } = await config();
