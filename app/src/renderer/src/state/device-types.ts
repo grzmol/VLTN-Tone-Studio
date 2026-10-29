@@ -240,6 +240,11 @@ export interface WriteOptions {
   onProgress?: (fraction: number) => void;
 }
 
+/** A full write to a slot; `discardUnsaved` lets it replace a different slot's edits (the edits go with the write) */
+export interface WritePresetOptions extends WriteOptions {
+  discardUnsaved?: boolean;
+}
+
 export interface BackupEntry {
   slot: number;
   name: string;
@@ -367,7 +372,7 @@ export interface DeviceState {
   // memory writes (callers MUST confirm with the user first)
   saveToSlot(slot: number, name?: string): Promise<void>;
   rename(slot: number, name: string): Promise<void>;
-  writePreset(slot: number, prst: Uint8Array, opts?: WriteOptions): Promise<void>;
+  writePreset(slot: number, prst: Uint8Array, opts?: WritePresetOptions): Promise<void>;
   readPreset(slot: number): Promise<Uint8Array>;
   backupAll(opts?: WriteOptions): Promise<BackupEntry[]>;
   /** Reset `slots` to the empty preset (deletePreset feature), then re-read the names */

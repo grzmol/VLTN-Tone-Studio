@@ -631,7 +631,8 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (!p) throw new DeviceError("not-connected", "No preset loaded");
       const prst = name !== undefined && name !== p.name ? editPrst(p.prst, { name }) : p.prst;
       // A full write keeps everything (order, footswitches, tempo and EXP may have been edited without a live command).
-      await get().writePreset(slot, prst);
+      // Saving to another slot carries the unsaved edits along, so the store's guard is told to let it through.
+      await get().writePreset(slot, prst, { discardUnsaved: slot !== p.slot });
     },
 
     async rename(slot, name) {
@@ -653,6 +654,9 @@ export const useDevice = create<DeviceState>((set, get) => {
     async writePreset(slot, prst, opts) {
       const d = requireDriver();
       requireIdle();
+      // Writing over the active slot is the save path. Any other slot switches presets on the pedal, so it needs a
+      // decision about the unsaved edits first (the screens ask; this keeps a caller that forgets from dropping them).
+      if (slot !== get().slot && !opts?.discardUnsaved) guardUnsaved("Writing to another slot");
       const label = `Writing slot ${slot}`;
       set({ busy: { kind: "write", progress: 0, label } });
       try {
