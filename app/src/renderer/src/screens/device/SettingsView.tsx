@@ -61,7 +61,7 @@ export function SettingsView() {
           <PortPatternRow value={settings.portPattern} disabled={!loaded} onSave={(portPattern) => save({ portPattern })} />
           {/* Only Windows and macOS builds read anything from the Suite install (the SnapTone test signal). */}
           {isElectron && host.platform !== "linux" && (
-            <SuitePathRow value={settings.valetonSuitePath} disabled={!loaded} onSave={(valetonSuitePath) => save({ valetonSuitePath })} />
+            <SuitePathRow value={settings.suitePathPicked ? settings.valetonSuitePath : null} disabled={!loaded} />
           )}
           {/* The setting keeps its stored key (gp50Extras); EXPERIMENTAL_FEATURES lists what it unlocks per family. */}
           <Row
@@ -222,11 +222,13 @@ function PortPatternRow({ value, disabled, onSave }: { value: string | null; dis
   );
 }
 
-function SuitePathRow({ value, disabled, onSave }: { value: string | null; disabled: boolean; onSave: (v: string | null) => void }) {
+function SuitePathRow({ value, disabled }: { value: string | null; disabled: boolean }) {
+  const load = useAppSettings((s) => s.load);
   const pick = async () => {
     try {
+      // The main process stores the chosen path itself (device:pickSuitePath), so reload instead of saving it here.
       const path = await host.device.pickSuitePath();
-      if (path) onSave(path);
+      if (path) await load();
     } catch (e) {
       notifyError("Couldn't choose Valeton Suite", e);
     }
@@ -251,7 +253,7 @@ function SuitePathRow({ value, disabled, onSave }: { value: string | null; disab
           size="icon"
           aria-label="Open Valeton Suite"
           title="Open Valeton Suite"
-          onClick={() => void host.app.openPath(value).catch((e) => notifyError("Couldn't open Valeton Suite", e))}
+          onClick={() => void host.app.launchSuite().catch((e) => notifyError("Couldn't open Valeton Suite", e))}
         >
           <FolderOpen aria-hidden />
         </Button>

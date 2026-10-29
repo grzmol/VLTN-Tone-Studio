@@ -8,6 +8,7 @@ import { VALETON_VID, deviceForUsbPid, profileFor } from "@shared/devices";
 import { MIDI2_DRIVER_RE, type DeviceHostStatus, type LinuxSeqAccess, type UsbDeviceInfo, type UsbInterfaceInfo, type VendorAppsRunning } from "@shared/host/device";
 import { HostError } from "@shared/ipc";
 import { handle, showOpenDialog, showSaveDialog } from "./handle";
+import { chooseSuitePath } from "./app";
 
 const run = promisify(execFile);
 const EXEC = { timeout: 8000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 };
@@ -238,6 +239,9 @@ export function registerDeviceIpc(getWindow: () => BrowserWindow | null): void {
       defaultPath: process.platform === "darwin" ? "/Applications" : undefined,
     };
     const res = await showOpenDialog(getWindow(), opts);
-    return res.canceled ? null : (res.filePaths[0] ?? null);
+    if (res.canceled || !res.filePaths[0]) return null;
+    // The main process keeps the path (app:launchSuite only launches a path stored here).
+    await chooseSuitePath(res.filePaths[0]);
+    return res.filePaths[0];
   });
 }
