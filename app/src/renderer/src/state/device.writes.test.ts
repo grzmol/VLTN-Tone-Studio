@@ -107,3 +107,27 @@ describe("unsaved edits and other slots (mock gp5)", () => {
     expect(store().slot).toBe(slotB);
   });
 });
+
+describe("busy labels name slots the pedal's way (mock gp200)", () => {
+  beforeAll(async () => {
+    await store().connect("mock", { mockDevice: "gp200" });
+  }, 30_000);
+  afterAll(async () => {
+    await store().disconnect();
+  });
+
+  it("writes and restores label the slot with its pedal label, not its number", async () => {
+    const slot = 46;
+    const label = profileFor("gp200").slotLabel(slot);
+    expect(label).not.toBe(String(slot));
+    const seen: string[] = [];
+    const spy = vi.spyOn(getDriver()!, "writePreset").mockImplementation(async () => {
+      seen.push(store().busy!.label);
+    });
+    const prst = store().preset!.prst;
+    await store().writePreset(slot, prst);
+    await store().restoreAll([{ slot, name: "Restored", prst }]);
+    spy.mockRestore();
+    expect(seen).toEqual([`Writing slot ${label}`, `Restoring slot ${label} (1 of 1)`]);
+  });
+});
