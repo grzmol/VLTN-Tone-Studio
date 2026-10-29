@@ -235,7 +235,7 @@ async function downloadModel(getWindow: () => BrowserWindow | null, toneId: numb
   const path = join(tonesDir(), String(toneId), fileName);
   let bytes = (await stat(path).catch(() => null))?.size ?? 0;
   if (!bytes) {
-    const res = await client.request(model.model_url);
+    const res = await client.download(model.model_url);
     bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }));
   }
   const record = await writeRecord(tonesDir(), buildRecord(await readRecord(tonesDir(), toneId), tone, models, { model, file: fileName, bytes }, new Date()));

@@ -34,6 +34,29 @@ export function searchPath(p: ToneSearchParams, page: number): string {
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** Redirects followed by hand before giving up. A model download needs at most a couple. */
+const MAX_REDIRECTS = 5;
+
+/** True for https URLs on tone3000.com or one of its subdomains. Only these hosts may receive the access token. */
+export function isT3kUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && (hostname === "tone3000.com" || hostname.endsWith(".tone3000.com"));
+  } catch {
+    return false;
+  }
+}
+
+function assertHttps(url: string): void {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    throw new HostError("invalid", "TONE3000 sent a link that isn't a valid URL.");
+  }
+  if (protocol !== "https:") throw new HostError("invalid", "TONE3000 sent a link that isn't https.");
+}
+
 interface Paginated<T> {
   data: T[];
   page: number;
@@ -84,19 +107,42 @@ export class T3kClient {
     private fetchFn: FetchLike,
   ) {}
 
-  /** Authenticated request; on 401 refreshes once and retries. */
+  /**
+   * Request an https URL. A TONE3000 URL gets the access token and, on 401, one refresh and retry.
+   * Any other host gets no token. Redirects are followed by hand so that a hop to another host
+   * never carries the token; a hop back to TONE3000 gets it again.
+   */
   async request(url: string, init: RequestInit = {}, forbidden?: HostError): Promise<Response> {
-    const send = async (token: string) => {
-      try {
-        return await this.fetchFn(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${token}` } });
-      } catch (e) {
-        throw networkError(e);
+    let current = url;
+    for (let hop = 0; ; hop++) {
+      assertHttps(current);
+      const token = isT3kUrl(current) ? await this.tokens.accessToken() : null;
+      let res = await this.send(current, init, token);
+      if (token && res.status === 401) res = await this.send(current, init, await this.tokens.forceRefresh());
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        if (hop >= MAX_REDIRECTS) throw new HostError("network", "TONE3000 sent too many redirects. Try again in a moment.");
+        current = new URL(location, current).toString();
+        continue;
       }
-    };
-    let res = await send(await this.tokens.accessToken());
-    if (res.status === 401) res = await send(await this.tokens.forceRefresh());
-    if (!res.ok) throw await failure(res, forbidden);
-    return res;
+      if (!res.ok) throw await failure(res, forbidden);
+      return res;
+    }
+  }
+
+  /** Fetch a model file. Same rules as `request`: the token goes only to TONE3000 hosts. */
+  download(url: string): Promise<Response> {
+    return this.request(url);
+  }
+
+  private async send(url: string, init: RequestInit, token: string | null): Promise<Response> {
+    const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      return await this.fetchFn(url, { ...init, headers, redirect: "manual" });
+    } catch (e) {
+      throw networkError(e);
+    }
   }
 
   private async json<T>(path: string, forbidden?: HostError): Promise<T> {
