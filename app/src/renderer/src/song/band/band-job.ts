@@ -4,7 +4,7 @@
 
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
-import { generateBass } from "./bass";
+import { endBeforeNext, generateBass } from "./bass";
 import { generateDrums } from "./drums";
 import { beatLevelsDb, followFeel, type Feel } from "./feel";
 import type { ChordAtBeat } from "./harmony";
@@ -114,7 +114,7 @@ function generate(request: BandRequest): Generated {
   const drums = generateDrums(grid, plans, settings, seed, feel);
   const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel) : [];
   const drumNotes = humanise(drums, "drums", grid, plans, settings.humanise, seed);
-  const bassNotes = humanise(bass, "bass", grid, plans, settings.humanise, seed);
+  const bassNotes = endBeforeNext(humanise(bass, "bass", grid, plans, settings.humanise, seed));
   return { notes: { drums: request.parts.drums ? drumNotes : [], bass: bassNotes }, follow };
 }
 

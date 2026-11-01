@@ -645,7 +645,27 @@ export function generateBass(
       note: { time: entry.time, pitch: entry.pitch + (shifts.get(entry.slot.plan) ?? 0), velocity: entry.velocity, duration: entry.duration } as NoteEvent,
     }))
     .sort((a, b) => a.note.time - b.note.time || a.note.pitch - b.note.pitch);
-  return addTechniques(sorted, grid.beats, seed);
+  return endBeforeNext(addTechniques(sorted, grid.beats, seed));
+}
+
+/** A bass note ends at least this long before the next bass note starts, so two bass notes never sound together in a MIDI file. */
+export const BASS_GAP = 0.01;
+/** The shortest a note is held to, when the notes given are closer together than the gap allows. */
+const CLAMP_FLOOR = 0.005;
+
+/**
+ * The notes with each one ended before the next starts: a note longer than the room before the next note is cut to fit, and keeps at
+ * least a few milliseconds. Applied after the humanising too, which moves the starts, so no overlap reaches the renderer or the export.
+ */
+export function endBeforeNext(notes: readonly NoteEvent[]): NoteEvent[] {
+  const sorted = [...notes].sort((a, b) => a.time - b.time || a.pitch - b.pitch);
+  return sorted.map((note, i) => {
+    const next = sorted[i + 1];
+    if (!next) return note;
+    const room = next.time - BASS_GAP - note.time;
+    if (note.duration <= room) return note;
+    return { ...note, duration: Math.max(CLAMP_FLOOR, room) };
+  });
 }
 
 /**

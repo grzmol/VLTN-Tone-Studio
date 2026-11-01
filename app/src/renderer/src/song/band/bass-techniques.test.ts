@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings, type SectionOverride } from "./arrangement";
 import type { BeatGrid } from "./beat-grid";
-import { generateBass } from "./bass";
+import { BASS_GAP, generateBass } from "./bass";
 import { chooseVariation } from "./bass-phrases";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import type { NoteEvent } from "./note";
 import { createRandom } from "./random";
 import type { Section } from "../performance/sections";
 import { findStyle } from "./styles";
+import { encodeSmf, parseSmf } from "../performance/smf";
+import { fixedBeatGrid } from "./beat-grid";
 
 const gridOf = (bars: number): BeatGrid => ({
   beatsPerBar: 4,
@@ -127,4 +129,41 @@ describe("pickups off", () => {
       expect(kinds.size).toBeGreaterThan(1);
     }
   });
+});
+
+describe("bass notes end before the next one", () => {
+  /** No two bass notes overlap: each ends at least the gap before the next one starts (a small tolerance for float rounding). */
+  const overlaps = (notes: readonly NoteEvent[]): number => {
+    const sorted = [...notes].sort((a, b) => a.time - b.time);
+    return sorted.filter((note, i) => i + 1 < sorted.length && note.time + note.duration > sorted[i + 1].time - BASS_GAP + 1e-9).length;
+  };
+
+  it("cuts a held note, including a hit-the-one note, before the next bass note", () => {
+    const notes = songOf(41, "Chorus", { hitTheOne: true, fills: 0, bassPart: "ring", busy: 2 });
+    expect(overlaps(notes)).toBe(0);
+    const longest = notes.reduce((max, note) => Math.max(max, note.duration), 0);
+    expect(longest).toBeGreaterThan(1);
+  });
+
+  it("gives no overlap for any part, with slides, dead notes and fills on", () => {
+    for (const part of ["ring", "pulse", "groove", "melodic", "walking", "pedal"] as const) {
+      expect(overlaps(songOf(41, "Verse", { bassPart: part, busy: 4, fills: 3, slides: true, deadNotes: true, loud: 5 })), part).toBe(0);
+    }
+  });
+});
+
+it("keeps the MIDI file free of overlapping bass notes", () => {
+  const notes = songOf(41, "Chorus", { hitTheOne: true, fills: 3, bassPart: "ring", busy: 3, loud: 5 });
+  const grid = fixedBeatGrid(120, 0, 4, 42);
+  const messages = parseSmf(encodeSmf([{ name: "Bass", channel: 0, notes }], grid));
+  // Track how many bass notes sound at once from the note-on and note-off messages, in file order (an off sorts before an on at a tick).
+  let sounding = 0;
+  let most = 0;
+  for (const message of messages) {
+    const status = message.bytes[0] & 0xf0;
+    if (status === 0x90 && message.bytes[2] > 0) sounding += 1;
+    else if (status === 0x80 || status === 0x90) sounding -= 1;
+    most = Math.max(most, sounding);
+  }
+  expect(most).toBe(1);
 });

@@ -186,8 +186,9 @@ describe("lead-ins and hit the one", () => {
   });
 
   it("holds the first note of a chorus to the bar end, and hits it harder", () => {
-    const hit = generate(sections, names, { c: { hitTheOne: true } });
-    const plain = generate(sections, names, { c: { hitTheOne: false } });
+    // A chorus of one note a bar, so nothing else sounds before the bar end and the held note is not cut by the next one.
+    const hit = generate(sections, names, { c: { hitTheOne: true, bassPart: "ring", busy: 2 } });
+    const plain = generate(sections, names, { c: { hitTheOne: false, bassPart: "ring", busy: 2 } });
     const first = hit.find((note) => Math.abs(note.time - 8) < 1e-9)!;
     const same = plain.find((note) => Math.abs(note.time - 8) < 1e-9)!;
     expect(first.duration).toBeCloseTo(1.97, 2);

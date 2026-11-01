@@ -228,3 +228,12 @@ describe("runBandJob levels", () => {
     expect(preview.bass?.channels[0]).toHaveLength(8 * RATE);
   });
 });
+
+describe("runBandJob bass ends", () => {
+  it("keeps every bass note ended before the next, after humanising moves the starts", () => {
+    const result = runBandJob(request({ settings: { ...DEFAULT_BAND_SETTINGS, humanise: { amount: 1, feel: "laid-back" } } }), stubSamples());
+    const sorted = [...result.notes.bass].sort((a, b) => a.time - b.time);
+    expect(sorted.length).toBeGreaterThan(1);
+    for (let i = 0; i + 1 < sorted.length; i++) expect(sorted[i].time + sorted[i].duration).toBeLessThanOrEqual(sorted[i + 1].time - 0.01 + 1e-9);
+  });
+});
