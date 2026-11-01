@@ -21,6 +21,8 @@ export const DRUM_KITS = ["standard"] as const;
 export const BASS_SOUNDS = ["finger", "pick"] as const;
 export const BASS_RANGES = ["low", "normal", "high"] as const;
 export const BASS_MODES = ["roots", "fifths", "octaves", "melodic", "walking"] as const;
+/** Where the generated bass's notes come from: the bass the song's own bassist played (when the song has a bass stem), or the chords. */
+export const BASS_FROM = ["original", "chords"] as const;
 /** Where follow-my-playing reads its accents: a stem the band plays, or the song's mix. "auto" takes the first stem that exists. */
 export const FOLLOW_SOURCES = ["auto", "guitar", "piano", "other", "mix"] as const;
 /** The choices of the humanise feel: "style" is the style's own default, the rest are fixed feels. */
@@ -30,6 +32,7 @@ export type DrumKit = (typeof DRUM_KITS)[number];
 export type BassSound = (typeof BASS_SOUNDS)[number];
 export type BassRange = (typeof BASS_RANGES)[number];
 export type BassMode = (typeof BASS_MODES)[number];
+export type BassFrom = (typeof BASS_FROM)[number];
 export type FollowSource = (typeof FOLLOW_SOURCES)[number];
 export type HumaniseChoice = (typeof HUMANISE_CHOICES)[number];
 
@@ -160,6 +163,8 @@ export interface BandSettings {
   bassSound: BassSound;
   bassRange: BassRange;
   bassMode: BassMode;
+  /** The notes the generated bass plays under each chord: the song's original bass where it has one, or the chords' own bass (spec 86). */
+  bassFrom: BassFrom;
   /** The bass part a section plays when it is on Auto and Auto has no rule of its own. A song saved before this existed takes it from bassMode. */
   defaultBassPart: BassPart;
   lockToKick: boolean;
@@ -193,6 +198,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
+  bassFrom: "original",
   defaultBassPart: "pulse",
   bassFeel: 0.5,
   lockToKick: true,
@@ -324,6 +330,7 @@ const isDrumKit = isOneOf(DRUM_KITS);
 const isBassSound = isOneOf(BASS_SOUNDS);
 const isBassRange = isOneOf(BASS_RANGES);
 const isBassMode = isOneOf(BASS_MODES);
+const isBassFrom = isOneOf(BASS_FROM);
 const isFollowSource = isOneOf(FOLLOW_SOURCES);
 const isHumaniseChoice = isOneOf(HUMANISE_CHOICES);
 const isHumanise = (value: unknown): value is HumaniseSettings => isRecord(value) && isUnit(value.amount) && isHumaniseChoice(value.feel);
@@ -449,6 +456,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBassSound(value.bassSound) &&
     isBassRange(value.bassRange) &&
     isBassMode(value.bassMode) &&
+    isBassFrom(value.bassFrom) &&
     DEFAULT_BASS_PARTS.includes(value.defaultBassPart as BassPart) &&
     isBool(value.lockToKick) &&
     isBool(value.followPlaying) &&
@@ -521,6 +529,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,
     bassMode: isBassMode(source.bassMode) ? source.bassMode : defaults.bassMode,
+    bassFrom: isBassFrom(source.bassFrom) ? source.bassFrom : defaults.bassFrom,
     defaultBassPart: DEFAULT_BASS_PARTS.includes(source.defaultBassPart as BassPart)
       ? (source.defaultBassPart as BassPart)
       : isBassMode(source.bassMode)

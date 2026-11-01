@@ -29,8 +29,9 @@ import { encodeSmf } from "@/song/performance/smf";
 import { startBeatGrid, type BeatGridJob } from "@/song/band/beat-grid-client";
 import { fixedBeatGrid, type BeatGrid } from "@/song/band/beat-grid";
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
-import { harmonyForSong, type ChordAtBeat } from "@/song/band/harmony";
-import { bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
+import type { ChordAtBeat } from "@/song/band/harmony";
+import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
+import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyBassTone } from "@/song/band/bass-tone";
 import { renderBassChain } from "@/song/band/bass-chain";
 import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
@@ -80,6 +81,8 @@ export interface BandPanelProps {
   partChoices: PartChoices;
   /** Changes some parts' choice and updates the mix to match. Works while playing, since it only changes mute levels. */
   onPartChoice(patch: Partial<PartChoices>): void;
+  /** The bass note the song's bass stem plays on each beat, from the song analysis. Null when the song has no bass stem or it is not read yet. */
+  bassLine?: readonly BassLineBeat[] | null;
 }
 
 const PREVIEW_BARS = 4;
@@ -195,6 +198,7 @@ function BandBody({
   getPosition,
   partChoices,
   onPartChoice,
+  bassLine = null,
 }: BandPanelProps) {
   // On by default when the tempo was set by hand: the beat is then found near it, not from the tracker's own pick.
   const [useMyTempo, setUseMyTempo] = useState(true);
@@ -234,7 +238,10 @@ function BandBody({
   const cues = useMemo<Cue[]>(() => parseChart(chart), [chart]);
   const songEnd = source ? source.audio.channels[0].length / source.audio.sampleRate : 0;
   const plans = useMemo(() => planSections(sections, songEnd, settings), [sections, songEnd, settings]);
-  const harmony = useMemo<ChordAtBeat[]>(() => (grid ? harmonyForSong(grid, cues, chords, songEnd) : []), [grid, cues, chords, songEnd]);
+  const harmony = useMemo<ChordAtBeat[]>(
+    () => (grid ? bandHarmony({ grid, cues, chords, songEnd, settings, bassLine }) : []),
+    [grid, cues, chords, songEnd, settings, bassLine],
+  );
   const busy = work !== null;
   // With no song there is nothing to find a beat in or to render, so every action waits for one.
   const blocked = busy || playing || source === null;
@@ -363,6 +370,7 @@ function BandBody({
         follow: followFor(using, useSong.getState().stems, current.audio),
         mix: current.audio,
         originals: levelStems(useSong.getState().stems),
+        bassLine,
       };
       let request = bandRequest(input);
       const notes: string[] = [];
@@ -517,6 +525,7 @@ function BandBody({
         follow: followFor(settings, useSong.getState().stems, current.audio),
         mix: current.audio,
         originals: levelStems(useSong.getState().stems),
+        bassLine,
       });
       const rendering: BandJob = renderPreview(request, from, PREVIEW_BARS);
       job.current = rendering;

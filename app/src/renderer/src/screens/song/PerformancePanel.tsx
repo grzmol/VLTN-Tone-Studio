@@ -20,6 +20,7 @@ import { readTempoSource, type TempoSource } from "@/song/performance/tempo-sour
 import { useSongAnalysis } from "./use-song-analysis";
 import { generatedTrackKeysIn, parseAnalysis, songAudioId } from "@/song/analysis/song-analysis";
 import type { DetectedSection } from "@/song/analysis/sections";
+import type { BassLineBeat } from "@/song/analysis/bass-line";
 import type { SilenceEnds } from "@/song/analysis/silence";
 import { SongShapeControls } from "./SongShapeControls";
 import { useSongLibrary } from "@/song/library";
@@ -142,6 +143,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const [sectionList, setSectionList] = useState<Section[]>(() => parseSections(options.sections));
   // The sections the song analysis suggested most recently. They are applied only to a song with no sections; otherwise the editor offers them.
   const [suggested, setSuggested] = useState<DetectedSection[]>(() => parseAnalysis(readOptions<Record<string, unknown>>(key, {}).analysis)?.sections ?? []);
+  // The bass note the bass stem plays on each beat. The Band panel takes its bass notes from it when the setting says Original bass.
+  const [bassLine, setBassLine] = useState<BassLineBeat[] | null>(null);
   const [selectedChord, setSelectedChord] = useState<string | null>(null);
   const [lyrics, setLyrics] = useState("");
   const [chart, setChart] = useState(() => getSetting(key, ""));
@@ -438,6 +441,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setBeatsManual(options.beatsSource === "manual");
     setSectionList(parseSections(options.sections));
     setSuggested(saved?.sections ?? []);
+    setBassLine(saved?.bassLine ?? null);
     setLoudness(loudnessFromOptions(getSetting(key, ":options")));
     setSilence(saved?.silence ? { songKey: key, ends: saved.silence } : null);
   }, [analysis.revision, key]);
@@ -636,6 +640,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           getPosition={() => session.position}
           partChoices={partChoice}
           onPartChoice={choosePart}
+          bassLine={bassLine}
         />
         <SectionEditor
           sections={sectionList}

@@ -5,6 +5,8 @@
 import type { Cue } from "../performance/chart";
 import type { Chord } from "../performance/chords";
 import { chordPattern } from "../performance/reader";
+import type { BassLineBeat } from "../analysis/bass-line";
+import { BASS_LINE_CONFIDENT } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
 
 /** A chord on a chart line that has no following timed line lasts this many seconds, per chord on the line. */
@@ -167,6 +169,33 @@ export function mergeShortChords(perBeat: readonly ChordAtBeat[]): ChordAtBeat[]
   });
 }
 
+/** The notes of a chord that a bass can play under it: the root, the third, the fifth and the seventh (where it has one). */
+export function chordTones(chord: ParsedChord): number[] {
+  const third = { major: 4, minor: 3, dim: 3, aug: 4, sus2: 2, sus4: 5, power: null }[chord.quality];
+  const fifth = chord.quality === "dim" ? 6 : chord.quality === "aug" ? 8 : 7;
+  const seventh = { none: null, dom7: 10, min7: 10, maj7: 11, dim7: 9, "half-dim": 10 }[chord.seventh];
+  const intervals = [0, third, fifth, seventh];
+  return intervals.filter((interval): interval is number => interval !== null && interval !== undefined).map((interval) => (chord.root + interval) % 12);
+}
+
+/**
+ * Puts the bass note the bassist played into the harmony (spec 86). On each beat whose bass reading is confident, the chord's bass becomes
+ * the played pitch class; its root and quality stay. When the played note is not in the beat's chord but is the root of the next beat's
+ * chord, the detected change came late, so that beat takes the next chord.
+ */
+export function withOriginalBass(perBeat: readonly ChordAtBeat[], bassLine: readonly BassLineBeat[]): ChordAtBeat[] {
+  return perBeat.map((entry, beat) => {
+    const reading = bassLine[beat];
+    if (!entry.chord || !reading || reading.pc === null || reading.confidence < BASS_LINE_CONFIDENT) return entry;
+    const played = reading.pc;
+    const next = perBeat[beat + 1]?.chord ?? null;
+    if (next && next.root === played && !chordTones(entry.chord).includes(played)) {
+      return { ...entry, chord: { ...next, bass: played } };
+    }
+    return { ...entry, chord: { ...entry.chord, bass: played } };
+  });
+}
+
 /**
  * The times of the beats where the chord changes, for `pickDownbeat`. A chord starting after a rest counts as a change. The first beat
  * never does, since there is nothing before it to change from.
@@ -181,10 +210,18 @@ export function chordChangeTimes(perBeat: readonly ChordAtBeat[]): number[] {
 
 /**
  * The chord on each beat of the song. The chart's chords are used when it has any timed chord, including `N`. Otherwise the detected
- * chords are used, ignoring their confidence. The result is snapped to the beats and short blips are merged.
+ * chords are used, ignoring their confidence. The result is snapped to the beats and short blips are merged. With `bassLine` (the
+ * original bass, when the setting asks for it), the played bass notes replace the chords' bass (see withOriginalBass).
  */
-export function harmonyForSong(grid: BeatGrid, cues: readonly Cue[], detected: readonly Chord[], songEnd: number): ChordAtBeat[] {
+export function harmonyForSong(
+  grid: BeatGrid,
+  cues: readonly Cue[],
+  detected: readonly Chord[],
+  songEnd: number,
+  bassLine: readonly BassLineBeat[] | null = null,
+): ChordAtBeat[] {
   const fromChart = chartChordEvents(cues);
   const events = fromChart.length ? fromChart : detected.map(({ time, name }) => ({ time, name }));
-  return mergeShortChords(chordsPerBeat(grid, events, songEnd));
+  const perBeat = mergeShortChords(chordsPerBeat(grid, events, songEnd));
+  return bassLine ? withOriginalBass(perBeat, bassLine) : perBeat;
 }

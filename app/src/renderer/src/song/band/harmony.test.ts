@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { Cue } from "../performance/chart";
 import type { Chord } from "../performance/chords";
-import { chartChordEvents, chordChangeTimes, chordsPerBeat, harmonyForSong, mergeShortChords, parseChordName, type ChordAtBeat } from "./harmony";
+import {
+  chartChordEvents,
+  chordChangeTimes,
+  chordsPerBeat,
+  chordTones,
+  harmonyForSong,
+  mergeShortChords,
+  parseChordName,
+  withOriginalBass,
+  type ChordAtBeat,
+} from "./harmony";
+import type { BassLineBeat } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
 
 /** A grid of `count` beats, `interval` seconds apart, starting at zero. */
@@ -173,6 +184,59 @@ describe("mergeShortChords", () => {
   });
 });
 
+/** A bass reading per beat: the pitch class each beat's bass note has (null for none), at one confidence. */
+function readingOf(pcs: (number | null)[], confidence = 1): BassLineBeat[] {
+  return pcs.map((pc, beat) => ({ beat, pc, confidence: pc === null ? 0 : confidence }));
+}
+
+describe("chordTones", () => {
+  it("gives the root, third, fifth and seventh of a chord", () => {
+    expect(chordTones(parseChordName("Bm")!)).toEqual([11, 2, 6]);
+    expect(chordTones(parseChordName("G7")!)).toEqual([7, 11, 2, 5]);
+    expect(chordTones(parseChordName("Dm7b5")!)).toEqual([2, 5, 8, 0]);
+  });
+
+  it("gives the root and fifth of a power chord, with no third", () => {
+    expect(chordTones(parseChordName("E5")!)).toEqual([4, 11]);
+  });
+});
+
+describe("withOriginalBass", () => {
+  it("puts the played note under the chord, and keeps the chord's root and quality", () => {
+    const perBeat = beatsNamed(["Bm", "Bm", "Bm", "Bm"]);
+    const out = withOriginalBass(perBeat, readingOf([4, 4, 4, 4]));
+    expect(out.map((entry) => entry.chord?.bass)).toEqual([4, 4, 4, 4]);
+    expect(out.map((entry) => entry.chord?.name)).toEqual(["Bm", "Bm", "Bm", "Bm"]);
+    expect(out[0].chord).toMatchObject({ root: 11, quality: "minor" });
+  });
+
+  it("uses the next chord for a beat whose played note is that chord's root, when the detected chord is late", () => {
+    // The detected change to E comes a beat late: the bass plays E on the beat before it.
+    const out = withOriginalBass(beatsNamed(["F#m", "F#m", "E", "E"]), readingOf([6, 4, 4, 4]));
+    expect(out.map((entry) => entry.chord?.name)).toEqual(["F#m", "E", "E", "E"]);
+    expect(out[1].chord).toMatchObject({ root: 4, bass: 4 });
+  });
+
+  it("keeps the chord when the played note is one of its own notes", () => {
+    const out = withOriginalBass(beatsNamed(["Am", "Am"]), readingOf([4, 9]));
+    expect(out.map((entry) => entry.chord?.name)).toEqual(["Am", "Am"]);
+    expect(out.map((entry) => entry.chord?.bass)).toEqual([4, 9]);
+  });
+
+  it("keeps the chord's own bass where the reading is not confident, or is missing", () => {
+    const perBeat = beatsNamed(["D/F#", "D/F#", "D/F#"]);
+    const unsure = withOriginalBass(perBeat, [
+      { beat: 0, pc: 4, confidence: 0.5 },
+      { beat: 1, pc: null, confidence: 0 },
+    ]);
+    expect(unsure.map((entry) => entry.chord?.bass)).toEqual([6, 6, 6]);
+  });
+
+  it("leaves rests as rests", () => {
+    expect(withOriginalBass(beatsNamed([null, "C"]), readingOf([4, 0]))[0].chord).toBeNull();
+  });
+});
+
 describe("harmonyForSong", () => {
   const detected: Chord[] = [
     { time: 0, name: "G", confidence: 0.9 },
@@ -193,6 +257,12 @@ describe("harmonyForSong", () => {
     const perBeat = harmonyForSong(grid(4), [line(0, "[N] instrumental"), line(1, "[D] line")], [], 2);
     expect(perBeat[0].chord).toBeNull();
     expect(perBeat[2].chord?.name).toBe("D");
+  });
+
+  it("puts the original bass under the chords when given the bass line, and leaves the chords as they are without it", () => {
+    const cues = [line(0, "[Am] verse")];
+    expect(harmonyForSong(grid(4), cues, [], 2, readingOf([4, 4, 4, 4])).map((entry) => entry.chord?.bass)).toEqual([4, 4, 4, 4]);
+    expect(harmonyForSong(grid(4), cues, [], 2, null).map((entry) => entry.chord?.bass)).toEqual([9, 9, 9, 9]);
   });
 });
 

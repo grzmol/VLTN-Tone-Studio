@@ -51,3 +51,15 @@ describe("Band sliders", () => {
     expect(track?.className).not.toContain("bg-white/15");
   });
 });
+
+describe("Bass notes from", () => {
+  it("shows the original bass, the default, as the choice", () => {
+    const { container } = renderWith(DEFAULT_BAND_SETTINGS);
+    expect(container.querySelector('[aria-label="Bass notes from"]')?.textContent).toContain("Original bass");
+  });
+
+  it("shows chords when the song takes its bass from the chords", () => {
+    const { container } = renderWith({ ...DEFAULT_BAND_SETTINGS, bassFrom: "chords" });
+    expect(container.querySelector('[aria-label="Bass notes from"]')?.textContent).toContain("Chords");
+  });
+});

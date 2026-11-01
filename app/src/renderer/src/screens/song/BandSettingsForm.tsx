@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
+import { BASS_FROM, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type BassFrom, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
 import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
 import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
 import { BassTonePicker } from "./BassTonePicker";
@@ -12,6 +12,7 @@ import { BASS_PART_LABELS } from "./band-labels";
  */
 const BAND_TRACK = "bg-white/15";
 const BASS_RANGE_LABELS: Record<(typeof BASS_RANGES)[number], string> = { low: "Low", normal: "Normal", high: "High" };
+const BASS_FROM_LABELS: Record<BassFrom, string> = { original: "Original bass", chords: "Chords" };
 const FOLLOW_LABELS: Record<FollowSource, string> = { auto: "Auto", guitar: "Guitar", piano: "Piano", other: "Other", mix: "Mix" };
 const HUMANISE_LABELS: Record<HumaniseChoice, string> = {
   style: "Style default",
@@ -152,6 +153,26 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle }:
           </Select>
         </label>
         <p className="text-xs text-silkscreen-3">Used where a section is on Auto and has no rule of its own.</p>
+      </div>
+      <div className="flex flex-col gap-1 sm:col-span-2">
+        <label className="flex items-center gap-3">
+          Bass notes from
+          <Select value={settings.bassFrom} onValueChange={(value) => onChange({ bassFrom: value as BassFrom })}>
+            <SelectTrigger aria-label="Bass notes from" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BASS_FROM.map((from) => (
+                <SelectItem key={from} value={from}>
+                  {BASS_FROM_LABELS[from]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <p className="text-xs text-silkscreen-3">
+          Original bass plays the notes the song&apos;s bass stem plays, where it has them. Chords plays each chord&apos;s bass.
+        </p>
       </div>
       <label className="flex items-center gap-3">
         Feel

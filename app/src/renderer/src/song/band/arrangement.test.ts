@@ -135,6 +135,15 @@ describe("planSections", () => {
   });
 });
 
+describe("bass notes from", () => {
+  it("takes the original bass by default, and keeps a valid choice", () => {
+    expect(DEFAULT_BAND_SETTINGS.bassFrom).toBe("original");
+    expect(parseBandSettings({ bassFrom: "chords" }).bassFrom).toBe("chords");
+    expect(parseBandSettings({ bassFrom: "piano" }).bassFrom).toBe("original");
+    expect(parseBandSettings({}).bassFrom).toBe("original");
+  });
+});
+
 describe("isBandSettings and parseBandSettings", () => {
   it("accepts the defaults", () => {
     expect(isBandSettings(DEFAULT_BAND_SETTINGS)).toBe(true);

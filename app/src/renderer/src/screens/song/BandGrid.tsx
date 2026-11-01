@@ -1,5 +1,6 @@
 import type { BeatGrid } from "@/song/band/beat-grid";
 import type { ChordAtBeat } from "@/song/band/harmony";
+import { NOTE_NAMES } from "@/song/analysis/chord-templates";
 
 /** The beats of the song, grouped into bars from each downbeat. A bar before the first downbeat is shown as a short bar. */
 function barsOf(grid: BeatGrid): number[][] {
@@ -24,6 +25,11 @@ export function BandGrid({ grid, harmony }: { grid: BeatGrid; harmony: readonly 
     const before = beat > 0 ? (harmony[beat - 1]?.chord?.name ?? null) : null;
     return chord !== null && chord !== before ? chord : null;
   };
+  // The bass note under a chord change, shown only when it is not the chord's root (a slash chord or a note from the original bass).
+  const bassAt = (beat: number) => {
+    const chord = harmony[beat]?.chord ?? null;
+    return changeAt(beat) !== null && chord && chord.bass !== chord.root ? NOTE_NAMES[chord.bass] : null;
+  };
   return (
     <div role="list" aria-label="Beat grid" className="flex min-w-0 gap-2 overflow-x-auto pb-2 text-xs">
       {bars.map((bar, index) => (
@@ -44,6 +50,16 @@ export function BandGrid({ grid, harmony }: { grid: BeatGrid; harmony: readonly 
                   className={`w-1.5 rounded-sm ${down ? "h-8 bg-led-on" : "h-4 bg-seam"}`}
                 />
               );
+            })}
+          </div>
+          <div className="flex h-4 items-start gap-1 whitespace-nowrap text-silkscreen-3">
+            {bar.map((beat) => {
+              const bass = bassAt(beat);
+              return bass ? (
+                <span key={beat} title="Bass note played under this chord">
+                  {bass}
+                </span>
+              ) : null;
             })}
           </div>
         </div>

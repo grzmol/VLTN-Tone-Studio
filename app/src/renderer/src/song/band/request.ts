@@ -7,9 +7,10 @@ import type { Section } from "../performance/sections";
 import type { PcmAudio, Stems } from "../types";
 import { planSections, type BandSettings } from "./arrangement";
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
+import type { BassLineBeat } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
-import { chartChordEvents, harmonyForSong } from "./harmony";
+import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
 
 /**
  * The audio the beat tracker reads. The drums stem when there is one. Otherwise the pitched stems (everything but drums and vocals,
@@ -54,6 +55,8 @@ export interface BandInputs {
   sampleUrls: Record<string, string>;
   /** The follow-my-playing audio, from followFor. Absent when the setting is off. */
   follow?: BandFollow;
+  /** The bass note the song's bass stem plays on each beat (analysis/bass-line.ts), when the song has a bass stem and it was read. */
+  bassLine?: readonly BassLineBeat[] | null;
   /** The song's source mix. The beat levels read it, and the generated parts are levelled to its loudness (level.ts). */
   mix?: PcmAudio;
   /** The split's original drums and bass, from levelStems. Absent when the song has no split. */
@@ -83,9 +86,18 @@ export function followFor(settings: BandSettings, stems: Stems | null, mix: PcmA
   return { source, audio: (source !== "mix" ? stems?.[source] : undefined) ?? mix };
 }
 
+/**
+ * The harmony the bass is written from: the chord on each beat, with the bass note the song's bassist played where the settings take the
+ * original bass and the song has a reading for it (spec 86). The Band panel shows this same harmony, so the strip matches the bass.
+ */
+export function bandHarmony(input: Pick<BandInputs, "grid" | "cues" | "chords" | "songEnd" | "settings" | "bassLine">): ChordAtBeat[] {
+  const original = input.settings.bassFrom === "original" ? (input.bassLine ?? null) : null;
+  return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original);
+}
+
 /** The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. */
 export function bandRequest(input: BandInputs): BandRequest {
-  const harmony = harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd);
+  const harmony = bandHarmony(input);
   const request: BandRequest = {
     grid: input.grid,
     harmony,

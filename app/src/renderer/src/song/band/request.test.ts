@@ -5,7 +5,7 @@ import type { PcmAudio } from "../types";
 import { DEFAULT_BAND_SETTINGS } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandRequest, beatSources, levelStems, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandRequest, beatSources, levelStems, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -23,6 +23,38 @@ describe("beatSources", () => {
   it("otherwise reads the song's mix", () => {
     expect(beatSources(null, mix)).toEqual([mix]);
     expect(beatSources({ vocals: audio([0.4]) }, mix)).toEqual([mix]);
+  });
+});
+
+describe("bandHarmony", () => {
+  const grid = fixedBeatGrid(120, 0, 4, 8);
+  const cues: Cue[] = [{ time: 0, text: "[Am] [G]", messages: [] }];
+  const bassLine = Array.from({ length: grid.beats.length }, (_, beat) => ({ beat, pc: 4, confidence: 1 }));
+
+  it("takes the original bass where the settings say so", () => {
+    const harmony = bandHarmony({ grid, cues, chords: [], songEnd: 8, settings: DEFAULT_BAND_SETTINGS, bassLine });
+    expect(harmony[0].chord).toMatchObject({ name: "Am", bass: 4 });
+  });
+
+  it("keeps the chords' own bass when the settings say chords, even with a bass line", () => {
+    const settings = { ...DEFAULT_BAND_SETTINGS, bassFrom: "chords" as const };
+    const harmony = bandHarmony({ grid, cues, chords: [], songEnd: 8, settings, bassLine });
+    expect(harmony[0].chord).toMatchObject({ name: "Am", bass: 9 });
+  });
+
+  it("is the same as the request's harmony", () => {
+    const request = bandRequest({
+      grid,
+      cues,
+      chords: [],
+      sections: [],
+      settings: DEFAULT_BAND_SETTINGS,
+      songEnd: 8,
+      lengthFrames: 8 * 44100,
+      sampleUrls: {},
+      bassLine,
+    });
+    expect(request.harmony).toEqual(bandHarmony({ grid, cues, chords: [], songEnd: 8, settings: DEFAULT_BAND_SETTINGS, bassLine }));
   });
 });
 

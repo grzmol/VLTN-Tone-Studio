@@ -1,0 +1,32 @@
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import type { BeatGrid } from "@/song/band/beat-grid";
+import { parseChordName, type ChordAtBeat } from "@/song/band/harmony";
+import { BandGrid } from "./BandGrid";
+
+afterEach(cleanup);
+
+const grid: BeatGrid = { beatsPerBar: 4, beats: [0, 0.5, 1, 1.5], downbeat: 0, bpm: 120, steady: null };
+
+/** Beat entries for chord names, with the bass note given when it is not the chord's root. */
+function harmonyOf(entries: [string, number?][]): ChordAtBeat[] {
+  return entries.map(([name, bass], beat) => {
+    const chord = parseChordName(name)!;
+    return { beat, time: grid.beats[beat], chord: bass === undefined ? chord : { ...chord, bass } };
+  });
+}
+
+describe("BandGrid bass labels", () => {
+  it("shows the bass note under a chord change where it differs from the chord's root", () => {
+    // Bm on beat 0 with the bassist on E (4): E is shown under the chord. Beat 1 stays Bm and gets no new label.
+    const { container } = render(<BandGrid grid={grid} harmony={harmonyOf([["Bm", 4], ["Bm", 4], ["G"], ["G"]])} />);
+    const labels = [...container.querySelectorAll('[title="Bass note played under this chord"]')].map((node) => node.textContent);
+    expect(labels).toEqual(["E"]);
+    expect(container.textContent).toContain("Bm");
+  });
+
+  it("shows no bass label where the bass is the chord's root", () => {
+    const { container } = render(<BandGrid grid={grid} harmony={harmonyOf([["G"], ["G"], ["Am"], ["Am"]])} />);
+    expect(container.querySelector('[title="Bass note played under this chord"]')).toBeNull();
+  });
+});
