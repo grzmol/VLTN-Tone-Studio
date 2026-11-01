@@ -12,6 +12,13 @@ import type { PcmAudio } from "../types";
 const RATE = 44100;
 const SONG_SECONDS = 16;
 
+/** Whether two channels hold exactly the same samples. Plain loop: a deep toEqual on a whole song's samples is slow enough to time out on CI. */
+function sameSamples(a: Float32Array | undefined, b: Float32Array | undefined): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 const constant = (value: number, length: number): PcmAudio => ({
   sampleRate: RATE,
   channels: [new Float32Array(length).fill(value), new Float32Array(length).fill(value)],
@@ -68,8 +75,8 @@ describe("runBandJob", () => {
   it("gives the same audio for the same seed, and different notes for another seed", () => {
     const first = runBandJob(request(), stubSamples());
     const again = runBandJob(request(), stubSamples());
-    expect(again.drums?.channels[0]).toEqual(first.drums?.channels[0]);
-    expect(again.bass?.channels[0]).toEqual(first.bass?.channels[0]);
+    expect(sameSamples(again.drums?.channels[0], first.drums?.channels[0])).toBe(true);
+    expect(sameSamples(again.bass?.channels[0], first.bass?.channels[0])).toBe(true);
     const other = runBandJob(request({ seed: 8 }), stubSamples());
     expect(JSON.stringify(other.notes)).not.toEqual(JSON.stringify(first.notes));
   });
@@ -141,7 +148,7 @@ describe("runBandJob with follow-my-playing", () => {
     const first = runBandJob(followed({}, clicks()), stubSamples());
     const again = runBandJob(followed({}, clicks()), stubSamples());
     expect(again.notes).toEqual(first.notes);
-    expect(again.drums?.channels[0]).toEqual(first.drums?.channels[0]);
+    expect(sameSamples(again.drums?.channels[0], first.drums?.channels[0])).toBe(true);
   });
 
   it("gives the same notes as follow-my-playing off when auto finds no clear accents", () => {
@@ -150,7 +157,7 @@ describe("runBandJob with follow-my-playing", () => {
     const off = runBandJob(followed({ followPlaying: false }, flat), stubSamples());
     expect(result.follow).toEqual({ source: "guitar", following: false });
     expect(result.notes).toEqual(off.notes);
-    expect(result.drums?.channels[0]).toEqual(off.drums?.channels[0]);
+    expect(sameSamples(result.drums?.channels[0], off.drums?.channels[0])).toBe(true);
   });
 
   it("follows even a flat source when the source is chosen by hand", () => {
