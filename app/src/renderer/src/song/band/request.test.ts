@@ -5,7 +5,7 @@ import type { PcmAudio } from "../types";
 import { DEFAULT_BAND_SETTINGS } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandRequest, beatSources, previewMix, sumAudio } from "./request";
+import { bandRequest, beatSources, levelStems, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -37,6 +37,39 @@ describe("bandRequest", () => {
     expect(request.plans.map((plan) => plan.sectionId)).toEqual(["v"]);
     expect(request.seed).toBe(DEFAULT_BAND_SETTINGS.seed);
     expect(request.parts).toEqual({ drums: true, bass: true });
+  });
+
+  it("sends the song's mix and the split's original stems for the level match, with or without follow", () => {
+    const grid = fixedBeatGrid(120, 0, 4, 8);
+    const mix = audio([0.5]);
+    const originals = levelStems({ drums: audio([0.2]), bass: audio([0.1]), guitar: audio([0.3]) });
+    const request = bandRequest({
+      grid,
+      cues: [],
+      chords: [],
+      sections: [],
+      settings: DEFAULT_BAND_SETTINGS,
+      songEnd: 8,
+      lengthFrames: 8 * 44100,
+      sampleUrls: {},
+      mix,
+      originals,
+    });
+    expect(request.mix).toBe(mix);
+    expect(request.originals?.bass?.channels[0][0]).toBeCloseTo(0.1);
+    expect(request.follow).toBeUndefined();
+  });
+});
+
+describe("levelStems", () => {
+  it("takes the original drums and bass, and nothing else", () => {
+    const drums = audio([0.2]);
+    const bass = audio([0.1]);
+    expect(levelStems({ drums, bass, guitar: audio([0.3]) })).toEqual({ drums, bass });
+  });
+
+  it("gives no stems when the song has no split", () => {
+    expect(levelStems(null)).toEqual({ drums: undefined, bass: undefined });
   });
 });
 

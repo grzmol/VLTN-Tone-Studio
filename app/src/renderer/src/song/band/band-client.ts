@@ -3,8 +3,9 @@
 // which also drops those samples. Starting a job while another runs cancels the other one. Call these only while playback is stopped.
 
 import type { BandRequest, BandResult, BandStage } from "./band-job";
-import { monoSum } from "./beat-grid";
+import { monoAverage } from "./level";
 import { sampleFileUrls } from "./samples";
+import type { PcmAudio } from "../types";
 
 /** What the client sends. With `preview`, the worker renders `bars` bars from `fromTime`; without it, the whole song. */
 export interface BandWorkerMessage {
@@ -81,22 +82,23 @@ function workerFor(): Worker {
 }
 
 /**
- * The request with its follow audio summed to one channel, the same as the beat grid's source. Only that mono buffer is sent, and it is
- * transferred rather than copied.
+ * The request with its audio summed to mono averages (level kept, see level.ts). Only those mono buffers are sent, and they are
+ * transferred rather than copied. The worker scales the follow audio itself, as the beat tracker does.
  */
 function withMono(request: BandRequest): { request: BandRequest; transfer: ArrayBuffer[] } {
-  if (!request.follow) return { request, transfer: [] };
-  const { source, audio } = request.follow;
-  // One sum of the source mix (the level), reused for the follow source when that is the mix. A stem is summed on its own.
-  const level = request.mix ? monoSum([request.mix]) : null;
-  const followMono = source === "mix" && level ? level : monoSum([audio]);
-  const mixAudio = level ?? followMono;
-  const next: BandRequest = {
-    ...request,
-    follow: { source, audio: { sampleRate: audio.sampleRate, channels: [followMono] } },
+  const buffers = new Set<ArrayBuffer>();
+  const mono = (audio: PcmAudio): PcmAudio => {
+    const channel = monoAverage(audio);
+    buffers.add(channel.buffer as ArrayBuffer);
+    return { sampleRate: audio.sampleRate, channels: [channel] };
   };
-  if (request.mix) next.mix = { sampleRate: request.mix.sampleRate, channels: [mixAudio] };
-  const buffers = new Set<ArrayBuffer>([followMono.buffer as ArrayBuffer, mixAudio.buffer as ArrayBuffer]);
+  const next: BandRequest = { ...request };
+  if (request.mix) next.mix = mono(request.mix);
+  if (request.follow) next.follow = { source: request.follow.source, audio: mono(request.follow.audio) };
+  if (request.originals) {
+    const { drums, bass } = request.originals;
+    next.originals = { drums: drums && mono(drums), bass: bass && mono(bass) };
+  }
   return { request: next, transfer: [...buffers] };
 }
 

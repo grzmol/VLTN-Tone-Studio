@@ -5,6 +5,7 @@ import { generateDrums } from "./drums";
 import { DRUM_PITCHES } from "./note";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import { previewWindow, runBandJob, runBandPreview, transferables, type BandRequest } from "./band-job";
+import { loudnessOf } from "./level";
 import type { BassSample, DrumLayer, SampleSet } from "./samples";
 import type { PcmAudio } from "../types";
 
@@ -180,5 +181,50 @@ describe("runBandJob humanising", () => {
     expect(pitches(humanised.notes.drums)).toEqual(pitches(flat.notes.drums));
     expect(pitches(humanised.notes.bass)).toEqual(pitches(flat.notes.bass));
     expect(humanised.notes.drums.map((note) => note.time)).not.toEqual(flat.notes.drums.map((note) => note.time));
+  });
+});
+
+describe("runBandJob levels", () => {
+  /** A steady stereo tone of SONG_SECONDS. Its loudness follows its amplitude, so a test can know the song's level. */
+  const tone = (amplitude: number): PcmAudio => {
+    const channel = new Float32Array(SONG_SECONDS * RATE);
+    for (let i = 0; i < channel.length; i++) channel[i] = amplitude * Math.sin((2 * Math.PI * 110 * i) / RATE);
+    return { sampleRate: RATE, channels: [channel, channel.slice()] };
+  };
+  const mix = tone(0.05);
+  const songLufs = loudnessOf(mix);
+
+  it("sets the bass 7 LU under the song when there is no bass stem, and reports how far under", () => {
+    const result = runBandJob(request({ mix }), stubSamples());
+    const bass = result.levels?.bass;
+    expect(bass).toBeDefined();
+    expect(bass!.limitedByPeak).toBe(false);
+    expect(bass!.belowSongDb).toBeCloseTo(7, 0);
+    expect(Math.abs(loudnessOf(result.bass!) - (songLufs - 7))).toBeLessThan(0.5);
+  });
+
+  it("sets the drums 4 LU under the song when there is no drums stem", () => {
+    const result = runBandJob(request({ mix }), stubSamples());
+    expect(result.levels?.drums?.belowSongDb).toBeCloseTo(4, 0);
+    expect(Math.abs(loudnessOf(result.drums!) - (songLufs - 4))).toBeLessThan(0.5);
+  });
+
+  it("matches the original bass stem's loudness when the split has one", () => {
+    const stem = tone(0.02);
+    const result = runBandJob(request({ mix, originals: { bass: stem } }), stubSamples());
+    expect(Math.abs(loudnessOf(result.bass!) - loudnessOf(stem))).toBeLessThan(0.5);
+    expect(result.levels?.bass?.belowSongDb).toBeCloseTo(songLufs - loudnessOf(stem), 0);
+  });
+
+  it("levels nothing when the request has no mix to measure", () => {
+    const result = runBandJob(request(), stubSamples());
+    expect(result.levels).toBeUndefined();
+  });
+
+  it("levels the preview the same way Generate does", () => {
+    const full = runBandJob(request({ mix }), stubSamples());
+    const preview = runBandPreview(request({ mix }), stubSamples(), 4, 4);
+    expect(preview.levels?.bass?.gainDb).toBeCloseTo(full.levels!.bass!.gainDb, 6);
+    expect(preview.bass?.channels[0]).toHaveLength(8 * RATE);
   });
 });

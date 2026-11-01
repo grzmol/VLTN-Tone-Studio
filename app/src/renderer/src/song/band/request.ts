@@ -54,8 +54,18 @@ export interface BandInputs {
   sampleUrls: Record<string, string>;
   /** The follow-my-playing audio, from followFor. Absent when the setting is off. */
   follow?: BandFollow;
-  /** The song's source mix, for the beat levels that follow-my-playing reads. Only sent with `follow`. */
+  /** The song's source mix. The beat levels read it, and the generated parts are levelled to its loudness (level.ts). */
   mix?: PcmAudio;
+  /** The split's original drums and bass, from levelStems. Absent when the song has no split. */
+  originals?: LevelStems;
+}
+
+/** The original drums and bass stems a generated part is levelled against. */
+export type LevelStems = NonNullable<BandRequest["originals"]>;
+
+/** The original drums and bass of the split, when there is one. The other stems are not used for levels. */
+export function levelStems(stems: Stems | null): LevelStems {
+  return { drums: stems?.drums, bass: stems?.bass };
 }
 
 /** The follow sources the song has: the stems among FOLLOW_STEMS that were split, then the mix, which is always there. */
@@ -87,7 +97,8 @@ export function bandRequest(input: BandInputs): BandRequest {
     sampleUrls: input.sampleUrls,
   };
   if (input.follow) request.follow = input.follow;
-  if (input.follow && input.mix) request.mix = input.mix;
+  if (input.mix) request.mix = input.mix;
+  if (input.originals) request.originals = input.originals;
   return request;
 }
 

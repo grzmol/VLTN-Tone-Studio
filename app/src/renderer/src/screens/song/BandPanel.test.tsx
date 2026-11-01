@@ -266,6 +266,31 @@ describe("Band panel", () => {
     expect(mocks.startBandRender.mock.calls[0][0].follow.source).toBe("guitar");
   });
 
+  it("says after Generate how far under the song the generated drums and bass sit, and sends the stems for the match", async () => {
+    useSong.setState({ stems: { drums: song().audio, bass: song().audio } as never });
+    stored({ beatGrid: grid, bandOutOfDate: true });
+    const silent = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({
+        drums: silent,
+        bass: silent,
+        notes: { drums: [], bass: [] },
+        levels: {
+          drums: { gainDb: 1, belowSongDb: 4, limitedByPeak: false },
+          bass: { gainDb: -2, belowSongDb: 7.2, limitedByPeak: false },
+        },
+      }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(screen.getByText("Drums set 4.0 dB under the song, bass 7.2 dB under.")).toBeTruthy());
+    const request = mocks.startBandRender.mock.calls[0][0];
+    expect(request.originals.drums).toBe(useSong.getState().stems?.drums);
+    expect(request.mix).toBeDefined();
+  });
+
   it("finds the beat through the beat tracker and shows the tempo", async () => {
     mocks.startBeatGrid.mockReturnValue({ done: Promise.resolve(grid), cancel: vi.fn() });
     renderPanel();

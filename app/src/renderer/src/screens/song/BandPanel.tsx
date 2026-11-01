@@ -30,11 +30,12 @@ import { startBeatGrid, type BeatGridJob } from "@/song/band/beat-grid-client";
 import { fixedBeatGrid, type BeatGrid } from "@/song/band/beat-grid";
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import { harmonyForSong, type ChordAtBeat } from "@/song/band/harmony";
-import { bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, previewMix } from "@/song/band/request";
+import { bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
 import { applyBassTone } from "@/song/band/bass-tone";
 import { renderBassChain } from "@/song/band/bass-chain";
 import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
+import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
 import { findStyle, STYLES, type StyleId } from "@/song/band/styles";
 import type { BandStage } from "@/song/band/band-job";
@@ -361,6 +362,7 @@ function BandBody({
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, useSong.getState().stems, current.audio),
         mix: current.audio,
+        originals: levelStems(useSong.getState().stems),
       };
       let request = bandRequest(input);
       const notes: string[] = [];
@@ -395,6 +397,8 @@ function BandBody({
         if (toned.notice) notes.push(toned.notice);
       }
       if (result.follow) notes.push(followStatus(result.follow));
+      const levels = levelStatus(result.levels);
+      if (levels) notes.push(levels);
       // A part that is turned off loses its generated track in the same update as the parts that are applied.
       const turnedOff = only ? [] : (["drums", "bass"] as const).filter((kind) => !using.parts[kind]);
       const applied = useSong.getState().applyGeneratedParts({ drums: result.drums, bass }, { playing: playingNow.current, remove: turnedOff });
@@ -512,6 +516,7 @@ function BandBody({
         sampleUrls: bandSampleUrls(),
         follow: followFor(settings, useSong.getState().stems, current.audio),
         mix: current.audio,
+        originals: levelStems(useSong.getState().stems),
       });
       const rendering: BandJob = renderPreview(request, from, PREVIEW_BARS);
       job.current = rendering;
