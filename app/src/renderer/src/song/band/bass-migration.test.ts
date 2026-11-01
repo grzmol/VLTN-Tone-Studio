@@ -12,7 +12,8 @@ import type { Section } from "../performance/sections";
 /**
  * The bass as it was before sections had their own parts (spec 85, stage 2). The snapshot holds the time, pitch and velocity of every
  * note for each song bass mode and seed, taken from the code before stage 2. A song whose sections all play the groove part, with busy
- * set to the energy, must still give those notes. The snapshot also predates fills and hit-the-one, so the sections here have both off. The durations change on purpose (the lengths are new), so they are not compared.
+ * set to the energy, must still give those notes. The snapshot also predates fills and hit-the-one, so the sections here have both off.
+ * The durations change on purpose (the lengths are new), so they are not compared.
  */
 const SNAPSHOT = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "bass-migration.snapshot.json"), "utf8")) as Record<
   string,
