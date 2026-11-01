@@ -13,7 +13,7 @@ import { silenceEnds } from "./silence";
 import { BAR_DETECT, TIME_DETECT, barUnitSpans, timeUnitSpans, type DetectedSection } from "./sections";
 import type { SectionsInput } from "./sections-measure";
 import type { AnalysisStep } from "./song-analysis";
-import type { BassLineBeat } from "./bass-line";
+import type { BassLine } from "./bass-line";
 import { transcribeLyrics } from "../performance/lyrics-run";
 import type { LyricsOptions } from "../performance/lyrics-options";
 
@@ -197,7 +197,7 @@ export function bassLineStep(gridOf: () => BeatGrid | null): AnalysisStep {
     async run(audio, signal) {
       const beats = gridOf()?.beats;
       if (!audio.bass || !beats || beats.length < 2) return {};
-      const { bassLine } = await runWorker<{ bassLine: BassLineBeat[] }>(
+      const { bassLine } = await runWorker<{ bassLine: BassLine }>(
         () => new Worker(new URL("./bass-line-worker.ts", import.meta.url), { type: "module" }),
         { bass: audio.bass, beats },
         signal,

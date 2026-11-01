@@ -246,7 +246,7 @@ describe("sectionsStep", () => {
 
 describe("bassLineStep", () => {
   const bass = { sampleRate: 44100, channels: [new Float32Array(44100).fill(0.1)] };
-  const line = [{ beat: 0, pc: 9, confidence: 1 }];
+  const line = { tuningCents: -12, beats: [{ beat: 0, pc: 9, confidence: 1 }] };
   class LineWorker {
     static posted: unknown = null;
     onmessage: ((event: MessageEvent) => void) | null = null;

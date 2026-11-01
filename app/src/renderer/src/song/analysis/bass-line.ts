@@ -1,16 +1,24 @@
-// Reads the bass note the song's bass stem plays on each beat (spec 86). For every beat, the stem is cut into a few short frames after the
-// attack, each frame is pitch-tracked with YIN, and the beat takes the pitch class most frames agree on. Pure: the beats and the stem come
-// in as values, and the result is plain data, so the analysis worker and the tests run the same code.
+// Reads the bass note the song's bass stem plays on each beat (spec 86). For every beat, the stem's spectrum over the beat (after the
+// attack) is summed over harmonics: each pitch class takes its best fundamental, and the beat takes the class with the highest sum. The
+// stem's tuning is read first from the beats that are clear, so the notes are judged against the stem's own A, not A440. YIN on a few
+// frames of the beat is a second opinion. Pure: the beats and the stem come in as values, and the result is plain data.
 
+import { fft, hann } from "../tonematch/fft";
 import type { PcmAudio } from "../types";
 
-/** The bass note of one beat: a pitch class (0 is C) or null when the stem is quiet or no pitch is clear, and how sure the reading is. */
+/** The bass note of one beat: a pitch class (0 is C) or null when the stem is quiet, and how sure the reading is. */
 export interface BassLineBeat {
   /** Index into the beat grid. */
   beat: number;
   pc: number | null;
-  /** From 0 to 1: the share of the beat's frames that agree on the note, after smoothing. */
+  /** From 0 to 1, after smoothing and the second opinion. */
   confidence: number;
+}
+
+/** The bass line of a song: the beats' notes, and the stem's tuning against A440 in cents (clamped to ±50, zero when none was clear). */
+export interface BassLine {
+  tuningCents: number;
+  beats: BassLineBeat[];
 }
 
 /** A bass note is used for the generated bass only at or above this confidence. Below it the chord's own bass is kept. */
@@ -22,26 +30,39 @@ const ATTACK_SECONDS = 0.05;
 const END_MARGIN_SECONDS = 0.02;
 /** The bass is read at this rate. Bass fundamentals are below 260 Hz, so 11 kHz is far above what the pitch needs. */
 const ANALYSIS_RATE = 11025;
-/** The frame length, in samples at the analysis rate: about 372 ms. Shorter frames read the lowest notes of a bass less reliably. */
-const FRAME_SAMPLES = 4096;
-/** A beat shorter than this, after the attack, has too little signal to read. */
-const MIN_WINDOW_SAMPLES = 768;
-/** The frames a beat is cut into. Three gives a median-like vote without reading the whole beat. */
-const FRAMES_PER_BEAT = 3;
-/** The lowest and highest pitches read: the bottom string of a five-string bass to above the top of a bass guitar's range. */
-const LOW_HZ = 35;
-const HIGH_HZ = 260;
-/**
- * A frame or beat quieter than this RMS (−60 dBFS) has no bass in it. Bass notes in a separated stem often sit between −55 and −62 dBFS,
- * so a −50 dBFS gate would silence real notes.
- */
-const QUIET_RMS = 10 ** (-60 / 20);
-/** The YIN threshold: a lag whose cumulative difference is below this is a period. */
-const PERIODIC_BELOW = 0.3;
-/** Smoothed values keep this share of the confidence they came from, so a smoothed beat is never as sure as a read one. */
+/** The spectrum of a beat is one FFT of this many points (about 1.5 s at 11 kHz), zero-padded after the window. */
+const SPECTRUM_FFT = 16384;
+/** The lowest and highest fundamentals a class can take. */
+const FUNDAMENTAL_LOW_HZ = 30;
+const FUNDAMENTAL_HIGH_HZ = 260;
+/** The harmonics summed for each candidate fundamental, with their weights. Harmonics above the fifth add little for a bass. */
+const HARMONIC_WEIGHTS = [1, 0.8, 0.6, 0.4, 0.3];
+/** The highest frequency the harmonics reach, with a little room, so the spectrum is kept up to it. */
+const HARMONIC_TOP_HZ = HARMONIC_WEIGHTS.length * FUNDAMENTAL_HIGH_HZ * 1.02;
+/** A beat's level sets how far its margin counts: silent beats near −60 dBFS count for nothing, beats at −40 dBFS or more for all of it. */
+const LEVEL_SILENT_DB = -60;
+const LEVEL_FULL_DB = -40;
+/** A reading that YIN agrees with gets this much more confidence, capped at 1. */
+export const SECOND_OPINION_BONUS = 0.2;
+/** The tuning is read from the beats whose reading reaches this confidence. */
+const TUNING_MIN_CONFIDENCE = 0.4;
+/** The tuning is searched from −50 to +50 cents, and needs at least this many clear beats to be read. */
+const TUNING_MIN_BEATS = 3;
+/** The smoothed values keep this share of the confidence they came from, so a smoothed beat is never as sure as a read one. */
 const SMOOTHED_SHARE = 0.8;
 
-/** One beat's raw reading before smoothing. `sounding` is false only for a quiet beat. */
+/** The YIN frames of a beat: the frame length, and the frames across the beat. */
+const FRAME_SAMPLES = 4096;
+const MIN_WINDOW_SAMPLES = 768;
+const FRAMES_PER_BEAT = 3;
+/** YIN's pitch range, and its threshold: a lag whose cumulative difference is below it is a period. */
+const LOW_HZ = 35;
+const HIGH_HZ = 260;
+const PERIODIC_BELOW = 0.3;
+/** A frame or beat quieter than this RMS (−60 dBFS) has no bass in it. A separated bass often sits between −55 and −62 dBFS. */
+const QUIET_RMS = 10 ** (-60 / 20);
+
+/** One beat's reading before smoothing. `sounding` is false only for a quiet beat. */
 interface RawReading {
   pc: number | null;
   confidence: number;
@@ -54,9 +75,27 @@ export interface PitchEstimate {
   aperiodicity: number;
 }
 
+/** A beat's spectrum: its level, and the magnitudes of the bins up to the harmonics' top (null when the beat is quiet or too short). */
+interface BeatSpectrum {
+  rms: number;
+  magnitude: Float32Array | null;
+}
+
+/** A pitch class's reading from its spectrum: the class, its margin over the next class, and the refined frequency of its fundamental. */
+export interface ClassReading {
+  pc: number;
+  margin: number;
+  hz: number;
+}
+
 /** The pitch class (0 to 11) of a MIDI note number. */
 export function pitchClassOfMidi(midi: number): number {
   return ((Math.round(midi) % 12) + 12) % 12;
+}
+
+/** The MIDI note number of a frequency, without rounding. */
+function midiOf(hz: number): number {
+  return 69 + 12 * Math.log2(hz / 440);
 }
 
 /**
@@ -122,33 +161,142 @@ function rmsOf(samples: ArrayLike<number>): number {
   return Math.sqrt(sum / samples.length);
 }
 
+/** The FFT of the Hann-windowed samples of one beat, as magnitudes up to the harmonics' top. Null when the beat is quiet or too short. */
+function spectrumOf(samples: Float32Array, rate: number, start: number, end: number, scratch: { re: Float64Array; im: Float64Array }): BeatSpectrum {
+  const first = Math.round(start * rate);
+  const last = Math.min(samples.length, Math.round(end * rate));
+  const beat = last > first ? samples.subarray(first, last) : new Float32Array(0);
+  const rms = rmsOf(beat);
+  if (rms < QUIET_RMS || beat.length < MIN_WINDOW_SAMPLES) return { rms, magnitude: null };
+  const n = Math.min(beat.length, SPECTRUM_FFT);
+  const window = hann(n);
+  scratch.re.fill(0);
+  scratch.im.fill(0);
+  for (let i = 0; i < n; i++) scratch.re[i] = beat[i] * window[i];
+  fft(scratch.re, scratch.im);
+  const top = Math.min(SPECTRUM_FFT / 2, Math.ceil((HARMONIC_TOP_HZ * SPECTRUM_FFT) / rate) + 2);
+  const magnitude = new Float32Array(top + 1);
+  for (let k = 0; k <= top; k++) magnitude[k] = Math.hypot(scratch.re[k], scratch.im[k]);
+  return { rms, magnitude };
+}
+
+/** The candidate fundamentals of the bass: every note from FUNDAMENTAL_LOW_HZ to FUNDAMENTAL_HIGH_HZ, on the stem's own tuning. */
+function candidatesAt(offsetSemitones: number): { pc: number; hz: number }[] {
+  const out: { pc: number; hz: number }[] = [];
+  for (let midi = 15; midi <= 90; midi++) {
+    const hz = 440 * 2 ** ((midi + offsetSemitones - 69) / 12);
+    if (hz >= FUNDAMENTAL_LOW_HZ && hz <= FUNDAMENTAL_HIGH_HZ) out.push({ pc: pitchClassOfMidi(midi), hz });
+  }
+  return out;
+}
+
+/** The largest magnitude within one bin of `bin`. */
+function peakNear(magnitude: Float32Array, bin: number): number {
+  const k = Math.round(bin);
+  if (k < 1 || k + 1 >= magnitude.length) return 0;
+  return Math.max(magnitude[k - 1], magnitude[k], magnitude[k + 1]);
+}
+
+/** The frequency of a spectral peak, by parabolic interpolation of its magnitudes, finer than one bin. */
+function refinedHz(magnitude: Float32Array, rate: number, hz: number): number {
+  const binHz = rate / SPECTRUM_FFT;
+  let k = Math.round(hz / binHz);
+  if (k < 1 || k + 1 >= magnitude.length) return hz;
+  for (const j of [k - 1, k + 1]) if (magnitude[j] > magnitude[k]) k = j;
+  const a = magnitude[k - 1],
+    b = magnitude[k],
+    c = magnitude[k + 1];
+  const curvature = a - 2 * b + c;
+  if (curvature >= 0 || k < 2 || k + 2 >= magnitude.length) return k * binHz;
+  return (k + (0.5 * (a - c)) / curvature) * binHz;
+}
+
 /**
- * The reading of one beat, from the samples between `start` and `end` (in seconds). Each frame that is loud enough is pitch-tracked. The
- * beat's pitch class is the one the most frames agree on, and its confidence is that share of all the frames.
+ * The pitch class a spectrum sounds: each class takes its best candidate fundamental, scored by the weighted sum of its harmonics, and the
+ * class with the highest score wins. The margin is how far the winner stands above the runner-up, as a share of the winner.
  */
-function readBeat(samples: Float32Array, rate: number, start: number, end: number): RawReading {
+export function strongestClass(magnitude: Float32Array, rate: number, offsetSemitones: number): ClassReading {
+  const scores = new Float64Array(12);
+  const bestHz = new Float64Array(12);
+  for (const candidate of candidatesAt(offsetSemitones)) {
+    let score = 0;
+    HARMONIC_WEIGHTS.forEach((weight, h) => {
+      score += weight * peakNear(magnitude, ((h + 1) * candidate.hz * SPECTRUM_FFT) / rate);
+    });
+    if (score > scores[candidate.pc]) {
+      scores[candidate.pc] = score;
+      bestHz[candidate.pc] = candidate.hz;
+    }
+  }
+  const order = [...Array(12).keys()].sort((a, b) => scores[b] - scores[a]);
+  const top = scores[order[0]];
+  const margin = top > 0 ? (top - scores[order[1]]) / top : 0;
+  return { pc: order[0], margin, hz: refinedHz(magnitude, rate, bestHz[order[0]]) };
+}
+
+/** How much a beat's level counts: 0 at −60 dBFS and below, 1 at −40 dBFS and above. */
+export function levelFactor(rms: number): number {
+  const db = 20 * Math.log10(rms + 1e-12);
+  return Math.max(0, Math.min(1, (db - LEVEL_SILENT_DB) / (LEVEL_FULL_DB - LEVEL_SILENT_DB)));
+}
+
+/** The confidence after the second opinion: a reading YIN agrees with gains SECOND_OPINION_BONUS, capped at 1. A disagreement or no YIN reading changes nothing. */
+export function withSecondOpinion(confidence: number, pc: number, yinPc: number | null): number {
+  return yinPc === pc ? Math.min(1, confidence + SECOND_OPINION_BONUS) : confidence;
+}
+
+/** The strongest harmonic sum of a spectrum on one tuning, over every candidate fundamental. */
+function bestScore(magnitude: Float32Array, rate: number, offsetSemitones: number): number {
+  let best = 0;
+  for (const candidate of candidatesAt(offsetSemitones)) {
+    let score = 0;
+    HARMONIC_WEIGHTS.forEach((weight, h) => {
+      score += weight * peakNear(magnitude, ((h + 1) * candidate.hz * SPECTRUM_FFT) / rate);
+    });
+    best = Math.max(best, score);
+  }
+  return best;
+}
+
+/**
+ * The stem's tuning in cents against A440: the offset from −50 to +50 cents at which the clear beats' harmonic sums are strongest. Each
+ * beat counts for its own peak, so a loud beat does not decide it alone. Zero when too few beats are clear.
+ */
+export function tuningCentsOf(clear: readonly { magnitude: Float32Array; rate: number }[]): number {
+  if (clear.length < TUNING_MIN_BEATS) return 0;
+  const peaks = clear.map(({ magnitude }) => Math.max(...magnitude) || 1);
+  let best = 0,
+    bestTotal = -1;
+  for (let cents = -50; cents <= 50; cents++) {
+    let total = 0;
+    clear.forEach(({ magnitude, rate }, i) => (total += bestScore(magnitude, rate, cents / 100) / peaks[i]));
+    if (total > bestTotal) {
+      bestTotal = total;
+      best = cents;
+    }
+  }
+  return best;
+}
+
+/** The YIN pitch class of a beat: the median of its clear frames' notes, with the share of frames that agree on it. Null when none is clear. */
+function yinPcOf(samples: Float32Array, rate: number, start: number, end: number): number | null {
   const first = Math.round(start * rate);
   const last = Math.min(samples.length, Math.round(end * rate));
   const length = last - first;
-  if (length <= 0) return { pc: null, confidence: 0, sounding: false };
-  const beat = samples.subarray(first, last);
-  if (rmsOf(beat) < QUIET_RMS) return { pc: null, confidence: 0, sounding: false };
-  if (length < MIN_WINDOW_SAMPLES) return { pc: null, confidence: 0, sounding: true };
+  if (length < MIN_WINDOW_SAMPLES) return null;
   const size = Math.min(FRAME_SAMPLES, length);
   const frames = length > size ? FRAMES_PER_BEAT : 1;
-  const starts = Array.from({ length: frames }, (_, i) => (frames === 1 ? 0 : Math.round(((length - size) * i) / (frames - 1))));
   const midis: number[] = [];
-  for (const offset of starts) {
-    const frame = beat.subarray(offset, offset + size);
+  for (let i = 0; i < frames; i++) {
+    const offset = frames === 1 ? 0 : Math.round(((length - size) * i) / (frames - 1));
+    const frame = samples.subarray(first + offset, first + offset + size);
     if (rmsOf(frame) < QUIET_RMS) continue;
     const pitch = yinPitch(frame, rate);
-    if (pitch) midis.push(69 + 12 * Math.log2(pitch.hz / 440));
+    if (pitch) midis.push(midiOf(pitch.hz));
   }
-  if (midis.length === 0) return { pc: null, confidence: 0, sounding: true };
+  if (midis.length === 0) return null;
   const median = [...midis].sort((a, b) => a - b)[Math.floor(midis.length / 2)];
-  const pc = pitchClassOfMidi(median);
-  const agree = midis.filter((midi) => pitchClassOfMidi(midi) === pc).length;
-  return { pc, confidence: agree / frames, sounding: true };
+  return pitchClassOfMidi(median);
 }
 
 /**
@@ -172,17 +320,41 @@ export function smoothBassLine(raw: readonly RawReading[]): { pc: number | null;
 }
 
 /**
- * The bass note of each beat of the grid. `beats` are the beat times in seconds of the audio. The last beat is read over the length of the
- * beat before it, since it has no next beat to end at.
+ * The bass line of each beat of the grid, with the stem's tuning. `beats` are the beat times in seconds of the audio. The last beat is read
+ * over the length of the beat before it, since it has no next beat to end at. Two passes: the tuning is read from the clear beats, then
+ * every beat is read on that tuning.
  */
-export function bassLineOf(bass: PcmAudio, beats: readonly number[]): BassLineBeat[] {
+export function bassLineOf(bass: PcmAudio, beats: readonly number[]): BassLine {
   const factor = Math.max(1, Math.round(bass.sampleRate / ANALYSIS_RATE));
   const rate = bass.sampleRate / factor;
   const samples = decimate(monoOf(bass), factor);
   const lastInterval = beats.length >= 2 ? beats[beats.length - 1] - beats[beats.length - 2] : 0.5;
-  const raw = beats.map((time, i) => {
-    const next = i + 1 < beats.length ? beats[i + 1] : time + lastInterval;
-    return readBeat(samples, rate, time + ATTACK_SECONDS, next - END_MARGIN_SECONDS);
+  const spans = beats.map((time, i) => ({
+    start: time + ATTACK_SECONDS,
+    end: (i + 1 < beats.length ? beats[i + 1] : time + lastInterval) - END_MARGIN_SECONDS,
+  }));
+  const scratch = { re: new Float64Array(SPECTRUM_FFT), im: new Float64Array(SPECTRUM_FFT) };
+  const spectra = spans.map(({ start, end }) => spectrumOf(samples, rate, start, end, scratch));
+
+  // First pass: the tuning, from the beats whose class is clear on the stem's own A440.
+  const clear: { magnitude: Float32Array; rate: number }[] = [];
+  for (const spectrum of spectra) {
+    if (!spectrum.magnitude) continue;
+    const reading = strongestClass(spectrum.magnitude, rate, 0);
+    if (reading.margin * levelFactor(spectrum.rms) >= TUNING_MIN_CONFIDENCE) clear.push({ magnitude: spectrum.magnitude, rate });
+  }
+  const tuningCents = tuningCentsOf(clear);
+  const offset = tuningCents / 100;
+
+  // Second pass: each beat's class on the tuning, with YIN as a second opinion.
+  const raw: RawReading[] = spectra.map((spectrum, i) => {
+    if (spectrum.rms < QUIET_RMS) return { pc: null, confidence: 0, sounding: false };
+    if (!spectrum.magnitude) return { pc: null, confidence: 0, sounding: true };
+    const reading = strongestClass(spectrum.magnitude, rate, offset);
+    const confidence = reading.margin * levelFactor(spectrum.rms);
+    const yinPc = yinPcOf(samples, rate, spans[i].start, spans[i].end);
+    return { pc: reading.pc, confidence: withSecondOpinion(confidence, reading.pc, yinPc), sounding: true };
   });
-  return smoothBassLine(raw).map(({ pc, confidence }, beat) => ({ beat, pc, confidence }));
+  const beatsOut = smoothBassLine(raw).map(({ pc, confidence }, beat) => ({ beat, pc, confidence }));
+  return { tuningCents, beats: beatsOut };
 }

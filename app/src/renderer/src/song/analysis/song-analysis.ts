@@ -7,7 +7,7 @@ import type { SilenceEnds } from "./silence";
 import type { Chord } from "../performance/chords";
 import type { KeyEstimate, KeySection } from "../performance/key";
 import type { DetectedSection } from "./sections";
-import type { BassLineBeat } from "./bass-line";
+import type { BassLine, BassLineBeat } from "./bass-line";
 import type { PcmAudio, Stems } from "../types";
 
 /** The song's integrated loudness and sample peak, as the loudness control measures them. */
@@ -23,9 +23,10 @@ export const METER_CERTAIN = 0.6;
  * Bump when an analysis improves, so songs analysed earlier are analysed again the next time they open. Version 2 adds sections: a saved
  * song of version 1 is analysed once more, which fills in its sections. Version 3 reads the chords from the harmony and the bass with
  * harmonic templates, decoded over the song, on the beats (spec 81). Version 4 reads the bass note of each beat from the bass stem (spec 86).
+ * Version 5 reads it by harmonic summation on the stem's tuning, and stores the tuning with it.
  * What the performer set is kept (see `planWriteBack`).
  */
-export const ANALYSIS_VERSION = 4;
+export const ANALYSIS_VERSION = 5;
 
 /** The tempo the analysis found. `firstBeat` is the time of the first beat, in seconds, when the grid fits a straight line. */
 export interface TempoResult {
@@ -69,7 +70,7 @@ export interface SongAnalysis {
   keySections?: KeySection[];
   chords?: ChordsResult;
   /** The bass note the bass stem plays on each beat of the grid, when the song has a bass stem and a grid (spec 86). */
-  bassLine?: BassLineBeat[];
+  bassLine?: BassLine;
   /** Suggested sections, on bar lines where the music allows (or on time frames when the song has no beat grid). Empty when none were found. */
   sections?: DetectedSection[];
   /** Names of the steps that failed. A failed step is not retried until the song is analysed again. */
@@ -238,7 +239,7 @@ export function parseAnalysis(value: unknown): SongAnalysis | null {
   const meter = record.meter as Record<string, unknown> | undefined;
   const validMeter = !!meter && (meter.beatsPerBar === 3 || meter.beatsPerBar === 4) && typeof meter.confidence === "number";
   const sections = Array.isArray(record.sections) && record.sections.every(isSection) ? (record.sections as DetectedSection[]) : undefined;
-  const bassLine = Array.isArray(record.bassLine) && record.bassLine.every(isBassLineBeat) ? (record.bassLine as BassLineBeat[]) : undefined;
+  const bassLine = isBassLine(record.bassLine) ? (record.bassLine as BassLine) : undefined;
   const failed = Array.isArray(record.failed) && record.failed.every((name) => typeof name === "string") ? record.failed : undefined;
   return {
     audioId: record.audioId,
@@ -261,6 +262,12 @@ export function parseAnalysis(value: unknown): SongAnalysis | null {
 function isKeySection(value: unknown): value is KeySection {
   const section = value as Partial<KeySection> | null;
   return !!section && typeof section.sectionId === "string" && typeof section.key?.name === "string";
+}
+
+/** A saved bass line: the stem's tuning in cents, and a bass note for each beat. Anything else makes the saved bass line unreadable. */
+function isBassLine(value: unknown): boolean {
+  const line = value as Partial<BassLine> | null;
+  return !!line && typeof line.tuningCents === "number" && Number.isFinite(line.tuningCents) && Array.isArray(line.beats) && line.beats.every(isBassLineBeat);
 }
 
 /** A saved bass note: a beat, a pitch class or none, and a finite confidence. Anything else makes the saved bass line unreadable. */

@@ -441,7 +441,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setBeatsManual(options.beatsSource === "manual");
     setSectionList(parseSections(options.sections));
     setSuggested(saved?.sections ?? []);
-    setBassLine(saved?.bassLine ?? null);
+    setBassLine(saved?.bassLine?.beats ?? null);
     setLoudness(loudnessFromOptions(getSetting(key, ":options")));
     setSilence(saved?.silence ? { songKey: key, ends: saved.silence } : null);
   }, [analysis.revision, key]);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PcmAudio } from "../types";
-import { BASS_LINE_CONFIDENT, bassLineOf, pitchClassOfMidi, smoothBassLine, yinPitch } from "./bass-line";
+import { BASS_LINE_CONFIDENT, bassLineOf, pitchClassOfMidi, smoothBassLine, withSecondOpinion, yinPitch } from "./bass-line";
 
 const RATE = 44100;
 const BEAT = 0.5;
@@ -57,14 +57,14 @@ describe("bassLineOf", () => {
     const hz = [110, 82.41, 130.81, 98, 92.5, 73.42];
     const expected = [9, 4, 0, 7, 6, 2];
     const notes = Array.from({ length: 12 }, (_, i) => hz[i % hz.length]);
-    const line = bassLineOf(stemOf(notes), beatTimes(notes.length));
+    const line = bassLineOf(stemOf(notes), beatTimes(notes.length)).beats;
     expect(line.map((entry) => entry.pc)).toEqual(notes.map((_, i) => expected[i % expected.length]));
     for (const entry of line) expect(entry.confidence).toBeGreaterThanOrEqual(BASS_LINE_CONFIDENT);
   });
 
   it("gives null with no confidence on a beat of silence", () => {
     const notes: (number | null)[] = [110, 110, null, 110, 110];
-    const line = bassLineOf(stemOf(notes), beatTimes(notes.length));
+    const line = bassLineOf(stemOf(notes), beatTimes(notes.length)).beats;
     expect(line[2]).toEqual({ beat: 2, pc: null, confidence: 0 });
     expect(line[0].pc).toBe(9);
   });
@@ -75,25 +75,25 @@ describe("bassLineOf", () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
       return (seed / 0x7fffffff - 0.5) * 0.4;
     });
-    const line = bassLineOf({ sampleRate: RATE, channels: [noise] }, beatTimes(8));
+    const line = bassLineOf({ sampleRate: RATE, channels: [noise] }, beatTimes(8)).beats;
     for (const entry of line) expect(entry.confidence < BASS_LINE_CONFIDENT || entry.pc === null).toBe(true);
   });
 
   it("gives one entry per beat, with the last beat read over the length of the beat before it", () => {
     const notes = [110, 110, 110];
-    const line = bassLineOf(stemOf(notes), beatTimes(notes.length));
+    const line = bassLineOf(stemOf(notes), beatTimes(notes.length)).beats;
     expect(line.map((entry) => entry.beat)).toEqual([0, 1, 2]);
     expect(line[2].pc).toBe(9);
   });
 
   it("works at 11 kHz as well as 44.1 kHz", () => {
     const notes = [110, 82.41, 130.81, 98];
-    const line = bassLineOf(stemOf(notes, 11025), beatTimes(notes.length));
+    const line = bassLineOf(stemOf(notes, 11025), beatTimes(notes.length)).beats;
     expect(line.map((entry) => entry.pc)).toEqual([9, 4, 0, 7]);
   });
 
   it("gives an empty line for no beats", () => {
-    expect(bassLineOf(stemOf([110]), [])).toEqual([]);
+    expect(bassLineOf(stemOf([110]), []).beats).toEqual([]);
   });
 });
 
@@ -122,5 +122,57 @@ describe("smoothBassLine", () => {
 
   it("leaves a quiet beat null", () => {
     expect(smoothBassLine([read(9, 1), read(null, 0, false)])[1]).toEqual({ pc: null, confidence: 0 });
+  });
+});
+
+/** A stem with one note per beat, each note a set of harmonics with the given amplitudes (index 0 is the fundamental). */
+function stemWithHarmonics(notes: (number | null)[], amplitudes: number[], centsOff = 0): PcmAudio {
+  const out = new Float32Array(Math.round(notes.length * BEAT * RATE));
+  notes.forEach((hz, beat) => {
+    if (hz === null) return;
+    const tuned = hz * 2 ** (centsOff / 1200);
+    const start = Math.round(beat * BEAT * RATE);
+    for (let i = 0; i < BEAT * RATE && start + i < out.length; i++) {
+      const t = i / RATE;
+      let sample = 0;
+      amplitudes.forEach((amp, h) => (sample += amp * Math.sin(2 * Math.PI * tuned * (h + 1) * t)));
+      out[start + i] += (0.3 * Math.exp(-2 * t) * sample) / amplitudes.length;
+    }
+  });
+  return { sampleRate: RATE, channels: [out] };
+}
+
+describe("tuning and harmonic summation", () => {
+  it("reads the right classes from a stem 40 cents flat, and finds the tuning", () => {
+    // A2, E2, C3, G2 (110, 82.41, 130.81, 98 Hz), each played 40 cents flat.
+    const notes = [110, 82.41, 130.81, 98, 110, 82.41, 130.81, 98];
+    const line = bassLineOf(stemWithHarmonics(notes, [1, 0.5, 0.25], -40), beatTimes(notes.length));
+    expect(line.beats.map((entry) => entry.pc)).toEqual([9, 4, 0, 7, 9, 4, 0, 7]);
+    expect(line.tuningCents).toBeGreaterThanOrEqual(-46);
+    expect(line.tuningCents).toBeLessThanOrEqual(-34);
+  });
+
+  it("reads the fundamental's class when the second harmonic is louder than the fundamental, as in a bass", () => {
+    const notes = [110, 110, 110, 110];
+    const line = bassLineOf(stemWithHarmonics(notes, [0.3, 1, 0.4, 0.2]), beatTimes(notes.length));
+    expect(line.beats.map((entry) => entry.pc)).toEqual([9, 9, 9, 9]);
+  });
+
+  it("keeps the tuning at zero for a stem in tune", () => {
+    const notes = [110, 82.41, 130.81, 98];
+    const line = bassLineOf(stemWithHarmonics(notes, [1, 0.5, 0.25]), beatTimes(notes.length));
+    expect(Math.abs(line.tuningCents)).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("withSecondOpinion", () => {
+  it("adds 0.2 when YIN agrees with the reading, capped at 1", () => {
+    expect(withSecondOpinion(0.5, 9, 9)).toBeCloseTo(0.7, 5);
+    expect(withSecondOpinion(0.95, 9, 9)).toBe(1);
+  });
+
+  it("changes nothing when YIN disagrees or has no reading", () => {
+    expect(withSecondOpinion(0.5, 9, 4)).toBe(0.5);
+    expect(withSecondOpinion(0.5, 9, null)).toBe(0.5);
   });
 });
