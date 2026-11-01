@@ -23,7 +23,7 @@ function barsOf(...chords: (string | null)[]): (string | null)[] {
 
 /** A plan from `endBeat` to the end of the song, starting at zero. Beat n is at n / 2 seconds. */
 function planFor(endBeat: number, overrides: Partial<SectionPlan> = {}): SectionPlan {
-  return { sectionId: null, start: 0, end: endBeat * 0.5, style: "rock", energy: 3, fill: false, play: { drums: true, bass: true }, ...overrides };
+  return { sectionId: null, start: 0, end: endBeat * 0.5, style: "rock", energy: 3, loud: 3, fill: false, play: { drums: true, bass: true }, ...overrides };
 }
 
 /** Settings with every choice fixed: roots, normal range, no kick lock, full complexity, no swing. */
@@ -125,8 +125,9 @@ describe("generateBass", () => {
     expect(after).toBeDefined();
     expect(pc(after!.pitch)).toBe(7);
     expect(Math.abs(before!.pitch - after!.pitch)).toBe(1);
-    expect(before!.velocity).toBeGreaterThanOrEqual(71);
-    expect(before!.velocity).toBeLessThanOrEqual(79);
+    // At loud 3 the base is 75. An approach note is 10 softer, and the seeded jitter is at most 4 either way.
+    expect(before!.velocity).toBeGreaterThanOrEqual(61);
+    expect(before!.velocity).toBeLessThanOrEqual(69);
   });
 
   it("uses a whole tone for the approach when complexity is below two thirds", () => {
@@ -267,5 +268,45 @@ describe("generateBass with follow-my-playing", () => {
     expect(generateBass(grid, harmony, [planFor(16)], settingsFor(), [], 9, feel)).toEqual(
       generateBass(grid, harmony, [planFor(16)], settingsFor(), [], 9, feel),
     );
+  });
+});
+
+describe("generateBass dynamics", () => {
+  const chords = barsOf("C", "C", "C", "C", "C", "C", "C", "C");
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  /** Notes from several seeds at one loud level, so the mean is not one seed's luck. */
+  const notesAt = (loud: SectionPlan["loud"], seeds = 6): NoteEvent[] =>
+    Array.from({ length: seeds }, (_, seed) => generateBass(grid, harmony, [planFor(chords.length, { loud })], settingsFor(), [], seed + 1)).flat();
+  const mean = (values: readonly number[]): number => values.reduce((total, value) => total + value, 0) / values.length;
+
+  it("plays harder at each louder section level", () => {
+    const means = ([1, 2, 3, 4, 5] as const).map((loud) => mean(notesAt(loud).map((note) => note.velocity)));
+    for (let i = 1; i < means.length; i++) expect(means[i]).toBeGreaterThan(means[i - 1]);
+  });
+
+  it("keeps most notes below 66, the soft layer, at loud 1 and 2", () => {
+    for (const loud of [1, 2] as const) {
+      const velocities = notesAt(loud).map((note) => note.velocity);
+      const soft = velocities.filter((velocity) => velocity < 66).length;
+      expect(soft / velocities.length, `loud ${loud}`).toBeGreaterThan(0.5);
+    }
+  });
+
+  it("accents the downbeat, the first step of each bar", () => {
+    const notes = notesAt(3);
+    // A bar is two seconds at 120 BPM, so a downbeat note starts on an even second.
+    const onDownbeat = notes.filter((note) => Math.abs(note.time / 2 - Math.round(note.time / 2)) < 1e-9).map((note) => note.velocity);
+    const elsewhere = notes.filter((note) => Math.abs(note.time / 2 - Math.round(note.time / 2)) >= 1e-9).map((note) => note.velocity);
+    expect(onDownbeat.length).toBeGreaterThan(0);
+    expect(elsewhere.length).toBeGreaterThan(0);
+    expect(mean(onDownbeat) - mean(elsewhere)).toBeGreaterThan(4);
+  });
+
+  it("keeps every velocity between 1 and 127, even at loud 5 with the downbeat accent", () => {
+    for (const note of notesAt(5)) {
+      expect(note.velocity).toBeGreaterThanOrEqual(1);
+      expect(note.velocity).toBeLessThanOrEqual(127);
+    }
   });
 });

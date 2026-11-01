@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { PcmAudio } from "../types";
-import { SAMPLE_MAP, pickBassSample, pickDrumSample, readSampleMap, sampleSetFrom, type SampleSet } from "./samples";
+import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumSample, readSampleMap, sampleSetFrom, type SampleSet } from "./samples";
 import { ENERGIES, STYLES } from "./styles";
 
 const SAMPLES = join(dirname(fileURLToPath(import.meta.url)), "samples");
@@ -183,5 +183,41 @@ describe("pickBassSample", () => {
     const pick = pickBassSample(set, 60, 90);
     expect(pick.audio).toBe(audio("bass/bass-b3-f.flac"));
     expect(pick.playbackRate).toBeCloseTo(2 ** (1 / 12));
+  });
+});
+
+describe("pickBassLayers", () => {
+  it("plays the soft layer alone below velocity 66, and the hard layer alone above 86", () => {
+    const { set, audio } = stubSet();
+    expect(pickBassLayers(set, 47, 50)).toEqual([{ pick: { audio: audio("bass/bass-b2-p.flac"), playbackRate: 1 }, weight: 1 }]);
+    expect(pickBassLayers(set, 47, 100)).toEqual([{ pick: { audio: audio("bass/bass-b2-f.flac"), playbackRate: 1 }, weight: 1 }]);
+    expect(pickBassLayers(set, 47, 65)).toHaveLength(1);
+    expect(pickBassLayers(set, 47, 67)).toHaveLength(2);
+    expect(pickBassLayers(set, 47, 85)).toHaveLength(2);
+    expect(pickBassLayers(set, 47, 86)).toHaveLength(1);
+  });
+
+  it("plays both layers between 66 and 86, with equal-power weights that meet at 76", () => {
+    const { set, audio } = stubSet();
+    const [soft, hard] = pickBassLayers(set, 47, 76);
+    expect(soft.pick.audio).toBe(audio("bass/bass-b2-p.flac"));
+    expect(hard.pick.audio).toBe(audio("bass/bass-b2-f.flac"));
+    expect(soft.weight).toBeCloseTo(Math.SQRT1_2);
+    expect(hard.weight).toBeCloseTo(Math.SQRT1_2);
+    expect(soft.weight ** 2 + hard.weight ** 2).toBeCloseTo(1);
+  });
+
+  it("moves the soft and hard layers of the nearest root to the note", () => {
+    const { set, audio } = stubSet();
+    const mix = pickBassLayers(set, 31, 80);
+    expect(mix.map((entry) => entry.pick.audio)).toEqual([audio("bass/bass-ab1-p.flac"), audio("bass/bass-ab1-f.flac")]);
+    for (const entry of mix) expect(entry.pick.playbackRate).toBeCloseTo(2 ** (-1 / 12));
+  });
+
+  it("falls back to one layer when the root has only one", () => {
+    const { set, audio } = stubSet();
+    const single: SampleSet = { drums: set.drums, bass: set.bass.filter((sample) => !(sample.root === 47 && sample.layer === "f")) };
+    expect(pickBassLayers(single, 47, 80)).toEqual([{ pick: pickBassSample(single, 47, 80), weight: 1 }]);
+    expect(pickBassLayers(single, 47, 80)[0].pick.audio).toBe(audio("bass/bass-b2-p.flac"));
   });
 });

@@ -122,7 +122,15 @@ describe("planSections", () => {
   it("gives one plan for the whole song when there are no sections", () => {
     const plans = planSections([], 90, settings());
     expect(plans).toHaveLength(1);
-    expect(plans[0]).toMatchObject({ sectionId: null, start: 0, end: 90, fill: true, energy: 3 });
+    expect(plans[0]).toMatchObject({ sectionId: null, start: 0, end: 90, fill: true, energy: 3, loud: 3 });
+  });
+
+  it("makes each section's loud level its energy, unless the section sets its own", () => {
+    const plans = planSections(sections, 80, settings({ sections: { b: { loud: 5 } } }));
+    // The intro (energy 2) and the outro (energy 2) take their energy, the verse (energy 2) is set to loud 5, and the chorus (energy 4) keeps 4.
+    expect(plans.map((plan) => plan.loud)).toEqual([2, 5, 4, 2]);
+    expect(planSections([], 90, settings({ sections: { song: { energy: 4 } } }))[0]).toMatchObject({ energy: 4, loud: 4 });
+    expect(planSections([], 90, settings({ sections: { song: { energy: 4, loud: 1 } } }))[0]).toMatchObject({ energy: 4, loud: 1 });
   });
 });
 
@@ -178,6 +186,14 @@ describe("isBandSettings and parseBandSettings", () => {
     const parsed = parseBandSettings({ parts: { drums: true, bass: false } });
     expect(parsed.parts).toEqual({ drums: true, bass: false });
     expect(parsed.complexity).toBe(DEFAULT_BAND_SETTINGS.complexity);
+  });
+
+  it("keeps a valid loud level in a section and drops one that is not 1 to 5", () => {
+    expect(parseBandSettings({ sections: { a: { loud: 4 } } }).sections).toEqual({ a: { loud: 4 } });
+    expect(parseBandSettings({ sections: { a: { loud: 9 } } }).sections).toEqual({});
+    expect(parseBandSettings({ sections: { a: { loud: "hard", fill: true } } }).sections).toEqual({ a: { fill: true } });
+    expect(isBandSettings({ ...settings(), sections: { a: { loud: 0 } } })).toBe(false);
+    expect(isBandSettings({ ...settings(), sections: { a: { loud: 2 } } })).toBe(true);
   });
 
   it("returns fresh objects, so changing a parsed result cannot change the defaults", () => {

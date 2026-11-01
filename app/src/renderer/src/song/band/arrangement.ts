@@ -88,6 +88,8 @@ export interface SectionPlan {
   end: number;
   style: StyleId;
   energy: Energy;
+  /** How loud the generated drums and bass play in the section, 1 soft to 5 hard. Defaults to the energy. */
+  loud: Energy;
   /** A fill on the section's last bar. */
   fill: boolean;
   play: PartToggles;
@@ -120,7 +122,7 @@ export interface BandSettings {
   firstNote: Partial<Record<RenderedKind, number>>;
   /** Each generation uses this seed, so a song regenerates the same way. "Try another" picks a new one. */
   seed: number;
-  /** Per-section changes, keyed by section id. Only style, energy, fill and play can be overridden. */
+  /** Per-section changes, keyed by section id. Only style, energy, loud, fill and play can be overridden. */
   sections: Record<string, Partial<SectionPlan>>;
 }
 
@@ -175,13 +177,15 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
   if (sections.length === 0) {
     // A song without sections is one plan, and its overrides are kept under WHOLE_SONG_ID like a section's are under its id.
     const override = settings.sections[WHOLE_SONG_ID] ?? {};
+    const energy = override.energy ?? 3;
     return [
       {
         sectionId: null,
         start: 0,
         end: songEnd,
         style: override.style ?? settings.style,
-        energy: override.energy ?? 3,
+        energy,
+        loud: override.loud ?? energy,
         fill: override.fill ?? true,
         play: override.play ? { ...override.play } : { ...settings.parts },
       },
@@ -192,12 +196,14 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
   return ordered.map((section, i) => {
     const next = ordered[i + 1];
     const override = settings.sections[section.id] ?? {};
+    const energy = override.energy ?? energyForName(section.name);
     return {
       sectionId: section.id,
       start: i === 0 ? 0 : section.start,
       end: next ? next.start : Math.max(songEnd, section.end),
       style: override.style ?? settings.style,
-      energy: override.energy ?? energyForName(section.name),
+      energy,
+      loud: override.loud ?? energy,
       fill: override.fill ?? (next ? isChorusName(next.name) : true),
       play: override.play ? { ...override.play } : { ...settings.parts },
     };
@@ -233,6 +239,7 @@ function isSectionOverride(value: unknown): value is Partial<SectionPlan> {
     isRecord(value) &&
     optional(value.style, isStyleId) &&
     optional(value.energy, isEnergy) &&
+    optional(value.loud, isEnergy) &&
     optional(value.fill, isBool) &&
     optional(value.play, isPartToggles)
   );
@@ -364,6 +371,7 @@ function parseSectionOverride(value: Record<string, unknown>): Partial<SectionPl
   const override: Partial<SectionPlan> = {};
   if (isStyleId(value.style)) override.style = value.style;
   if (isEnergy(value.energy)) override.energy = value.energy;
+  if (isEnergy(value.loud)) override.loud = value.loud;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
   return override;

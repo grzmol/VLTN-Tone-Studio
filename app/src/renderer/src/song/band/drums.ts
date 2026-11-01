@@ -16,7 +16,7 @@ import { barBeats, barStarts, clampVelocity, planIndexAt, stepAt } from "./timin
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
-/** The kick and crash that end the song. */
+/** The kick and crash that end the song, before the section's loud level scales them. */
 const ENDING_VELOCITY = 110;
 const CRASH_VELOCITY = 110;
 /** A follow push is a kick a little softer than the groove's own. A hit beat's kick is as loud as the ending's. */
@@ -30,6 +30,10 @@ const CRASH_MIN_ENERGY = 3;
 const HALF_FILL_MAX_ENERGY = 3;
 /** A variation lasts this many bars, picked at random each time one ends. */
 const VARIATION_BARS: readonly [4, 8] = [4, 8];
+/** How much a section's loud level scales the hits. Loud 3 is the groove as written. */
+export const LOUD_DRUM_SCALE: Readonly<Record<Energy, number>> = { 1: 0.7, 2: 0.85, 3: 1, 4: 1.08, 5: 1.15 };
+/** A ghost note stays below this velocity, whatever the loud level, so it is still a ghost. */
+const GHOST_CEILING = 49;
 
 /** The variation a plan is playing, how many bars it has left, and the follow pushes it adds to every bar. */
 interface Segment {
@@ -110,8 +114,9 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
 
     if (k === starts.length - 1) {
       if (!quiet(start)) {
-        emit(beats[start], KICK, ENDING_VELOCITY);
-        emit(beats[start], CRASH, CRASH_VELOCITY);
+        const scale = LOUD_DRUM_SCALE[plan.loud];
+        emit(beats[start], KICK, ENDING_VELOCITY * scale);
+        emit(beats[start], CRASH, CRASH_VELOCITY * scale);
       }
       continue;
     }
@@ -151,7 +156,9 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
 
       const at = stepAt(beats, style, start, hit.step, groove.steps, perBar, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
-      emit(at.time, hit.pitch, hit.velocity);
+      let velocity = hit.velocity * LOUD_DRUM_SCALE[plan.loud];
+      if (hit.ghost) velocity = Math.min(velocity, GHOST_CEILING);
+      emit(at.time, hit.pitch, velocity);
     }
   }
 

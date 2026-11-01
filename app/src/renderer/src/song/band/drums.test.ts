@@ -26,6 +26,7 @@ function plan(startBeat: number, endBeat: number, overrides: Partial<SectionPlan
     end: endBeat * 0.5,
     style: "rock",
     energy: 3,
+    loud: 3,
     fill: false,
     play: { drums: true, bass: true },
     ...overrides,
@@ -403,5 +404,33 @@ describe("generateDrums with follow-my-playing", () => {
     const feel = feelOf({ profiles: [accents([0, 6, 12])], stops: new Set([8, 9]), hits: new Set([10]) });
     const plans = [plan(0, 33)];
     expect(generateDrums(grid, plans, settingsFor(), 5, feel)).toEqual(generateDrums(grid, plans, settingsFor(), 5, feel));
+  });
+});
+
+describe("generateDrums by section loud", () => {
+  const grid = steady(64);
+  /** The same notes at each loud level, keyed by time and pitch. Loud draws nothing, so the notes are the same but for the velocity. */
+  const byLoud = (loud: SectionPlan["loud"]): Map<string, number> => {
+    const notes = generateDrums(grid, [plan(0, 64, { style: "funk", energy: 3, loud, fill: false })], settingsFor(), 30);
+    return new Map(notes.map((note) => [`${note.time}:${note.pitch}`, note.velocity]));
+  };
+  const at3 = byLoud(3);
+
+  it("scales every hit by its loud level, and leaves loud 3 as written", () => {
+    const scale: Record<SectionPlan["loud"], number> = { 1: 0.7, 2: 0.85, 3: 1, 4: 1.08, 5: 1.15 };
+    for (const loud of [1, 2, 4, 5] as const) {
+      const scaled = byLoud(loud);
+      expect(scaled.size, `loud ${loud} has the same hits`).toBe(at3.size);
+      for (const [key, velocity] of at3) {
+        expect(scaled.get(key), `${key} at loud ${loud}`).toBe(Math.min(127, Math.max(1, Math.round(velocity * scale[loud]))));
+      }
+    }
+  });
+
+  it("keeps a ghost note below 50 at the loudest level", () => {
+    const ghosts = [...at3].filter(([, velocity]) => velocity <= 49);
+    expect(ghosts.length).toBeGreaterThan(0);
+    const at5 = byLoud(5);
+    for (const [key] of ghosts) expect(at5.get(key), key).toBeLessThan(50);
   });
 });

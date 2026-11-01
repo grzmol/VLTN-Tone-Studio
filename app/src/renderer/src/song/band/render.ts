@@ -7,7 +7,7 @@
 
 import type { PcmAudio } from "../types";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, PEDAL_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
-import { pickBassSample, pickDrumSample, type SampleSet } from "./samples";
+import { pickBassLayers, pickDrumSample, type SampleSet } from "./samples";
 
 /** The sample rate of a rendered part: the song's rate. */
 export const RENDER_RATE = 44100;
@@ -129,24 +129,26 @@ function drumVoices(notes: readonly NoteEvent[], samples: SampleSet, sampleRate:
   });
 }
 
-/** One voice per bass note, centred. A note is held for its duration, released, and cut at once if the next note starts first. */
+/**
+ * Voices for the bass notes, centred. A note is held for its duration, released, and cut at once if the next note starts first. Between
+ * the soft and hard velocities a note is two voices, one per layer, each at its crossfade weight.
+ */
 function bassVoices(notes: readonly NoteEvent[], samples: SampleSet, sampleRate: number): Voice[] {
   const starts = notes.map((note) => Math.round(note.time * sampleRate));
   const release = Math.round(BASS_RELEASE_SECONDS * sampleRate);
   const cutFade = Math.round(CUT_SECONDS * sampleRate);
   const [left, right] = panGains(0);
-  return notes.map((note, index) => {
+  return notes.flatMap((note, index) => {
     const start = starts[index];
-    const pick = pickBassSample(samples, note.pitch, note.velocity);
     const next = index + 1 < starts.length ? starts[index + 1] : Infinity;
-    return {
+    return pickBassLayers(samples, note.pitch, note.velocity).map(({ pick, weight }) => ({
       sample: pick.audio,
       rate: (pick.playbackRate * pick.audio.sampleRate) / sampleRate,
-      gain: 1,
+      gain: weight,
       left,
       right,
       shape: { start, holdEnd: start + Math.round(note.duration * sampleRate), release, cutAt: next, cutFade },
-    };
+    }));
   });
 }
 

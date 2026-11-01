@@ -108,19 +108,58 @@ export function pickDrumSample(set: SampleSet, pitch: number, velocity: number):
   return { audio: layer.audio, gain: clampVelocity(velocity) / layer.nominal, transpose: layer.transpose };
 }
 
-/** The nearest root, its layer for the velocity, and the rate that moves the sample to the note (equal temperament). */
-export function pickBassSample(set: SampleSet, midi: number, velocity: number): BassPick {
+/** The root of the sample nearest the note. Throws when no bass samples are loaded. */
+function nearestBassRoot(set: SampleSet, midi: number): number {
   let root: number | undefined;
   for (const sample of set.bass) {
     if (root === undefined || Math.abs(sample.root - midi) < Math.abs(root - midi)) root = sample.root;
   }
   if (root === undefined) throw new Error("No bass samples are loaded.");
+  return root;
+}
+
+/** The nearest root, its layer for the velocity, and the rate that moves the sample to the note (equal temperament). */
+export function pickBassSample(set: SampleSet, midi: number, velocity: number): BassPick {
+  const root = nearestBassRoot(set, midi);
   const sample = layerFor(
     set.bass.filter((s) => s.root === root),
     clampVelocity(velocity),
   );
   if (!sample) throw new Error(`No bass layer for root ${root}.`);
   return { audio: sample.audio, playbackRate: 2 ** ((midi - root) / 12) };
+}
+
+/** Below this velocity a bass note is the soft layer alone. */
+export const BASS_CROSSFADE_FROM = 66;
+/** Above this velocity a bass note is the hard layer alone. Between the two, both layers sound. */
+export const BASS_CROSSFADE_TO = 86;
+
+/** One bass layer that sounds, with its weight in the mix. */
+export interface BassLayerMix {
+  pick: BassPick;
+  weight: number;
+}
+
+/**
+ * The layers a bass note plays. Below BASS_CROSSFADE_FROM only the soft (p) layer, above BASS_CROSSFADE_TO only the hard (f) layer, and
+ * between them both, with equal-power weights so the level does not dip at the middle. A root with only one layer plays that layer alone,
+ * as pickBassSample does.
+ */
+export function pickBassLayers(set: SampleSet, midi: number, velocity: number): BassLayerMix[] {
+  const v = clampVelocity(velocity);
+  const root = nearestBassRoot(set, midi);
+  const playbackRate = 2 ** ((midi - root) / 12);
+  const soft = set.bass.find((s) => s.root === root && s.layer === "p");
+  const hard = set.bass.find((s) => s.root === root && s.layer === "f");
+  if (!soft || !hard || v <= BASS_CROSSFADE_FROM || v >= BASS_CROSSFADE_TO) {
+    return [{ pick: pickBassSample(set, midi, v), weight: 1 }];
+  }
+  const t = (v - BASS_CROSSFADE_FROM) / (BASS_CROSSFADE_TO - BASS_CROSSFADE_FROM);
+  const angle = (t * Math.PI) / 2;
+  return [
+    { pick: { audio: soft.audio, playbackRate }, weight: Math.cos(angle) },
+    { pick: { audio: hard.audio, playbackRate }, weight: Math.sin(angle) },
+  ];
 }
 
 /**

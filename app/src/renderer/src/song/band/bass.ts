@@ -42,7 +42,14 @@ const SPARSE_MAX_BEATS = 2;
 const CHROMATIC_FROM = 2 / 3;
 /** A variation lasts this many bars, picked at random each time one ends. */
 const VARIATION_BARS: readonly [4, 8] = [4, 8];
-const VELOCITY = { first: 95, other: 85, approach: 75 } as const;
+/** The base velocity of a bass note at each loud level of its section, from soft (1) to hard (5). */
+export const LOUD_VELOCITY: Readonly<Record<Energy, number>> = { 1: 45, 2: 60, 3: 75, 4: 92, 5: 110 };
+/** A downbeat is played this much harder than the rest of its loud level. */
+const DOWNBEAT_ACCENT = 8;
+/** A note locked to the kick is played this much harder. */
+const KICK_ACCENT = 5;
+/** An approach note is played this much softer, so it leads in without taking the line. */
+const APPROACH_DIP = -10;
 const VELOCITY_JITTER = 4;
 
 /** Intervals above the root, in semitones. A missing third or seventh is null. */
@@ -71,6 +78,12 @@ interface Slot {
   last: boolean;
   /** The first step of the bar, or the middle one. */
   strong: boolean;
+  /** The first step of the bar: the downbeat. */
+  downbeat: boolean;
+  /** The step is one the kick locks the bass to, so the bass lands with the kick. */
+  locked: boolean;
+  /** The section's loud level, which sets the note's base velocity. */
+  loud: Energy;
   /** The chord changed since the step before. This step plays the new bass note in every mode. */
   forced: boolean;
   /** An off-beat step that takes the fifth in roots-fifths. The off-beat steps alternate fifth and root. */
@@ -190,9 +203,9 @@ function noteLength(slot: Slot, nextTime: number, beatLength: number, energy: En
   return Math.max(MIN_DURATION, Math.min(length, slot.barEnd - slot.time));
 }
 
-/** The steps of a locked bar: the step nearest each kick within the window, and the first step always. Sorted. */
-function lockedSteps(kicks: readonly NoteEvent[], points: readonly { time: number }[]): number[] {
-  const matched = new Set<number>([0]);
+/** The steps nearest each kick within the window. A step is matched once, however many kicks land on it. */
+function kickSteps(kicks: readonly NoteEvent[], points: readonly { time: number }[]): Set<number> {
+  const matched = new Set<number>();
   for (const kick of kicks) {
     let nearest = -1;
     let nearestGap = Infinity;
@@ -205,7 +218,7 @@ function lockedSteps(kicks: readonly NoteEvent[], points: readonly { time: numbe
     });
     if (nearestGap <= LOCK_WINDOW) matched.add(nearest);
   }
-  return [...matched].sort((a, b) => a - b);
+  return matched;
 }
 
 /** One step per beat of the bar: "quarter notes", the walking rhythm. */
@@ -260,6 +273,9 @@ function buildSlots(
           index: 0,
           last: true,
           strong: true,
+          downbeat: true,
+          locked: false,
+          loud: plan.loud,
           forced: false,
           fifth: false,
           ending: true,
@@ -284,7 +300,8 @@ function buildSlots(
     let rhythm = walking ? quarterSteps(steps, perBar) : variations[segment.rhythm];
     const kicks = settings.lockToKick ? kick.filter((note) => note.time >= beats[start] - LOCK_WINDOW && note.time < end - LOCK_WINDOW) : [];
     const accent = feel ? feel.profiles[planIndex] : undefined;
-    if (kicks.length > 0) rhythm = lockedSteps(kicks, points);
+    const locked = kicks.length > 0 ? kickSteps(kicks, points) : new Set<number>();
+    if (kicks.length > 0) rhythm = [...new Set([0, ...locked])].sort((a, b) => a - b);
     else if (isAccented(accent) && !walking) rhythm = bassRhythmFromAccents(accent.weights, style.meter.stepsPerBeat, perBar);
     if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, steps)];
 
@@ -306,6 +323,9 @@ function buildSlots(
         index,
         last: index === stepList.length - 1,
         strong,
+        downbeat: step === 0,
+        locked: locked.has(step),
+        loud: plan.loud,
         forced,
         fifth: !strong && !forced && offBeat % 2 === 1,
         ending: false,
@@ -344,13 +364,13 @@ export function generateBass(
     if (!slot.chord) return;
     const next = slots[i + 1];
     const { pitch, approach } = pitchOf(slot, slot.chord, next, previous, settings, range);
-    const base = approach ? VELOCITY.approach : slot.index === 0 ? VELOCITY.first : VELOCITY.other;
+    const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0);
     const jitter = random.int(2 * VELOCITY_JITTER + 1) - VELOCITY_JITTER;
     const nextTime = next ? next.time : slot.barEnd;
     notes.push({
       time: slot.time,
       pitch,
-      velocity: clampVelocity(base + jitter),
+      velocity: clampVelocity(LOUD_VELOCITY[slot.loud] + accent + jitter),
       duration: noteLength(slot, nextTime, beatSpan(grid.beats, slot.beat), slot.energy),
     });
     previous = pitch;
