@@ -362,6 +362,7 @@ If the grid is wrong, correct it:
 - **Ghost notes** adds soft snare hits between the backbeats. **Crash on section starts** puts a crash at the start of each section.
 - **Bass range** is low, normal or high.
 - **Default bass part** is the part a section plays when it is on Auto and Auto has no rule of its own. See [The bass part](#the-bass-part).
+- **Bass notes from** is **Original bass** by default, or **Chords**. Original bass plays the note the song's own bass stem plays on each beat, where the analysis could hear one; the chord still sets the quality of the notes around it. A beat with no clear bass note keeps the chord's own bass, and a song with no bass stem always does. Chords plays each chord's own bass, which is the one a slash chord names. Under each chord change in the grid, the strip shows the bass note when it is not the chord's root, so you can see where the bass differs.
 - **Lock bass to kick** makes the bass land on the kick.
 - **Humanise** adds small timing and velocity variation. **Feel** is the style default, Tight, Natural, Laid back or Pushed.
 - **Follow my playing** takes the parts' accents from your playing. **Follow source** picks the stem to listen to: Auto, or a stem that the split made. In Auto, a song whose sections show no clear accents is not followed. When a part cannot follow, the panel says why after Generate, and the part keeps its normal feel.
@@ -391,6 +392,7 @@ The parts are normal tracks in the mixer, so you can mute, solo or set their vol
 **Limits.**
 
 - The chords come from the chart, or from chord detection when the chart has none. Detection names the common chord types and slash basses (see [Lyrics and chords](#lyrics-and-chords)). If neither gives chords, the bass rests, and the panel says so.
+- The bass notes come from the bass stem when the song has one, and from the chords otherwise. The bass stem is read once per beat, so a beat with two different notes gets the one that sounds for most of it. Check the strip where the bass differs from the chord.
 - A song with no click may need beat corrections before its parts line up. Check the first and last bars of each section.
 - Listen before a show. Preview a few sections, then check the whole song.
 
