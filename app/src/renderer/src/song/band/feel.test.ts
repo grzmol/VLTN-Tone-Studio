@@ -32,6 +32,7 @@ function grid(bars: number): BeatGrid {
 function planBars(first: number, last: number): SectionPlan {
   return {
     sectionId: null,
+    name: "",
     start: first * 2,
     end: last * 2,
     style: "rock",
@@ -41,6 +42,8 @@ function planBars(first: number, last: number): SectionPlan {
     bassPart: "groove",
     bassRamp: false,
     octave: 0,
+    fills: 0,
+    hitTheOne: false,
     fill: false,
     play: { drums: true, bass: true },
   };

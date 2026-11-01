@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Section } from "../performance/sections";
 import {
   DEFAULT_BAND_SETTINGS,
+  defaultFills,
   energyForName,
   isBandSettings,
   parseBandSettings,
@@ -381,5 +382,38 @@ describe("section bass parts", () => {
     expect(parseBandSettings({ bassFeel: 2 }).bassFeel).toBe(DEFAULT_BAND_SETTINGS.bassFeel);
     expect(DEFAULT_BAND_SETTINGS.bassFeel).toBe(0.5);
     expect(isBandSettings({ ...settings(), bassFeel: -1 })).toBe(false);
+  });
+});
+
+describe("bass fills and hit the one", () => {
+  const song = [section("i", "Intro", 0, 20), section("v", "Verse", 20, 40), section("c", "Chorus", 40, 60), section("c2", "Chorus", 60, 80)];
+
+  it("defaults the fills by name: none for an intro or an outro, most for a chorus", () => {
+    expect(defaultFills("Intro")).toBe(0);
+    expect(defaultFills("Outro")).toBe(0);
+    expect(defaultFills("Verse")).toBe(1);
+    expect(defaultFills("Pre-Chorus")).toBe(1);
+    expect(defaultFills("Chorus")).toBe(2);
+    expect(defaultFills("Bridge")).toBe(1);
+    expect(defaultFills("Breakdown")).toBe(1);
+  });
+
+  it("hits the one on a chorus that follows another kind of section, and not on a chorus after a chorus", () => {
+    const plans = planSections(song, 80, settings());
+    expect(plans.map((plan) => plan.fills)).toEqual([0, 1, 2, 2]);
+    expect(plans.map((plan) => plan.hitTheOne)).toEqual([false, false, true, false]);
+    expect(plans[1].name).toBe("Verse");
+  });
+
+  it("takes a section's fills and hit the one from its overrides", () => {
+    const plans = planSections(song, 80, settings({ sections: { c: { fills: 0, hitTheOne: false }, v: { fills: 3 } } }));
+    expect(plans[1].fills).toBe(3);
+    expect(plans[2]).toMatchObject({ fills: 0, hitTheOne: false });
+  });
+
+  it("parses fills and hit the one defensively", () => {
+    expect(parseBandSettings({ sections: { a: { fills: 2, hitTheOne: true } } }).sections).toEqual({ a: { fills: 2, hitTheOne: true } });
+    expect(parseBandSettings({ sections: { a: { fills: 4, hitTheOne: "yes" } } }).sections).toEqual({});
+    expect(isBandSettings({ ...settings(), sections: { a: { fills: 1.5 } } })).toBe(false);
   });
 });

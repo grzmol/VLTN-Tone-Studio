@@ -10,6 +10,7 @@
 
 import type { BandSettings, BassMode, SectionPlan } from "./arrangement";
 import { OCTAVE_SHIFTS, pedalSteps, pulseSteps, ringSteps, type BarStep, type BassPart, type OctaveShift } from "./bass-parts";
+import { chooseVariation, leadSteps, phraseBars, isPhraseEnd, variationSeed, variationSteps, walkDown, type VariantNote } from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
 import { bassRhythmFromAccents, hitSteps, isAccented, type Feel } from "./feel";
 import type { ChordQuality, ChordSeventh, ChordAtBeat, ParsedChord } from "./harmony";
@@ -56,6 +57,8 @@ const KICK_ACCENT = 5;
 /** An approach note is played this much softer, so it leads in without taking the line. */
 const APPROACH_DIP = -10;
 const VELOCITY_JITTER = 4;
+/** The first note of a section that hits the one is this much harder. */
+const HIT_ONE_ACCENT = 6;
 
 /** Intervals above the root, in semitones. A missing third or seventh is null. */
 const THIRD: Record<ChordQuality, number | null> = { major: 4, minor: 3, dim: 3, aug: 4, sus2: 2, sus4: 5, power: null };
@@ -98,6 +101,16 @@ interface Slot {
   downbeat: boolean;
   /** The step is one the kick locks the bass to, so the bass lands with the kick. */
   locked: boolean;
+  /** A phrase variation or lead-in note: its kind, its place in the run, and the note it leads to. */
+  variant?: Variant;
+  /** The section's first note, which hits the one: it holds to the next chord change, and is harder. */
+  hitOne: boolean;
+  /** Song time the held note ends at, when it hits the one. */
+  holdUntil: number;
+  /** The section's name, and which time round it is (0 for the first). A name that appears twice repeats its jitter stream. */
+  name: string;
+  occurrence: number;
+  repeats: boolean;
   /** The chord changed since the step before. This step plays the new bass note in every mode. */
   forced: boolean;
   /** An off-beat step that takes the fifth in roots-fifths. The off-beat steps alternate fifth and root. */
@@ -110,6 +123,15 @@ interface Slot {
   barEnd: number;
   /** Bass pitch class of the chord on the next bar's downbeat. Walking lines head toward it. Null past the end of the grid or on a rest. */
   nextBarBass: number | null;
+}
+
+/** A variant note as bass.ts places it: its kind, offset, the pitch class it leads to, the chord quality and whether it walks by semitones. */
+interface Variant {
+  kind: VariantNote["kind"];
+  offset: number;
+  target: number | null;
+  quality: ChordQuality;
+  chromatic: boolean;
 }
 
 interface Picked {
@@ -228,18 +250,21 @@ function ownSteps(part: BassPart, busy: Energy, steps: number, stepsPerBeat: num
 }
 
 /**
- * How long a note lasts, in seconds. Ring lasts to the next note. Pulse, groove and melodic last a share of the step to the next note,
- * rising with the loud level, and walking a fixed share. Pedal lasts to the bar end. The bass feel scales the result, and the note never
- * runs past the next note less a gap, or past its bar.
+ * How long a note lasts, in seconds. A hit-the-one note holds to the next chord change or the bar end. Ring lasts to the next note. Pulse,
+ * groove, melodic and a variant note last a share of the step to the next note, rising with the loud level, and walking a fixed share.
+ * Pedal lasts to the bar end. The bass feel scales the result, and the note never runs past the next note less a gap, or past its bar.
  */
 function noteLength(slot: Slot, nextTime: number, feel: number): number {
   if (slot.ending) return slot.barEnd - slot.time;
   const gap = nextTime - slot.time;
   const bar = slot.barEnd - slot.time;
+  // A hit-the-one note holds past the next note, which the renderer cuts short at its attack.
+  if (slot.hitOne) return Math.max(MIN_DURATION, Math.min(slot.holdUntil - slot.time - NOTE_GAP, bar));
   const level = (slot.loud - 1) / 4;
   const share = (range: readonly [number, number]): number => range[0] + (range[1] - range[0]) * level;
   let length: number;
-  if (slot.part === "ring") length = gap;
+  if (slot.variant) length = gap * share(GROOVE_SHARE);
+  else if (slot.part === "ring") length = gap;
   else if (slot.part === "pedal") length = bar;
   else if (slot.part === "pulse") length = gap * share(PULSE_SHARE);
   else if (slot.walking) length = gap * WALKING_SHARE;
@@ -272,9 +297,25 @@ function quarterSteps(steps: number, perBar: number): number[] {
 }
 
 /**
+ * The notes of a phrase variant or a lead-in, with the pitch they land on. A pickup and a run walk to the root of the next bar, a pop is
+ * the chord's root an octave up when that fits, and a lead walks to the next section's root.
+ */
+function variantPitch(chord: ParsedChord, variant: Variant, previous: number, range: Range): Picked {
+  if (variant.kind === "pop") {
+    const base = nearestOctave(chord.bass, previous, range, false);
+    return { pitch: base + 12 <= range.high ? base + 12 : base, approach: false };
+  }
+  const root = nearestOctave(variant.target ?? chord.bass, previous, range, false);
+  if (variant.kind === "pickup") return { pitch: root, approach: true };
+  const note = walkDown(root, variant.offset, variant.quality, variant.chromatic);
+  return { pitch: note >= range.low ? note : root, approach: variant.kind === "run" };
+}
+
+/**
  * The steps that can sound, in time order, for every bar with bass on. A bar belongs to the plan covering its first beat. The pickup is
  * silent, the last bar of the song is one held note on its downbeat, and a rest part plays nothing. With `feel`, the rhythm follows the
- * accents unless the bass locks to the kick, a stop is silent, and a hit beat always gets a note.
+ * accents unless the bass locks to the kick, a stop is silent, and a hit beat always gets a note. A phrase closes with a variation in its
+ * last bar, and a section that changes to another one leads into it in the second half of its last bar.
  */
 function buildSlots(
   grid: BeatGrid,
@@ -284,6 +325,7 @@ function buildSlots(
   kick: readonly NoteEvent[],
   random: Random,
   feel: Feel | undefined,
+  seed: number,
 ): Slot[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
@@ -291,15 +333,27 @@ function buildSlots(
   const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
   const barsInPlan = new Map<number, number>();
   for (const index of planOf) if (index >= 0) barsInPlan.set(index, (barsInPlan.get(index) ?? 0) + 1);
+  // Each plan's occurrence of its name, counted from the first time round. A name that appears twice repeats.
+  const nameCount = new Map<string, number>();
+  for (const plan of plans) nameCount.set(plan.name, (nameCount.get(plan.name) ?? 0) + 1);
+  const seenName = new Map<string, number>();
+  const occurrence = plans.map((plan) => {
+    const before = seenName.get(plan.name) ?? 0;
+    seenName.set(plan.name, before + 1);
+    return plan.name === "" ? 0 : before;
+  });
   const slots: Slot[] = [];
   const chordAt = (beat: number): ParsedChord | null => harmony[beat]?.chord ?? null;
   const nameAt = (beat: number): string | null => chordAt(beat)?.name ?? null;
 
+  // The first segment of each section's first time round. A repeat plays the same rhythm and length for its first bars.
+  const firstSegment = new Map<string, { rhythm: number; barsLeft: number }>();
   let segment: Segment | null = null;
   let previousBeat = -1;
   let currentPlan = -2;
   let barInPlan = 0;
   let pedalChord: ParsedChord | null = null;
+  let phraseRandom = createRandom(0);
 
   for (let k = 0; k < starts.length; k++) {
     const start = starts[k];
@@ -310,6 +364,7 @@ function buildSlots(
       // A pedal holds the chord the section starts on, whatever the chords do after it.
       const first = planIndex >= 0 ? beats.findIndex((time) => time >= plans[planIndex].start - 1e-9) : -1;
       pedalChord = first >= 0 ? chordAt(first) : null;
+      if (planIndex >= 0) phraseRandom = createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex]));
     } else {
       barInPlan += 1;
     }
@@ -340,6 +395,11 @@ function buildSlots(
           strong: true,
           downbeat: true,
           locked: false,
+          hitOne: false,
+          holdUntil: end,
+          name: plan.name,
+          occurrence: occurrence[planIndex],
+          repeats: nameCount.get(plan.name)! > 1,
           forced: false,
           fifth: false,
           role: "root",
@@ -362,7 +422,15 @@ function buildSlots(
 
     const variations = style.bass.rhythms[plan.busy];
     if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
-      segment = { plan: planIndex, rhythm: random.int(variations.length), barsLeft: random.pick(VARIATION_BARS) };
+      const repeat: { rhythm: number; barsLeft: number } | undefined = occurrence[planIndex] > 0 ? firstSegment.get(plan.name) : undefined;
+      if (repeat) {
+        segment = { plan: planIndex, rhythm: repeat.rhythm, barsLeft: repeat.barsLeft };
+      } else {
+        segment = { plan: planIndex, rhythm: random.int(variations.length), barsLeft: random.pick(VARIATION_BARS) };
+        if (occurrence[planIndex] === 0 && plan.name !== "" && !firstSegment.has(plan.name)) {
+          firstSegment.set(plan.name, { rhythm: segment.rhythm, barsLeft: segment.barsLeft });
+        }
+      }
     }
     segment.barsLeft -= 1;
 
@@ -396,8 +464,49 @@ function buildSlots(
     }
     if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, steps)];
 
+    // The phrase variations and the lead-in. The lead-in takes the second half of the section's last bar, and the variation a phrase's last bar.
+    const quality = chordAt(start)?.quality ?? "major";
+    const chromatic = plan.busy >= 4;
+    const variants = new Map<number, Variant>();
+    const nextPlan = plans[planIndex + 1];
+    let leadTarget: number | null = null;
+    if (
+      barInPlan === planBars - 1 &&
+      nextPlan &&
+      nextPlan.name !== plan.name &&
+      plan.fills >= 1 &&
+      nextPlan.play.bass &&
+      nextPlan.bassPart !== "rest" &&
+      !lead
+    ) {
+      const firstBeat = beats.findIndex((time) => time >= nextPlan.start - 1e-9);
+      const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
+      const quiet = Array.from({ length: perBar }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
+      if (first && !quiet) leadTarget = first.bass;
+    }
+    if (leadTarget !== null) {
+      rhythm = rhythm.filter((step) => step < steps / 2);
+      for (const note of leadSteps(plan.busy, steps)) variants.set(note.step, { kind: "lead", offset: note.offset, target: leadTarget, quality, chromatic });
+    } else if (!lead && plan.fills > 0 && isPhraseEnd(barInPlan, planBars)) {
+      const phrase = Math.floor(barInPlan / phraseBars(planBars));
+      const variation = chooseVariation(plan.fills, part, phrase, phraseRandom);
+      if (variation) {
+        const change = variationSteps(variation, steps, style.meter.stepsPerBeat, phraseRandom);
+        rhythm = rhythm.filter((step) => !change.remove.includes(step));
+        for (const note of change.add) {
+          const target = note.kind === "pop" ? null : nextBarBass;
+          if (note.kind !== "pop" && target === null) continue;
+          variants.set(note.step, { kind: note.kind, offset: note.offset, target, quality, chromatic });
+        }
+      }
+    }
+
     const silent = (step: number): boolean => feel?.stops.has(points[step].beat) ?? false;
-    const stepList = [...new Set(rhythm)].filter((step) => step >= 0 && step < steps && !silent(step)).sort((a, b) => a - b);
+    const stepList = [...new Set([...rhythm, ...variants.keys()])].filter((step) => step >= 0 && step < steps && !silent(step)).sort((a, b) => a - b);
+    const holdEnd = (beat: number): number => {
+      for (let b = beat + 1; b < start + perBar && b < beats.length; b++) if (nameAt(b) !== nameAt(beat)) return beats[b];
+      return end;
+    };
     let offBeat = 0;
     stepList.forEach((step, index) => {
       const point = points[step];
@@ -406,10 +515,11 @@ function buildSlots(
       const pedal = part === "pedal";
       const forced = !pedal && previousBeat >= 0 && nameAt(previousBeat) !== nameAt(point.beat);
       if (!strong && !forced) offBeat += 1;
+      const hitOne = plan.hitTheOne && barInPlan === 0 && index === 0;
       slots.push({
         time: point.time,
         beat: point.beat,
-        chord: pedal ? pedalChord : chordAt(point.beat),
+        chord: pedal && !variants.has(step) ? pedalChord : chordAt(point.beat),
         style,
         plan: planIndex,
         part,
@@ -422,9 +532,15 @@ function buildSlots(
         strong,
         downbeat: step === 0,
         locked: locked.has(step),
+        hitOne,
+        holdUntil: hitOne ? holdEnd(point.beat) : end,
+        name: plan.name,
+        occurrence: occurrence[planIndex],
+        repeats: nameCount.get(plan.name)! > 1,
         forced,
         fifth: !strong && !forced && offBeat % 2 === 1,
         role: roles.get(step) ?? "root",
+        variant: variants.get(step),
         ending: false,
         barEnd: end,
         nextBarBass,
@@ -440,6 +556,10 @@ function buildSlots(
  * Bass notes for the whole song, sorted by time. Rests come from null chords. Each note's octave is picked from the note before it,
  * starting from the middle of the range. Velocities are jittered from the seed. A section's octave shift is applied to all its notes,
  * or to none of them when any would leave the range.
+ *
+ * The jitter of a main note comes from one stream, so a note added in one bar moves no note in another. A section that repeats its name
+ * restarts its own stream each time round, so its notes match its first time round wherever they are not varied. A variant note has
+ * its own jitter, seeded by its place.
  */
 export function generateBass(
   grid: BeatGrid,
@@ -453,26 +573,41 @@ export function generateBass(
   if (grid.beats.length === 0 || plans.length === 0) return [];
 
   const random = createRandom(seed);
-  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel);
+  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed);
   const range = BASS_NOTE_RANGES[settings.bassRange];
   let previous = range.centre;
+  const streams = new Map<string, { occurrence: number; random: Random }>();
+  const jitter = (slot: Slot): number => {
+    let source = random;
+    if (slot.variant) source = createRandom(variationSeed(seed, "variant", slot.beat * 128 + slot.index));
+    else if (slot.repeats) {
+      const stream = streams.get(slot.name);
+      if (!stream || stream.occurrence !== slot.occurrence) {
+        source = createRandom(variationSeed(seed, slot.name, 0));
+        streams.set(slot.name, { occurrence: slot.occurrence, random: source });
+      } else source = stream.random;
+    }
+    return source.int(2 * VELOCITY_JITTER + 1) - VELOCITY_JITTER;
+  };
   const picked: { slot: Slot; pitch: number; velocity: number; duration: number; time: number }[] = [];
 
   slots.forEach((slot, i) => {
     if (!slot.chord) return;
     const next = slots[i + 1];
-    const { pitch, approach } = pitchOf(slot, slot.chord, next, previous, range, settings);
-    const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0);
-    const jitter = random.int(2 * VELOCITY_JITTER + 1) - VELOCITY_JITTER;
+    const { pitch, approach } = slot.variant
+      ? variantPitch(slot.chord, slot.variant, previous, range)
+      : pitchOf(slot, slot.chord, next, previous, range, settings);
+    const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0) + (slot.hitOne ? HIT_ONE_ACCENT : 0);
     const nextTime = next ? next.time : slot.barEnd;
     picked.push({
       slot,
       pitch,
-      velocity: clampVelocity(LOUD_VELOCITY[slot.loud] + accent + jitter),
+      velocity: clampVelocity(LOUD_VELOCITY[slot.loud] + accent + jitter(slot)),
       duration: noteLength(slot, nextTime, settings.bassFeel),
       time: slot.time,
     });
-    previous = pitch;
+    // A variant note does not move the voice leading, so the bars after it play as they would without it.
+    if (!slot.variant) previous = pitch;
   });
 
   // An octave shift is all or nothing per section: if any of its notes would leave the range, the section keeps its own octave.

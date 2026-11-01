@@ -85,6 +85,8 @@ export interface PartToggles {
 export interface SectionPlan {
   /** The section this plan came from, or null when the song has no sections. */
   sectionId: string | null;
+  /** The section's name, which the bass checks for a change into the next section. Empty for a song without sections. */
+  name: string;
   start: number;
   end: number;
   style: StyleId;
@@ -99,6 +101,10 @@ export interface SectionPlan {
   bassLead?: BassLead;
   /** True when the last two bars of the section push the loud level up by one (a pre-chorus building). */
   bassRamp: boolean;
+  /** How many phrase variations the bass plays, 0 (none) to 3 (one in every phrase, up to four notes). */
+  fills: Fills;
+  /** The first note of the section is long and hit harder. True for a chorus that follows a section of another kind. */
+  hitTheOne: boolean;
   /** The octave the section's bass is moved by, within the range. */
   octave: OctaveShift;
   /** A fill on the section's last bar. */
@@ -107,7 +113,22 @@ export interface SectionPlan {
 }
 
 /** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
-export type SectionOverride = Partial<Omit<SectionPlan, "bassPart" | "bassLead" | "bassRamp">> & { bassPart?: BassPartChoice };
+export type SectionOverride = Partial<Omit<SectionPlan, "name" | "bassPart" | "bassLead" | "bassRamp">> & { bassPart?: BassPartChoice };
+
+/** The bass fills a section can have: 0 (none) to 3 (a variation in every phrase). */
+export type Fills = 0 | 1 | 2 | 3;
+export const FILLS: readonly Fills[] = [0, 1, 2, 3];
+
+/**
+ * The default fills for a section, from its name. An intro and an outro have none, a chorus has the most, and a verse, a pre-chorus, a
+ * bridge and any other section have one. The first match wins, so a pre-chorus is not taken for a chorus.
+ */
+export function defaultFills(name: string): Fills {
+  if (/intro|outro/i.test(name)) return 0;
+  if (/pre[\s-]*chorus/i.test(name)) return 1;
+  if (/chorus/i.test(name)) return 2;
+  return 1;
+}
 
 export interface BandSettings {
   parts: PartToggles;
@@ -206,6 +227,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
       ? autoBass(name, busy, chorusGroove, partForBassMode(settings.bassMode))
       : { part: choice, lead: undefined, rampLoud: false, octave: 0 as OctaveShift };
   return {
+    name,
     style: override.style ?? settings.style,
     energy,
     loud: override.loud ?? energy,
@@ -214,6 +236,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
     bassLead: bass.lead,
     bassRamp: bass.rampLoud,
     octave: override.octave ?? bass.octave,
+    fills: override.fills ?? defaultFills(name),
     play: override.play ? { ...override.play } : { ...settings.parts },
   };
 }
@@ -227,18 +250,31 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
   if (sections.length === 0) {
     // A song without sections is one plan, and its overrides are kept under WHOLE_SONG_ID like a section's are under its id.
     const override = settings.sections[WHOLE_SONG_ID] ?? {};
-    return [{ sectionId: null, start: 0, end: songEnd, fill: override.fill ?? true, ...playFields("", override, settings, chorusGroove) }];
+    return [
+      {
+        sectionId: null,
+        start: 0,
+        end: songEnd,
+        fill: override.fill ?? true,
+        hitTheOne: override.hitTheOne ?? false,
+        ...playFields("", override, settings, chorusGroove),
+      },
+    ];
   }
 
   const ordered = sortedSections(sections);
   return ordered.map((section, i) => {
     const next = ordered[i + 1];
+    const previous = ordered[i - 1];
     const override = settings.sections[section.id] ?? {};
+    // A chorus after a section that is not a chorus hits the one by default.
+    const followsOther = previous !== undefined && !isChorusName(previous.name);
     return {
       sectionId: section.id,
       start: i === 0 ? 0 : section.start,
       end: next ? next.start : Math.max(songEnd, section.end),
       fill: override.fill ?? (next ? isChorusName(next.name) : true),
+      hitTheOne: override.hitTheOne ?? (isChorusName(section.name) && followsOther),
       ...playFields(section.name, override, settings, chorusGroove),
     };
   });
@@ -253,6 +289,7 @@ const isSwing = (value: unknown): value is number => isInRange(value, 0, SWING_M
 const isSeed = (value: unknown): value is number => isInRange(value, 0, 0xffffffff) && Number.isInteger(value);
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
 const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
+const isFills = (value: unknown): value is Fills => FILLS.includes(value as Fills);
 const isBassPartChoice = (value: unknown): value is BassPartChoice => BASS_PART_CHOICES.includes(value as BassPartChoice);
 const isStyleId = (value: unknown): value is StyleId => STYLE_IDS.includes(value as StyleId);
 const isOneOf =
@@ -278,6 +315,8 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.loud, isEnergy) &&
     optional(value.busy, isEnergy) &&
     optional(value.octave, isOctave) &&
+    optional(value.fills, isFills) &&
+    optional(value.hitTheOne, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isBool) &&
     optional(value.play, isPartToggles)
@@ -414,6 +453,8 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isEnergy(value.loud)) override.loud = value.loud;
   if (isEnergy(value.busy)) override.busy = value.busy;
   if (isOctave(value.octave)) override.octave = value.octave;
+  if (isFills(value.fills)) override.fills = value.fills;
+  if (isBool(value.hitTheOne)) override.hitTheOne = value.hitTheOne;
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
