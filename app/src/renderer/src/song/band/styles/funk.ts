@@ -123,6 +123,7 @@ export const FUNK: Style = {
   },
   bass: {
     walking: false,
+    techniques: { slides: false, deadNotes: true, pickups: true },
     rhythms: {
       1: [[0, 11], [0]],
       2: [

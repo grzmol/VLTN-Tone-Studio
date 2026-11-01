@@ -24,7 +24,15 @@ const tempo = (microseconds: number) => [0xff, 0x51, 3, (microseconds >> 16) & 2
 
 describe("standard MIDI files", () => {
   it("places messages in seconds at the default 120 BPM", () => {
-    const messages = parseSmf(smf(0, 480, [[[0, 0x90, 60, 100], [480, 0x80, 60, 0], [480, 0xc0, 5]]]));
+    const messages = parseSmf(
+      smf(0, 480, [
+        [
+          [0, 0x90, 60, 100],
+          [480, 0x80, 60, 0],
+          [480, 0xc0, 5],
+        ],
+      ]),
+    );
     expect(messages).toEqual([
       { time: 0, bytes: [0x90, 60, 100] },
       { time: 0.5, bytes: [0x80, 60, 0] },
@@ -33,11 +41,31 @@ describe("standard MIDI files", () => {
   });
   it("follows a tempo change in the middle of the file", () => {
     // Half a second at 120 BPM, then a second per beat from tick 480 on.
-    const messages = parseSmf(smf(0, 480, [[[0, ...tempo(500_000)], [480, ...tempo(1_000_000)], [0, 0xb0, 7, 100], [480, 0xb0, 7, 0]]]));
+    const messages = parseSmf(
+      smf(0, 480, [
+        [
+          [0, ...tempo(500_000)],
+          [480, ...tempo(1_000_000)],
+          [0, 0xb0, 7, 100],
+          [480, 0xb0, 7, 0],
+        ],
+      ]),
+    );
     expect(messages.map((m) => m.time)).toEqual([0.5, 1.5]);
   });
   it("merges tracks of a format 1 file in time order", () => {
-    const messages = parseSmf(smf(1, 96, [[[0, ...tempo(500_000)], [96, 0xb0, 1, 1]], [[48, 0xc0, 2], [48, 0xc0, 3]]]));
+    const messages = parseSmf(
+      smf(1, 96, [
+        [
+          [0, ...tempo(500_000)],
+          [96, 0xb0, 1, 1],
+        ],
+        [
+          [48, 0xc0, 2],
+          [48, 0xc0, 3],
+        ],
+      ]),
+    );
     expect(messages).toEqual([
       { time: 0.25, bytes: [0xc0, 2] },
       { time: 0.5, bytes: [0xb0, 1, 1] },
@@ -45,17 +73,38 @@ describe("standard MIDI files", () => {
     ]);
   });
   it("reads running status and skips meta events other than tempo", () => {
-    const data = smf(0, 96, [[[0, 0xb0, 1, 10], [0, 0xb0, 1, 11]]]);
+    const data = smf(0, 96, [
+      [
+        [0, 0xb0, 1, 10],
+        [0, 0xb0, 1, 11],
+      ],
+    ]);
     expect(parseSmf(data).map((m) => m.bytes)).toEqual([
       [0xb0, 1, 10],
       [0xb0, 1, 11],
     ]);
-    const withText = smf(0, 96, [[[0, 0xff, 1, 2, 104, 105], [0, 0x90, 60, 90]]]);
+    const withText = smf(0, 96, [
+      [
+        [0, 0xff, 1, 2, 104, 105],
+        [0, 0x90, 60, 90],
+      ],
+    ]);
     expect(parseSmf(withText)).toEqual([{ time: 0, bytes: [0x90, 60, 90] }]);
   });
   it("keeps SysEx with or without its terminating F7 and song select, and drops real-time bytes", () => {
-    const file = smf(0, 96, [[[0, 0xf0, 3, 0x7d, 1, 0xf7], [0, 0xf0, 2, 0x7d, 1], [0, 0xf3, 4], [0, 0xf8]]]);
-    expect(parseSmf(file).map((m) => m.bytes)).toEqual([[0xf0, 0x7d, 1, 0xf7], [0xf0, 0x7d, 1, 0xf7], [0xf3, 4]]);
+    const file = smf(0, 96, [
+      [
+        [0, 0xf0, 3, 0x7d, 1, 0xf7],
+        [0, 0xf0, 2, 0x7d, 1],
+        [0, 0xf3, 4],
+        [0, 0xf8],
+      ],
+    ]);
+    expect(parseSmf(file).map((m) => m.bytes)).toEqual([
+      [0xf0, 0x7d, 1, 0xf7],
+      [0xf0, 0x7d, 1, 0xf7],
+      [0xf3, 4],
+    ]);
   });
   it("turns each message into a flagged cue for the scheduler", () => {
     const cues = smfCues(smf(0, 96, [[[96, 0x90, 60, 90]]]));
@@ -176,5 +225,26 @@ describe("exporting a standard MIDI file", () => {
     );
     expect(Array.from(file.slice(0, 14))).toEqual([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 3, 1, 0xe0]);
     expect(countOf(file, [0xff, 0x2f, 0])).toBe(3);
+  });
+  it("writes a pitch-bend ramp into a slide before its note, and resets the bend after the note", () => {
+    const slide: NoteEvent = { time: 1, pitch: 40, velocity: 100, duration: 0.3, slideFrom: 2 };
+    const messages = parseSmf(encodeSmf([{ name: "Bass", channel: 0, notes: [slide] }], steady));
+    const bends = messages.filter((message) => (message.bytes[0] & 0xf0) === 0xe0);
+    const values = bends.map((message) => message.bytes[1] | (message.bytes[2] << 7));
+    // Eight steps from two semitones down (0) up to centre (8192), then the reset to centre after the note.
+    expect(values).toHaveLength(10);
+    expect(values[0]).toBe(0);
+    expect(values[8]).toBe(8192);
+    expect(values.slice(0, 9)).toEqual([...values.slice(0, 9)].sort((a, b) => a - b));
+    expect(values[9]).toBe(8192);
+    const noteOn = messages.find((message) => (message.bytes[0] & 0xf0) === 0x90)!;
+    const noteOff = messages.find((message) => (message.bytes[0] & 0xf0) === 0x80)!;
+    expect(bends[0].time).toBeLessThan(noteOn.time);
+    expect(bends[9].time).toBeGreaterThanOrEqual(noteOff.time - 1e-6);
+  });
+
+  it("writes no pitch bend for a note that does not slide", () => {
+    const messages = parseSmf(encodeSmf([{ name: "Bass", channel: 0, notes: [note(1, 40)] }], steady));
+    expect(messages.filter((message) => (message.bytes[0] & 0xf0) === 0xe0)).toEqual([]);
   });
 });

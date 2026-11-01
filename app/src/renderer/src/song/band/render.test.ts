@@ -163,3 +163,54 @@ describe("renderPart: bass", () => {
     expect(Math.abs(crossings(left, Math.round(0.1 * RATE), Math.round(0.6 * RATE)) - 220)).toBeLessThanOrEqual(4);
   });
 });
+
+describe("bass slides and dead notes", () => {
+  // A sine at 1 kHz as the bass sample, read at the note's own pitch (root 40, rate 1) for the first test.
+  const tone = (hz: number) => ({ root: 40, layer: "p" as const, velocity: [1, 127] as [number, number], audio: sine(hz, 0.5) });
+  const crossingsIn = (audio: PcmAudio, fromMs: number, toMs: number): number => {
+    const channel = audio.channels[0];
+    let count = 0;
+    for (let i = Math.round((fromMs / 1000) * RATE) + 1; i < Math.round((toMs / 1000) * RATE); i++) {
+      if (channel[i - 1] < 0 && channel[i] >= 0) count++;
+    }
+    return count;
+  };
+  const samplesOf = (hz: number): SampleSet => ({ drums: new Map(), bass: [tone(hz)] });
+
+  it("rises into a slide: the first 40 ms sound lower than the note after it, and the note reaches its pitch", () => {
+    const slide = renderPart([{ time: 0, pitch: 40, velocity: 100, duration: 0.3, slideFrom: 2 }], "bass", samplesOf(1000), RATE, RATE).audio;
+    // The start is two semitones down, so the first 20 ms cross zero at about 890 Hz, and 60 to 80 ms at 1000 Hz.
+    const early = crossingsIn(slide, 0, 20);
+    const settled = crossingsIn(slide, 60, 80);
+    expect(early).toBeLessThan(settled);
+    expect(settled).toBeGreaterThanOrEqual(19);
+    expect(settled).toBeLessThanOrEqual(21);
+  });
+
+  it("plays a note with no slide at its own pitch from the start", () => {
+    const plain = renderPart([{ time: 0, pitch: 40, velocity: 100, duration: 0.3 }], "bass", samplesOf(1000), RATE, RATE).audio;
+    expect(crossingsIn(plain, 0, 20)).toBeGreaterThanOrEqual(19);
+  });
+
+  it("plays a dead note for 40 ms, with a short fade, and softer than the note it follows", () => {
+    const dead = renderPart([{ time: 0, pitch: 40, velocity: 30, duration: 0.04, dead: true }], "bass", samplesOf(1000), RATE, RATE).audio;
+    const live = renderPart([{ time: 0, pitch: 40, velocity: 30, duration: 0.3 }], "bass", samplesOf(1000), RATE, RATE).audio;
+    const energy = (audio: PcmAudio, fromMs: number, toMs: number) => {
+      let sum = 0;
+      for (let i = Math.round((fromMs / 1000) * RATE); i < Math.round((toMs / 1000) * RATE); i++) sum += audio.channels[0][i] ** 2;
+      return sum;
+    };
+    // Silent once the 40 ms and its 10 ms fade are over, and nothing before the note starts.
+    expect(energy(dead, 52, 200)).toBe(0);
+    expect(energy(dead, 0, 40)).toBeGreaterThan(0);
+    expect(energy(dead, 0, 40)).toBeLessThan(energy(live, 0, 40));
+  });
+
+  it("filters a dead note: a high tone sounds weaker than the same note played live", () => {
+    const high = samplesOf(4000);
+    const dead = renderPart([{ time: 0, pitch: 40, velocity: 30, duration: 0.04, dead: true }], "bass", high, RATE, RATE).audio;
+    const live = renderPart([{ time: 0, pitch: 40, velocity: 30, duration: 0.04 }], "bass", high, RATE, RATE).audio;
+    const power = (audio: PcmAudio) => audio.channels[0].reduce((sum, value) => sum + value * value, 0);
+    expect(power(dead)).toBeLessThan(power(live) * 0.5);
+  });
+});

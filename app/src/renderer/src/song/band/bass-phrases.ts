@@ -33,11 +33,13 @@ export interface Variation {
  * every phrase with two or three, and fills 3 with one to four. A ring or a pedal only pickups or empties its last beat at fills 1 or
  * less, so it keeps its single held character.
  */
-export function chooseVariation(fills: Fills, part: BassPart, phrase: number, random: Random): Variation | null {
+export function chooseVariation(fills: Fills, part: BassPart, phrase: number, random: Random, pickups = true): Variation | null {
   if (fills === 0) return null;
   if (fills === 1 && phrase % 2 === 0) return null;
   const [low, high] = fills === 1 ? [1, 2] : fills === 2 ? [2, 3] : [1, 4];
-  const kinds: VariationKind[] = (part === "ring" || part === "pedal") && fills <= 1 ? ["pickup", "empty"] : ["pickup", "pop", "run", "empty"];
+  const sized: VariationKind[] = (part === "ring" || part === "pedal") && fills <= 1 ? ["pickup", "empty"] : ["pickup", "pop", "run", "empty"];
+  // A section with pickups off plays the other kinds instead, so a phrase still varies.
+  const kinds = pickups ? sized : sized.filter((kind) => kind !== "pickup");
   const kind = random.pick(kinds);
   return { kind, count: low + random.int(high - low + 1) };
 }

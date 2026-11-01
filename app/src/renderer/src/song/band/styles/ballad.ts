@@ -124,6 +124,7 @@ export const BALLAD: Style = {
   },
   bass: {
     walking: false,
+    techniques: { slides: true, deadNotes: false, pickups: true },
     rhythms: {
       1: [[0], [0, 8]],
       2: [[0], [0, 8]],

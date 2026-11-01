@@ -124,6 +124,7 @@ export const SHUFFLE: Style = {
   },
   bass: {
     walking: true,
+    techniques: { slides: false, deadNotes: false, pickups: true },
     rhythms: {
       1: [
         [0, 6],

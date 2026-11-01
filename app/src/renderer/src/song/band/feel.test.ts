@@ -44,6 +44,9 @@ function planBars(first: number, last: number): SectionPlan {
     octave: 0,
     fills: 0,
     hitTheOne: false,
+    slides: false,
+    deadNotes: false,
+    pickups: true,
     fill: false,
     play: { drums: true, bass: true },
   };

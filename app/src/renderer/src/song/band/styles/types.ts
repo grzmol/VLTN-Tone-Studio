@@ -56,10 +56,22 @@ export interface DrumGroove extends DrumPattern {
  * Bass rhythms. Each variation is the list of steps (in the style's step grid, one bar) where the bass plays a note. The note
  * choice (roots, fifths, octaves, walking) is decided in ../bass.ts.
  */
+/**
+ * The playing techniques a style turns on by default for its bass: slides into a note, dead notes between notes, and pickups into a
+ * phrase's last bar. A section can change each one.
+ */
+export interface BassTechniques {
+  slides: boolean;
+  deadNotes: boolean;
+  pickups: boolean;
+}
+
 export interface BassStyle {
   rhythms: Record<Energy, number[][]>;
   /** Walking lines move on every beat, so a style that walks is written with a step on each beat. */
   walking: boolean;
+  /** The bass techniques this style plays unless a section says otherwise. */
+  techniques: BassTechniques;
 }
 
 export interface Style {

@@ -18,7 +18,7 @@ import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barStarts, clampVelocity, planIndexAt, stepAt } from "./timing";
+import { barBeats, barEnd, barStarts, beatSpan, clampVelocity, planIndexAt, stepAt } from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
 export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
@@ -59,6 +59,14 @@ const APPROACH_DIP = -10;
 const VELOCITY_JITTER = 4;
 /** The first note of a section that hits the one is this much harder. */
 const HIT_ONE_ACCENT = 6;
+/** A slide starts this many semitones below its note, on a chance of this share, into a downbeat after a rest of half a beat. */
+const SLIDE_SEMITONES = 2;
+const SLIDE_CHANCE = 0.3;
+/** A dead note sits in the empty sixteenth before a note, on this chance, at busy 3 and up. It plays soft and short. */
+const DEAD_CHANCE = 0.4;
+const DEAD_BUSY_FROM = 3;
+const DEAD_VELOCITY = 30;
+const DEAD_DURATION = 0.04;
 
 /** Intervals above the root, in semitones. A missing third or seventh is null. */
 const THIRD: Record<ChordQuality, number | null> = { major: 4, minor: 3, dim: 3, aug: 4, sus2: 2, sus4: 5, power: null };
@@ -91,6 +99,10 @@ interface Slot {
   loud: Energy;
   /** The section's octave shift, applied when every note of the section fits the range. */
   octave: OctaveShift;
+  /** The section's busy level, and whether its bass slides and plays dead notes (bass techniques). */
+  busy: number;
+  slides: boolean;
+  deadNotes: boolean;
   /** Position of the step in its bar's rhythm. */
   index: number;
   /** The last step of its bar. */
@@ -390,6 +402,9 @@ function buildSlots(
           walking: false,
           loud: plan.loud,
           octave: plan.octave,
+          busy: plan.busy,
+          slides: plan.slides,
+          deadNotes: plan.deadNotes,
           index: 0,
           last: true,
           strong: true,
@@ -489,7 +504,7 @@ function buildSlots(
       for (const note of leadSteps(plan.busy, steps)) variants.set(note.step, { kind: "lead", offset: note.offset, target: leadTarget, quality, chromatic });
     } else if (!lead && plan.fills > 0 && isPhraseEnd(barInPlan, planBars)) {
       const phrase = Math.floor(barInPlan / phraseBars(planBars));
-      const variation = chooseVariation(plan.fills, part, phrase, phraseRandom);
+      const variation = chooseVariation(plan.fills, part, phrase, phraseRandom, plan.pickups);
       if (variation) {
         const change = variationSteps(variation, steps, style.meter.stepsPerBeat, phraseRandom);
         rhythm = rhythm.filter((step) => !change.remove.includes(step));
@@ -527,6 +542,9 @@ function buildSlots(
         walking,
         loud,
         octave: plan.octave,
+        busy: plan.busy,
+        slides: plan.slides,
+        deadNotes: plan.deadNotes,
         index,
         last: index === stepList.length - 1,
         strong,
@@ -621,7 +639,39 @@ export function generateBass(
     }
   }
 
-  return picked
-    .map((entry) => ({ time: entry.time, pitch: entry.pitch + (shifts.get(entry.slot.plan) ?? 0), velocity: entry.velocity, duration: entry.duration }))
-    .sort((a, b) => a.time - b.time || a.pitch - b.pitch);
+  const sorted = picked
+    .map((entry) => ({
+      slot: entry.slot,
+      note: { time: entry.time, pitch: entry.pitch + (shifts.get(entry.slot.plan) ?? 0), velocity: entry.velocity, duration: entry.duration } as NoteEvent,
+    }))
+    .sort((a, b) => a.note.time - b.note.time || a.note.pitch - b.note.pitch);
+  return addTechniques(sorted, grid.beats, seed);
+}
+
+/**
+ * The bass techniques of a sorted list of notes: a slide into a downbeat that comes after a rest of half a beat, and a dead note in the
+ * empty sixteenth before a note, at busy 3 and up. Each chance is drawn from its own stream, so a technique on or off moves no other note.
+ * A dead note takes the note before it and stops that note where it starts.
+ */
+function addTechniques(sorted: readonly { slot: Slot; note: NoteEvent }[], beats: readonly number[], seed: number): NoteEvent[] {
+  const chance = createRandom(variationSeed(seed, "technique", 0));
+  const dead: NoteEvent[] = [];
+  sorted.forEach(({ slot, note }, i) => {
+    const previous = sorted[i - 1]?.note;
+    const next = sorted[i + 1]?.note;
+    const beat = beatSpan(beats, slot.beat);
+    const sixteenth = beat / 4;
+    if (slot.slides && slot.downbeat && !slot.variant && !slot.ending && !slot.hitOne) {
+      const rest = previous ? note.time - (previous.time + previous.duration) : Infinity;
+      if (rest >= beat / 2 && chance.next() < SLIDE_CHANCE) note.slideFrom = SLIDE_SEMITONES;
+    }
+    if (slot.deadNotes && slot.busy >= DEAD_BUSY_FROM && !slot.variant && next && next.time - note.time >= 2 * sixteenth) {
+      if (chance.next() < DEAD_CHANCE) {
+        const at = next.time - sixteenth;
+        note.duration = Math.min(note.duration, at - note.time);
+        dead.push({ time: at, pitch: note.pitch, velocity: DEAD_VELOCITY, duration: DEAD_DURATION, dead: true });
+      }
+    }
+  });
+  return [...sorted.map((entry) => entry.note), ...dead].sort((a, b) => a.time - b.time || a.pitch - b.pitch);
 }

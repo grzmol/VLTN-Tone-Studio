@@ -9,6 +9,10 @@ export interface NoteEvent {
   velocity: number;
   /** Seconds. */
   duration: number;
+  /** A slide: the note starts this many semitones below its pitch and rises to it over about 40 ms (bass only). */
+  slideFrom?: number;
+  /** A dead note: a muted, short note between two notes (bass only). Plays soft and dark. */
+  dead?: true;
 }
 
 // General MIDI drum map. These are the voices the style patterns use, so any GM kit plays them.

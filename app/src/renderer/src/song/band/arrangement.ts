@@ -4,6 +4,7 @@
 
 import { sortedSections, type Section } from "../performance/sections";
 import { autoBass, BASS_PART_CHOICES, OCTAVE_SHIFTS, partForBassMode, type BassLead, type BassPart, type BassPartChoice, type OctaveShift } from "./bass-parts";
+import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
 export const DRUM_KITS = ["standard"] as const;
@@ -103,6 +104,12 @@ export interface SectionPlan {
   bassRamp: boolean;
   /** How many phrase variations the bass plays, 0 (none) to 3 (one in every phrase, up to four notes). */
   fills: Fills;
+  /** Slides into downbeat notes after a rest (bass.ts). From the style unless the section says otherwise. */
+  slides: boolean;
+  /** Muted dead notes between notes at busy 3 and up. From the style unless the section says otherwise. */
+  deadNotes: boolean;
+  /** Pickups into a phrase's last bar. From the style unless the section says otherwise. */
+  pickups: boolean;
   /** The first note of the section is long and hit harder. True for a chorus that follows a section of another kind. */
   hitTheOne: boolean;
   /** The octave the section's bass is moved by, within the range. */
@@ -220,6 +227,7 @@ function chorusIsGroove(sections: readonly Section[], settings: BandSettings): b
 /** The fields of a plan that do not depend on its times: what the section plays, resolved from its name and overrides. */
 function playFields(name: string, override: SectionOverride, settings: BandSettings, chorusGroove: boolean) {
   const energy = override.energy ?? energyForName(name);
+  const technique = findStyle(override.style ?? settings.style)?.bass.techniques ?? { slides: false, deadNotes: false, pickups: true };
   const busy = override.busy ?? energy;
   const choice = override.bassPart ?? "auto";
   const bass =
@@ -237,6 +245,9 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
     bassRamp: bass.rampLoud,
     octave: override.octave ?? bass.octave,
     fills: override.fills ?? defaultFills(name),
+    slides: override.slides ?? technique.slides,
+    deadNotes: override.deadNotes ?? technique.deadNotes,
+    pickups: override.pickups ?? technique.pickups,
     play: override.play ? { ...override.play } : { ...settings.parts },
   };
 }
@@ -317,6 +328,9 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.octave, isOctave) &&
     optional(value.fills, isFills) &&
     optional(value.hitTheOne, isBool) &&
+    optional(value.slides, isBool) &&
+    optional(value.deadNotes, isBool) &&
+    optional(value.pickups, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isBool) &&
     optional(value.play, isPartToggles)
@@ -455,6 +469,9 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isOctave(value.octave)) override.octave = value.octave;
   if (isFills(value.fills)) override.fills = value.fills;
   if (isBool(value.hitTheOne)) override.hitTheOne = value.hitTheOne;
+  if (isBool(value.slides)) override.slides = value.slides;
+  if (isBool(value.deadNotes)) override.deadNotes = value.deadNotes;
+  if (isBool(value.pickups)) override.pickups = value.pickups;
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };

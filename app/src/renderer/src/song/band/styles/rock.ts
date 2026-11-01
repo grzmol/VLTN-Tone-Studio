@@ -117,6 +117,7 @@ export const ROCK: Style = {
   },
   bass: {
     walking: false,
+    techniques: { slides: false, deadNotes: false, pickups: true },
     rhythms: {
       1: [[0], [0, 8]],
       2: [
