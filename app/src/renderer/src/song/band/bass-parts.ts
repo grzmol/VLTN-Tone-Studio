@@ -37,7 +37,10 @@ export interface BarStep {
   role: "root" | "fifth";
 }
 
-/** The part the song's default bass mode stands for. Auto falls back to it for a section whose name it does not know. */
+/** The parts a song can choose as its default. Auto is not one of them, and a rest is not a part a song falls back to. */
+export const DEFAULT_BASS_PARTS: readonly BassPart[] = ["ring", "pulse", "groove", "melodic", "walking", "pedal"];
+
+/** The part the song's default bass mode stands for, used for a song saved before the default part was chosen. */
 export function partForBassMode(mode: BassMode): BassPart {
   if (mode === "roots") return "pulse";
   if (mode === "melodic") return "melodic";

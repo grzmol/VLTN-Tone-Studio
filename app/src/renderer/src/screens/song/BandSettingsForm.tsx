@@ -1,17 +1,11 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { BASS_MODES, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
-import { STYLE_IDS, STYLES, type Style, type StyleId } from "@/song/band/styles";
+import { BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
+import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
+import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
 import { BassTonePicker } from "./BassTonePicker";
-
-const BASS_MODE_LABELS: Record<(typeof BASS_MODES)[number], string> = {
-  roots: "Roots",
-  fifths: "Roots and fifths",
-  octaves: "Octaves",
-  melodic: "Melodic (approach notes)",
-  walking: "Walking",
-};
+import { BASS_PART_LABELS } from "./band-labels";
 /**
  * The track of a band slider. The theme's muted track is nearly the colour of the glass dialog, so at a value of 0 only the thumb showed.
  * A lighter track keeps the full length visible at any value.
@@ -29,8 +23,6 @@ const HUMANISE_LABELS: Record<HumaniseChoice, string> = {
 
 export interface BandSettingsFormProps {
   settings: BandSettings;
-  /** The style the settings name, for the walking bass option. */
-  style: Style;
   /** The follow sources the song can read: auto, then the stems that were split, then the mix. */
   followSources: readonly FollowSource[];
   onChange(patch: Partial<BandSettings>): void;
@@ -39,7 +31,7 @@ export interface BandSettingsFormProps {
 }
 
 /** The song-wide band settings. Changing one saves it; nothing is generated until Generate. */
-export function BandSettingsForm({ settings, style, followSources, onChange, onStyle }: BandSettingsFormProps) {
+export function BandSettingsForm({ settings, followSources, onChange, onStyle }: BandSettingsFormProps) {
   return (
     <section aria-label="Band settings" className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
       <h3 className="font-semibold sm:col-span-2">Settings</h3>
@@ -143,20 +135,37 @@ export function BandSettingsForm({ settings, style, followSources, onChange, onS
           </SelectContent>
         </Select>
       </label>
+      <div className="flex flex-col gap-1 sm:col-span-2">
+        <label className="flex items-center gap-3">
+          Default bass part
+          <Select value={settings.defaultBassPart} onValueChange={(value) => onChange({ defaultBassPart: value as BassPart })}>
+            <SelectTrigger aria-label="Default bass part" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DEFAULT_BASS_PARTS.map((part) => (
+                <SelectItem key={part} value={part}>
+                  {BASS_PART_LABELS[part]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <p className="text-xs text-silkscreen-3">Used where a section is on Auto and has no rule of its own.</p>
+      </div>
       <label className="flex items-center gap-3">
-        Bass mode
-        <Select value={settings.bassMode} onValueChange={(value) => onChange({ bassMode: value as BandSettings["bassMode"] })}>
-          <SelectTrigger aria-label="Bass mode" className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BASS_MODES.filter((mode) => mode !== "walking" || style.bass.walking).map((mode) => (
-              <SelectItem key={mode} value={mode}>
-                {BASS_MODE_LABELS[mode]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        Feel
+        <span className="text-xs text-silkscreen-3">Tight</span>
+        <Slider
+          trackClassName={BAND_TRACK}
+          aria-label="Bass feel"
+          min={0}
+          max={100}
+          step={5}
+          value={[Math.round(settings.bassFeel * 100)]}
+          onValueChange={([percent]) => onChange({ bassFeel: percent / 100 })}
+        />
+        <span className="text-xs text-silkscreen-3">Ring</span>
       </label>
       <label className="flex items-center gap-2">
         <Switch aria-label="Lock bass to kick" checked={settings.lockToKick} onCheckedChange={(on) => onChange({ lockToKick: on })} />

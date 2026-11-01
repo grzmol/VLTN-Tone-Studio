@@ -1,7 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings } from "@/song/band/arrangement";
-import { STYLES } from "@/song/band/styles";
 import { Slider } from "@/components/ui/slider";
 import { BandSettingsForm } from "./BandSettingsForm";
 
@@ -29,7 +28,7 @@ function trackOf(container: HTMLElement, label: string): HTMLElement {
 }
 
 function renderWith(settings: BandSettings) {
-  return render(<BandSettingsForm settings={settings} style={STYLES.rock} followSources={["auto", "mix"]} onChange={vi.fn()} onStyle={vi.fn()} />);
+  return render(<BandSettingsForm settings={settings} followSources={["auto", "mix"]} onChange={vi.fn()} onStyle={vi.fn()} />);
 }
 
 describe("Band sliders", () => {

@@ -21,7 +21,7 @@ import {
   type BandSettings,
   type FollowSource,
   type RenderedKind,
-  type SectionPlan,
+  type SectionOverride,
 } from "@/song/band/arrangement";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import type { NoteEvent } from "@/song/band/note";
@@ -37,7 +37,7 @@ import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
-import { findStyle, STYLES, type StyleId } from "@/song/band/styles";
+import { findStyle, type StyleId } from "@/song/band/styles";
 import type { BandStage } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
 import { parseChart, type Cue } from "@/song/performance/chart";
@@ -240,7 +240,6 @@ function BandBody({
   const blocked = busy || playing || source === null;
   const generated = hasGeneratedParts(tracks);
   const partKeys = partKeysOf(tracks ?? {}, stems);
-  const style = findStyle(settings.style) ?? STYLES.rock;
   const followSources: FollowSource[] = ["auto", ...(followSourcesIn(stems) as FollowSource[])];
 
   const save = (next: BandSettings) => {
@@ -267,7 +266,7 @@ function BandBody({
     });
   };
   /** Writes a row's override. A song without sections keeps its one row's overrides under WHOLE_SONG_ID. */
-  const changeRow = (sectionId: string | null, patch: Partial<SectionPlan>) => {
+  const changeRow = (sectionId: string | null, patch: SectionOverride) => {
     const key = sectionId ?? WHOLE_SONG_ID;
     const current = settings.sections[key] ?? {};
     save({ ...settings, sections: { ...settings.sections, [key]: { ...current, ...patch } } });
@@ -298,6 +297,7 @@ function BandBody({
   const rows: BandSectionRow[] = plans.map((plan) => ({
     plan,
     name: plan.sectionId === null ? "Whole song" : (sections.find((section) => section.id === plan.sectionId)?.name ?? "Section"),
+    choice: settings.sections[plan.sectionId ?? WHOLE_SONG_ID]?.bassPart ?? "auto",
   }));
 
   /** Finds the beat in the song's audio. The drums stem is read when present, else the pitched stems, else the mix. */
@@ -634,7 +634,7 @@ function BandBody({
         myTempo={typedTempo ? { bpm, use: useMyTempo, onUse: setUseMyTempo } : undefined}
       />
 
-      <BandSettingsForm settings={settings} style={style} followSources={followSources} onChange={change} onStyle={changeStyle} />
+      <BandSettingsForm settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} />
 
       <section aria-label="Sections" className="flex flex-col gap-2">
         <h3 className="font-semibold">Sections</h3>

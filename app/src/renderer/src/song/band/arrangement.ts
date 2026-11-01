@@ -3,7 +3,17 @@
 // parseBandSettings, which keeps valid fields and falls back to the defaults for the rest.
 
 import { sortedSections, type Section } from "../performance/sections";
-import { autoBass, BASS_PART_CHOICES, OCTAVE_SHIFTS, partForBassMode, type BassLead, type BassPart, type BassPartChoice, type OctaveShift } from "./bass-parts";
+import {
+  autoBass,
+  BASS_PART_CHOICES,
+  DEFAULT_BASS_PARTS,
+  OCTAVE_SHIFTS,
+  partForBassMode,
+  type BassLead,
+  type BassPart,
+  type BassPartChoice,
+  type OctaveShift,
+} from "./bass-parts";
 import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
@@ -150,6 +160,8 @@ export interface BandSettings {
   bassSound: BassSound;
   bassRange: BassRange;
   bassMode: BassMode;
+  /** The bass part a section plays when it is on Auto and Auto has no rule of its own. A song saved before this existed takes it from bassMode. */
+  defaultBassPart: BassPart;
   lockToKick: boolean;
   /** Generated parts take their accents and stops from the playing of the follow source (feel.ts). */
   followPlaying: boolean;
@@ -181,6 +193,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
+  defaultBassPart: "pulse",
   bassFeel: 0.5,
   lockToKick: true,
   followPlaying: true,
@@ -221,7 +234,7 @@ function chorusIsGroove(sections: readonly Section[], settings: BandSettings): b
   const override = settings.sections[chorus.id] ?? {};
   if (override.bassPart !== undefined && override.bassPart !== "auto") return override.bassPart === "groove";
   const energy = override.energy ?? energyForName(chorus.name);
-  return autoBass(chorus.name, override.busy ?? energy, false, partForBassMode(settings.bassMode)).part === "groove";
+  return autoBass(chorus.name, override.busy ?? energy, false, settings.defaultBassPart).part === "groove";
 }
 
 /** The fields of a plan that do not depend on its times: what the section plays, resolved from its name and overrides. */
@@ -232,7 +245,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
   const choice = override.bassPart ?? "auto";
   const bass =
     choice === "auto"
-      ? autoBass(name, busy, chorusGroove, partForBassMode(settings.bassMode))
+      ? autoBass(name, busy, chorusGroove, settings.defaultBassPart)
       : { part: choice, lead: undefined, rampLoud: false, octave: 0 as OctaveShift };
   return {
     name,
@@ -436,6 +449,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBassSound(value.bassSound) &&
     isBassRange(value.bassRange) &&
     isBassMode(value.bassMode) &&
+    DEFAULT_BASS_PARTS.includes(value.defaultBassPart as BassPart) &&
     isBool(value.lockToKick) &&
     isBool(value.followPlaying) &&
     isFollowSource(value.followSource) &&
@@ -507,6 +521,11 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,
     bassMode: isBassMode(source.bassMode) ? source.bassMode : defaults.bassMode,
+    defaultBassPart: DEFAULT_BASS_PARTS.includes(source.defaultBassPart as BassPart)
+      ? (source.defaultBassPart as BassPart)
+      : isBassMode(source.bassMode)
+        ? partForBassMode(source.bassMode)
+        : defaults.defaultBassPart,
     bassFeel: isUnit(source.bassFeel) ? source.bassFeel : defaults.bassFeel,
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,

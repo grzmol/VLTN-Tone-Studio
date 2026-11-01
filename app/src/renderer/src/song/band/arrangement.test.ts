@@ -366,10 +366,17 @@ describe("section bass parts", () => {
     expect(plans[1]).toMatchObject({ busy: 2, octave: 0, bassPart: "pulse" });
   });
 
-  it("falls back to the song's bass mode for a song without sections, and for a name it does not know", () => {
-    expect(planSections([], 90, settings({ bassMode: "roots" }))[0].bassPart).toBe("pulse");
-    expect(planSections([], 90, settings({ bassMode: "fifths" }))[0].bassPart).toBe("groove");
-    expect(planSections([section("x", "Breakdown", 0, 90)], 90, settings({ bassMode: "walking" }))[0].bassPart).toBe("walking");
+  it("falls back to the song's default bass part for a song without sections, and for a name it does not know", () => {
+    expect(planSections([], 90, settings({ defaultBassPart: "pulse" }))[0].bassPart).toBe("pulse");
+    expect(planSections([], 90, settings({ defaultBassPart: "groove" }))[0].bassPart).toBe("groove");
+    expect(planSections([section("x", "Breakdown", 0, 90)], 90, settings({ defaultBassPart: "walking" }))[0].bassPart).toBe("walking");
+  });
+
+  it("takes the default bass part from the old bass mode for a song saved before it existed", () => {
+    expect(parseBandSettings({ bassMode: "fifths" }).defaultBassPart).toBe("groove");
+    expect(parseBandSettings({ bassMode: "melodic" }).defaultBassPart).toBe("melodic");
+    expect(parseBandSettings({ bassMode: "roots", defaultBassPart: "ring" }).defaultBassPart).toBe("ring");
+    expect(parseBandSettings({ defaultBassPart: "rest" }).defaultBassPart).toBe("pulse");
   });
 
   it("parses the bass part, busy and octave of a section and the bass feel, and drops what is invalid", () => {
