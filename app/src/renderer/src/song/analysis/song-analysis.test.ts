@@ -194,6 +194,12 @@ describe("parseAnalysis", () => {
     expect(parseAnalysis({ audioId: "x", version: 1, parts: { drums: "absent" } })).toEqual({ audioId: "x", version: 1 });
   });
 
+  it("keeps the bass line, and drops a bass line with a bad beat", () => {
+    const value = { audioId: "x", version: 1, bassLine: [{ beat: 0, pc: 9, confidence: 0.9 }, { beat: 1, pc: null, confidence: 0 }] };
+    expect(parseAnalysis(value)).toEqual(value);
+    expect(parseAnalysis({ ...value, bassLine: [{ beat: 0, pc: 12, confidence: 0.9 }] })).toEqual({ audioId: "x", version: 1 });
+  });
+
   it("keeps the silence at the ends", () => {
     const value = { audioId: "x", version: 1, silence: { start: 0.8, end: 6.8 } };
     expect(parseAnalysis(value)).toEqual(value);

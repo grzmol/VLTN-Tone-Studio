@@ -7,6 +7,7 @@ import type { SilenceEnds } from "./silence";
 import type { Chord } from "../performance/chords";
 import type { KeyEstimate, KeySection } from "../performance/key";
 import type { DetectedSection } from "./sections";
+import type { BassLineBeat } from "./bass-line";
 import type { PcmAudio, Stems } from "../types";
 
 /** The song's integrated loudness and sample peak, as the loudness control measures them. */
@@ -21,9 +22,10 @@ export const METER_CERTAIN = 0.6;
 /**
  * Bump when an analysis improves, so songs analysed earlier are analysed again the next time they open. Version 2 adds sections: a saved
  * song of version 1 is analysed once more, which fills in its sections. Version 3 reads the chords from the harmony and the bass with
- * harmonic templates, decoded over the song, on the beats (spec 81). What the performer set is kept (see `planWriteBack`).
+ * harmonic templates, decoded over the song, on the beats (spec 81). Version 4 reads the bass note of each beat from the bass stem (spec 86).
+ * What the performer set is kept (see `planWriteBack`).
  */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 
 /** The tempo the analysis found. `firstBeat` is the time of the first beat, in seconds, when the grid fits a straight line. */
 export interface TempoResult {
@@ -66,6 +68,8 @@ export interface SongAnalysis {
   /** Sections whose key differs from the song's, with a strong reading. Only set when the song has sections and a key. */
   keySections?: KeySection[];
   chords?: ChordsResult;
+  /** The bass note the bass stem plays on each beat of the grid, when the song has a bass stem and a grid (spec 86). */
+  bassLine?: BassLineBeat[];
   /** Suggested sections, on bar lines where the music allows (or on time frames when the song has no beat grid). Empty when none were found. */
   sections?: DetectedSection[];
   /** Names of the steps that failed. A failed step is not retried until the song is analysed again. */
@@ -234,6 +238,7 @@ export function parseAnalysis(value: unknown): SongAnalysis | null {
   const meter = record.meter as Record<string, unknown> | undefined;
   const validMeter = !!meter && (meter.beatsPerBar === 3 || meter.beatsPerBar === 4) && typeof meter.confidence === "number";
   const sections = Array.isArray(record.sections) && record.sections.every(isSection) ? (record.sections as DetectedSection[]) : undefined;
+  const bassLine = Array.isArray(record.bassLine) && record.bassLine.every(isBassLineBeat) ? (record.bassLine as BassLineBeat[]) : undefined;
   const failed = Array.isArray(record.failed) && record.failed.every((name) => typeof name === "string") ? record.failed : undefined;
   return {
     audioId: record.audioId,
@@ -247,6 +252,7 @@ export function parseAnalysis(value: unknown): SongAnalysis | null {
     ...(keySections ? { keySections } : {}),
     ...(validChords ? { chords: { source: chords!.source as string, chords: chords!.chords as Chord[] } } : {}),
     ...(sections ? { sections } : {}),
+    ...(bassLine ? { bassLine } : {}),
     ...(failed?.length ? { failed } : {}),
   };
 }
@@ -255,6 +261,19 @@ export function parseAnalysis(value: unknown): SongAnalysis | null {
 function isKeySection(value: unknown): value is KeySection {
   const section = value as Partial<KeySection> | null;
   return !!section && typeof section.sectionId === "string" && typeof section.key?.name === "string";
+}
+
+/** A saved bass note: a beat, a pitch class or none, and a finite confidence. Anything else makes the saved bass line unreadable. */
+function isBassLineBeat(value: unknown): value is BassLineBeat {
+  const entry = value as Partial<BassLineBeat> | null;
+  return (
+    !!entry &&
+    typeof entry.beat === "number" &&
+    Number.isInteger(entry.beat) &&
+    (entry.pc === null || (Number.isInteger(entry.pc) && (entry.pc as number) >= 0 && (entry.pc as number) < 12)) &&
+    typeof entry.confidence === "number" &&
+    Number.isFinite(entry.confidence)
+  );
 }
 
 /** A saved section: a name and two finite times. Anything else in the list makes the saved sections unreadable. */

@@ -19,7 +19,7 @@ import { lyricsRunSkip } from "./lyrics-run";
 import { stemsWithVocals, vocalsOf } from "./vocals";
 import { createSongRunner, isSplitting, watchSongStore, type CapturedRun, type RunOptions, type RunTarget, type SavedSong } from "./song-runner";
 import { loadAfterSplit, type AfterSplitStep } from "./after-split";
-import { chordsStep, keyStep, loudnessStep, lyricsStep, partsStep, sectionKeysStep, sectionsStep, silenceStep, tempoStep } from "./steps";
+import { bassLineStep, chordsStep, keyStep, loudnessStep, lyricsStep, partsStep, sectionKeysStep, sectionsStep, silenceStep, tempoStep } from "./steps";
 
 /** A song is playing, or a playlist is. Nothing the runner does starts over the music. */
 const playingNow = () => isSongPlaying() || useSongLibrary.getState().playlistPlaying;
@@ -102,6 +102,7 @@ function appSteps(key: string, options: RunOptions, captured: CapturedRun): Anal
   // The chords and the sections take the beat grid the tempo step tracked in this run, or else the one saved with the song.
   const gridOf = () => captured.grid ?? readStoredBand(key).grid ?? null;
   const chords = chordsStep(gridOf);
+  const bassLine = bassLineStep(gridOf);
   const sections = sectionsStep(gridOf);
   if (options.tempoOnly) return options.sections ? [tempo, sections] : [tempo];
   const wanted = loadAfterSplit().steps;
@@ -109,7 +110,7 @@ function appSteps(key: string, options: RunOptions, captured: CapturedRun): Anal
     ["loudness", [loudnessStep(), silenceStep()]],
     ["parts", [partsStep()]],
     ["tempo", [tempo]],
-    ["chords", [chords]],
+    ["chords", [chords, bassLine]],
     ["key", [keyStep()]],
     ["sections", [sections, ...(wanted.key ? [sectionKeysStep()] : [])]],
   ];

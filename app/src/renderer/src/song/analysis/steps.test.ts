@@ -18,7 +18,7 @@ vi.mock("../band/beat-grid-client", () => ({
   },
 }));
 
-import { chordsStep, keyStep, loudnessStep, partsStep, sectionKeysStep, sectionsStep, tempoStep } from "./steps";
+import { bassLineStep, chordsStep, keyStep, loudnessStep, partsStep, sectionKeysStep, sectionsStep, tempoStep } from "./steps";
 
 const NO_HARMONY = { name: "mix", audio: { sampleRate: 44100, channels: [] } };
 
@@ -241,5 +241,33 @@ describe("sectionsStep", () => {
     const input = posted[0] as { spans: { start: number }[]; options: { snap: number } };
     expect(input.spans.map((span) => span.start)).toEqual([0, 2, 4, 6]);
     expect(input.options.snap).toBe(1);
+  });
+});
+
+describe("bassLineStep", () => {
+  const bass = { sampleRate: 44100, channels: [new Float32Array(44100).fill(0.1)] };
+  const line = [{ beat: 0, pc: 9, confidence: 1 }];
+  class LineWorker {
+    static posted: unknown = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onerror: (() => void) | null = null;
+    postMessage(message: unknown) {
+      LineWorker.posted = message;
+      queueMicrotask(() => this.onmessage?.({ data: { bassLine: line } } as MessageEvent));
+    }
+    terminate() {}
+  }
+  beforeEach(() => vi.stubGlobal("Worker", LineWorker));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads the bass note of each beat of the grid from the bass stem", async () => {
+    const result = await bassLineStep(() => grid).run({ ...audio, bass }, new AbortController().signal, nothingFound);
+    expect(result).toEqual({ bassLine: line });
+    expect(LineWorker.posted).toEqual({ bass, beats: grid.beats });
+  });
+
+  it("reads nothing without a bass stem or a grid", async () => {
+    expect(await bassLineStep(() => grid).run({ ...audio, bass: null }, new AbortController().signal, nothingFound)).toEqual({});
+    expect(await bassLineStep(() => null).run({ ...audio, bass }, new AbortController().signal, nothingFound)).toEqual({});
   });
 });
