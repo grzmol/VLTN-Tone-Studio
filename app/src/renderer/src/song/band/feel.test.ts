@@ -30,7 +30,20 @@ function grid(bars: number): BeatGrid {
 
 /** A rock plan covering bars `first` up to, not including, `last`. */
 function planBars(first: number, last: number): SectionPlan {
-  return { sectionId: null, start: first * 2, end: last * 2, style: "rock", energy: 2, loud: 2, fill: false, play: { drums: true, bass: true } };
+  return {
+    sectionId: null,
+    start: first * 2,
+    end: last * 2,
+    style: "rock",
+    energy: 2,
+    loud: 2,
+    busy: 2,
+    bassPart: "groove",
+    bassRamp: false,
+    octave: 0,
+    fill: false,
+    play: { drums: true, bass: true },
+  };
 }
 
 /** An onset curve of `bars` bars. Each bar peaks at the steps `pattern(bar)` gives, on the 16-step grid. */

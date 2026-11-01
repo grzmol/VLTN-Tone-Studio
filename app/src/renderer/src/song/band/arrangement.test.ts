@@ -322,3 +322,64 @@ describe("rendered parts and first notes", () => {
     expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, rendered, firstNote: { drums: 0 } })).toBe(true);
   });
 });
+
+describe("section bass parts", () => {
+  const song = [
+    section("i", "Intro", 0, 20),
+    section("v", "Verse", 20, 40),
+    section("p", "Pre-Chorus", 40, 50),
+    section("c", "Chorus", 50, 70),
+    section("b", "Bridge", 70, 90),
+    section("o", "Outro", 90, 100),
+  ];
+
+  it("resolves Auto to a part for each section, so no plan is left on auto", () => {
+    const plans = planSections(song, 100, settings());
+    expect(plans.map((plan) => plan.bassPart)).toEqual(["ring", "ring", "pulse", "melodic", "melodic", "ring"]);
+    expect(plans.every((plan) => plan.bassPart !== ("auto" as string))).toBe(true);
+  });
+
+  it("gives the intro its pedal lead, the pre-chorus its ramp, and the bridge an octave up", () => {
+    const plans = planSections(song, 100, settings());
+    expect(plans[0].bassLead).toEqual({ part: "pedal", bars: 2 });
+    expect(plans[1].bassLead).toBeUndefined();
+    expect(plans[2].bassRamp).toBe(true);
+    expect(plans[4].octave).toBe(1);
+    expect(plans[3].octave).toBe(0);
+  });
+
+  it("rings the bridge when the chorus is a groove, which a chorus at busy 3 is", () => {
+    const grooveChorus = planSections(song, 100, settings({ sections: { c: { busy: 3 } } }));
+    expect(grooveChorus[3].bassPart).toBe("groove");
+    expect(grooveChorus[4].bassPart).toBe("ring");
+  });
+
+  it("keeps a chosen part, busy and octave over Auto's", () => {
+    const plans = planSections(song, 100, settings({ sections: { b: { bassPart: "walking", busy: 5, octave: -1 }, v: { bassPart: "groove" } } }));
+    expect(plans[4]).toMatchObject({ bassPart: "walking", busy: 5, octave: -1, bassLead: undefined });
+    expect(plans[1]).toMatchObject({ bassPart: "groove", busy: 2 });
+  });
+
+  it("defaults busy to the energy, and the octave to 0 for a section that is not on auto", () => {
+    const plans = planSections(song, 100, settings({ sections: { v: { bassPart: "pulse" } } }));
+    expect(plans[1]).toMatchObject({ busy: 2, octave: 0, bassPart: "pulse" });
+  });
+
+  it("falls back to the song's bass mode for a song without sections, and for a name it does not know", () => {
+    expect(planSections([], 90, settings({ bassMode: "roots" }))[0].bassPart).toBe("pulse");
+    expect(planSections([], 90, settings({ bassMode: "fifths" }))[0].bassPart).toBe("groove");
+    expect(planSections([section("x", "Breakdown", 0, 90)], 90, settings({ bassMode: "walking" }))[0].bassPart).toBe("walking");
+  });
+
+  it("parses the bass part, busy and octave of a section and the bass feel, and drops what is invalid", () => {
+    expect(parseBandSettings({ sections: { a: { bassPart: "pedal", busy: 4, octave: -1 } } }).sections).toEqual({
+      a: { bassPart: "pedal", busy: 4, octave: -1 },
+    });
+    expect(parseBandSettings({ sections: { a: { bassPart: "fly", busy: 0, octave: 2 } } }).sections).toEqual({});
+    expect(parseBandSettings({ sections: { a: { bassPart: "auto" } } }).sections).toEqual({ a: { bassPart: "auto" } });
+    expect(parseBandSettings({ bassFeel: 0.8 }).bassFeel).toBe(0.8);
+    expect(parseBandSettings({ bassFeel: 2 }).bassFeel).toBe(DEFAULT_BAND_SETTINGS.bassFeel);
+    expect(DEFAULT_BAND_SETTINGS.bassFeel).toBe(0.5);
+    expect(isBandSettings({ ...settings(), bassFeel: -1 })).toBe(false);
+  });
+});

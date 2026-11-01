@@ -1,12 +1,15 @@
 // Bass generation: turns the beat grid, the chords and the section plans into timed bass notes. Pure: no audio and no store.
-// The rhythm comes from the style's bass templates, from a quarter-note walk, or from the kick when the bass locks to it. Each step
-// takes the chord sounding on its beat. Octaves are picked to stay in range and to move as little as possible from the note before.
+// Each section plays one bass part (bass-parts.ts). A part sets the rhythm of each bar and the role of each step. The groove, melodic
+// and walking parts take their rhythm from the style's templates, a quarter-note walk, or the kick when the bass locks to it. Ring,
+// pulse and pedal take their rhythm from bass-parts.ts. Each step takes the chord sounding on its beat. Octaves are picked to stay in
+// range and to move as little as possible from the note before.
 //
 // Two steps are always planned together. An approach note is placed a semitone (or a whole tone) from the next bass note, and the
 // next bass note is then picked from that approach. Both picks land on the same octave, because the approach is within a tone of the
 // target and no other octave of the same pitch class is that close.
 
-import type { BandSettings, BassRange, SectionPlan } from "./arrangement";
+import type { BandSettings, BassMode, SectionPlan } from "./arrangement";
+import { OCTAVE_SHIFTS, pedalSteps, pulseSteps, ringSteps, type BarStep, type BassPart, type OctaveShift } from "./bass-parts";
 import type { BeatGrid } from "./beat-grid";
 import { bassRhythmFromAccents, hitSteps, isAccented, type Feel } from "./feel";
 import type { ChordQuality, ChordSeventh, ChordAtBeat, ParsedChord } from "./harmony";
@@ -14,10 +17,10 @@ import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barStarts, beatSpan, clampVelocity, planIndexAt, stepAt } from "./timing";
+import { barBeats, barEnd, barStarts, clampVelocity, planIndexAt, stepAt } from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
-export const BASS_NOTE_RANGES: Record<BassRange, { low: number; high: number; centre: number }> = {
+export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
   low: { low: 28, high: 40, centre: 34 },
   normal: { low: 28, high: 55, centre: 40 },
   high: { low: 33, high: 60, centre: 46 },
@@ -26,18 +29,20 @@ export const BASS_NOTE_RANGES: Record<BassRange, { low: number; high: number; ce
 /** A kick within this many seconds of a step locks the step to it. */
 const LOCK_WINDOW = 0.03;
 /** A note stops this far short of the next bass note. */
-const LEGATO_GAP = 0.03;
+const NOTE_GAP = 0.03;
 /** The shortest a bass note may be, in seconds. */
 const MIN_DURATION = 0.05;
 /** A downbeat takes the lowest octave within this many semitones of the note before, so the line stays low on the beat. */
 const MAX_LEAP = 7;
 /** A walking note is a chord tone within this many semitones of the note before, when one exists. */
 const WALK_LEAP = 5;
-/** From energy 4 up a note lasts at most one beat. Below it a note lasts at most 1.5 beats. */
-const SHORT_NOTE_BEATS = 1;
-const LONG_NOTE_BEATS = 1.5;
-/** At energy 1 a note lasts to the next note, up to this many beats. */
-const SPARSE_MAX_BEATS = 2;
+/** Note length as a share of the step to the next note: groove and melodic by loud level, pulse by loud level, walking fixed. */
+const GROOVE_SHARE: readonly [number, number] = [0.7, 0.95];
+const PULSE_SHARE: readonly [number, number] = [0.4, 0.9];
+const WALKING_SHARE = 0.9;
+/** The bass feel scales every length: 0 (tight) gives 0.6, 1 (ring) gives 1.4, and 0.5 gives 1. */
+const FEEL_TIGHT = 0.6;
+const FEEL_RING = 1.4;
 /** Below this complexity an approach note is a whole tone away instead of a semitone. */
 const CHROMATIC_FROM = 2 / 3;
 /** A variation lasts this many bars, picked at random each time one ends. */
@@ -71,7 +76,18 @@ interface Slot {
   /** Null for a rest. */
   chord: ParsedChord | null;
   style: Style;
-  energy: Energy;
+  /** Index of the section plan the step belongs to. */
+  plan: number;
+  /** The part the bar plays. */
+  part: BassPart;
+  /** The pitch method: groove keeps the song's bass mode, the other parts have their own. */
+  method: BassMode;
+  /** The bar walks: a quarter-note line through the chord's tones. */
+  walking: boolean;
+  /** The loud level of the bar, which sets the base velocity and the length. */
+  loud: Energy;
+  /** The section's octave shift, applied when every note of the section fits the range. */
+  octave: OctaveShift;
   /** Position of the step in its bar's rhythm. */
   index: number;
   /** The last step of its bar. */
@@ -82,12 +98,12 @@ interface Slot {
   downbeat: boolean;
   /** The step is one the kick locks the bass to, so the bass lands with the kick. */
   locked: boolean;
-  /** The section's loud level, which sets the note's base velocity. */
-  loud: Energy;
   /** The chord changed since the step before. This step plays the new bass note in every mode. */
   forced: boolean;
   /** An off-beat step that takes the fifth in roots-fifths. The off-beat steps alternate fifth and root. */
   fifth: boolean;
+  /** The part's role for this step: a root, or the fifth (a passing note in a ring bar). */
+  role: "root" | "fifth";
   /** The song's last bar: one held bass note on its downbeat. */
   ending: boolean;
   /** Song time the bar ends. */
@@ -102,7 +118,7 @@ interface Picked {
   approach: boolean;
 }
 
-type Range = (typeof BASS_NOTE_RANGES)[BassRange];
+type Range = (typeof BASS_NOTE_RANGES)[keyof typeof BASS_NOTE_RANGES];
 
 const pitchClass = (note: number): number => ((note % 12) + 12) % 12;
 
@@ -156,10 +172,11 @@ function approachApplies(slot: Slot, chord: ParsedChord, next: Slot | undefined)
   return next?.chord !== null && next?.chord !== undefined && next.chord.bass !== chord.bass && (slot.last || next.forced);
 }
 
-/** The note for a step that is not an approach. Roots-fifths, melodic and octaves share these rules. */
-function plainPitch(slot: Slot, chord: ParsedChord, previous: number, mode: BandSettings["bassMode"], range: Range): number {
-  if (mode === "roots") return nearestOctave(chord.bass, previous, range, slot.strong);
-  if (mode === "octaves") {
+/** The note for a step that is not an approach. A fifth role plays the fifth; otherwise the pitch method decides. */
+function plainPitch(slot: Slot, chord: ParsedChord, previous: number, method: BassMode, range: Range): number {
+  if (slot.role === "fifth") return nearestOctave(pitchClass(chord.bass + fifthInterval(chord.quality)), previous, range, false);
+  if (method === "roots") return nearestOctave(chord.bass, previous, range, slot.strong);
+  if (method === "octaves") {
     const base = nearestOctave(chord.bass, previous, range, slot.strong);
     const upper = base + 12;
     return slot.index % 2 === 1 && !slot.forced && upper <= range.high ? upper : base;
@@ -183,24 +200,52 @@ function walkingPitch(slot: Slot, chord: ParsedChord, next: Slot | undefined, pr
 }
 
 /** The note for one step, and whether it is an approach. Rests are not passed in. */
-function pitchOf(slot: Slot, chord: ParsedChord, next: Slot | undefined, previous: number, settings: BandSettings, range: Range): Picked {
+function pitchOf(slot: Slot, chord: ParsedChord, next: Slot | undefined, previous: number, range: Range, settings: BandSettings): Picked {
   if (slot.ending) return { pitch: nearestOctave(chord.bass, previous, range, true), approach: false };
-  if (settings.bassMode === "walking" && slot.style.bass.walking) return walkingPitch(slot, chord, next, previous, range);
-  if (settings.bassMode === "melodic" && approachApplies(slot, chord, next)) {
+  if (slot.method === "walking" && slot.walking) return walkingPitch(slot, chord, next, previous, range);
+  if (slot.method === "melodic" && approachApplies(slot, chord, next)) {
     const target = nearestOctave(next.chord.bass, previous, range, false);
     const approach = approachNote(target, previous, range, settings.complexity < CHROMATIC_FROM ? 2 : 1);
     if (approach !== null) return { pitch: approach, approach: true };
   }
-  return { pitch: plainPitch(slot, chord, previous, settings.bassMode, range), approach: false };
+  return { pitch: plainPitch(slot, chord, previous, slot.method, range), approach: false };
 }
 
-/** How long a note lasts, in seconds. It runs to the next note, minus a short gap, and never past its bar. */
-function noteLength(slot: Slot, nextTime: number, beatLength: number, energy: Energy): number {
+/** The pitch method each part uses. Groove keeps the song's bass mode, so a song on groove sounds as it always did. */
+function methodOf(part: BassPart, mode: BassMode): BassMode {
+  if (part === "groove") return mode;
+  if (part === "melodic") return "melodic";
+  if (part === "walking") return "walking";
+  return "roots";
+}
+
+/** The steps a part plays in one bar, when the part has its own rhythm. Groove, melodic and walking use the style's rhythm instead. */
+function ownSteps(part: BassPart, busy: Energy, steps: number, stepsPerBeat: number, bar: number): BarStep[] | null {
+  if (part === "ring") return ringSteps(busy, steps, bar);
+  if (part === "pulse") return pulseSteps(busy, steps, stepsPerBeat);
+  if (part === "pedal") return pedalSteps();
+  return null;
+}
+
+/**
+ * How long a note lasts, in seconds. Ring lasts to the next note. Pulse, groove and melodic last a share of the step to the next note,
+ * rising with the loud level, and walking a fixed share. Pedal lasts to the bar end. The bass feel scales the result, and the note never
+ * runs past the next note less a gap, or past its bar.
+ */
+function noteLength(slot: Slot, nextTime: number, feel: number): number {
   if (slot.ending) return slot.barEnd - slot.time;
   const gap = nextTime - slot.time;
-  const length =
-    energy === 1 ? Math.min(gap, SPARSE_MAX_BEATS * beatLength) : Math.min(gap - LEGATO_GAP, (energy >= 4 ? SHORT_NOTE_BEATS : LONG_NOTE_BEATS) * beatLength);
-  return Math.max(MIN_DURATION, Math.min(length, slot.barEnd - slot.time));
+  const bar = slot.barEnd - slot.time;
+  const level = (slot.loud - 1) / 4;
+  const share = (range: readonly [number, number]): number => range[0] + (range[1] - range[0]) * level;
+  let length: number;
+  if (slot.part === "ring") length = gap;
+  else if (slot.part === "pedal") length = bar;
+  else if (slot.part === "pulse") length = gap * share(PULSE_SHARE);
+  else if (slot.walking) length = gap * WALKING_SHARE;
+  else length = gap * share(GROOVE_SHARE);
+  length *= FEEL_TIGHT + (FEEL_RING - FEEL_TIGHT) * feel;
+  return Math.max(MIN_DURATION, Math.min(length, gap - NOTE_GAP, bar));
 }
 
 /** The steps nearest each kick within the window. A step is matched once, however many kicks land on it. */
@@ -228,8 +273,8 @@ function quarterSteps(steps: number, perBar: number): number[] {
 
 /**
  * The steps that can sound, in time order, for every bar with bass on. A bar belongs to the plan covering its first beat. The pickup is
- * silent, and the last bar of the song is one held note on its downbeat. With `feel`, the rhythm follows the accents unless the bass
- * locks to the kick, a stop is silent, and a hit beat always gets a note.
+ * silent, the last bar of the song is one held note on its downbeat, and a rest part plays nothing. With `feel`, the rhythm follows the
+ * accents unless the bass locks to the kick, a stop is silent, and a hit beat always gets a note.
  */
 function buildSlots(
   grid: BeatGrid,
@@ -243,19 +288,34 @@ function buildSlots(
   const beats = grid.beats;
   const perBar = barBeats(grid);
   const starts = barStarts(grid);
+  const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
+  const barsInPlan = new Map<number, number>();
+  for (const index of planOf) if (index >= 0) barsInPlan.set(index, (barsInPlan.get(index) ?? 0) + 1);
   const slots: Slot[] = [];
   const chordAt = (beat: number): ParsedChord | null => harmony[beat]?.chord ?? null;
   const nameAt = (beat: number): string | null => chordAt(beat)?.name ?? null;
 
   let segment: Segment | null = null;
   let previousBeat = -1;
+  let currentPlan = -2;
+  let barInPlan = 0;
+  let pedalChord: ParsedChord | null = null;
 
   for (let k = 0; k < starts.length; k++) {
     const start = starts[k];
-    const planIndex = planIndexAt(plans, beats[start]);
+    const planIndex = planOf[k];
+    if (planIndex !== currentPlan) {
+      currentPlan = planIndex;
+      barInPlan = 0;
+      // A pedal holds the chord the section starts on, whatever the chords do after it.
+      const first = planIndex >= 0 ? beats.findIndex((time) => time >= plans[planIndex].start - 1e-9) : -1;
+      pedalChord = first >= 0 ? chordAt(first) : null;
+    } else {
+      barInPlan += 1;
+    }
     const plan = planIndex >= 0 ? plans[planIndex] : undefined;
     const style = plan && plan.play.bass ? findStyle(plan.style) : undefined;
-    if (!plan || !style) {
+    if (!plan || !style || plan.bassPart === "rest") {
       segment = null;
       continue;
     }
@@ -267,17 +327,22 @@ function buildSlots(
         slots.push({
           time: beats[start],
           beat: start,
-          chord: chordAt(start),
+          chord: plan.bassPart === "pedal" ? pedalChord : chordAt(start),
           style,
-          energy: plan.energy,
+          plan: planIndex,
+          part: plan.bassPart,
+          method: methodOf(plan.bassPart, settings.bassMode),
+          walking: false,
+          loud: plan.loud,
+          octave: plan.octave,
           index: 0,
           last: true,
           strong: true,
           downbeat: true,
           locked: false,
-          loud: plan.loud,
           forced: false,
           fifth: false,
+          role: "root",
           ending: true,
           barEnd: end,
           nextBarBass,
@@ -287,7 +352,15 @@ function buildSlots(
       continue;
     }
 
-    const variations = style.bass.rhythms[plan.energy];
+    // A lead is the first bars of a section that play another part. It needs a section of at least four bars.
+    const planBars = barsInPlan.get(planIndex) ?? 0;
+    const lead = plan.bassLead && planBars >= 4 && barInPlan < plan.bassLead.bars ? plan.bassLead.part : undefined;
+    const part: BassPart = lead ?? plan.bassPart;
+    const loud = (plan.bassRamp && barInPlan >= planBars - 2 ? Math.min(5, plan.loud + 1) : plan.loud) as Energy;
+    const method = methodOf(part, settings.bassMode);
+    const grooveLike = part === "groove" || part === "melodic" || part === "walking";
+
+    const variations = style.bass.rhythms[plan.busy];
     if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
       segment = { plan: planIndex, rhythm: random.int(variations.length), barsLeft: random.pick(VARIATION_BARS) };
     }
@@ -296,13 +369,31 @@ function buildSlots(
     // Steps are drawn the same way in every mode, so the variation a bar gets does not depend on the mode or on the kick.
     const steps = style.meter.beatsPerBar * style.meter.stepsPerBeat;
     const points = Array.from({ length: steps }, (_, step) => stepAt(beats, style, start, step, steps, perBar, settings.swing));
-    const walking = settings.bassMode === "walking" && style.bass.walking;
-    let rhythm = walking ? quarterSteps(steps, perBar) : variations[segment.rhythm];
-    const kicks = settings.lockToKick ? kick.filter((note) => note.time >= beats[start] - LOCK_WINDOW && note.time < end - LOCK_WINDOW) : [];
-    const accent = feel ? feel.profiles[planIndex] : undefined;
-    const locked = kicks.length > 0 ? kickSteps(kicks, points) : new Set<number>();
-    if (kicks.length > 0) rhythm = [...new Set([0, ...locked])].sort((a, b) => a - b);
-    else if (isAccented(accent) && !walking) rhythm = bassRhythmFromAccents(accent.weights, style.meter.stepsPerBeat, perBar);
+    const walking = part === "walking" || (part === "groove" && settings.bassMode === "walking" && style.bass.walking);
+    const own = ownSteps(part, plan.busy, steps, style.meter.stepsPerBeat, barInPlan);
+    const roles = new Map<number, "root" | "fifth">();
+    let rhythm: number[];
+    if (own) {
+      rhythm = own.map((entry) => entry.step);
+      for (const entry of own) roles.set(entry.step, entry.role);
+    } else {
+      rhythm = walking ? quarterSteps(steps, perBar) : variations[segment.rhythm];
+    }
+    let locked = new Set<number>();
+    if (grooveLike) {
+      const kicks = settings.lockToKick ? kick.filter((note) => note.time >= beats[start] - LOCK_WINDOW && note.time < end - LOCK_WINDOW) : [];
+      const accent = feel ? feel.profiles[planIndex] : undefined;
+      if (kicks.length > 0) {
+        locked = kickSteps(kicks, points);
+        rhythm = [...new Set([0, ...locked])].sort((a, b) => a - b);
+      } else if (isAccented(accent) && !walking) rhythm = bassRhythmFromAccents(accent.weights, style.meter.stepsPerBeat, perBar);
+    }
+    // A chord that changes in the middle of a bar is struck there, for every part but the pedal and the walk.
+    if (part !== "pedal" && !walking) {
+      for (let step = 1; step < steps; step++) {
+        if (points[step].beat < beats.length && nameAt(points[step].beat) !== nameAt(points[step - 1].beat)) rhythm.push(step);
+      }
+    }
     if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, steps)];
 
     const silent = (step: number): boolean => feel?.stops.has(points[step].beat) ?? false;
@@ -312,22 +403,28 @@ function buildSlots(
       const point = points[step];
       if (point.beat >= beats.length) return;
       const strong = step === 0 || 2 * step === steps;
-      const forced = previousBeat >= 0 && nameAt(previousBeat) !== nameAt(point.beat);
+      const pedal = part === "pedal";
+      const forced = !pedal && previousBeat >= 0 && nameAt(previousBeat) !== nameAt(point.beat);
       if (!strong && !forced) offBeat += 1;
       slots.push({
         time: point.time,
         beat: point.beat,
-        chord: chordAt(point.beat),
+        chord: pedal ? pedalChord : chordAt(point.beat),
         style,
-        energy: plan.energy,
+        plan: planIndex,
+        part,
+        method,
+        walking,
+        loud,
+        octave: plan.octave,
         index,
         last: index === stepList.length - 1,
         strong,
         downbeat: step === 0,
         locked: locked.has(step),
-        loud: plan.loud,
         forced,
         fifth: !strong && !forced && offBeat % 2 === 1,
+        role: roles.get(step) ?? "root",
         ending: false,
         barEnd: end,
         nextBarBass,
@@ -341,7 +438,8 @@ function buildSlots(
 
 /**
  * Bass notes for the whole song, sorted by time. Rests come from null chords. Each note's octave is picked from the note before it,
- * starting from the middle of the range. Velocities are jittered from the seed.
+ * starting from the middle of the range. Velocities are jittered from the seed. A section's octave shift is applied to all its notes,
+ * or to none of them when any would leave the range.
  */
 export function generateBass(
   grid: BeatGrid,
@@ -352,29 +450,43 @@ export function generateBass(
   seed: number,
   feel?: Feel,
 ): NoteEvent[] {
-  const notes: NoteEvent[] = [];
-  if (grid.beats.length === 0 || plans.length === 0) return notes;
+  if (grid.beats.length === 0 || plans.length === 0) return [];
 
   const random = createRandom(seed);
   const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel);
   const range = BASS_NOTE_RANGES[settings.bassRange];
   let previous = range.centre;
+  const picked: { slot: Slot; pitch: number; velocity: number; duration: number; time: number }[] = [];
 
   slots.forEach((slot, i) => {
     if (!slot.chord) return;
     const next = slots[i + 1];
-    const { pitch, approach } = pitchOf(slot, slot.chord, next, previous, settings, range);
+    const { pitch, approach } = pitchOf(slot, slot.chord, next, previous, range, settings);
     const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0);
     const jitter = random.int(2 * VELOCITY_JITTER + 1) - VELOCITY_JITTER;
     const nextTime = next ? next.time : slot.barEnd;
-    notes.push({
-      time: slot.time,
+    picked.push({
+      slot,
       pitch,
       velocity: clampVelocity(LOUD_VELOCITY[slot.loud] + accent + jitter),
-      duration: noteLength(slot, nextTime, beatSpan(grid.beats, slot.beat), slot.energy),
+      duration: noteLength(slot, nextTime, settings.bassFeel),
+      time: slot.time,
     });
     previous = pitch;
   });
 
-  return notes.sort((a, b) => a.time - b.time || a.pitch - b.pitch);
+  // An octave shift is all or nothing per section: if any of its notes would leave the range, the section keeps its own octave.
+  const shifts = new Map<number, number>();
+  for (const octave of OCTAVE_SHIFTS) {
+    if (octave === 0) continue;
+    for (const planIndex of new Set(picked.map((entry) => entry.slot.plan))) {
+      if (plans[planIndex]?.octave !== octave) continue;
+      const own = picked.filter((entry) => entry.slot.plan === planIndex);
+      if (own.every((entry) => entry.pitch + 12 * octave >= range.low && entry.pitch + 12 * octave <= range.high)) shifts.set(planIndex, 12 * octave);
+    }
+  }
+
+  return picked
+    .map((entry) => ({ time: entry.time, pitch: entry.pitch + (shifts.get(entry.slot.plan) ?? 0), velocity: entry.velocity, duration: entry.duration }))
+    .sort((a, b) => a.time - b.time || a.pitch - b.pitch);
 }

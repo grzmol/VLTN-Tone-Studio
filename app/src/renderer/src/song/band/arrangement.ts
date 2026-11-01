@@ -3,6 +3,7 @@
 // parseBandSettings, which keeps valid fields and falls back to the defaults for the rest.
 
 import { sortedSections, type Section } from "../performance/sections";
+import { autoBass, BASS_PART_CHOICES, OCTAVE_SHIFTS, partForBassMode, type BassLead, type BassPart, type BassPartChoice, type OctaveShift } from "./bass-parts";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
 export const DRUM_KITS = ["standard"] as const;
@@ -90,10 +91,23 @@ export interface SectionPlan {
   energy: Energy;
   /** How loud the generated drums and bass play in the section, 1 soft to 5 hard. Defaults to the energy. */
   loud: Energy;
+  /** How busy the bass and drums play in the section, 1 sparse to 5 busy. Defaults to the energy. */
+  busy: Energy;
+  /** The bass part the section plays, resolved from the choice: never "auto". */
+  bassPart: BassPart;
+  /** The part the first bars of the section play before `bassPart`, when Auto gives one (an intro's pedal). */
+  bassLead?: BassLead;
+  /** True when the last two bars of the section push the loud level up by one (a pre-chorus building). */
+  bassRamp: boolean;
+  /** The octave the section's bass is moved by, within the range. */
+  octave: OctaveShift;
   /** A fill on the section's last bar. */
   fill: boolean;
   play: PartToggles;
 }
+
+/** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
+export type SectionOverride = Partial<Omit<SectionPlan, "bassPart" | "bassLead" | "bassRamp">> & { bassPart?: BassPartChoice };
 
 export interface BandSettings {
   parts: PartToggles;
@@ -114,6 +128,8 @@ export interface BandSettings {
   followSource: FollowSource;
   /** Humanising of the generated drums and bass (humanise.ts). */
   humanise: HumaniseSettings;
+  /** How long each bass note rings, from 0 (tight) to 1 (ring). Scales the lengths the bass part gives (bass.ts). */
+  bassFeel: number;
   /** The bass tone the generated bass is rendered through (bass-tone.ts). Only Generate uses it. */
   bassTone: BassTone;
   /** Parts brought back as rendered audio (spec 84). A kind is here while its track is the rendered audio, not a generated part. */
@@ -122,8 +138,8 @@ export interface BandSettings {
   firstNote: Partial<Record<RenderedKind, number>>;
   /** Each generation uses this seed, so a song regenerates the same way. "Try another" picks a new one. */
   seed: number;
-  /** Per-section changes, keyed by section id. Only style, energy, loud, fill and play can be overridden. */
-  sections: Record<string, Partial<SectionPlan>>;
+  /** Per-section changes, keyed by section id. Style, energy, loud, busy, bass part, octave, fill and play can be overridden. */
+  sections: Record<string, SectionOverride>;
 }
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
@@ -137,6 +153,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
+  bassFeel: 0.5,
   lockToKick: true,
   followPlaying: true,
   followSource: "auto",
@@ -169,43 +186,60 @@ export function isChorusName(name: string): boolean {
   return /chorus/i.test(name) && !/pre[\s-]*chorus/i.test(name);
 }
 
+/** The bass a section plays in a song: the choice's part, or Auto's from the name. The chorus rule is set by the song's first chorus. */
+function chorusIsGroove(sections: readonly Section[], settings: BandSettings): boolean {
+  const chorus = sortedSections(sections).find((section) => isChorusName(section.name));
+  if (!chorus) return false;
+  const override = settings.sections[chorus.id] ?? {};
+  if (override.bassPart !== undefined && override.bassPart !== "auto") return override.bassPart === "groove";
+  const energy = override.energy ?? energyForName(chorus.name);
+  return autoBass(chorus.name, override.busy ?? energy, false, partForBassMode(settings.bassMode)).part === "groove";
+}
+
+/** The fields of a plan that do not depend on its times: what the section plays, resolved from its name and overrides. */
+function playFields(name: string, override: SectionOverride, settings: BandSettings, chorusGroove: boolean) {
+  const energy = override.energy ?? energyForName(name);
+  const busy = override.busy ?? energy;
+  const choice = override.bassPart ?? "auto";
+  const bass =
+    choice === "auto"
+      ? autoBass(name, busy, chorusGroove, partForBassMode(settings.bassMode))
+      : { part: choice, lead: undefined, rampLoud: false, octave: 0 as OctaveShift };
+  return {
+    style: override.style ?? settings.style,
+    energy,
+    loud: override.loud ?? energy,
+    busy,
+    bassPart: bass.part,
+    bassLead: bass.lead,
+    bassRamp: bass.rampLoud,
+    octave: override.octave ?? bass.octave,
+    play: override.play ? { ...override.play } : { ...settings.parts },
+  };
+}
+
 /**
  * Splits the song into one plan per section, in time order. The first plan starts at 0 and the last one runs to the song's end, and
  * each gap between sections goes to the section before it. A song without sections gets one plan for the whole song.
  */
 export function planSections(sections: readonly Section[], songEnd: number, settings: BandSettings): SectionPlan[] {
+  const chorusGroove = chorusIsGroove(sections, settings);
   if (sections.length === 0) {
     // A song without sections is one plan, and its overrides are kept under WHOLE_SONG_ID like a section's are under its id.
     const override = settings.sections[WHOLE_SONG_ID] ?? {};
-    const energy = override.energy ?? 3;
-    return [
-      {
-        sectionId: null,
-        start: 0,
-        end: songEnd,
-        style: override.style ?? settings.style,
-        energy,
-        loud: override.loud ?? energy,
-        fill: override.fill ?? true,
-        play: override.play ? { ...override.play } : { ...settings.parts },
-      },
-    ];
+    return [{ sectionId: null, start: 0, end: songEnd, fill: override.fill ?? true, ...playFields("", override, settings, chorusGroove) }];
   }
 
   const ordered = sortedSections(sections);
   return ordered.map((section, i) => {
     const next = ordered[i + 1];
     const override = settings.sections[section.id] ?? {};
-    const energy = override.energy ?? energyForName(section.name);
     return {
       sectionId: section.id,
       start: i === 0 ? 0 : section.start,
       end: next ? next.start : Math.max(songEnd, section.end),
-      style: override.style ?? settings.style,
-      energy,
-      loud: override.loud ?? energy,
       fill: override.fill ?? (next ? isChorusName(next.name) : true),
-      play: override.play ? { ...override.play } : { ...settings.parts },
+      ...playFields(section.name, override, settings, chorusGroove),
     };
   });
 }
@@ -218,6 +252,8 @@ const isUnit = (value: unknown): value is number => isInRange(value, 0, 1);
 const isSwing = (value: unknown): value is number => isInRange(value, 0, SWING_MAX);
 const isSeed = (value: unknown): value is number => isInRange(value, 0, 0xffffffff) && Number.isInteger(value);
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
+const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
+const isBassPartChoice = (value: unknown): value is BassPartChoice => BASS_PART_CHOICES.includes(value as BassPartChoice);
 const isStyleId = (value: unknown): value is StyleId => STYLE_IDS.includes(value as StyleId);
 const isOneOf =
   <T extends string>(options: readonly T[]) =>
@@ -234,12 +270,15 @@ const isPartToggles = (value: unknown): value is PartToggles => isRecord(value) 
 const optional = <T>(value: unknown, check: (candidate: unknown) => candidate is T): boolean => value === undefined || check(value);
 
 /** A section override where every field present is valid. */
-function isSectionOverride(value: unknown): value is Partial<SectionPlan> {
+function isSectionOverride(value: unknown): value is SectionOverride {
   return (
     isRecord(value) &&
     optional(value.style, isStyleId) &&
     optional(value.energy, isEnergy) &&
     optional(value.loud, isEnergy) &&
+    optional(value.busy, isEnergy) &&
+    optional(value.octave, isOctave) &&
+    optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isBool) &&
     optional(value.play, isPartToggles)
   );
@@ -348,6 +387,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBool(value.followPlaying) &&
     isFollowSource(value.followSource) &&
     isHumanise(value.humanise) &&
+    isUnit(value.bassFeel) &&
     isBassTone(value.bassTone) &&
     isRendered(value.rendered) &&
     isFirstNote(value.firstNote) &&
@@ -367,11 +407,14 @@ function parseHumanise(value: unknown): HumaniseSettings {
 }
 
 /** Keeps each valid field of a section override and drops the rest. */
-function parseSectionOverride(value: Record<string, unknown>): Partial<SectionPlan> {
-  const override: Partial<SectionPlan> = {};
+function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
+  const override: SectionOverride = {};
   if (isStyleId(value.style)) override.style = value.style;
   if (isEnergy(value.energy)) override.energy = value.energy;
   if (isEnergy(value.loud)) override.loud = value.loud;
+  if (isEnergy(value.busy)) override.busy = value.busy;
+  if (isOctave(value.octave)) override.octave = value.octave;
+  if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
   return override;
@@ -385,7 +428,7 @@ export function parseBandSettings(value: unknown): BandSettings {
   const source: Record<string, unknown> = isRecord(value) ? value : {};
   const defaults = DEFAULT_BAND_SETTINGS;
 
-  const sections: Record<string, Partial<SectionPlan>> = {};
+  const sections: Record<string, SectionOverride> = {};
   if (isRecord(source.sections)) {
     for (const [id, entry] of Object.entries(source.sections)) {
       // "__proto__" is skipped so a saved key cannot change the object's prototype.
@@ -406,6 +449,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,
     bassMode: isBassMode(source.bassMode) ? source.bassMode : defaults.bassMode,
+    bassFeel: isUnit(source.bassFeel) ? source.bassFeel : defaults.bassFeel,
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,
