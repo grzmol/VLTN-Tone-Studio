@@ -133,6 +133,23 @@ describe("keyStep and chordsStep", () => {
     expect(ReplyingWorker.posted).toEqual({ harmony: stem, bass: null, beats: grid.beats, key: null });
   });
 
+  it("re-picks the downbeat from the chord changes and hands the grid on", async () => {
+    // The grid's downbeat is beat 1; the chords change on beat 0 of each bar, so the downbeat moves to 0.
+    const beats = [0.2, 1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2];
+    const tracked = { beatsPerBar: 4, beats, downbeat: 1, bpm: 60, steady: null };
+    reply = { chords: [{ time: 0, name: "F#m", confidence: 0.9 }, { time: 4.2, name: "E", confidence: 0.9 }, { time: 0.0 + 8.2, name: "C#m", confidence: 0.9 }] };
+    const onGrid = vi.fn();
+    await chordsStep(() => tracked, onGrid).run({ ...audio, harmony: { name: "other", audio: stem }, bass: null }, new AbortController().signal, nothingFound);
+    expect(onGrid).toHaveBeenCalledWith({ ...tracked, downbeat: 0 });
+  });
+
+  it("does not hand the grid on when the chords leave the downbeat where it is", async () => {
+    reply = { chords: [{ time: 0, name: "F#m", confidence: 0.9 }] };
+    const onGrid = vi.fn();
+    await chordsStep(() => grid, onGrid).run({ ...audio, harmony: { name: "other", audio: stem }, bass: null }, new AbortController().signal, nothingFound);
+    expect(onGrid).not.toHaveBeenCalled();
+  });
+
   it("gives the chords the key the analysis found, to set the key prior", async () => {
     reply = { chords: [] };
     const found = { audioId: "", version: 0, key: { source: "other", estimate } } as unknown as SongAnalysis;

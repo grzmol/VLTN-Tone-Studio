@@ -460,6 +460,58 @@ export function pickDownbeat(
   return bestPhase;
 }
 
+/**
+ * The bar phase the chord changes point to, as an index into `beats`. A change counts for the beat within CHORD_WINDOW_SECONDS of it.
+ * The phase with the most hits takes the downbeat only when it has more hits than `current` and holds most of them; otherwise `current`
+ * stays. With no change near a beat, `current` stays.
+ */
+export function downbeatFromChordChanges(beats: readonly number[], changes: readonly number[], beatsPerBar: number, current: number): number {
+  const bar = Math.max(1, Math.floor(beatsPerBar));
+  const hits = new Float64Array(bar);
+  let total = 0;
+  for (const change of changes) {
+    let nearest = -1,
+      gap = Infinity;
+    beats.forEach((beat, i) => {
+      if (Math.abs(beat - change) < gap) {
+        gap = Math.abs(beat - change);
+        nearest = i;
+      }
+    });
+    if (nearest >= 0 && gap <= CHORD_WINDOW_SECONDS) {
+      hits[nearest % bar]++;
+      total++;
+    }
+  }
+  if (!total) return current;
+  let best = 0;
+  for (let p = 1; p < bar; p++) if (hits[p] > hits[best]) best = p;
+  return hits[best] > hits[current] && hits[best] * 2 > total ? best : current;
+}
+
+/**
+ * The times where a chord list changes name, for `downbeatFromChordChanges`. The first chord never counts, since nothing comes before it.
+ */
+export function chordChangeTimesOf(chords: readonly { time: number; name: string }[]): number[] {
+  const times: number[] = [];
+  chords.forEach((chord, i) => {
+    if (i > 0 && chord.name !== chords[i - 1].name) times.push(chord.time);
+  });
+  return times;
+}
+
+/**
+ * The grid with its downbeat moved to the phase the chord changes point to (see `downbeatFromChordChanges`). The grid is returned as it is
+ * when the downbeat stays. A locked grid keeps its steady first beat on the downbeat, so that moves with it.
+ */
+export function withChordDownbeat(grid: BeatGrid, changes: readonly number[]): BeatGrid {
+  const downbeat = downbeatFromChordChanges(grid.beats, changes, grid.beatsPerBar, grid.downbeat);
+  if (downbeat === grid.downbeat) return grid;
+  const onDownbeat = grid.beats[grid.downbeat];
+  const steady = grid.steady && grid.steady.firstBeat === onDownbeat ? { ...grid.steady, firstBeat: grid.beats[downbeat] ?? onDownbeat } : grid.steady;
+  return { ...grid, downbeat, steady };
+}
+
 /** The meters `estimateMeter` chooses between. Six and other compound meters are not detected, so they keep the default. */
 export const METER_CANDIDATES = [3, 4] as const;
 

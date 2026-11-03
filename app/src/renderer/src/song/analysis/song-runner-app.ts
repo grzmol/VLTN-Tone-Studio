@@ -101,7 +101,7 @@ function appSteps(key: string, options: RunOptions, captured: CapturedRun): Anal
   const tempo = tempoStep((grid) => (captured.grid = grid), options.hint ?? {});
   // The chords and the sections take the beat grid the tempo step tracked in this run, or else the one saved with the song.
   const gridOf = () => captured.grid ?? readStoredBand(key).grid ?? null;
-  const chords = chordsStep(gridOf);
+  const chords = chordsStep(gridOf, (grid) => (captured.grid = grid));
   const bassLine = bassLineStep(gridOf);
   const sections = sectionsStep(gridOf);
   if (options.tempoOnly) return options.sections ? [tempo, sections] : [tempo];

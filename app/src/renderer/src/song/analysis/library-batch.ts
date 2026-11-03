@@ -24,7 +24,7 @@ export function stepsFor(
     ["silence", () => [silenceStep()]],
     ["parts", () => [partsStep()]],
     ["tempo", () => [tempoStep(onGrid)]],
-    ["chords", () => [chordsStep(gridOf)]],
+    ["chords", () => [chordsStep(gridOf, onGrid)]],
     ["key", () => [keyStep()]],
     ["sections", () => [sectionsStep(gridOf), ...(wanted.has("key") ? [sectionKeysStep()] : [])]],
   ];

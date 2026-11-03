@@ -2,7 +2,7 @@
 // result to the run and returns nothing to the screen, so it can run headless.
 
 import { startBeatGrid } from "../band/beat-grid-client";
-import type { BeatGrid, TempoHintOptions } from "../band/beat-grid";
+import { chordChangeTimesOf, withChordDownbeat, type BeatGrid, type TempoHintOptions } from "../band/beat-grid";
 import { tempoFromGrid } from "../performance/tempo-source";
 import type { Chord, ChordsInput } from "../performance/chords";
 import type { KeyEstimate, KeyInput, KeySection } from "../performance/key";
@@ -170,18 +170,25 @@ export function sectionKeysStep(): AnalysisStep {
  * is one. The chords change on the beats of the grid `gridOf` gives (the one the tempo step just tracked, or the saved one); without a
  * grid they are read on a fixed hop.
  */
-export function chordsStep(gridOf: () => BeatGrid | null = () => null): AnalysisStep {
+export function chordsStep(gridOf: () => BeatGrid | null = () => null, onGrid?: (grid: BeatGrid) => void): AnalysisStep {
   return {
     name: "chords",
     async run(audio, signal, soFar) {
       // The key runs after the chords, so the key prior is normally the harmony's own estimate. A run that resumes with a key already found
       // passes it on here instead.
-      const input: ChordsInput = { harmony: audio.harmony.audio, bass: audio.bass, beats: gridOf()?.beats ?? null, key: soFar.key?.estimate.name ?? null };
+      const grid = gridOf();
+      const input: ChordsInput = { harmony: audio.harmony.audio, bass: audio.bass, beats: grid?.beats ?? null, key: soFar.key?.estimate.name ?? null };
       const { chords } = await runWorker<{ chords: Chord[] }>(
         () => new Worker(new URL("../performance/chords-worker.ts", import.meta.url), { type: "module" }),
         input,
         signal,
       );
+      // The beat tracker chose the downbeat from the chart's chords only. Now the chords are known, the bar phase is picked again from them.
+      // The chord changes are a short list, so this runs on the calling thread after the worker has answered.
+      if (grid && onGrid) {
+        const regridded = withChordDownbeat(grid, chordChangeTimesOf(chords));
+        if (regridded !== grid) onGrid(regridded);
+      }
       return { chords: { source: audio.harmony.name, chords } };
     },
   };

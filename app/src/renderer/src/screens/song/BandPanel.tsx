@@ -27,7 +27,7 @@ import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import type { NoteEvent } from "@/song/band/note";
 import { encodeSmf } from "@/song/performance/smf";
 import { startBeatGrid, type BeatGridJob } from "@/song/band/beat-grid-client";
-import { fixedBeatGrid, type BeatGrid } from "@/song/band/beat-grid";
+import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/beat-grid";
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
@@ -318,7 +318,8 @@ function BandBody({
         sources: beatSources(useSong.getState().stems, current.audio),
         sampleRate: current.audio.sampleRate,
         beatsPerBar: beats,
-        chordChanges: chartChordTimes(cues),
+        // The chart's chord changes, or else the detected chords, so the downbeat follows the chords when the chart has none.
+        chordChanges: chartChordTimes(cues).length ? chartChordTimes(cues) : chordChangeTimesOf(chords),
         tempoHint: typedTempo && useMyTempo ? bpm : undefined,
       });
       job.current = found;

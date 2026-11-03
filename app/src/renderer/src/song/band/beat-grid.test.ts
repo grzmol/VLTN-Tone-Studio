@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PcmAudio } from "../types";
 import {
+  chordChangeTimesOf,
   detectBeatGrid,
   doubleTempo,
+  downbeatFromChordChanges,
   estimateMeter,
   estimateTempo,
   fitSteady,
@@ -16,6 +18,7 @@ import {
   refineTempo,
   shiftDownbeat,
   trackBeats,
+  withChordDownbeat,
   type BeatGrid,
 } from "./beat-grid";
 
@@ -280,6 +283,63 @@ describe("pickDownbeat", () => {
 
   it("returns 0 for no beats", () => {
     expect(pickDownbeat([], new Float64Array(10), 100, 4)).toBe(0);
+  });
+});
+
+describe("downbeatFromChordChanges", () => {
+  const beats = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5];
+
+  it("moves the downbeat to the phase most chord changes fall on", () => {
+    // Changes on beats 0 and 4 (phase 0), current downbeat is phase 1.
+    expect(downbeatFromChordChanges(beats, [0.0, 2.0], 4, 1)).toBe(0);
+  });
+
+  it("keeps the current downbeat when the chord changes fall on it", () => {
+    expect(downbeatFromChordChanges(beats, [0.5, 2.5], 4, 1)).toBe(1);
+  });
+
+  it("keeps the current downbeat when no change is near a beat or the hits split evenly", () => {
+    expect(downbeatFromChordChanges(beats, [], 4, 3)).toBe(3);
+    expect(downbeatFromChordChanges(beats, [0.0, 0.5], 4, 3)).toBe(3);
+  });
+
+  it("needs most of the hits, not just a plurality", () => {
+    // Two changes on phase 0 and two on phase 1: phase 0 leads only on the tie-break, which is not a majority, so the downbeat stays.
+    expect(downbeatFromChordChanges(beats, [0.0, 2.0, 0.5, 2.5], 4, 3)).toBe(3);
+  });
+});
+
+describe("withChordDownbeat", () => {
+  it("moves a phase-1 downbeat to phase 0 and keeps the rest of the grid", () => {
+    const grid: BeatGrid = { beatsPerBar: 4, beats: [0.2, 1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2], downbeat: 1, bpm: 60, steady: null };
+    const next = withChordDownbeat(grid, [4.2]);
+    expect(next.downbeat).toBe(0);
+    expect(next.beats).toBe(grid.beats);
+    expect(next.bpm).toBe(60);
+  });
+
+  it("returns the same grid when the downbeat stays", () => {
+    const grid: BeatGrid = { beatsPerBar: 4, beats: [0, 1, 2, 3, 4], downbeat: 0, bpm: 60, steady: null };
+    expect(withChordDownbeat(grid, [4])).toBe(grid);
+  });
+
+  it("moves the steady first beat of a locked grid with the downbeat", () => {
+    const beats = [0.2, 1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2];
+    const grid: BeatGrid = { beatsPerBar: 4, beats, downbeat: 1, bpm: 60, steady: { bpm: 60, firstBeat: 1.2 } };
+    expect(withChordDownbeat(grid, [4.2]).steady).toEqual({ bpm: 60, firstBeat: 0.2 });
+  });
+});
+
+describe("chordChangeTimesOf", () => {
+  it("gives the times where the name changes, not the first chord", () => {
+    const chords = [
+      { time: 0, name: "F#m" },
+      { time: 4, name: "F#m" },
+      { time: 8, name: "E" },
+      { time: 12, name: "E" },
+      { time: 16, name: "D" },
+    ];
+    expect(chordChangeTimesOf(chords)).toEqual([8, 16]);
   });
 });
 
