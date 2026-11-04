@@ -218,12 +218,13 @@ export function bassLineStep(gridOf: () => BeatGrid | null): AnalysisStep {
  * Suggests the song's sections on the bar lines of its beat grid, or on two-second frames when there is no grid. `gridOf` gives the grid the
  * tempo step tracked: the grid is too large for the analysis record, so the caller holds it, as `tempoStep`'s `onGrid` does. The harmony
  * is read from the chord stem, or from the mix when none is chosen. The vocals come from the vocals stem; without one, every unit counts
- * as having vocals. The measuring and the detection run in the sections worker.
+ * as having vocals. The chords the chords step found, when it ran, give each unit its harmony. The measuring and the detection run in the
+ * sections worker.
  */
 export function sectionsStep(gridOf: () => BeatGrid | null): AnalysisStep {
   return {
     name: "sections",
-    async run(audio, signal) {
+    async run(audio, signal, soFar) {
       const duration = (audio.mix.channels[0]?.length ?? 0) / audio.mix.sampleRate;
       const grid = gridOf();
       const bars = grid ? barUnitSpans(grid.beats, grid.downbeat, grid.beatsPerBar, duration) : null;
@@ -233,6 +234,9 @@ export function sectionsStep(gridOf: () => BeatGrid | null): AnalysisStep {
         vocals: audio.stems?.vocals ?? null,
         spans: bars ?? timeUnitSpans(duration),
         options: bars ? BAR_DETECT : TIME_DETECT,
+        chords: soFar.chords?.chords ?? [],
+        drums: audio.stems?.drums ?? null,
+        bass: audio.stems?.bass ?? null,
       };
       const { sections } = await runWorker<{ sections: DetectedSection[] }>(
         () => new Worker(new URL("./sections-worker.ts", import.meta.url), { type: "module" }),

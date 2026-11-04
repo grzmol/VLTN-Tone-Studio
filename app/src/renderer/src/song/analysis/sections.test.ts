@@ -158,7 +158,7 @@ describe("noveltyCurve and cosine", () => {
 
 describe("nameSections", () => {
   it("numbers repeated names in song order and leaves a single name alone", () => {
-    const info = (kind: number, vocals: boolean, energy: number) => ({ from: 0, to: 1, vector: [], energy, vocals, kind });
+    const info = (kind: number, vocals: boolean, energy: number) => ({ from: 0, to: 1, vector: [], energy, vocalEnergy: energy, vocals, kind });
     const names = nameSections([info(0, true, 0.5), info(1, true, 0.9), info(0, true, 0.5), info(1, true, 0.9), info(2, false, 1.5), info(1, true, 0.9)]);
     expect(names).toEqual(["Verse 1", "Chorus 1", "Verse 2", "Chorus 2", "Solo", "Chorus 3"]);
   });
@@ -176,7 +176,11 @@ describe("boundary accuracy on synthetic songs", () => {
         const found = detectSections(units, BAR_DETECT).map((s) => s.start);
         const truth = truthCuts(pattern, 8);
         // Section starts include 0, which is not a boundary to find.
-        hits += boundaryHits(found.filter((t) => t > 0), truth, BAR_S);
+        hits += boundaryHits(
+          found.filter((t) => t > 0),
+          truth,
+          BAR_S,
+        );
         total += truth.length;
       }
     }
@@ -230,5 +234,73 @@ describe("applying detected sections", () => {
     expect(sectionsToApply(made, detected)).toBeNull();
     expect(sectionsToApply([], [])).toBeNull();
     expect(sectionsToApply([], undefined)).toBeNull();
+  });
+});
+
+/** One block of a song: its bars, the chord root of each bar (repeated), and each stem's level, linear. */
+interface Block {
+  bars: number;
+  roots: number[];
+  mix: number;
+  vocals: boolean;
+  /** The vocals' level when they are present. */
+  vocal?: number;
+  drums: number;
+  bass: number;
+}
+
+/** The units of a song given as blocks. Each bar's chroma is its root and fifth, with a little jitter, so bars of one chord agree. */
+function songOf(blocks: readonly Block[], seed = 7): SectionUnit[] {
+  const next = random(seed);
+  const units: SectionUnit[] = [];
+  let index = 0;
+  for (const block of blocks) {
+    for (let bar = 0; bar < block.bars; bar++, index++) {
+      const root = block.roots[bar % block.roots.length];
+      const chroma = Array.from({ length: 12 }, (_, pitch) => (pitch === root ? 1 : 0) + (pitch === (root + 7) % 12 ? 0.5 : 0) + 0.02 * next());
+      units.push({
+        start: index * BAR_S,
+        end: (index + 1) * BAR_S,
+        chroma,
+        energy: block.mix * (1 + 0.05 * (next() - 0.5)),
+        vocals: block.vocals,
+        vocalEnergy: block.vocals ? (block.vocal ?? block.mix) : 0.001,
+        drumEnergy: block.drums,
+        bassEnergy: block.bass,
+      });
+    }
+  }
+  return units;
+}
+
+const VERSE = [9, 4, 0, 2];
+const CHORUS = [0, 2, 9, 4];
+const QUIET_DRUMS = 0.01;
+
+describe("detectSections on songs whose sections share chords and vocals", () => {
+  it("finds the verses and choruses of a ballad where the vocals run throughout and the chorus is louder", () => {
+    const verse: Block = { bars: 8, roots: VERSE, mix: 0.5, vocals: true, vocal: 0.4, drums: 0.2, bass: 0.4 };
+    const chorus: Block = { bars: 8, roots: CHORUS, mix: 0.9, vocals: true, vocal: 0.8, drums: 0.5, bass: 0.6 };
+    const intro: Block = { bars: 8, roots: VERSE, mix: 0.3, vocals: false, drums: 0.05, bass: 0.3 };
+    const sections = detectSections(songOf([intro, verse, chorus, verse, chorus]), BAR_DETECT);
+    expect(sections.map((s) => s.name)).toEqual(["Intro", "Verse 1", "Chorus 1", "Verse 2", "Chorus 2"]);
+  });
+
+  it("names a drum-free last section an outro, even while the vocals continue", () => {
+    const verse: Block = { bars: 8, roots: VERSE, mix: 0.5, vocals: true, vocal: 0.4, drums: 0.2, bass: 0.4 };
+    const chorus: Block = { bars: 8, roots: CHORUS, mix: 0.9, vocals: true, vocal: 0.8, drums: 0.5, bass: 0.6 };
+    const intro: Block = { bars: 8, roots: VERSE, mix: 0.3, vocals: false, drums: 0.05, bass: 0.3 };
+    const outro: Block = { bars: 8, roots: CHORUS, mix: 0.6, vocals: true, vocal: 0.5, drums: QUIET_DRUMS, bass: 0.4 };
+    const sections = detectSections(songOf([intro, verse, chorus, verse, chorus, outro]), BAR_DETECT);
+    expect(sections.map((s) => s.name)).toEqual(["Intro", "Verse 1", "Chorus 1", "Verse 2", "Chorus 2", "Outro"]);
+  });
+
+  it("names an instrumental section where the bass drops out a bridge", () => {
+    const verse: Block = { bars: 8, roots: VERSE, mix: 0.5, vocals: true, vocal: 0.4, drums: 0.2, bass: 0.4 };
+    const chorus: Block = { bars: 8, roots: CHORUS, mix: 0.9, vocals: true, vocal: 0.8, drums: 0.5, bass: 0.6 };
+    const intro: Block = { bars: 8, roots: VERSE, mix: 0.3, vocals: false, drums: 0.05, bass: 0.3 };
+    const bridge: Block = { bars: 8, roots: [5, 7, 5, 7], mix: 0.6, vocals: false, drums: 0.3, bass: QUIET_DRUMS };
+    const sections = detectSections(songOf([intro, verse, chorus, verse, bridge, chorus]), BAR_DETECT);
+    expect(sections.map((s) => s.name)).toEqual(["Intro", "Verse 1", "Chorus 1", "Verse 2", "Bridge", "Chorus 2"]);
   });
 });
