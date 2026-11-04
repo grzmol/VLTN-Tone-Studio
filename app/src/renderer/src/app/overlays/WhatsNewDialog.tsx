@@ -10,7 +10,7 @@ import rigTools from "@/assets/whats-new/rig-tools.webp";
 
 const SLIDES = [
   { title: "Setlists and a stage mode", text: "Put a gig's presets in order, with a note on each song. Stage mode fills the window with the current preset and the next one, and follows the footswitch. If a slot is overwritten, the list tells you and offers to follow the preset.", image: setlist },
-  { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. On the GP-5 and GP-50 a switch puts the pedal in tuner mode, so nothing plays while you tune.", image: tuner },
+  { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. A Mute switch sets Out to 0 while you tune and puts it back when you close the tuner.", image: tuner },
   { title: "A metronome, Randomize and Morph", text: "Click at the preset's tempo through the pedal's sound card, with its own volume. The shuffle button nudges every knob, or morphs the sound toward another preset. Both can be undone.", image: rigTools },
 ];
 

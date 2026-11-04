@@ -607,12 +607,6 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (d?.setBpm) sends.push("setting:bpm", () => d.setBpm!(v));
     },
 
-    async setTuner(on) {
-      const d = requireFeature("tuner");
-      requireIdle();
-      await d.setTuner!(on);
-    },
-
     setExp(edit) {
       const p = get().preset;
       if (!p?.exp) throw new DeviceError("unsafe", `${p ? `${pedalName(p.device)} presets have` : "This preset has"} no EXP settings`);

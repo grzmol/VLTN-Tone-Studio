@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type SVGProps } from "react";
-import { notifyError } from "@/app/notify";
 import { Switch } from "@/components/ui/switch";
 import { useDevice } from "@/state/device";
 import { Button } from "@/components/ui/button";
@@ -56,28 +55,29 @@ function TunerBody() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [note, setNote] = useState<(Note & { hz: number }) | null>(null);
   const [error, setError] = useState("");
-  const connected = useDevice((s) => s.status === "connected");
-  const canMute = useDevice((s) => s.status === "connected" && s.features.includes("tuner"));
+  const canMute = useDevice((s) => s.status === "connected" && s.preset !== null && s.busy === null);
   const [muted, setMuted] = useState(false);
-  const mutedNow = useRef(false);
+  // Mute sets the preset's Out volume to 0 and remembers the value for this slot, so it works on every model.
+  const before = useRef<{ slot: number; volume: number } | null>(null);
 
-  const mute = async (on: boolean) => {
-    try {
-      await useDevice.getState().setTuner(on);
-      mutedNow.current = on;
-      setMuted(on);
-    } catch (e) {
-      notifyError(on ? "Couldn't mute the pedal" : "Couldn't unmute the pedal", e);
-    }
+  const unmute = () => {
+    const was = before.current;
+    before.current = null;
+    // a different preset is active now (it has its own volume): nothing to put back
+    if (was && useDevice.getState().slot === was.slot) useDevice.getState().setVolume(was.volume);
   };
 
-  // Closing the tuner (this unmounts) always takes the pedal out of its tuner mode, so it never stays muted.
-  useEffect(
-    () => () => {
-      if (mutedNow.current) void useDevice.getState().setTuner(false).catch(() => {});
-    },
-    [],
-  );
+  const mute = (on: boolean) => {
+    const d = useDevice.getState();
+    if (on && d.preset && d.slot !== null) {
+      before.current = { slot: d.slot, volume: d.preset.volume };
+      d.setVolume(0);
+    } else unmute();
+    setMuted(on && before.current !== null);
+  };
+
+  // Closing the tuner (this unmounts) always puts the volume back.
+  useEffect(() => unmute, []);
 
   useEffect(() => {
     listInputs().then(
@@ -145,13 +145,10 @@ function TunerBody() {
         <label className="flex w-full items-center justify-between gap-3 text-sm text-silkscreen-2">
           <span>
             Mute the pedal
-            <span className="block text-xs text-silkscreen-3">Puts the pedal in tuner mode, so nothing plays while you tune.</span>
+            <span className="block text-xs text-silkscreen-3">Sets Out to 0 while you tune and puts it back when you close the tuner.</span>
           </span>
-          <Switch checked={muted} onCheckedChange={(on) => void mute(on)} aria-label="Mute the pedal while tuning" />
+          <Switch checked={muted} onCheckedChange={mute} aria-label="Mute the pedal while tuning" />
         </label>
-      )}
-      {connected && !canMute && (
-        <p className="text-xs text-pretty text-silkscreen-3">Tone Studio can't switch this pedal's own tuner on yet. To mute it while you tune, use the tuner on the pedal.</p>
       )}
       {error ? (
         <p className="text-sm text-led-fault">{error}</p>

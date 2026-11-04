@@ -200,9 +200,7 @@ export type DeviceFeature =
   /** Move a slot in the list, the ones in between shift (GP-50 11 5A) */
   | "movePreset"
   /** Global EQ values set one at a time (GP-200 family 0x1005) */
-  | "globalEq"
-  /** The pedal's own tuner mode, which mutes its output (MIDI CC 58, in the GP-5 and GP-50 CC maps) */
-  | "tuner";
+  | "globalEq";
 
 /**
  * Global EQ of the GP-200 family: the 31 values in the order of gp200/lib protocol GLOBAL_EQ_INDEX (ranges:
@@ -355,10 +353,7 @@ export interface DeviceState {
   /** Tempo, clamped to profileFor(device).tempo; live where the pedal takes it (liveBpm), else it reaches the pedal on save */
   setBpm(bpm: number): void;
   /** EXP settings of the active preset (needs the "exp" feature); every value is checked first (RangeError) */
-  setExp(edit: ExpEdit): void;
-  /** Turn the pedal's tuner mode on (its output is muted) or off (needs the "tuner" feature) */
-  setTuner(on: boolean): Promise<void>;
-  /**
+  setExp(edit: ExpEdit): void;  /**
    * Switch assignments, one block list per switch (PresetState.footswitches); live where the pedal takes it
    * (liveFootswitches), else on save. GP-50 presets allow at most 3 blocks per switch and a block on one switch only:
    * anything else throws RangeError and changes nothing.

@@ -56,7 +56,7 @@ describe("GP-50 features in the device store", () => {
   });
 
   it("offers every GP-50 feature on the simulator", () => {
-    expect([...store().features].sort()).toEqual(["copyPreset", "deletePreset", "exp", "exportPreset", "liveBpm", "liveFootswitches", "liveOrder", "modified", "movePreset", "sync", "tuner"]);
+    expect([...store().features].sort()).toEqual(["copyPreset", "deletePreset", "exp", "exportPreset", "liveBpm", "liveFootswitches", "liveOrder", "modified", "movePreset", "sync"]);
     expect(store().lockedFeatures).toEqual([]);
     expect(store().preset?.exp).not.toBeNull();
   });
@@ -184,7 +184,7 @@ describe("GP-50 features in the device store", () => {
     });
 
     it("locks the reverse-engineered features and keeps the documented ones", () => {
-      expect([...store().features].sort()).toEqual(["modified", "sync", "tuner"]);
+      expect([...store().features].sort()).toEqual(["modified", "sync"]);
       expect(store().lockedFeatures).toContain("exp");
       expect(store().can("liveOrder")).toBe(false);
     });

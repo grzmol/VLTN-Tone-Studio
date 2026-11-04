@@ -1,8 +1,9 @@
-// The pedal's tuner mode (the Tuner's Mute switch) exists only where the CC is documented: the GP-5 family. Every other
-// model must not offer it, and must refuse rather than send something it doesn't know.
+// The tuner's Mute switch sets the preset's Out volume to 0 and puts it back: it must work on every model and leave no
+// unsaved change behind once the volume is restored.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { DEVICE_KEYS } from "@shared/devices";
 import { useDevice } from "./device";
 
 vi.stubGlobal("fetch", async (url: string) => new Response(readFileSync(resolve(`.${decodeURIComponent(url)}`))));
@@ -15,23 +16,20 @@ vi.stubGlobal("localStorage", {
 
 const store = () => useDevice.getState();
 
-describe("tuner mode", () => {
+describe("mute for tuning (Out volume)", () => {
   afterAll(async () => {
     await store().disconnect();
   });
 
-  it.each(["gp5", "gp50"] as const)("is offered on the %s", async (key) => {
+  it.each(DEVICE_KEYS)("silences the %s and leaves nothing unsaved after the restore", async (key) => {
     await store().connect("mock", { mockDevice: key });
-    expect(store().features).toContain("tuner");
-    await expect(store().setTuner(true)).resolves.toBeUndefined();
-    await expect(store().setTuner(false)).resolves.toBeUndefined();
-    await store().disconnect();
-  }, 30_000);
-
-  it.each(["gp200", "gp200lt", "gp200jr", "gp150", "gp180"] as const)("is not offered on the %s", async (key) => {
-    await store().connect("mock", { mockDevice: key });
-    expect(store().features).not.toContain("tuner");
-    await expect(store().setTuner(true)).rejects.toThrow(/can't do this/);
+    const volume = store().preset!.volume;
+    expect(store().unsavedChanges).toBe(0);
+    store().setVolume(0);
+    expect(store().preset!.volume).toBe(0);
+    store().setVolume(volume);
+    expect(store().preset!.volume).toBe(volume);
+    expect(store().unsavedChanges).toBe(0);
     await store().disconnect();
   }, 30_000);
 });
