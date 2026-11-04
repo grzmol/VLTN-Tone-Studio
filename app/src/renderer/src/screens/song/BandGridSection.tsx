@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { doubleTempo, halveTempo, nudgeGrid, shiftDownbeat, type BeatGrid } from "@/song/band/beat-grid";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import { BandGrid } from "./BandGrid";
+import { BassNoteEditor, BassNoteList, type BassNotesContext } from "./BassNotes";
 
 export interface BandGridSectionProps {
   grid: BeatGrid | null;
@@ -23,10 +25,27 @@ export interface BandGridSectionProps {
   onSetTempo(): void;
   /** The tempo the performer set by hand, which the beat is found from when `use` is on. Not shown when not given. */
   myTempo?: { bpm: number; use: boolean; onUse(use: boolean): void };
+  /** The performer's bass notes (spec 87): the strip's beats pick one to edit, and the list shows them. Not shown when not given. */
+  bassNotes?: Omit<BassNotesContext, "grid" | "harmony">;
 }
 
 /** The beat grid: find the beat, the corrections to it, the fixed tempo, and the strip that shows it. */
-export function BandGridSection({ grid, harmony, blocked, busy, work, onGrid, onFind, onCancel, onFixed, onSetTempo, myTempo }: BandGridSectionProps) {
+export function BandGridSection({
+  grid,
+  harmony,
+  blocked,
+  busy,
+  work,
+  onGrid,
+  onFind,
+  onCancel,
+  onFixed,
+  onSetTempo,
+  myTempo,
+  bassNotes,
+}: BandGridSectionProps) {
+  // The beat whose bass note is open in the editor. A beat is toggled off by picking it again.
+  const [editing, setEditing] = useState<number | null>(null);
   return (
     <section aria-label="Beat grid" className="flex min-w-0 flex-col gap-3">
       <h3 className="font-semibold">Beat grid</h3>
@@ -85,7 +104,17 @@ export function BandGridSection({ grid, harmony, blocked, busy, work, onGrid, on
               </Button>
             </div>
           )}
-          <BandGrid grid={grid} harmony={harmony} />
+          <BandGrid
+            grid={grid}
+            harmony={harmony}
+            overrides={bassNotes?.overrides}
+            selected={editing}
+            onSelect={bassNotes ? (beat) => setEditing(editing === beat ? null : beat) : undefined}
+          />
+          {bassNotes && editing !== null && editing < grid.beats.length && (
+            <BassNoteEditor key={editing} beat={editing} context={{ ...bassNotes, grid, harmony }} onClose={() => setEditing(null)} />
+          )}
+          {bassNotes && <BassNoteList harmony={harmony} overrides={bassNotes.overrides} disabled={bassNotes.disabled} onChange={bassNotes.onChange} />}
         </>
       ) : (
         <p className="text-silkscreen-3">No beat grid yet. Find the beat, or use the fixed BPM.</p>

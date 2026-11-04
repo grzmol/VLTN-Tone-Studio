@@ -207,3 +207,32 @@ export function noteSourceAt(
   }
   return "chords";
 }
+
+/** The bar a beat is in, counted from 1 at the first bar line. A beat before the first bar line is in bar 1. */
+export function barNumberAt(grid: BeatGrid, beat: number): number {
+  let count = 0;
+  const starts = barStarts(grid);
+  for (let index = 0; index <= beat && index < grid.beats.length; index++) if (starts.has(index)) count++;
+  return Math.max(1, count);
+}
+
+/**
+ * The overrides after one apply: the scope's stretches from the beat, each set to `pc` (and the octave nudge, when there is one). A scope
+ * covers several stretches for "the chord everywhere in this section", and each one replaces what it overlaps.
+ */
+export function applyScope(
+  overrides: readonly BassOverride[],
+  scope: OverrideScope,
+  beat: number,
+  context: ScopeContext,
+  pc: number,
+  octave: OverrideOctave = 0,
+): BassOverride[] {
+  return scopeRanges(scope, beat, context).reduce<BassOverride[]>(
+    (list, range) => {
+      const next: BassOverride = octave === 0 ? { start: range.start, end: range.end, pc } : { start: range.start, end: range.end, pc, octave };
+      return setBassOverride(list, next);
+    },
+    [...overrides],
+  );
+}

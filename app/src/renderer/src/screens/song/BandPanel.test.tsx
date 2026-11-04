@@ -979,3 +979,32 @@ describe("rendered parts", () => {
     expect(screen.getByText("Render it with your own instruments, then use it here.")).toBeTruthy();
   });
 });
+
+describe("Band panel: bass notes (spec 87)", () => {
+  it("lists the bass notes the performer set, and Remove all saves none", () => {
+    stored({
+      beatGrid: grid,
+      band: {
+        ...DEFAULT_BAND_SETTINGS,
+        bassOverrides: [
+          { start: 0, end: 1, pc: 4 },
+          { start: 2, end: 3, pc: 9 },
+        ],
+      },
+    });
+    renderPanel();
+    expect(screen.getByRole("heading", { name: "Your bass notes (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove all" }));
+    expect(savedOptions().band.bassOverrides).toEqual([]);
+    expect(savedOptions().bandOutOfDate).toBe(true);
+  });
+
+  it("sets a note on a beat from the strip, and the editor's Apply saves it", () => {
+    stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS } });
+    renderPanel({ chords: [{ time: 0, name: "G", confidence: 1 }] });
+    fireEvent.click(screen.getByRole("button", { name: /^Beat 2,/ }));
+    expect(screen.getByRole("region", { name: "Bass note editor" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(savedOptions().band.bassOverrides).toEqual([{ start: 0.5, end: 1, pc: 7 }]);
+  });
+});

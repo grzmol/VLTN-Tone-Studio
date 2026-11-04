@@ -1,5 +1,5 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BeatGrid } from "@/song/band/beat-grid";
 import { parseChordName, type ChordAtBeat } from "@/song/band/harmony";
 import { BandGrid } from "./BandGrid";
@@ -28,5 +28,21 @@ describe("BandGrid bass labels", () => {
   it("shows no bass label where the bass is the chord's root", () => {
     const { container } = render(<BandGrid grid={grid} harmony={harmonyOf([["G"], ["G"], ["Am"], ["Am"]])} />);
     expect(container.querySelector('[title="Bass note played under this chord"]')).toBeNull();
+  });
+});
+
+describe("BandGrid beats and the performer's notes", () => {
+  it("makes each beat a button that picks that beat, and marks the selected one", () => {
+    const onSelect = vi.fn();
+    render(<BandGrid grid={grid} harmony={harmonyOf([["G"], ["G"], ["Am"], ["Am"]])} selected={2} onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Beat 2,/ }));
+    expect(onSelect).toHaveBeenCalledWith(1);
+    expect(screen.getByRole("button", { name: /^Beat 3,/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the name of a note the performer set, once, above its beats", () => {
+    const { container } = render(<BandGrid grid={grid} harmony={harmonyOf([["G"], ["G"], ["Am"], ["Am"]])} overrides={[{ start: 0, end: 1, pc: 4 }]} />);
+    const notes = [...container.querySelectorAll('[title="Your bass note"]')].map((node) => node.textContent);
+    expect(notes).toEqual(["E"]);
   });
 });
