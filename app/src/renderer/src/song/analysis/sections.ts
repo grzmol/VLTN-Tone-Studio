@@ -65,6 +65,8 @@ const STEM_OFF_DB = 12;
 const LOUDNESS_DB = 6;
 /** A section with no vocals is a solo when it is at least this many times as loud as the average section. */
 const SOLO_ENERGY = 1.1;
+/** A vocal section that is not a repeat is named a chorus when its vocals are at least this share of the choruses' vocal level. */
+const CHORUS_SHARE = 0.9;
 
 /** A span of units, `from` inclusive and `to` exclusive. */
 interface Span {
@@ -94,12 +96,25 @@ export function spansBetween(cuts: readonly number[], start: number, end: number
  * The bar lines of a song, as the unit spans of one bar each: a bar starts at every `beatsPerBar`th beat from the first downbeat. The
  * song starts at 0, so a pickup before the first downbeat is a unit of its own. Returns null when the grid has too few beats to bar.
  */
-export function barUnitSpans(beats: readonly number[], downbeat: number, beatsPerBar: number, duration: number): Array<{ start: number; end: number }> | null {
+export function barUnitSpans(
+  beats: readonly number[],
+  downbeat: number,
+  beatsPerBar: number,
+  duration: number,
+  barStarts?: readonly number[],
+): Array<{ start: number; end: number }> | null {
   if (!(beatsPerBar >= 1) || beats.length < beatsPerBar) return null;
   const first = ((downbeat % beatsPerBar) + beatsPerBar) % beatsPerBar;
-  const lines: number[] = [];
-  for (let i = first; i < beats.length; i += beatsPerBar) {
-    if (beats[i] > 0 && beats[i] < duration) lines.push(beats[i]);
+  // The grid's own bar starts when its bar lines move, else every `beatsPerBar`th beat.
+  const starts: number[] = [];
+  if (barStarts && barStarts.length) starts.push(...barStarts.filter((beat) => beat < beats.length));
+  else for (let i = first; i < beats.length; i += beatsPerBar) starts.push(i);
+  const lines = starts.map((beat) => beats[beat]).filter((time) => time > 0 && time < duration);
+  // The beat tracker can stop before the song does, where the drums stop (an outro). Bars carry on there at the last bar's length, so
+  // the end of the song is bars like the rest and not one long unit.
+  if (lines.length >= 2) {
+    const length = lines[lines.length - 1] - lines[lines.length - 2];
+    for (let t = lines[lines.length - 1] + length; length > 0 && t < duration - length / 2; t += length) lines.push(t);
   }
   return spansBetween(lines, 0, duration);
 }
@@ -296,17 +311,23 @@ export function nameSections(infos: readonly SpanInfo[]): string[] {
   const chorus = repeated[0];
   const verse = repeated[1];
   const averageEnergy = infos.reduce((sum, info) => sum + info.energy, 0) / infos.length;
+  const chorusSpans = infos.filter((info) => info.kind === chorus);
+  const chorusVocalEnergy = chorusSpans.reduce((sum, info) => sum + info.vocalEnergy, 0) / Math.max(1, chorusSpans.length);
   const names = infos.map((info, i) => {
     const before = infos.slice(0, i);
     const last = i === infos.length - 1;
     if (i === 0 && !info.vocals && infos.slice(1).some((other) => other.vocals)) return "Intro";
     if (last && ((!info.vocals && before.some((other) => other.vocals)) || (drumsOff(info) && before.some((other) => !drumsOff(other))))) return "Outro";
+    // A middle section where the bass drops out is a bridge or breakdown, whether or not the singer goes on over it.
+    if (i > 0 && !last && bassOff(info)) return "Bridge";
     if (info.vocals) {
       if (info.kind === chorus) return "Chorus";
       if (info.kind === verse) return "Verse";
+      // A vocal section that is not a repeat: as loud as the choruses, it is a chorus with other chords (a last chorus often changes);
+      // quieter, it is a bridge.
+      if (chorus !== undefined && info.vocalEnergy >= CHORUS_SHARE * chorusVocalEnergy) return "Chorus";
       return chorus === undefined ? "Verse" : "Bridge";
     }
-    if (i > 0 && !last && bassOff(info)) return "Bridge";
     if (info.energy > SOLO_ENERGY * averageEnergy) return "Solo";
     return "Section";
   });

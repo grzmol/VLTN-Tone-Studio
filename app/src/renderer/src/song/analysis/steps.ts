@@ -227,7 +227,7 @@ export function sectionsStep(gridOf: () => BeatGrid | null): AnalysisStep {
     async run(audio, signal, soFar) {
       const duration = (audio.mix.channels[0]?.length ?? 0) / audio.mix.sampleRate;
       const grid = gridOf();
-      const bars = grid ? barUnitSpans(grid.beats, grid.downbeat, grid.beatsPerBar, duration) : null;
+      const bars = grid ? barUnitSpans(grid.beats, grid.downbeat, grid.beatsPerBar, duration, grid.barStarts) : null;
       const input: SectionsInput = {
         mix: audio.mix,
         harmony: audio.chordSource?.audio ?? audio.mix,

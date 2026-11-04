@@ -80,6 +80,20 @@ describe("barUnitSpans", () => {
   it("gives null when the grid is too short to bar", () => {
     expect(barUnitSpans([0.5, 1], 0, 4, 2)).toBeNull();
   });
+
+  it("carries bars on past the grid's last beat, so a drum-free ending is bars and not one long unit", () => {
+    // The tracker stopped at 12 s; the song runs to 30 s.
+    const beats = Array.from({ length: 12 }, (_, i) => i);
+    const spans = barUnitSpans(beats, 0, 4, 30)!;
+    expect(spans.map((s) => s.start)).toEqual([0, 4, 8, 12, 16, 20, 24]);
+    expect(spans.at(-1)?.end).toBe(30);
+  });
+
+  it("uses the grid's own bar starts when its bar lines move", () => {
+    const beats = Array.from({ length: 20 }, (_, i) => i);
+    const spans = barUnitSpans(beats, 0, 4, 20, [0, 4, 8, 10, 14])!;
+    expect(spans.map((s) => s.start).slice(0, 5)).toEqual([0, 4, 8, 10, 14]);
+  });
 });
 
 describe("detectSections on repeated blocks", () => {
@@ -276,6 +290,35 @@ function songOf(blocks: readonly Block[], seed = 7): SectionUnit[] {
 const VERSE = [9, 4, 0, 2];
 const CHORUS = [0, 2, 9, 4];
 const QUIET_DRUMS = 0.01;
+
+describe("nameSections with vocals over every section", () => {
+  const span = (kind: number, vocalEnergy: number, bass = 0.4, drums = 0.3) => ({
+    from: 0,
+    to: 1,
+    vector: [],
+    energy: vocalEnergy,
+    vocalEnergy,
+    vocals: true,
+    kind,
+    bassEnergy: bass,
+    drumEnergy: drums,
+  });
+
+  it("names a middle section where the bass drops out a bridge, though the singer goes on", () => {
+    const names = nameSections([span(0, 0.4), span(1, 0.8), span(0, 0.4), span(2, 0.5, 0.001), span(1, 0.8)]);
+    expect(names).toEqual(["Verse 1", "Chorus 1", "Verse 2", "Bridge", "Chorus 2"]);
+  });
+
+  it("names a loud section that is not a repeat a chorus, as a last chorus with other chords", () => {
+    const names = nameSections([span(0, 0.4), span(1, 0.8), span(0, 0.4), span(1, 0.8), span(2, 0.82)]);
+    expect(names).toEqual(["Verse 1", "Chorus 1", "Verse 2", "Chorus 2", "Chorus 3"]);
+  });
+
+  it("keeps a quieter section that is not a repeat a bridge", () => {
+    const names = nameSections([span(0, 0.4), span(1, 0.8), span(0, 0.4), span(2, 0.5), span(1, 0.8)]);
+    expect(names[3]).toBe("Bridge");
+  });
+});
 
 describe("detectSections on songs whose sections share chords and vocals", () => {
   it("finds the verses and choruses of a ballad where the vocals run throughout and the chorus is louder", () => {
