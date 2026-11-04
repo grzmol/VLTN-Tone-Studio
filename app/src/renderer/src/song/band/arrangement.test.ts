@@ -433,3 +433,47 @@ describe("bass fills and hit the one", () => {
     expect(isBandSettings({ ...settings(), sections: { a: { fills: 1.5 } } })).toBe(false);
   });
 });
+
+describe("planSections with what the song's own band does", () => {
+  const sections = [section("a", "Verse", 0, 20), section("b", "Bridge", 20, 30), section("c", "Chorus", 30, 50), section("d", "Outro", 50, 60)];
+
+  it("rests the bass where the original bass stops, and stops the drums where the original drums stop", () => {
+    const plans = planSections(sections, 60, settings(), [
+      { start: 20, end: 30, bassOff: true },
+      { start: 50, end: 60, drumsOff: true },
+    ]);
+    expect(plans[1].bassPart).toBe("rest");
+    expect(plans[3].play.drums).toBe(false);
+    expect(plans[3].play.bass).toBe(true);
+    expect(plans[0].bassPart).not.toBe("rest");
+    expect(plans[0].play.drums).toBe(true);
+  });
+
+  it("moves the energy one level for a clearly louder or quieter section", () => {
+    const plans = planSections(sections, 60, settings(), [
+      { start: 0, end: 20, levelDb: -4 },
+      { start: 30, end: 50, levelDb: 3 },
+      { start: 50, end: 60, levelDb: 1 },
+    ]);
+    expect(plans[0].energy).toBe(energyForName("Verse") - 1);
+    expect(plans[2].energy).toBe(Math.min(5, energyForName("Chorus") + 1));
+    expect(plans[3].energy).toBe(energyForName("Outro"));
+    expect(plans[2].loud).toBe(plans[2].energy);
+  });
+
+  it("keeps what the performer chose over the song's own band", () => {
+    const chosen = settings({ sections: { b: { bassPart: "ring" }, d: { play: { drums: true, bass: true } }, a: { energy: 4 } } });
+    const plans = planSections(sections, 60, chosen, [
+      { start: 0, end: 20, levelDb: -6 },
+      { start: 20, end: 30, bassOff: true },
+      { start: 50, end: 60, drumsOff: true },
+    ]);
+    expect(plans[0].energy).toBe(4);
+    expect(plans[1].bassPart).toBe("ring");
+    expect(plans[3].play.drums).toBe(true);
+  });
+
+  it("plans the same as before without hints", () => {
+    expect(planSections(sections, 60, settings(), [])).toEqual(planSections(sections, 60, settings()));
+  });
+});

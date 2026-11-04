@@ -45,6 +45,12 @@ export interface DetectedSection {
   start: number;
   end: number;
   name: string;
+  /** The original drums are silent here (well under the song's usual drum level). Set only when the song has a drums stem. */
+  drumsOff?: boolean;
+  /** The original bass is silent here. Set only when the song has a bass stem. */
+  bassOff?: boolean;
+  /** How loud the section is against the song's middle section, in decibels. */
+  levelDb?: number;
 }
 
 /** A peak is a boundary only when it is at least this share of the strongest peak. Smaller bumps are changes inside a section. */
@@ -357,7 +363,23 @@ export function detectSections(units: readonly SectionUnit[], options: DetectOpt
   const cuts = pickBoundaries(noveltyCurve(vectors, options.halfKernel), options);
   const infos = assignKinds(spansFromCuts(cuts, units.length).map((span) => summarise(span, units, vectors)));
   const names = nameSections(infos);
-  return infos.map((info, i) => ({ start: units[info.from].start, end: units[info.to - 1].end, name: names[i] }));
+  const band = bandActivity(infos);
+  return infos.map((info, i) => ({ start: units[info.from].start, end: units[info.to - 1].end, name: names[i], ...band[i] }));
+}
+
+/**
+ * What the song's own band does in each span: whether the drums or the bass stop (more than STEM_OFF_DB under the song's middle span),
+ * and how loud the span is against the middle span. The generated parts follow it where the performer has not chosen otherwise.
+ */
+function bandActivity(infos: readonly SpanInfo[]): Array<Pick<DetectedSection, "drumsOff" | "bassOff" | "levelDb">> {
+  const drumsMedian = medianOf(infos.flatMap((info) => (info.drumEnergy === undefined ? [] : [decibels(info.drumEnergy)])));
+  const bassMedian = medianOf(infos.flatMap((info) => (info.bassEnergy === undefined ? [] : [decibels(info.bassEnergy)])));
+  const levelMedian = medianOf(infos.map((info) => decibels(info.energy)));
+  return infos.map((info) => ({
+    ...(info.drumEnergy === undefined ? {} : { drumsOff: decibels(info.drumEnergy) < drumsMedian - STEM_OFF_DB }),
+    ...(info.bassEnergy === undefined ? {} : { bassOff: decibels(info.bassEnergy) < bassMedian - STEM_OFF_DB }),
+    levelDb: Math.round((decibels(info.energy) - levelMedian) * 10) / 10,
+  }));
 }
 
 /**

@@ -338,6 +338,20 @@ describe("detectSections on songs whose sections share chords and vocals", () =>
     expect(sections.map((s) => s.name)).toEqual(["Intro", "Verse 1", "Chorus 1", "Verse 2", "Chorus 2", "Outro"]);
   });
 
+  it("says where the song's own drums and bass stop, and how loud each section is", () => {
+    const verse: Block = { bars: 8, roots: VERSE, mix: 0.5, vocals: true, vocal: 0.4, drums: 0.2, bass: 0.4 };
+    const chorus: Block = { bars: 8, roots: CHORUS, mix: 0.9, vocals: true, vocal: 0.8, drums: 0.5, bass: 0.6 };
+    const intro: Block = { bars: 8, roots: VERSE, mix: 0.3, vocals: false, drums: 0.05, bass: 0.3 };
+    const outro: Block = { bars: 8, roots: CHORUS, mix: 0.6, vocals: true, vocal: 0.5, drums: QUIET_DRUMS, bass: 0.4 };
+    const sections = detectSections(songOf([intro, verse, chorus, verse, chorus, outro]), BAR_DETECT);
+    const last = sections.at(-1)!;
+    expect(last.drumsOff).toBe(true);
+    expect(sections.filter((s) => s.name.startsWith("Chorus")).every((s) => !s.drumsOff && !s.bassOff)).toBe(true);
+    const chorusLevel = sections.find((s) => s.name.startsWith("Chorus"))!.levelDb!;
+    const verseLevel = sections.find((s) => s.name.startsWith("Verse"))!.levelDb!;
+    expect(chorusLevel).toBeGreaterThan(verseLevel);
+  });
+
   it("names an instrumental section where the bass drops out a bridge", () => {
     const verse: Block = { bars: 8, roots: VERSE, mix: 0.5, vocals: true, vocal: 0.4, drums: 0.2, bass: 0.4 };
     const chorus: Block = { bars: 8, roots: CHORUS, mix: 0.9, vocals: true, vocal: 0.8, drums: 0.5, bass: 0.6 };

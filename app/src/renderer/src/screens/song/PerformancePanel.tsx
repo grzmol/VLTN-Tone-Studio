@@ -641,6 +641,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           partChoices={partChoice}
           onPartChoice={choosePart}
           bassLine={bassLine}
+          sectionHints={suggested}
         />
         <SectionEditor
           sections={sectionList}

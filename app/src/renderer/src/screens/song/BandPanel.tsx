@@ -21,6 +21,7 @@ import {
   type BandSettings,
   type FollowSource,
   type RenderedKind,
+  type SectionBandHint,
   type SectionOverride,
 } from "@/song/band/arrangement";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
@@ -83,6 +84,8 @@ export interface BandPanelProps {
   onPartChoice(patch: Partial<PartChoices>): void;
   /** The bass note the song's bass stem plays on each beat, from the song analysis. Null when the song has no bass stem or it is not read yet. */
   bassLine?: readonly BassLineBeat[] | null;
+  /** The song analysis's sections: where the song's own drums or bass stop, and how loud each is. The plans default to follow them. */
+  sectionHints?: readonly SectionBandHint[];
 }
 
 const PREVIEW_BARS = 4;
@@ -199,6 +202,7 @@ function BandBody({
   partChoices,
   onPartChoice,
   bassLine = null,
+  sectionHints = [],
 }: BandPanelProps) {
   // On by default when the tempo was set by hand: the beat is then found near it, not from the tracker's own pick.
   const [useMyTempo, setUseMyTempo] = useState(true);
@@ -237,7 +241,7 @@ function BandBody({
   const missing = useSong((s) => s.missingParts);
   const cues = useMemo<Cue[]>(() => parseChart(chart), [chart]);
   const songEnd = source ? source.audio.channels[0].length / source.audio.sampleRate : 0;
-  const plans = useMemo(() => planSections(sections, songEnd, settings), [sections, songEnd, settings]);
+  const plans = useMemo(() => planSections(sections, songEnd, settings, sectionHints), [sections, songEnd, settings, sectionHints]);
   const harmony = useMemo<ChordAtBeat[]>(
     () => (grid ? bandHarmony({ grid, cues, chords, songEnd, settings, bassLine }) : []),
     [grid, cues, chords, songEnd, settings, bassLine],
@@ -372,6 +376,7 @@ function BandBody({
         mix: current.audio,
         originals: levelStems(useSong.getState().stems),
         bassLine,
+        hints: sectionHints,
       };
       let request = bandRequest(input);
       const notes: string[] = [];
@@ -527,6 +532,7 @@ function BandBody({
         mix: current.audio,
         originals: levelStems(useSong.getState().stems),
         bassLine,
+        hints: sectionHints,
       });
       const rendering: BandJob = renderPreview(request, from, PREVIEW_BARS);
       job.current = rendering;

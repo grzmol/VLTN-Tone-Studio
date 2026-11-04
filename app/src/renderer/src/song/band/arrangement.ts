@@ -272,14 +272,52 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
 }
 
 /**
+ * What the song's own band does in a stretch of the song, from the song analysis's sections: where the original drums or bass stop,
+ * and how loud the stretch is against the rest of the song in decibels.
+ */
+export interface SectionBandHint {
+  start: number;
+  end: number;
+  drumsOff?: boolean;
+  bassOff?: boolean;
+  levelDb?: number;
+}
+
+/** A section this many decibels louder than the song's middle section plays one energy level up; this much quieter, one level down. */
+export const HINT_LOUDER_DB = 2;
+export const HINT_QUIETER_DB = -3;
+
+/** The hint covering the middle of a plan, if any. */
+function hintAt(hints: readonly SectionBandHint[], start: number, end: number): SectionBandHint | undefined {
+  const middle = (start + end) / 2;
+  return hints.find((hint) => hint.start <= middle && middle < hint.end);
+}
+
+/**
+ * A section's override with the song's own band as defaults underneath it: no bass where the original bass stops, no drums where the
+ * original drums stop, and one energy level up or down for a louder or quieter section. Whatever the performer set wins.
+ */
+function withHint(override: SectionOverride, hint: SectionBandHint | undefined, settings: BandSettings, name: string): SectionOverride {
+  if (!hint) return override;
+  const fromHint: SectionOverride = {};
+  if (hint.bassOff) fromHint.bassPart = "rest";
+  if (hint.drumsOff) fromHint.play = { drums: false, bass: settings.parts.bass };
+  if (hint.levelDb !== undefined && override.energy === undefined) {
+    const step = hint.levelDb >= HINT_LOUDER_DB ? 1 : hint.levelDb <= HINT_QUIETER_DB ? -1 : 0;
+    if (step !== 0) fromHint.energy = Math.min(5, Math.max(1, energyForName(name) + step)) as Energy;
+  }
+  return { ...fromHint, ...override };
+}
+
+/**
  * Splits the song into one plan per section, in time order. The first plan starts at 0 and the last one runs to the song's end, and
  * each gap between sections goes to the section before it. A song without sections gets one plan for the whole song.
  */
-export function planSections(sections: readonly Section[], songEnd: number, settings: BandSettings): SectionPlan[] {
+export function planSections(sections: readonly Section[], songEnd: number, settings: BandSettings, hints: readonly SectionBandHint[] = []): SectionPlan[] {
   const chorusGroove = chorusIsGroove(sections, settings);
   if (sections.length === 0) {
     // A song without sections is one plan, and its overrides are kept under WHOLE_SONG_ID like a section's are under its id.
-    const override = settings.sections[WHOLE_SONG_ID] ?? {};
+    const override = withHint(settings.sections[WHOLE_SONG_ID] ?? {}, hintAt(hints, 0, songEnd), settings, "");
     return [
       {
         sectionId: null,
@@ -296,13 +334,14 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
   return ordered.map((section, i) => {
     const next = ordered[i + 1];
     const previous = ordered[i - 1];
-    const override = settings.sections[section.id] ?? {};
+    const end = next ? next.start : Math.max(songEnd, section.end);
+    const override = withHint(settings.sections[section.id] ?? {}, hintAt(hints, i === 0 ? 0 : section.start, end), settings, section.name);
     // A chorus after a section that is not a chorus hits the one by default.
     const followsOther = previous !== undefined && !isChorusName(previous.name);
     return {
       sectionId: section.id,
       start: i === 0 ? 0 : section.start,
-      end: next ? next.start : Math.max(songEnd, section.end),
+      end,
       fill: override.fill ?? (next ? isChorusName(next.name) : true),
       hitTheOne: override.hitTheOne ?? (isChorusName(section.name) && followsOther),
       ...playFields(section.name, override, settings, chorusGroove),

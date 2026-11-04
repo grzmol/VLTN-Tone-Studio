@@ -5,7 +5,7 @@ import type { Cue } from "../performance/chart";
 import type { Chord } from "../performance/chords";
 import type { Section } from "../performance/sections";
 import type { PcmAudio, Stems } from "../types";
-import { planSections, type BandSettings } from "./arrangement";
+import { planSections, type BandSettings, type SectionBandHint } from "./arrangement";
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
@@ -57,6 +57,8 @@ export interface BandInputs {
   follow?: BandFollow;
   /** The bass note the song's bass stem plays on each beat (analysis/bass-line.ts), when the song has a bass stem and it was read. */
   bassLine?: readonly BassLineBeat[] | null;
+  /** What the song's own band does in each detected section (where its drums or bass stop, and how loud), as defaults for the plans. */
+  hints?: readonly SectionBandHint[];
   /** The song's source mix. The beat levels read it, and the generated parts are levelled to its loudness (level.ts). */
   mix?: PcmAudio;
   /** The split's original drums and bass, from levelStems. Absent when the song has no split. */
@@ -101,7 +103,7 @@ export function bandRequest(input: BandInputs): BandRequest {
   const request: BandRequest = {
     grid: input.grid,
     harmony,
-    plans: planSections(input.sections, input.songEnd, input.settings),
+    plans: planSections(input.sections, input.songEnd, input.settings, input.hints ?? []),
     settings: input.settings,
     seed: input.settings.seed,
     lengthFrames: input.lengthFrames,
