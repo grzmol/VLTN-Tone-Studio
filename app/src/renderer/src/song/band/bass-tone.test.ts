@@ -91,11 +91,25 @@ describe("renderBassTone", () => {
     expect(out.channels[1]).toEqual(bass.channels[1]);
   });
 
-  it("mixes half of the dry bass with a silent chain at dry/wet 0.5", async () => {
+  it("keeps the dry bass's shape and loudness with a silent chain at dry/wet 0.5", async () => {
     const bass = sine(4000, 110, 0.5);
     const out = await renderBassTone(bass, loaded({ dryWet: 0.5 }), silent);
-    expect(out.channels[0][100]).toBeCloseTo(bass.channels[0][100] * 0.5, 6);
-    expect(out.channels[1][2000]).toBeCloseTo(bass.channels[1][2000] * 0.5, 6);
+    expect(out.channels[0][100]).toBeCloseTo(bass.channels[0][100], 6);
+    expect(out.channels[1][2000]).toBeCloseTo(bass.channels[1][2000], 6);
+  });
+
+  it("keeps the loudness of a blend whose chain shifts the phase, where dry and chain partly cancel", async () => {
+    const bass = sine(8000, 110, 0.5);
+    // A delay of a third of the sine's period: half dry plus half delayed is about 6 dB quieter than the bass before matching.
+    const delay = Math.round(RATE / 110 / 3);
+    const delayed: BassChain = async (_blocks, input) => {
+      const out = new Float32Array(input.length);
+      out.set(input.subarray(0, input.length - delay), delay);
+      return out;
+    };
+    const out = await renderBassTone(bass, loaded({ dryWet: 0.5 }), delayed);
+    const rms = (c: Float32Array) => Math.sqrt(c.reduce((sum, v) => sum + v * v, 0) / c.length);
+    expect(rms(out.channels[0])).toBeCloseTo(rms(bass.channels[0]), 2);
   });
 
   it("gives the bass back, to a close tolerance, through a chain that passes it at dry/wet 1", async () => {

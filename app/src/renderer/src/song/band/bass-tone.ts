@@ -190,6 +190,12 @@ export async function renderBassTone(bass: PcmAudio, tone: LoadedBassTone, chain
     for (let i = 0; i < frames; i++) out[i] = channel[i] * (1 - tone.dryWet) + wet[i] * tone.dryWet;
     return out;
   });
+  // The chain shifts the phase, so a blend of the dry bass and the chain partly cancels and comes out quieter than either. Match the
+  // blend to the clean bass as well.
+  if (tone.dryWet > 0 && tone.dryWet < 1) {
+    const blendGain = irLevelGain(dry, monoOf(channels));
+    for (const channel of channels) for (let i = 0; i < frames; i++) channel[i] *= blendGain;
+  }
   let peak = 0;
   for (const channel of channels) for (let i = 0; i < frames; i++) peak = Math.max(peak, Math.abs(channel[i]));
   if (peak > PEAK_LIMIT) {
