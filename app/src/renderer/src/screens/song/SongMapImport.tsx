@@ -284,6 +284,11 @@ export function SongMapImport({
               This is not a song map of this version, so nothing can be applied.
             </p>
           )}
+          {plan && plan.parts.length === 0 && (
+            <p className="text-sm text-silkscreen-3" role="status">
+              This song map matches the song. There is nothing to change.
+            </p>
+          )}
           {plan && plan.parts.length > 0 && (
             <fieldset className="space-y-2">
               <legend className="font-semibold">What will change</legend>

@@ -647,7 +647,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           songKey={key}
           libraryId={source?.libraryId}
           playing={playing || library.playlistPlaying}
-          title={source?.name ?? ""}
+          title={savedSong?.title || source?.name || ""}
           durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
         />
         <TrackImport playing={playing || library.playlistPlaying} />

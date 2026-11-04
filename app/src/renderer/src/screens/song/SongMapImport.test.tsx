@@ -121,6 +121,13 @@ describe("SongMapImport dialog", () => {
     expect(screen.getByRole("list", { name: "Problems in the song map" }).textContent).toContain("Skipped:");
   });
 
+  it("says so when the map matches the song, and offers nothing to apply", () => {
+    renderCard();
+    paste("---\nsongmap: 1\nbpm: 100\n---\n");
+    expect(screen.getByText("This song map matches the song. There is nothing to change.")).toBeTruthy();
+    expect(disabled("Apply")).toBe(true);
+  });
+
   it("leaves the chart unticked when it would replace the song's chart", () => {
     mocks.values.set(KEY, "[Verse]\nA");
     renderCard();
