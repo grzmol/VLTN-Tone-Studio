@@ -2,6 +2,13 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Added
+- **Tune a song down or up.** A *Key* control in the Song screen's mixer moves every stem by up to 12 semitones either way without changing the tempo, so you can play along to a song in E♭ or D with your guitar in standard tuning. It uses the Rubber Band Library's finer (R3) engine in offline mode, which is the best quality available in the browser. The shift is computed in the background (a few seconds per stem and minute of music, with a percentage shown), playback carries on from the same second, *Reset* brings the original back without computing anything, and *Export stems* writes the tuned stems with the shift in the file name.
+
+- **Tune the Tone Match proposal on the pedal.** A new *Tune it on the pedal* card under the proposal checks it against what the pedal really plays. You play up to six takes of about 15 s in the song's style; each one is recorded through the pedal's USB audio and compared with the song's guitar (the same texture distance the offline refinement uses, so the takes don't have to be the same notes). After each take the five Guitar EQ bands are corrected from the spectral gap and the amp's Gain from the gain score. It stops when the takes stop getting closer, keeps the best one, and *Keep these settings* puts them in the proposal. Everything plays through the Rig's live edits and nothing is written to a slot.
+
 ## [0.9.0] - 2026-11-04
 
 ### Added

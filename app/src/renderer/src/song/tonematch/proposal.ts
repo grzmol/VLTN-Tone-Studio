@@ -52,7 +52,9 @@ export interface Proposal {
 
 /** Below this confidence a detected delay or reverb isn't put in the preset. */
 export const EFFECT_MIN_CONFIDENCE = 0.35;
-const STEPS_PER_DB = 4;
+export const STEPS_PER_DB = 4;
+/** The Guitar EQ's five bands, in refine-offline.ts EQ_CENTERS_HZ order. */
+export const EQ_BAND_NAMES = ["125Hz", "400Hz", "800Hz", "1.6kHz", "4kHz"] as const;
 const GAIN_LABEL: Record<GainClass, string> = { clean: "Clean", crunch: "Crunch", high: "High gain" };
 
 const fmtDb = (db: number) => `${db > 0 ? "+" : db < 0 ? "−" : ""}${Math.abs(db).toFixed(1)} dB`;
@@ -183,7 +185,7 @@ function eqBlock(device: DeviceKey, tone: ToneEstimate): ProposedBlock {
  */
 export function withRefinedEq(proposal: Proposal, eqDb: readonly number[], capture: string): Proposal {
   const { device } = proposal;
-  const names = ["125Hz", "400Hz", "800Hz", "1.6kHz", "4kHz"];
+  const names = EQ_BAND_NAMES;
   const values = Object.fromEntries(names.map((n, i) => [n, clampStep((eqDb[i] ?? 0) * STEPS_PER_DB, -50, 50)]));
   const old = proposal.blocks.find((b) => b.code === "EQ");
   const strongest = Math.max(...Object.values(values).map(Math.abs));
@@ -196,6 +198,30 @@ export function withRefinedEq(proposal: Proposal, eqDb: readonly number[], captu
     old?.confidence ?? 0.5,
   );
   return { ...proposal, blocks: proposal.blocks.map((b) => (b.code === "EQ" ? { ...block, enabled: strongest >= 6 } : b)) };
+}
+
+/**
+ * `proposal` with the amp's Gain and the Guitar EQ set to what was found by recording the pedal (pedal-refine.ts):
+ * `takes` rounds, the distance from the song's guitar going from `from` to `to` steps. The rest stays as it was.
+ */
+export function withTunedOnPedal(proposal: Proposal, knobs: { gain: number; eqDb: readonly number[] }, takes: number, from: number, to: number): Proposal {
+  const why = `Tuned on the pedal: ${takes} ${takes === 1 ? "take" : "takes"} of you playing, the distance from the song's guitar going from ${from.toFixed(1)} to ${to.toFixed(1)} steps.`;
+  const eq = withRefinedEq(proposal, knobs.eqDb, "")
+    .blocks.find((b) => b.code === "EQ");
+  const ampIndex = profileFor(proposal.device).blocks.indexOf("AMP");
+  return {
+    ...proposal,
+    blocks: proposal.blocks.map((b) => {
+      if (b.code === "EQ" && eq) return { ...eq, enabled: true, why };
+      if (b.code !== "AMP" || b.fxid === null || !b.params) return b;
+      const gain = modelsFor(proposal.device, ampIndex).find((m) => m.fxid === b.fxid)?.params.find((p) => p.name === "Gain");
+      if (!gain) return b;
+      const value = clampParamValue(gain, knobs.gain);
+      const params = [...b.params];
+      params[gain.index] = value;
+      return { ...b, params, settings: b.settings.map((s) => (s.name === "Gain" ? { ...s, value } : s)), why: `${b.why} Gain from the takes on the pedal.` };
+    }),
+  };
 }
 
 function delayBlock(device: DeviceKey, a: GuitarAnalysis): ProposedBlock {
