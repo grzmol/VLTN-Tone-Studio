@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeSongMap, type SongMap } from "@/song/songmap/songmap";
+import { useSongMapUndo } from "@/song/songmap/undo";
 import { SongMapImport } from "./SongMapImport";
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +69,7 @@ function paste(text: string) {
 }
 
 beforeEach(() => {
+  useSongMapUndo.setState({ record: null });
   mocks.values.clear();
   mocks.values.set(KEY + ":bpm", "100");
   mocks.values.set(KEY + ":options", JSON.stringify({ mixer: 2 }));
@@ -129,6 +131,22 @@ describe("SongMapImport dialog", () => {
     expect(options.mixer).toBe(2);
     expect(options.sections.map((section: { id: string }) => section.id)).toEqual(["map-1", "map-2"]);
     expect(status()).toBe("Song map applied: sections, drums and bass, 1 bass note.");
+  });
+
+  it("keeps the status and Undo when the card remounts after the song reloads", async () => {
+    const before = JSON.stringify({ mixer: 2 });
+    const first = renderCard();
+    paste(mapText());
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy());
+    // Apply reloads the song, which remounts the panel and this card.
+    first.unmount();
+    renderCard();
+    expect(status()).toBe("Song map applied: tempo, sections, drums and bass, 1 bass note.");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(status()).toBe("Song map undone."));
+    expect(mocks.values.get(KEY + ":options")).toBe(before);
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
   it("puts the song back as it was when Undo is pressed", async () => {

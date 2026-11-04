@@ -13,6 +13,7 @@ import { useSongLibrary } from "@/song/library";
 import { flushSettings, getSetting, readOptions, setSetting } from "@/song/performance/settings";
 import { planSongMap, type SavedSong, type SongMapPart, type SongMapPlan } from "@/song/songmap/apply";
 import { parseSongMap } from "@/song/songmap/songmap";
+import { useSongMapUndo } from "@/song/songmap/undo";
 
 type SettingSuffix = (typeof SETTING_SUFFIXES)[number];
 /** A song map larger than this is not a song map. A map is a few kilobytes. */
@@ -39,9 +40,9 @@ function isSuffix(name: string): name is SettingSuffix {
   return (SETTING_SUFFIXES as readonly string[]).includes(name);
 }
 
-/** The settings a plan writes, as (suffix, value) pairs. A key that is not a setting is left out. */
-function entriesOf(values: Record<string, string>): [SettingSuffix, string][] {
-  return Object.entries(values).filter((entry): entry is [SettingSuffix, string] => isSuffix(entry[0]));
+/** The (suffix, value) pairs that are settings. A key that is not a setting is left out. */
+function settingEntries(pairs: [string, string][]): [SettingSuffix, string][] {
+  return pairs.filter((entry): entry is [SettingSuffix, string] => isSuffix(entry[0]));
 }
 
 /** Every part the map holds, except a chart that would replace the song's own: that one is left unticked. */
@@ -71,7 +72,8 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
   const [picked, setPicked] = useState<SongMapPart[] | null>(null);
   const [problem, setProblem] = useState("");
   const [status, setStatus] = useState("");
-  const [undo, setUndo] = useState<{ songKey: string; before: [SettingSuffix, string][]; applied: string } | null>(null);
+  // The undo record lives in a store, not here: Apply reloads the song, which remounts this card.
+  const undo = useSongMapUndo((state) => state.record);
   const result = useMemo(() => (text.trim() ? parseSongMap(text) : null), [text]);
   const plan = result?.map ? planSongMap(savedSongOf(songKey), result.map) : null;
   const choice = picked ?? (plan ? defaultChoice(plan) : []);
@@ -102,16 +104,15 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
   };
   const apply = async () => {
     if (!plan || !result?.map || !libraryId || playing || choice.length === 0) return;
-    const values = plan.values(choice);
-    const entries = entriesOf(values);
-    const before = entries.map(([suffix]): [SettingSuffix, string] => [suffix, getSetting(songKey, suffix)]);
+    const entries = settingEntries(Object.entries(plan.values(choice)));
+    const before = entries.map(([suffix]): [string, string] => [suffix, getSetting(songKey, suffix)]);
     // A part is named by its plan's summary where the summary has the count (the bass notes), and by its name otherwise.
     const applied = choice.map((part) => (part === "bassNotes" ? (plan.parts.find((item) => item.part === part)?.summary ?? PART_NAMES[part]) : PART_NAMES[part]));
     try {
       writeEntries(songKey, entries);
       await saveAndReload(libraryId);
-      setUndo({ songKey, before, applied: applied.join(", ") });
-      setStatus(`Song map applied: ${applied.join(", ")}.`);
+      useSongMapUndo.getState().set({ songKey, before, applied: applied.join(", ") });
+      setStatus("");
       setOpen(false);
     } catch (error) {
       setProblem(`The song map could not be saved: ${error instanceof Error ? error.message : String(error)}`);
@@ -120,15 +121,17 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
   const undoApply = async () => {
     if (!undo || undo.songKey !== songKey || !libraryId) return;
     try {
-      writeEntries(songKey, undo.before);
+      writeEntries(songKey, settingEntries(undo.before));
       await saveAndReload(libraryId);
-      setUndo(null);
+      useSongMapUndo.getState().clear();
       setStatus("Song map undone.");
     } catch (error) {
       setProblem(`The song map could not be undone: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
   const showUndo = undo?.songKey === songKey;
+  // The line after Apply comes from the stored record, so it survives the reload; "undone" and errors are this card's own.
+  const shownStatus = status || (showUndo && undo ? `Song map applied: ${undo.applied}.` : "");
 
   return (
     <SettingsCard
@@ -167,9 +170,9 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
           )}
         </p>
       )}
-      {status && (
+      {shownStatus && (
         <p role="status" className="flex flex-wrap items-center gap-2 text-xs">
-          <span>{status}</span>
+          <span>{shownStatus}</span>
           {showUndo && (
             <Button variant="outline" size="sm" disabled={playing} onClick={() => void undoApply()}>
               Undo
