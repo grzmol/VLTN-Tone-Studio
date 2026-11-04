@@ -22,6 +22,16 @@ Play a song or a whole set from one screen: stems, a metronome, lyrics and chord
 
 Open **Song → Performance**. It needs audio loaded in **Stems**; splitting into stems is optional. After a split, Performance plays the stems together with a mute switch and volume slider for each one.
 
+The play controls, tempo and metronome stay at the top. Under them, choose a view:
+
+- **Play**: the sections, the mixer and the lyrics and chords reader. This is what you need on stage.
+- **This song**: speed and pitch, trim and fades, key, loudness, imported tracks, generated drums and bass, sections, and the song's MIDI trigger. These are saved with the song.
+- **Lyrics & chords**: lyrics from the vocals, the chart editor and chords from the stems.
+- **MIDI**: the MIDI check, the controller setup, and the song's MIDI file and cues.
+- **Setup**: audio outputs, the audience display, band sync, remote control and loading songs from MIDI. These apply to every song.
+
+The view you used last opens next time. Longer explanations sit behind **How this works**, and the cards in **Setup** and **MIDI** fold away with the arrow beside their title.
+
 Everything here works in the desktop app. The browser build can play a song and send USB MIDI, but has no song library and no sleep prevention. Saved songs, backups and playlists are covered in the [song library guide](SONG-LIBRARY.md).
 
 ## Prepare a song
