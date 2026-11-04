@@ -1,4 +1,7 @@
-import { useEffect, useState, type SVGProps } from "react";
+import { useEffect, useRef, useState, type SVGProps } from "react";
+import { notifyError } from "@/app/notify";
+import { Switch } from "@/components/ui/switch";
+import { useDevice } from "@/state/device";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,6 +56,28 @@ function TunerBody() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [note, setNote] = useState<(Note & { hz: number }) | null>(null);
   const [error, setError] = useState("");
+  const connected = useDevice((s) => s.status === "connected");
+  const canMute = useDevice((s) => s.status === "connected" && s.features.includes("tuner"));
+  const [muted, setMuted] = useState(false);
+  const mutedNow = useRef(false);
+
+  const mute = async (on: boolean) => {
+    try {
+      await useDevice.getState().setTuner(on);
+      mutedNow.current = on;
+      setMuted(on);
+    } catch (e) {
+      notifyError(on ? "Couldn't mute the pedal" : "Couldn't unmute the pedal", e);
+    }
+  };
+
+  // Closing the tuner (this unmounts) always takes the pedal out of its tuner mode, so it never stays muted.
+  useEffect(
+    () => () => {
+      if (mutedNow.current) void useDevice.getState().setTuner(false).catch(() => {});
+    },
+    [],
+  );
 
   useEffect(() => {
     listInputs().then(
@@ -116,6 +141,18 @@ function TunerBody() {
         {note && <span className={cn("absolute top-[-3px] size-3.5 -translate-x-1/2 rounded-full", inTune ? "bg-led-ok" : "bg-led-warn")} style={{ left: `${50 + note.cents}%` }} />}
       </div>
       <span className="text-sm text-silkscreen-2 tabular-nums">{note ? (inTune ? "In tune" : `${note.cents > 0 ? "+" : ""}${note.cents} cents, ${note.cents > 0 ? "too high" : "too low"}`) : ""}</span>
+      {canMute && (
+        <label className="flex w-full items-center justify-between gap-3 text-sm text-silkscreen-2">
+          <span>
+            Mute the pedal
+            <span className="block text-xs text-silkscreen-3">Puts the pedal in tuner mode, so nothing plays while you tune.</span>
+          </span>
+          <Switch checked={muted} onCheckedChange={(on) => void mute(on)} aria-label="Mute the pedal while tuning" />
+        </label>
+      )}
+      {connected && !canMute && (
+        <p className="text-xs text-pretty text-silkscreen-3">Tone Studio can't switch this pedal's own tuner on yet. To mute it while you tune, use the tuner on the pedal.</p>
+      )}
       {error ? (
         <p className="text-sm text-led-fault">{error}</p>
       ) : (

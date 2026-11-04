@@ -119,6 +119,8 @@ export interface DeviceDriver {
   readModified?(): Promise<boolean>;
   /** "exportPreset": stored preset of `slot` as a full .prst, without selecting it. */
   exportPreset?(slot: number): Promise<Uint8Array>;
+  /** "tuner": the pedal's tuner mode on or off; while on it mutes the output. */
+  setTuner?(on: boolean): Promise<void>;
   /** "liveBpm": tempo of the active preset, 40..260. */
   setBpm?(bpm: number): Promise<void>;
   /** "exp": the given EXP fields of the active preset (values checked first). */

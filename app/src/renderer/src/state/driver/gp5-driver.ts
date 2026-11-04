@@ -31,6 +31,9 @@ const GP50_FEATURES: readonly DeviceFeature[] = Object.freeze([
   "movePreset",
 ] satisfies DeviceFeature[]);
 
+/** The GP-5 has no GP-50 extras, but both take the tuner CC (58). */
+const TUNER_ONLY: readonly DeviceFeature[] = Object.freeze(["tuner"] satisfies DeviceFeature[]);
+
 const loadFixtures = async (urls: Record<string, string>): Promise<Uint8Array[]> =>
   Promise.all(Object.keys(urls).sort().map(async (f) => new Uint8Array(await (await fetch(urls[f])).arrayBuffer())));
 
@@ -126,7 +129,11 @@ export class Gp5Driver implements DeviceDriver {
   }
 
   get features(): readonly DeviceFeature[] {
-    return this.#session.device === "gp50" ? GP50_FEATURES : [];
+    return this.#session.device === "gp50" ? [...GP50_FEATURES, "tuner"] : TUNER_ONLY;
+  }
+
+  async setTuner(on: boolean): Promise<void> {
+    await this.#session.setTuner(on);
   }
 
   identify(): Promise<DeviceKey> {
