@@ -3,7 +3,7 @@ import { findModel } from "@/gp5/lib/catalog.mjs";
 import { useGp200Catalog } from "@/gp200/app/catalog-store";
 import { buildCatalogFromXml, modelByFxid, modelsForBlock } from "@/gp200/lib/catalog.mjs";
 import { BUILT_IN_CATALOG } from "@/gp200/lib/catalog-data.mjs";
-import { ampGain, chooseAmp, proposePreset, withRefinedEq } from "./proposal";
+import { ampGain, chooseAmp, proposePreset, withRefinedEq, withTunedOnPedal } from "./proposal";
 import { analysisFixture } from "./test-signals";
 
 const fxid = (name: string, block: string) => findModel(name, block, "gp5")?.fxid;
@@ -129,6 +129,31 @@ describe("chooseAmp", () => {
     expect(ampGain("clean", 0)).toBe(15);
     expect(ampGain("crunch", 0.65)).toBe(65);
     expect(ampGain("high", 1)).toBe(85);
+  });
+});
+
+describe("withTunedOnPedal", () => {
+  const base = proposePreset(analysisFixture(), "gp5");
+  const by = (p: ReturnType<typeof proposePreset>, code: string) => p.blocks.find((b) => b.code === code)!;
+
+  it("puts the amp's Gain and the five EQ bands found on the pedal into the proposal, and says how", () => {
+    const p = withTunedOnPedal(base, { gain: 63, eqDb: [-3, -4, 0, 1.5, 3] }, 4, 4.5, 0.9);
+    expect(by(p, "AMP").settings.find((s) => s.name === "Gain")?.value).toBe(63);
+    const gain = findModel("Mess DualM", "AMP", "gp5")!.params.find((x: { name: string }) => x.name === "Gain")!;
+    expect(by(p, "AMP").params![gain.index]).toBe(63);
+    const eq = by(p, "EQ");
+    expect(eq.enabled).toBe(true);
+    expect(["125Hz", "400Hz", "800Hz", "1.6kHz", "4kHz"].map((n) => eq.settings.find((s) => s.name === n)?.value)).toEqual([-12, -16, 0, 6, 12]);
+    expect(eq.why).toContain("4 takes");
+    expect(eq.why).toContain("4.5 to 0.9");
+  });
+
+  it("keeps every other block and the amp's other knobs as they were", () => {
+    const p = withTunedOnPedal(base, { gain: 20, eqDb: [0, 0, 0, 0, 0] }, 1, 3, 2);
+    expect(p.blocks.filter((b) => b.code !== "AMP" && b.code !== "EQ")).toEqual(base.blocks.filter((b) => b.code !== "AMP" && b.code !== "EQ"));
+    const was = by(base, "AMP").params!;
+    const now = by(p, "AMP").params!;
+    expect(now.filter((_, i) => i !== was.findIndex((v, j) => v !== now[j]))).toEqual(was.filter((_, i) => i !== was.findIndex((v, j) => v !== now[j])));
   });
 });
 
