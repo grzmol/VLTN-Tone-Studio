@@ -35,7 +35,7 @@ It has these parts, and leaves out any part the song doesn't have:
 - **Lyrics as transcribed**: the lyrics the app took from the vocals, if there are any.
 - **Draft song map**: the song's current state as a song map, to correct. It holds the tempo, the key, the sections with the drums and bass chosen for each, the bass notes, the chart and the notes.
 
-Importing the draft without changes keeps the song as it is, with the limits in [What an import changes](#what-an-import-changes).
+Importing the draft without changes changes nothing in the song. The dialog offers no part, because every part already matches the song.
 
 ## A prompt for the assistant
 
@@ -125,8 +125,9 @@ The dialog lists each part the map holds, with what it changes. Tick the parts y
 
 Some things to know:
 
-- The sections get new ids, `map-1`, `map-2` and so on, in the order of the map. Their colours, and the Loop and Skip modes, are not kept. Check the sections after the first import.
-- After an import the tempo and the meter count as set by hand. A new analysis won't change them.
+- A section in the map keeps the song's section when it starts at the same time (within 0.05 seconds) and has the same name, or is the only section there. The kept section keeps its id, mode and colour, and takes the map's name and times. A new section gets a new id, `map-1`, `map-2` and so on.
+- A part is offered only when it would change something. A tempo value that matches is not written, so the song's tempo source stays as it was. A value that changes is marked as set by hand, and a new analysis won't change it.
+- A chart that is only the song's lyrics is not offered as a chart. The lyrics stay in their own track.
 
 ## Undo
 
