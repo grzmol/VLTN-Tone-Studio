@@ -18,6 +18,7 @@ import { pedalName, profileOrDefault, slotLabel } from "@/state/device-model";
 import type { CollectionInfo, LocalPreset } from "@shared/host/files";
 import { useLibraryActions } from "./actions";
 import { useLibrary } from "./store";
+import { matchesQuery, metaKey, useMeta, useTags } from "./tags";
 import { formatDay, hasFiles, SLOTS_MIME, LOCAL_MIME, startDrag, endDrag } from "./dnd";
 
 const ICONS = { backup: ArchiveIcon, imported: ImportIcon, replaced: HistoryIcon, collection: ListMusicIcon } as const;
@@ -196,6 +197,7 @@ function PresetList() {
   const presets = useLibrary((s) => s.presets);
   const loading = useLibrary((s) => s.presetsLoading);
   const query = useLibrary((s) => s.localQuery);
+  const meta = useTags((s) => s.meta);
   const actions = useLibraryActions();
   const pedal = usePedalName();
   const device = useDevice((s) => s.device);
@@ -208,10 +210,13 @@ function PresetList() {
   }, [presets, device]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return presets;
-    return presets.filter((p) => p.name.toLowerCase().includes(q) || p.fileName.toLowerCase().includes(q));
-  }, [presets, query]);
+    if (!query.trim()) return presets;
+    return presets.filter((p) => {
+      const models = summarize(p.prst)?.blocks.flatMap((b) => (b.enabled && b.model ? [b.model.title] : [])) ?? [];
+      const m = meta[metaKey(p)] ?? { tags: [], stars: 0 };
+      return matchesQuery(query, [p.name, p.fileName, ...m.tags, ...models], m);
+    });
+  }, [presets, query, meta]);
 
   if (!current) {
     return (
@@ -239,7 +244,7 @@ function PresetList() {
           <SearchIcon />
         </InputGroupAddon>
         <InputGroupInput
-          placeholder={current.kind === "backup" ? "Filter this backup" : `Filter ${current.title.toLowerCase()}`}
+          placeholder={current.kind === "backup" ? "Filter this backup" : `Filter ${current.title.toLowerCase()}: name, tag, model, stars:4`}
           aria-label={`Filter ${current.title}`}
           value={query}
           onChange={(e) => useLibrary.setState({ localQuery: e.target.value })}
@@ -299,6 +304,7 @@ function PresetCard({ p, collection }: { p: LocalPreset; collection: CollectionI
   const dropped = lossy ? droppedSentence(lossy) : "";
   const lead = s ? ampOrSnapTone(s, snapTones) : null;
   const targets = writableCollections(collections).filter((c) => c.id !== collection.id);
+  const meta = useMeta(p);
 
   return (
     <ContextMenu>
@@ -332,6 +338,12 @@ function PresetCard({ p, collection }: { p: LocalPreset; collection: CollectionI
             {lead && <span className="truncate">{lead.title}</span>}
             <span className="truncate">{p.fileName}</span>
           </span>
+          {(meta.stars > 0 || meta.tags.length > 0) && (
+            <span className="flex min-w-0 items-center gap-2 text-xs text-silkscreen-3">
+              {meta.stars > 0 && <span aria-label={`${meta.stars} stars`}>{"★".repeat(meta.stars)}</span>}
+              <span className="truncate">{meta.tags.map((t) => `#${t}`).join(" ")}</span>
+            </span>
+          )}
           {dropped && (
             <span className="flex items-start gap-1.5 text-xs text-pretty text-silkscreen-3">
               <RefreshCwIcon className="mt-px size-3 shrink-0" aria-hidden />

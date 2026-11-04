@@ -3,7 +3,7 @@
 // (art.test.ts keeps the two in step).
 import type { BlockCode } from "@/state/device-types";
 
-export const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter Variable', Inter, system-ui, sans-serif";
+export const FONT = "'Open Sans Variable', 'Open Sans', system-ui, sans-serif";
 
 export const BLOCK_HEX: Record<BlockCode, string> = {
   NR: "#8e8e93",

@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { MinusIcon, PlusIcon } from "lucide-react";
+import { MinusIcon, PlusIcon, TimerIcon } from "lucide-react";
+import { notifyError, notifySuccess } from "@/app/notify";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
 import { useDevice, usePedalName } from "@/state/device";
 import { editBpm } from "./edits";
 import { saveOnlyNote, useLiveMode } from "./live-edits";
+import { loadVolume, Metronome } from "./metronome";
 import { tap } from "./tempo";
 
 /** Where a tempo edit goes: live where the pedal has a tempo command (GP-50 with Experimental pedal commands, GP-200), else with the save. */
@@ -24,6 +27,28 @@ export function TempoControl({ bpm, range, disabled }: { bpm: number; range: { m
   const note = useTempoNote();
 
   useEffect(() => setDraft(String(bpm)), [bpm]);
+
+  // The click reads the tempo from the store on every beat, so editing it while it runs is heard on the next beat.
+  const metronome = useRef<Metronome | null>(null);
+  const [clicking, setClicking] = useState(false);
+  useEffect(() => () => metronome.current?.stop(), []);
+  const clickTrack = () => (metronome.current ??= new Metronome(() => useDevice.getState().preset?.bpm ?? bpm));
+  const [volume, setVolume] = useState(loadVolume);
+  const toggleClick = async () => {
+    const m = clickTrack();
+    if (m.running) {
+      m.stop();
+      return setClicking(false);
+    }
+    try {
+      const output = await m.start();
+      setClicking(true);
+      notifySuccess("Metronome on", `Playing through ${output}.`);
+    } catch (e) {
+      setClicking(false);
+      notifyError("Couldn't start the metronome", e);
+    }
+  };
 
   const commit = (text: string) => {
     const n = Number(text.trim());
@@ -76,6 +101,22 @@ export function TempoControl({ bpm, range, disabled }: { bpm: number; range: { m
       <Button variant="outline" size="xs" disabled={disabled} onClick={onTap} aria-label="Tap tempo" title="Tap in time: the tempo follows the last few taps">
         Tap
       </Button>
+      <Button variant={clicking ? "default" : "outline"} size="icon-xs" aria-label="Metronome" aria-pressed={clicking} onClick={() => void toggleClick()} title="Click track at this tempo, played through the pedal's USB audio when it is connected">
+        <TimerIcon aria-hidden />
+      </Button>
+      <Slider
+        className="w-20"
+        aria-label="Metronome volume"
+        title={`Metronome volume ${Math.round(volume * 100)}%`}
+        min={0}
+        max={100}
+        step={1}
+        value={[Math.round(volume * 100)]}
+        onValueChange={([v]) => {
+          setVolume(v / 100);
+          clickTrack().setVolume(v / 100);
+        }}
+      />
     </span>
   );
 }

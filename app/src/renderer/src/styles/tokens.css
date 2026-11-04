@@ -91,10 +91,11 @@
   --radius-tile: 16px;                      /* gear tiles, cards */
   --radius-dialog: 22px;                    /* glass panels, dialogs, sheets (concentric with 16px content) */
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter Variable", "Inter", "Segoe UI Variable", system-ui, sans-serif;
+  --font-sans: "Open Sans Variable", "Open Sans", system-ui, sans-serif;
+  --font-display: "Roboto Variable", "Roboto", system-ui, sans-serif;
   --tracking-display: -0.022em;              /* SF Display-like tight tracking on large titles */
   --tracking-title: -0.012em;
-  --stretch-silkscreen: 100%;               /* (Inter/SF have no width axis) */
+  --stretch-silkscreen: 100%;               /* (Open Sans/Roboto: width axis unused) */
   --stretch-body: 100%;
   --stretch-display: 100%;
   --label-tracking: 0.04em;                 /* small uppercase labels (nav, eyebrows, section titles) */

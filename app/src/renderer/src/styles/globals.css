@@ -1,11 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@fontsource-variable/inter/opsz.css";
+@import "@fontsource-variable/open-sans/standard.css";
+@import "@fontsource-variable/roboto/standard.css";
 @import "./tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-heading: var(--font-display);
   --color-led-fault: var(--led-fault);
   --color-silkscreen: var(--silkscreen);
   --color-silkscreen-2: var(--silkscreen-2);
@@ -87,12 +89,13 @@
     background: var(--ambient), var(--enclosure);
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
-    font-optical-sizing: auto;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.003em;
     overflow: hidden;
     user-select: none;
   }
+  /* Roboto for headings, Open Sans (body) for everything else */
+  h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); }
   input, textarea, [contenteditable="true"] { user-select: text; }
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   ::selection { background: rgb(255 255 255 / 0.24); color: var(--silkscreen); }
