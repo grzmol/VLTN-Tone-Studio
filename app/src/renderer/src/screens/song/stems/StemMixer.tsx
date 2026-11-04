@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, Guitar, Pause, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, Download, Guitar, Pause, Play, RotateCcw, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -50,10 +50,11 @@ async function exportStems(songName: string, stems: Stems, names: StemName[], bi
   }
 }
 
-/** "Split with Best, Balanced in 312.4 s on the processor (WebAssembly)." */
-function splitSummary({ model, quality, seconds, backends }: SplitInfo): string {
+/** "Split 1:20 – 2:45 with Best, Balanced in 312.4 s on the processor (WebAssembly)." */
+function splitSummary({ model, quality, seconds, backends, range }: SplitInfo): string {
   const where = backends.length === 1 ? BACKEND_LABEL[backends[0]] : "on the graphics card and the processor";
-  return `Split with ${findModel(model)?.label ?? model}, ${findQuality(quality)?.label ?? quality} in ${seconds.toFixed(1)} s ${where}.`;
+  const part = range ? ` ${formatTime(range.start)} – ${formatTime(range.end)}` : "";
+  return `Split${part} with ${findModel(model)?.label ?? model}, ${findQuality(quality)?.label ?? quality} in ${seconds.toFixed(1)} s ${where}.`;
 }
 
 /** Transport, one row per stem (mute, solo, volume, waveform, level), the export and splitting again. */
@@ -192,6 +193,10 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
         <p className="min-w-0 flex-1 text-[11px] text-pretty text-silkscreen-3">
           {lastSplit && `${splitSummary(lastSplit)} `}Solo a stem to hear it alone.
         </p>
+        <Button variant="outline" onClick={() => useSong.getState().clearStems()}>
+          <Scissors data-icon="inline-start" />
+          Choose another part…
+        </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline">

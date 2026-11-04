@@ -164,4 +164,49 @@ describe("song store", () => {
     await useSong.getState().split();
     expect(separate).not.toHaveBeenCalled();
   });
+
+  it("splits only the chosen part and keeps it in the split info", async () => {
+    const song: PcmAudio = { sampleRate: 10, channels: [Float32Array.from({ length: 200 }, (_, i) => i), new Float32Array(200)] };
+    const separate = vi.fn<SongDeps["separate"]>(async () => separation());
+    const useSong = store({ decode: async () => song, separate });
+    await useSong.getState().load(file("a.mp3"));
+    useSong.getState().setRange({ start: 3, end: 9 });
+    expect(useSong.getState().range).toEqual({ start: 3, end: 9 });
+    await useSong.getState().split();
+    const part = separate.mock.calls[0][0];
+    expect(part.channels[0].length).toBe(60);
+    expect(part.channels[0][0]).toBe(30);
+    expect(useSong.getState().lastSplit?.range).toEqual({ start: 3, end: 9 });
+  });
+
+  it("splits the whole song without a range, and a range covering it is no range", async () => {
+    const separate = vi.fn<SongDeps["separate"]>(async () => separation());
+    const useSong = store({ decode: async () => audio(441000), separate });
+    await useSong.getState().load(file("a.mp3"));
+    useSong.getState().setRange({ start: 0, end: 10 });
+    expect(useSong.getState().range).toBeNull();
+    await useSong.getState().split();
+    expect(separate.mock.calls[0][0].channels[0].length).toBe(441000);
+    expect(useSong.getState().lastSplit).not.toHaveProperty("range");
+  });
+
+  it("ignores a range before a song is loaded, and loading another song clears it", async () => {
+    const useSong = store({ decode: async () => audio(441000) });
+    useSong.getState().setRange({ start: 1, end: 7 });
+    expect(useSong.getState().range).toBeNull();
+    await useSong.getState().load(file("a.mp3"));
+    useSong.getState().setRange({ start: 1, end: 7 });
+    await useSong.getState().load(file("b.mp3"));
+    expect(useSong.getState().range).toBeNull();
+  });
+
+  it("clearStems goes back to choosing a part of the same song", async () => {
+    const useSong = store({ decode: async () => audio(441000) });
+    await useSong.getState().load(file("a.mp3"));
+    useSong.getState().setRange({ start: 2, end: 8 });
+    await useSong.getState().split();
+    useSong.getState().clearStems();
+    expect(useSong.getState()).toMatchObject({ stems: null, lastSplit: null, range: { start: 2, end: 8 }, status: { kind: "idle" } });
+    expect(useSong.getState().source?.name).toBe("a.mp3");
+  });
 });
