@@ -353,8 +353,7 @@ export interface DeviceState {
   /** Tempo, clamped to profileFor(device).tempo; live where the pedal takes it (liveBpm), else it reaches the pedal on save */
   setBpm(bpm: number): void;
   /** EXP settings of the active preset (needs the "exp" feature); every value is checked first (RangeError) */
-  setExp(edit: ExpEdit): void;
-  /**
+  setExp(edit: ExpEdit): void;  /**
    * Switch assignments, one block list per switch (PresetState.footswitches); live where the pedal takes it
    * (liveFootswitches), else on save. GP-50 presets allow at most 3 blocks per switch and a block on one switch only:
    * anything else throws RangeError and changes nothing.

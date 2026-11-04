@@ -19,6 +19,8 @@ import { ExpControl } from "./ExpControl";
 import { FootswitchControl } from "./FootswitchControl";
 import { PatchPanel } from "./PatchPanel";
 import { TempoControl } from "./TempoControl";
+import { Tuner } from "./Tuner";
+import { VariationMenu } from "./Variation";
 import { useHistory } from "./history";
 import { useRig } from "./rig-store";
 
@@ -155,6 +157,8 @@ export function RigHeader({ preset, connected }: Props) {
             <Redo2Icon aria-hidden />
           </Button>
         </IconTip>
+        <Tuner />
+        <VariationMenu preset={preset} disabled={!editable} />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
