@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { isElectron } from "@/host";
 import { BASS_TONE_INPUT_DB, BASS_TONE_OUTPUT_DB, type BassTone, type BassToneFile } from "@/song/band/arrangement";
+import { singleStage } from "@/song/band/bass-tone";
 import { BassSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceKind } from "./BassSourceDialog";
 
 /** The track of a band slider, as BandSettingsForm draws them: a lighter track keeps the full length visible at any value. */
@@ -19,7 +20,7 @@ export interface BassTonePickerProps {
 export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
   const [picking, setPicking] = useState<BassSourceKind | null>(null);
   const desktop = isElectron;
-  const nam = tone.kind === "nam" ? tone : null;
+  const nam = tone.kind === "chain" ? singleStage(tone) : null;
   const summary = nam ? `${nam.capture.name}${nam.ir ? ` with ${nam.ir.name}` : ""}` : "Clean, as generated";
 
   const open = (kind: BassSourceKind) => {
@@ -30,11 +31,16 @@ export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
     restoreBassSearch();
     setPicking(null);
   };
+  /** Saves the one-stage view as a chain: the amp (or capture) block, then the cab. */
+  const set = (next: NonNullable<typeof nam>) => {
+    const amp = { type: "capture" as const, role: "amp" as const, file: next.capture, inputDb: next.inputDb, outputDb: next.outputDb, mix: 1, on: true };
+    const cab = next.ir ? [{ type: "ir" as const, role: "cab" as const, file: next.ir, inputDb: 0, outputDb: 0, mix: 1, on: true }] : [];
+    onChange({ kind: "chain", blocks: [amp, ...cab], dryWet: next.blend, fast: tone.kind === "chain" ? tone.fast : false });
+  };
   const pick = (kind: BassSourceKind, file: BassToneFile) => {
     close();
-    if (kind === "nam")
-      onChange({ kind: "nam", capture: file, ir: nam?.ir ?? null, inputDb: nam?.inputDb ?? 0, outputDb: nam?.outputDb ?? 0, blend: nam?.blend ?? 1 });
-    else if (nam) onChange({ ...nam, ir: file });
+    if (kind === "nam") set({ capture: file, ir: nam?.ir ?? null, inputDb: nam?.inputDb ?? 0, outputDb: nam?.outputDb ?? 0, blend: nam?.blend ?? 1 });
+    else if (nam) set({ ...nam, ir: file });
   };
 
   return (
@@ -52,7 +58,7 @@ export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
             </Button>
           )}
           {nam?.ir && (
-            <Button variant="ghost" size="sm" onClick={() => onChange({ ...nam, ir: null })}>
+            <Button variant="ghost" size="sm" onClick={() => set({ ...nam, ir: null })}>
               No cab IR
             </Button>
           )}
@@ -75,7 +81,7 @@ export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
               max={BASS_TONE_INPUT_DB[1]}
               step={1}
               value={[nam.inputDb]}
-              onValueChange={([db]) => onChange({ ...nam, inputDb: db })}
+              onValueChange={([db]) => set({ ...nam, inputDb: db })}
             />
           </label>
           <label className="flex items-center gap-3">
@@ -87,7 +93,7 @@ export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
               max={BASS_TONE_OUTPUT_DB[1]}
               step={1}
               value={[nam.outputDb]}
-              onValueChange={([db]) => onChange({ ...nam, outputDb: db })}
+              onValueChange={([db]) => set({ ...nam, outputDb: db })}
             />
           </label>
           <label className="flex items-center gap-3">
@@ -99,7 +105,7 @@ export function BassTonePicker({ tone, onChange }: BassTonePickerProps) {
               max={100}
               step={5}
               value={[Math.round(nam.blend * 100)]}
-              onValueChange={([percent]) => onChange({ ...nam, blend: percent / 100 })}
+              onValueChange={([percent]) => set({ ...nam, blend: percent / 100 })}
             />
           </label>
         </div>

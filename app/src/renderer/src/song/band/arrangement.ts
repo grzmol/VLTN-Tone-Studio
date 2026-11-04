@@ -79,11 +79,36 @@ export interface RenderedPart {
   importedAt: string;
 }
 
+/** The roles a block of the bass tone chain can play. Pedals, a preamp and an amp are captures; a cab and a space are IRs. */
+export const TONE_ROLES = ["pedal", "preamp", "amp", "cab", "space"] as const;
+export type ToneRole = (typeof TONE_ROLES)[number];
+/** What a block's file is: a NAM capture (pedal, preamp, amp) or an impulse response (cab, space). */
+export const TONE_BLOCK_TYPES = ["capture", "ir"] as const;
+export type ToneBlockType = (typeof TONE_BLOCK_TYPES)[number];
+export const TONE_BLOCK_TYPE: Record<ToneRole, ToneBlockType> = { pedal: "capture", preamp: "capture", amp: "capture", cab: "ir", space: "ir" };
+/** The most blocks a bass tone chain holds. */
+export const MAX_TONE_BLOCKS = 6;
+
+/** One block of the bass tone chain: a capture or an IR, with its drive and output level, its wet mix, and whether it is on. */
+export interface ToneBlock {
+  type: ToneBlockType;
+  role: ToneRole;
+  file: BassToneFile;
+  /** Input drive, in dB (BASS_TONE_INPUT_DB). */
+  inputDb: number;
+  /** Output level, in dB (BASS_TONE_OUTPUT_DB). */
+  outputDb: number;
+  /** How much of the block's output is mixed in, against its own input: 0 bypasses it, 1 is all wet. */
+  mix: number;
+  /** A block that is off is left out of the chain, as if it were not there. */
+  on: boolean;
+}
+
 /**
- * The bass tone. "clean" is the generated DI sample as it is. "nam" plays it through a capture, then a cab IR, and mixes the result with the
- * dry sample by `blend` (0 dry, 1 all amp).
+ * The bass tone. "clean" is the generated DI sample as it is. "chain" plays it through its blocks in order, then mixes the result with the
+ * dry sample by `dryWet` (0 dry, 1 all chain). `fast` renders captures at their Lite size where the file has one.
  */
-export type BassTone = { kind: "clean" } | { kind: "nam"; capture: BassToneFile; ir: BassToneFile | null; inputDb: number; outputDb: number; blend: number };
+export type BassTone = { kind: "clean" } | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean };
 
 /** The key the overrides of a song without sections are kept under. Section ids are UUIDs, so this cannot clash with one. */
 export const WHOLE_SONG_ID = "song";
@@ -453,36 +478,82 @@ function parseBassToneFile(value: unknown): BassToneFile | null {
   return null;
 }
 
-/** True when the value is a complete, valid bass tone. A missing cab IR means none; a cab IR that is there but invalid fails the check. */
+/** A chain block, if every field it needs is valid. The file's kind must match the role (a cab is an IR, an amp a capture). */
+function parseToneBlock(value: unknown): ToneBlock | null {
+  if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return null;
+  const role = value.role as ToneRole;
+  const file = parseBassToneFile(value.file);
+  if (!file || value.type !== TONE_BLOCK_TYPE[role]) return null;
+  return {
+    type: TONE_BLOCK_TYPE[role],
+    role,
+    file,
+    inputDb: isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) ? value.inputDb : 0,
+    outputDb: isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) ? value.outputDb : 0,
+    mix: isUnit(value.mix) ? value.mix : 1,
+    on: isBool(value.on) ? value.on : true,
+  };
+}
+
+/** True when every field of a chain block is present and valid. */
+function isToneBlock(value: unknown): boolean {
+  if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return false;
+  return (
+    value.type === TONE_BLOCK_TYPE[value.role as ToneRole] &&
+    parseBassToneFile(value.file) !== null &&
+    isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) &&
+    isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) &&
+    isUnit(value.mix) &&
+    isBool(value.on)
+  );
+}
+
+/** True when the value is a complete, valid bass tone. A chain holds at most MAX_TONE_BLOCKS blocks, each one valid. */
 function isBassTone(value: unknown): value is BassTone {
   if (!isRecord(value)) return false;
   if (value.kind === "clean") return true;
   return (
-    value.kind === "nam" &&
-    parseBassToneFile(value.capture) !== null &&
-    (value.ir === undefined || value.ir === null || parseBassToneFile(value.ir) !== null) &&
-    isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) &&
-    isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) &&
-    isUnit(value.blend)
+    value.kind === "chain" &&
+    Array.isArray(value.blocks) &&
+    value.blocks.length <= MAX_TONE_BLOCKS &&
+    value.blocks.every(isToneBlock) &&
+    isUnit(value.dryWet) &&
+    isBool(value.fast)
   );
 }
 
 /**
- * Reads a saved bass tone. Anything that is not a valid capture gives the clean bass. A cab IR that is invalid is dropped, and the gains
- * and blend fall back to their defaults one at a time.
+ * Reads a saved bass tone. A spec 83 "nam" tone (one capture, an optional cab IR, a drive, an output and a blend) becomes a chain of an amp
+ * and a cab. A chain keeps its valid blocks, in order, up to MAX_TONE_BLOCKS; an invalid block is dropped. Anything else gives the clean
+ * bass.
  */
 export function parseBassTone(value: unknown): BassTone {
-  if (!isRecord(value) || value.kind !== "nam") return { kind: "clean" };
-  const capture = parseBassToneFile(value.capture);
-  if (!capture) return { kind: "clean" };
-  return {
-    kind: "nam",
-    capture,
-    ir: parseBassToneFile(value.ir),
-    inputDb: isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) ? value.inputDb : 0,
-    outputDb: isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) ? value.outputDb : 0,
-    blend: isUnit(value.blend) ? value.blend : 1,
-  };
+  if (!isRecord(value)) return { kind: "clean" };
+  if (value.kind === "nam") {
+    const capture = parseBassToneFile(value.capture);
+    if (!capture) return { kind: "clean" };
+    const amp: ToneBlock = {
+      type: "capture",
+      role: "amp",
+      file: capture,
+      inputDb: isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) ? value.inputDb : 0,
+      outputDb: isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) ? value.outputDb : 0,
+      mix: 1,
+      on: true,
+    };
+    const blocks = [amp];
+    const cab = parseBassToneFile(value.ir);
+    if (cab) blocks.push({ type: "ir", role: "cab", file: cab, inputDb: 0, outputDb: 0, mix: 1, on: true });
+    return { kind: "chain", blocks, dryWet: isUnit(value.blend) ? value.blend : 1, fast: false };
+  }
+  if (value.kind !== "chain") return { kind: "clean" };
+  const blocks = Array.isArray(value.blocks)
+    ? value.blocks
+        .map(parseToneBlock)
+        .filter((block): block is ToneBlock => block !== null)
+        .slice(0, MAX_TONE_BLOCKS)
+    : [];
+  return { kind: "chain", blocks, dryWet: isUnit(value.dryWet) ? value.dryWet : 1, fast: isBool(value.fast) ? value.fast : false };
 }
 
 /** True when the value is a complete, valid set of band settings. Use parseBandSettings for saved data that may be partial or old. */

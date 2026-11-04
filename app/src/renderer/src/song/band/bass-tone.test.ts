@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PcmAudio } from "../types";
-import type { BassTone } from "./arrangement";
+import type { BassTone, BassToneFile, ToneBlock } from "./arrangement";
 import { applyBassTone, CHAIN_RATE, renderBassTone, type BassChain, type BassToneFiles, type LoadedBassTone } from "./bass-tone";
 import { PEAK_LIMIT } from "./render";
 
@@ -52,15 +52,23 @@ function noFiles(): BassToneFiles {
   return { readNam: fail, readIr: fail, readLocalNam: fail, readLocalIr: fail };
 }
 
-const nam = (overrides: Partial<Extract<BassTone, { kind: "nam" }>> = {}): Extract<BassTone, { kind: "nam" }> => ({
-  kind: "nam",
-  capture: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" },
-  ir: null,
-  inputDb: 0,
-  outputDb: 0,
-  blend: 1,
-  ...overrides,
-});
+/** The one-stage view of a chain: a capture, an optional cab IR, the drive and output, and the dry/wet. */
+type Stage = { capture: BassToneFile; ir: BassToneFile | null; inputDb: number; outputDb: number; blend: number };
+
+/** A chain of one amp and an optional cab, as the Band settings hold a bass tone. */
+const nam = (overrides: Partial<Stage> = {}): Extract<BassTone, { kind: "chain" }> => {
+  const stage: Stage = {
+    capture: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" },
+    ir: null,
+    inputDb: 0,
+    outputDb: 0,
+    blend: 1,
+    ...overrides,
+  };
+  const blocks: ToneBlock[] = [{ type: "capture", role: "amp", file: stage.capture, inputDb: stage.inputDb, outputDb: stage.outputDb, mix: 1, on: true }];
+  if (stage.ir) blocks.push({ type: "ir", role: "cab", file: stage.ir, inputDb: 0, outputDb: 0, mix: 1, on: true });
+  return { kind: "chain", blocks, dryWet: stage.blend, fast: false };
+};
 
 describe("renderBassTone", () => {
   it("gives the dry bass back exactly at blend 0", async () => {

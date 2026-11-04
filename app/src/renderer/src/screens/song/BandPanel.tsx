@@ -405,7 +405,7 @@ function BandBody({
       // The bass tone is applied before the bass is saved, so the saved bass is the one Generate made. A tone that can't be used
       // leaves the clean bass and a notice.
       let bass = result.bass;
-      if (bass && using.bassTone.kind === "nam") {
+      if (bass && using.bassTone.kind === "chain") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyBassTone(bass, using.bassTone, host.tones, renderBassChain);
         bass = toned.bass;
@@ -543,7 +543,7 @@ function BandBody({
       const result = await rendering.done;
       // The preview hears the bass tone too, so it matches what Generate would save.
       let bass = result.bass;
-      if (bass && settings.bassTone.kind === "nam") {
+      if (bass && settings.bassTone.kind === "chain") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyBassTone(bass, settings.bassTone, host.tones, renderBassChain);
         bass = toned.bass;

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
-import type { BassTone } from "@/song/band/arrangement";
+import type { BassTone, BassToneFile, ToneBlock } from "@/song/band/arrangement";
 import { BassTonePicker } from "./BassTonePicker";
 
 const mocks = vi.hoisted(() => ({
@@ -28,14 +28,15 @@ vi.mock("@/state/device", async (importOriginal) => importOriginal<typeof import
 const SIGNED_OUT = { status: "signed-out", user: null, configured: true, appKey: null, splashSeen: true, insecureStorage: false };
 
 const clean: BassTone = { kind: "clean" };
-const tuned: Extract<BassTone, { kind: "nam" }> = {
-  kind: "nam",
-  capture: { source: "file", path: "/music/bass.nam", name: "Bass amp" },
-  ir: { source: "file", path: "/music/cab.wav", name: "4x10 cab" },
-  inputDb: 3,
-  outputDb: -2,
-  blend: 1,
-};
+const tunedCapture = { source: "file", path: "/music/bass.nam", name: "Bass amp" } as const;
+const tunedIr = { source: "file", path: "/music/cab.wav", name: "4x10 cab" } as const;
+/** A chain of one amp and one cab, as the picker saves it. */
+function chainOf(stage: { capture: BassToneFile; ir: BassToneFile | null; inputDb: number; outputDb: number; blend: number }): BassTone {
+  const blocks: ToneBlock[] = [{ type: "capture", role: "amp", file: stage.capture, inputDb: stage.inputDb, outputDb: stage.outputDb, mix: 1, on: true }];
+  if (stage.ir) blocks.push({ type: "ir", role: "cab", file: stage.ir, inputDb: 0, outputDb: 0, mix: 1, on: true });
+  return { kind: "chain", blocks, dryWet: stage.blend, fast: false };
+}
+const tuned = chainOf({ capture: tunedCapture, ir: tunedIr, inputDb: 3, outputDb: -2, blend: 1 });
 
 /** The thumb of a slider, found from its root: the slider root carries the aria-label, as in BandSettingsForm. */
 const thumb = (label: string) => document.querySelector<HTMLElement>(`[aria-label="${label}"] [role="slider"]`)!;
@@ -102,13 +103,13 @@ describe("BassTonePicker", () => {
   it("moves the blend from the keyboard, and saves it as a fraction", () => {
     const onChange = renderPicker(tuned);
     fireEvent.keyDown(thumb("Bass tone blend"), { key: "ArrowLeft" });
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ kind: "nam", blend: 0.95 }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ kind: "chain", dryWet: 0.95 }));
   });
 
   it("gives the clean bass back, and takes the cab IR off without touching the capture", () => {
     const onChange = renderPicker(tuned);
     fireEvent.click(screen.getByRole("button", { name: "No cab IR" }));
-    expect(onChange).toHaveBeenLastCalledWith({ ...tuned, ir: null });
+    expect(onChange).toHaveBeenLastCalledWith(chainOf({ capture: tunedCapture, ir: null, inputDb: 3, outputDb: -2, blend: 1 }));
     fireEvent.click(screen.getByRole("button", { name: "Clean bass" }));
     expect(onChange).toHaveBeenLastCalledWith({ kind: "clean" });
   });
@@ -139,14 +140,9 @@ describe("BassTonePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change capture…" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open a .nam file…" }));
     await waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith({
-        kind: "nam",
-        capture: { source: "file", path: "/music/new.nam", name: "new" },
-        ir: tuned.ir,
-        inputDb: 3,
-        outputDb: -2,
-        blend: 1,
-      }),
+      expect(onChange).toHaveBeenCalledWith(
+        chainOf({ capture: { source: "file", path: "/music/new.nam", name: "new" }, ir: tunedIr, inputDb: 3, outputDb: -2, blend: 1 }),
+      ),
     );
   });
 });

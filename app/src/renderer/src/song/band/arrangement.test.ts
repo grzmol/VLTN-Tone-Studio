@@ -254,28 +254,49 @@ describe("humanise settings", () => {
 describe("bass tone settings", () => {
   const capture = { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" } as const;
   const ir = { source: "tone3000", toneId: 43, modelId: 8, name: "4x10 cab" } as const;
-  const nam: BassTone = { kind: "nam", capture, ir, inputDb: 3, outputDb: -2, blend: 0.75 };
+  /** A spec 83 tone, as it was saved before the chain. */
+  const nam = { kind: "nam", capture, ir, inputDb: 3, outputDb: -2, blend: 0.75 };
+  /** The chain that tone becomes on load. */
+  const amp = { type: "capture", role: "amp", file: capture, inputDb: 3, outputDb: -2, mix: 1, on: true } as const;
+  const cab = { type: "ir", role: "cab", file: ir, inputDb: 0, outputDb: 0, mix: 1, on: true } as const;
+  const chain: BassTone = { kind: "chain", blocks: [amp, cab], dryWet: 0.75, fast: false };
+  const pedal = {
+    type: "capture",
+    role: "pedal",
+    file: { source: "file", path: "/music/comp.nam", name: "Comp" },
+    inputDb: -3,
+    outputDb: 2,
+    mix: 0.5,
+    on: false,
+  } as const;
+  const room = {
+    type: "ir",
+    role: "space",
+    file: { source: "file", path: "/music/room.wav", name: "Room" },
+    inputDb: 0,
+    outputDb: 0,
+    mix: 0.2,
+    on: true,
+  } as const;
 
   it("is clean by default, so the generated bass plays as it always did", () => {
     expect(DEFAULT_BAND_SETTINGS.bassTone).toEqual({ kind: "clean" });
     expect(parseBandSettings(undefined).bassTone).toEqual({ kind: "clean" });
   });
 
-  it("keeps a valid TONE3000 capture with its cab IR, and a local file", () => {
-    expect(parseBassTone(nam)).toEqual(nam);
-    const local: BassTone = {
-      kind: "nam",
-      capture: { source: "file", path: "/Users/me/bass.nam", name: "bass" },
-      ir: null,
-      inputDb: 0,
-      outputDb: 0,
-      blend: 1,
-    };
-    expect(parseBassTone(local)).toEqual(local);
-    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: local })).toBe(true);
+  it("keeps a chain's blocks in order, with their roles, levels, mix and on switch", () => {
+    const tone: BassTone = { kind: "chain", blocks: [pedal, amp, cab, room], dryWet: 1, fast: true };
+    expect(parseBassTone(tone)).toEqual(tone);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: tone })).toBe(true);
   });
 
-  it("gives clean for garbage, for a kind it does not know, and for a capture that is incomplete", () => {
+  it("migrates a spec 83 tone to a chain of its amp and cab, with the blend as the dry/wet", () => {
+    expect(parseBassTone(nam)).toEqual(chain);
+    expect(parseBassTone({ ...nam, ir: null }).kind).toBe("chain");
+    expect(parseBassTone({ ...nam, ir: null })).toMatchObject({ blocks: [{ role: "amp" }], dryWet: 0.75 });
+  });
+
+  it("gives clean for garbage, for a kind it does not know, and for a spec 83 capture that is incomplete", () => {
     for (const value of [null, "nam", 3, { kind: "amp" }, { kind: "nam" }, { kind: "nam", capture: { source: "tone3000", name: "x" } }]) {
       expect(parseBassTone(value)).toEqual({ kind: "clean" });
     }
@@ -283,24 +304,37 @@ describe("bass tone settings", () => {
     expect(parseBassTone(noPath)).toEqual({ kind: "clean" });
   });
 
-  it("drops a cab IR it cannot read, and keeps the capture", () => {
-    const parsed = parseBassTone({ ...nam, ir: { source: "tone3000", name: "cab" } });
-    expect(parsed).toEqual({ ...nam, ir: null });
+  it("drops a block it cannot read, and a block whose file does not match its role", () => {
+    const parsed = parseBassTone({
+      kind: "chain",
+      blocks: [pedal, { ...room, type: "capture" }, { ...room, role: "amp" }, { ...room, role: "bogus" }, null],
+      dryWet: 1,
+      fast: false,
+    });
+    expect(parsed).toEqual({ kind: "chain", blocks: [pedal], dryWet: 1, fast: false });
   });
 
-  it("falls back to the defaults for a gain or blend that is out of range, one field at a time", () => {
-    const parsed = parseBassTone({ ...nam, inputDb: 40, outputDb: -2, blend: 1.5 });
-    expect(parsed).toEqual({ ...nam, inputDb: 0, outputDb: -2, blend: 1 });
-    expect(parseBassTone({ ...nam, outputDb: Number.NaN })).toMatchObject({ kind: "nam", outputDb: 0 });
+  it("keeps at most six blocks, the first six, and fails the full check for a seventh", () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({ ...room, file: { ...room.file, name: `Room ${i}` } }));
+    const parsed = parseBassTone({ kind: "chain", blocks: seven, dryWet: 1, fast: false });
+    expect(parsed.kind === "chain" && parsed.blocks.map((b) => b.file.name)).toEqual(seven.slice(0, 6).map((b) => b.file.name));
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: seven, dryWet: 1, fast: false } })).toBe(false);
+  });
+
+  it("falls back to the defaults for a level, mix or dry/wet that is out of range, one field at a time", () => {
+    const parsed = parseBassTone({ kind: "chain", blocks: [{ ...pedal, inputDb: 40, outputDb: -2, mix: 1.5, on: "yes" }], dryWet: 2, fast: "no" });
+    expect(parsed).toEqual({ kind: "chain", blocks: [{ ...pedal, inputDb: 0, outputDb: -2, mix: 1, on: true }], dryWet: 1, fast: false });
   });
 
   it("makes a settings object with a bad bass tone fail the full check", () => {
-    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "nam", capture: { source: "tone3000", name: "x" } } })).toBe(false);
-    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: nam })).toBe(true);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: [{ ...pedal, mix: 3 }], dryWet: 1, fast: false } })).toBe(false);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: nam })).toBe(false);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: chain })).toBe(true);
   });
 
-  it("keeps a saved bass tone through parseBandSettings, and an older song without one gets clean", () => {
-    expect(parseBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: nam }).bassTone).toEqual(nam);
+  it("keeps a saved chain through parseBandSettings, and an older song without one gets clean", () => {
+    expect(parseBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: chain }).bassTone).toEqual(chain);
+    expect(parseBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: nam }).bassTone).toEqual(chain);
     const { bassTone: _dropped, ...older } = DEFAULT_BAND_SETTINGS;
     expect(parseBandSettings(older).bassTone).toEqual({ kind: "clean" });
   });

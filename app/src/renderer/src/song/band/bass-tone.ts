@@ -80,11 +80,26 @@ async function loadIr(file: BassToneFile, files: BassToneFiles): Promise<Float32
   return rate === CHAIN_RATE ? samples : convertSampleRate(samples, rate, CHAIN_RATE);
 }
 
-/** Reads and checks the files of a "nam" bass tone. Throws with a message the notice can show. */
-export async function loadBassTone(tone: Extract<BassTone, { kind: "nam" }>, files: BassToneFiles): Promise<LoadedBassTone> {
-  const model = await loadCapture(tone.capture, files);
-  const ir = tone.ir ? await loadIr(tone.ir, files) : null;
-  return { model, ir, inputDb: tone.inputDb, outputDb: tone.outputDb, blend: tone.blend };
+/**
+ * The one capture and cab IR a chain plays through, as spec 83 had them: the first active capture and the first active cab. This is the
+ * bridge until the whole chain renders; the blend is the chain's dry/wet.
+ */
+export function singleStage(
+  tone: Extract<BassTone, { kind: "chain" }>,
+): { capture: BassToneFile; ir: BassToneFile | null; inputDb: number; outputDb: number; blend: number } | null {
+  const capture = tone.blocks.find((block) => block.on && block.type === "capture");
+  if (!capture) return null;
+  const cab = tone.blocks.find((block) => block.on && block.type === "ir" && block.role === "cab");
+  return { capture: capture.file, ir: cab?.file ?? null, inputDb: capture.inputDb, outputDb: capture.outputDb, blend: tone.dryWet };
+}
+
+/** Reads and checks the files of a bass tone's single stage. Throws with a message the notice can show. */
+export async function loadBassTone(tone: Extract<BassTone, { kind: "chain" }>, files: BassToneFiles): Promise<LoadedBassTone> {
+  const stage = singleStage(tone);
+  if (!stage) throw new Error("the chain has no capture switched on");
+  const model = await loadCapture(stage.capture, files);
+  const ir = stage.ir ? await loadIr(stage.ir, files) : null;
+  return { model, ir, inputDb: stage.inputDb, outputDb: stage.outputDb, blend: stage.blend };
 }
 
 /** The bass's samples at `rate` for the chain. Resampling uses the project's converter, which the cab IRs already go through. */
@@ -147,7 +162,8 @@ export async function applyBassTone(bass: PcmAudio, tone: BassTone, files: BassT
   try {
     loaded = await loadBassTone(tone, files);
   } catch (error) {
-    return { bass, notice: `The bass plays clean, because ${tone.capture.name} couldn't be loaded (${messageOf(error)}).` };
+    const name = singleStage(tone)?.capture.name ?? "the bass tone";
+    return { bass, notice: `The bass plays clean, because ${name} couldn't be loaded (${messageOf(error)}).` };
   }
   try {
     return { bass: await renderBassTone(bass, loaded, chain), notice: null };
