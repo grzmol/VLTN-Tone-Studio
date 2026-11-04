@@ -2,6 +2,21 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [0.9.0] - 2026-11-04
+
+### Added
+- **A tuner on the Rig.** The new *Tuner* button (tuning fork) opens a chromatic tuner: it shows the note, the frequency in Hz and how many cents sharp or flat you are, and turns green when you are within 5 cents. It listens to the pedal's USB audio by default, or any audio input you pick. It plays nothing and doesn't touch the preset.
+- **A metronome.** The clock button next to *Tap* clicks at the preset's tempo, and a tempo change while it runs is heard on the next beat. It plays through the pedal's USB sound card when the pedal is connected, otherwise through the system output, and says which in a toast. A volume slider sits next to it and is remembered.
+- **Setlists and a stage mode.** A new *Setlist* screen holds ordered lists of pedal presets for a gig, one set per pedal model, with a note on every song, reordering by drag or arrow buttons, and JSON export and import. A preset remembers its name, so when a slot is overwritten the list warns you and offers to follow the preset to its new slot or to take the new one. *Stage mode* fills the window with the current preset's name, your note and the next preset; → / Space / Page Down play the next one, ← / Page Up the previous, Esc leaves, and it follows the footswitch.
+- **Tags, star ratings and search by model in the Library.** Rate presets on this computer, tag them, and filter the list by name, tag, a model in the chain or stars (`plexi clean stars:4`).
+- **Randomize and Morph.** The shuffle button on the Rig nudges every knob by a subtle, medium or wild amount (levels and switches stay put), or morphs the sound toward another preset with a slider (blocks that run the same model blend, the others stay). Both land in the undo history.
+
+### Changed
+- **Roboto for headings and Open Sans for the rest of the interface** (it was Inter). Both fonts ship with the app, so nothing is downloaded.
+
+### Fixed
+- **The TONE3000 App key setting now explains itself.** The old text said to leave the key empty to use the one the build came with; it now says where to get a key and that changing it signs you out.
+
 ## [0.8.1] - 2026-10-21
 
 ### Fixed
@@ -157,6 +172,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - TONE3000 sign-in, tone lists and downloads.
 - Release builds for macOS (`.dmg`), Windows (NSIS) and Linux (AppImage, `.deb`).
 
+[0.9.0]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/grzmol/VLTN-Tone-Studio/compare/v0.7.1...v0.7.2

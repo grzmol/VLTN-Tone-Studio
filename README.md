@@ -25,14 +25,14 @@ Shape tones live, sort and back up every slot, match a song's guitar tone, and b
 <br>
 <br>
 
-### Download v0.8.1
+### Download v0.9.0
 
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.8.1/vltn-tone-studio-0.8.1-x64.exe"><img src="https://img.shields.io/badge/Windows-x64_installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows (x64 installer)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.8.1/vltn-tone-studio-0.8.1-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple_silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Apple silicon)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.8.1/vltn-tone-studio-0.8.1-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Intel)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x64.exe"><img src="https://img.shields.io/badge/Windows-x64_installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows (x64 installer)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple_silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Apple silicon)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Intel)"></a>
 <br>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.8.1/vltn-tone-studio-0.8.1-x86_64.AppImage"><img src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux (AppImage)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.8.1/vltn-tone-studio-0.8.1-amd64.deb"><img src="https://img.shields.io/badge/Linux-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" alt="Download for Debian and Ubuntu (.deb)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x86_64.AppImage"><img src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux (AppImage)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-amd64.deb"><img src="https://img.shields.io/badge/Linux-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" alt="Download for Debian and Ubuntu (.deb)"></a>
 
 <sub>Also runs in Chrome & Edge &nbsp;·&nbsp; <a href="#install">Install notes</a> &nbsp;·&nbsp; <a href="https://github.com/grzmol/VLTN-Tone-Studio/releases">All versions and release notes</a></sub>
 
