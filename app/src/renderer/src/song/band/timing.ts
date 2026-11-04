@@ -15,12 +15,56 @@ export function barBeats(grid: BeatGrid): number {
   return Math.max(1, Math.round(grid.beatsPerBar));
 }
 
-/** Start beat of every bar in the grid, from the downbeat on. A beat before the downbeat is a pickup and gets no bar. */
+/**
+ * Start beat of every bar in the grid, from the downbeat on. A beat before the downbeat is a pickup and gets no bar. A grid whose bar lines
+ * move (see `barStartsFromChords`) gives its own starts; otherwise every bar has `barBeats` beats.
+ */
 export function barStarts(grid: BeatGrid): number[] {
+  if (grid.barStarts) return grid.barStarts.filter((beat) => beat < grid.beats.length);
   const perBar = barBeats(grid);
   const starts: number[] = [];
   for (let beat = Math.max(0, Math.round(grid.downbeat)); beat < grid.beats.length; beat += perBar) starts.push(beat);
   return starts;
+}
+
+/** One bar of the grid: its first beat and how many beats it has. */
+export interface BarSpan {
+  start: number;
+  beats: number;
+}
+
+/** Every bar of the grid with its length in beats. The last bar has `barBeats` beats, since it has no next bar to end at. */
+export function barSpans(grid: BeatGrid): BarSpan[] {
+  const starts = barStarts(grid);
+  const perBar = barBeats(grid);
+  return starts.map((start, k) => ({ start, beats: k + 1 < starts.length ? starts[k + 1] - start : perBar }));
+}
+
+/**
+ * Position of a beat inside its bar, counted from the bar's first beat. With no bar starts in the grid this is the usual position on a
+ * fixed bar, so a grid without them behaves as before.
+ */
+export function beatInBar(grid: BeatGrid, beat: number): number {
+  if (grid.barStarts) {
+    let start = -1;
+    for (const candidate of grid.barStarts) if (candidate <= beat) start = candidate;
+    if (start >= 0) return beat - start;
+  }
+  const perBar = barBeats(grid);
+  return (((beat - Math.round(grid.downbeat)) % perBar) + perBar) % perBar;
+}
+
+/**
+ * A bar's pattern fitted to the bar's own length. Patterns are written for `perBar` beats in `steps` steps. A shorter bar plays only the
+ * steps that fall in its beats. A longer bar starts the pattern again for its extra beats, as steps past `steps`, which `stepAt` places
+ * after the usual bar.
+ */
+export function fitStepsToBar<T extends { step: number }>(items: readonly T[], steps: number, perBar: number, barLength: number): T[] {
+  if (barLength === perBar) return [...items];
+  const beatOf = (step: number) => Math.floor((step * perBar) / steps);
+  if (barLength < perBar) return items.filter((item) => beatOf(item.step) < barLength);
+  const extra = barLength - perBar;
+  return [...items, ...items.filter((item) => beatOf(item.step) < extra).map((item) => ({ ...item, step: item.step + steps }))];
 }
 
 /** Length of a beat in seconds. The last beat has no following beat, so it uses the interval before it. */

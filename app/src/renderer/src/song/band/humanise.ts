@@ -8,7 +8,7 @@ import { CLOSED_HAT, KICK, OPEN_HAT, PEDAL_HAT, RIDE, SIDE_STICK, SNARE, type No
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { HumaniseFeel } from "./styles/types";
-import { barBeats, beatSpan, clampVelocity, planIndexAt } from "./timing";
+import { beatInBar, beatSpan, clampVelocity, planIndexAt } from "./timing";
 
 /** The parts humanising is applied to. Pitched parts are not humanised here. */
 export type HumanisePart = "drums" | "bass";
@@ -118,9 +118,7 @@ function placeOf(grid: BeatGrid, time: number): { onBeat: boolean; position: num
   const fraction = span > 0 ? (time - beats[beat]) / span : 0;
   const onBeat = fraction < ON_BEAT_WINDOW || fraction > 1 - ON_BEAT_WINDOW;
   const nearest = fraction > 0.5 ? beat + 1 : beat;
-  const perBar = barBeats(grid);
-  const downbeat = Math.round(grid.downbeat);
-  return { onBeat, position: (((nearest - downbeat) % perBar) + perBar) % perBar };
+  return { onBeat, position: beatInBar(grid, nearest) };
 }
 
 /** The length of the beat a time falls in, in seconds. */

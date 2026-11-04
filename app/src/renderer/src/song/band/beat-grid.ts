@@ -87,6 +87,11 @@ export interface BeatGrid {
   bpm: number;
   /** Set when every beat fits a straight line; the metronome can then run on `bpm` and `firstBeat`. */
   steady: { bpm: number; firstBeat: number } | null;
+  /**
+   * Beat indices where bars start, from the first downbeat on, when the bar lines move within the song (see `barStartsFromChords`). A bar
+   * between two of them has its own length. Absent, every bar has `beatsPerBar` beats from the downbeat.
+   */
+  barStarts?: number[];
 }
 
 interface MelBand {
@@ -500,16 +505,108 @@ export function chordChangeTimesOf(chords: readonly { time: number; name: string
   return times;
 }
 
+/** Bars of chord changes read together to decide which bar phase the changes fall on. */
+export const PHASE_RUN_BARS = 4;
+/** The share of a window's chord-change weight one phase needs before the bar lines may move to it. */
+export const PHASE_SHARE = 0.6;
+/** The most a bar line may move, in beats, when the bar lines move to another phase. A bridging bar is this much shorter or longer. */
+export const PHASE_SHIFT_MAX = 3;
+
 /**
- * The grid with its downbeat moved to the phase the chord changes point to (see `downbeatFromChordChanges`). The grid is returned as it is
- * when the downbeat stays. A locked grid keeps its steady first beat on the downbeat, so that moves with it.
+ * Bar starts for a song whose bar lines move. Each chord change counts by how long its chord lasts (up to a bar), so a one-beat passing
+ * chord barely counts. The changes are read in windows of PHASE_RUN_BARS bars: a window takes the bar phase that holds at least
+ * PHASE_SHARE of its weight. When two windows in a row agree on a phase other than the current one, the bar lines move to it at the next
+ * bar, through one bridging bar 1 to PHASE_SHIFT_MAX beats shorter or longer than the rest. Returns null when the bar lines never move,
+ * so the grid keeps one bar length.
+ */
+export function barStartsFromChords(beats: readonly number[], changes: readonly number[], beatsPerBar: number, downbeat: number): number[] | null {
+  const bar = Math.max(1, Math.floor(beatsPerBar));
+  if (bar < 2 || beats.length <= downbeat) return null;
+  // The beat each change falls on, once each, in order.
+  const changeBeats: number[] = [];
+  for (const change of changes) {
+    let nearest = -1,
+      gap = Infinity;
+    beats.forEach((beat, i) => {
+      if (Math.abs(beat - change) < gap) {
+        gap = Math.abs(beat - change);
+        nearest = i;
+      }
+    });
+    if (nearest >= downbeat && gap <= CHORD_WINDOW_SECONDS && nearest !== changeBeats[changeBeats.length - 1]) changeBeats.push(nearest);
+  }
+  changeBeats.sort((a, b) => a - b);
+  const phaseAt = (beat: number) => (((beat - downbeat) % bar) + bar) % bar;
+  // The weight of each phase in each nominal bar.
+  const bars = Math.ceil((beats.length - downbeat) / bar);
+  const weights = Array.from({ length: bars }, () => new Float64Array(bar));
+  changeBeats.forEach((beat, i) => {
+    const next = changeBeats[i + 1] ?? beat + bar;
+    weights[Math.floor((beat - downbeat) / bar)][phaseAt(beat)] += Math.min(bar, next - beat);
+  });
+  // The phase each window of bars agrees on, or null when no phase holds enough of it.
+  const windowPhase: Array<number | null> = [];
+  for (let k = 0; k < bars; k++) {
+    const sum = new Float64Array(bar);
+    for (let j = k; j < Math.min(bars, k + PHASE_RUN_BARS); j++) for (let p = 0; p < bar; p++) sum[p] += weights[j][p];
+    let total = 0,
+      best = 0;
+    for (let p = 0; p < bar; p++) {
+      total += sum[p];
+      if (sum[p] > sum[best]) best = p;
+    }
+    windowPhase.push(total > 0 && sum[best] >= PHASE_SHARE * total ? best : null);
+  }
+  const starts = [downbeat];
+  let cursor = downbeat,
+    moved = false;
+  for (let next = cursor + bar; next < beats.length; next = cursor + bar) {
+    const k = Math.floor((next - downbeat) / bar);
+    const want = windowPhase[k] ?? null;
+    let line = next;
+    // The bar itself must lean to the new phase too, so the lines move where the chords move and not a window early.
+    const own = weights[k] ? weights[k].indexOf(Math.max(...weights[k])) : -1;
+    const ownAgrees = !!weights[k] && weights[k][own] > 0 && own === want;
+    // A chord that still changes on the old bar line keeps that line: the move comes at the bar after it.
+    const oldLineHolds = changeBeats.includes(next);
+    if (want !== null && want !== phaseAt(cursor) && windowPhase[k + 1] === want && ownAgrees && !oldLineHolds) {
+      // The bridging bar ends where the first chord change of the new phase is, when one is in reach; otherwise on the line of the new
+      // phase nearest a bar's length from the cursor.
+      let best = changeBeats.find((beat) => beat > cursor && beat - cursor <= bar + PHASE_SHIFT_MAX && phaseAt(beat) === want) ?? -1;
+      for (let d = bar - PHASE_SHIFT_MAX; d <= bar + PHASE_SHIFT_MAX; d++) {
+        const candidate = cursor + d;
+        if (best >= 0) break;
+        if (d >= 1 && candidate < beats.length && phaseAt(candidate) === want && (best < 0 || Math.abs(d - bar) < Math.abs(best - cursor - bar)))
+          best = candidate;
+      }
+      if (best >= 0) {
+        line = best;
+        moved = true;
+      }
+    }
+    starts.push(line);
+    cursor = line;
+  }
+  return moved ? starts : null;
+}
+
+/**
+ * The grid with its downbeat moved to the phase the chord changes point to (see `downbeatFromChordChanges`), and with its bar starts
+ * read from the same changes (see `barStartsFromChords`). The grid is returned as it is when neither changes. A locked grid keeps its
+ * steady first beat on the downbeat, so that moves with it.
  */
 export function withChordDownbeat(grid: BeatGrid, changes: readonly number[]): BeatGrid {
   const downbeat = downbeatFromChordChanges(grid.beats, changes, grid.beatsPerBar, grid.downbeat);
-  if (downbeat === grid.downbeat) return grid;
+  const moved = downbeat !== grid.downbeat;
   const onDownbeat = grid.beats[grid.downbeat];
-  const steady = grid.steady && grid.steady.firstBeat === onDownbeat ? { ...grid.steady, firstBeat: grid.beats[downbeat] ?? onDownbeat } : grid.steady;
-  return { ...grid, downbeat, steady };
+  const steady = moved && grid.steady && grid.steady.firstBeat === onDownbeat ? { ...grid.steady, firstBeat: grid.beats[downbeat] ?? onDownbeat } : grid.steady;
+  const base: BeatGrid = moved ? { ...grid, downbeat, steady } : grid;
+  const starts = barStartsFromChords(base.beats, changes, base.beatsPerBar, base.downbeat);
+  if (!moved && !starts && !grid.barStarts) return grid;
+  const next: BeatGrid = { ...base };
+  if (starts) next.barStarts = starts;
+  else delete next.barStarts;
+  return next;
 }
 
 /** The meters `estimateMeter` chooses between. Six and other compound meters are not detected, so they keep the default. */
@@ -758,7 +855,26 @@ export function parseBeatGrid(value: unknown): BeatGrid | null {
     if (typeof beat !== "number" || !Number.isFinite(beat) || beat < 0) return null;
     if (i > 0 && !(beat > (beats[i - 1] as number))) return null;
   }
-  return makeGrid(beatsPerBar, beats as number[], downbeat);
+  const grid = makeGrid(beatsPerBar, beats as number[], downbeat);
+  const starts = parseBarStarts(saved.barStarts, downbeat, beatsPerBar, beats.length);
+  return starts ? { ...grid, barStarts: starts } : grid;
+}
+
+/**
+ * Saved bar starts, kept when they make sense for the grid: whole beat indices that rise from the downbeat, inside the grid, each bar 1 to
+ * twice `beatsPerBar` beats long. Anything else is left out, so the grid falls back to bars of one length.
+ */
+function parseBarStarts(value: unknown, downbeat: number, beatsPerBar: number, beatCount: number): number[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value[0] !== downbeat) return null;
+  for (let i = 0; i < value.length; i++) {
+    const start = value[i];
+    if (!Number.isInteger(start) || start < 0 || start >= beatCount) return null;
+    if (i > 0) {
+      const length = start - (value[i - 1] as number);
+      if (length < 1 || length > 2 * beatsPerBar) return null;
+    }
+  }
+  return value as number[];
 }
 
 /**
@@ -799,7 +915,9 @@ export function doubleTempo(grid: BeatGrid): BeatGrid {
 /** Moves the downbeat by `step` beats, wrapping within the bar. */
 export function shiftDownbeat(grid: BeatGrid, step: number): BeatGrid {
   const bar = Math.max(1, Math.floor(grid.beatsPerBar));
-  return { ...grid, downbeat: (((grid.downbeat + step) % bar) + bar) % bar };
+  // The performer has set the bar phase by hand, so the bar lines are one length again.
+  const { barStarts: _moved, ...rest } = grid;
+  return { ...rest, downbeat: (((grid.downbeat + step) % bar) + bar) % bar };
 }
 
 /**
@@ -811,5 +929,6 @@ export function nudgeGrid(grid: BeatGrid, seconds: number): BeatGrid {
   const bar = Math.max(1, Math.floor(grid.beatsPerBar));
   const kept = grid.beats.map((beat) => beat + shift).filter((beat) => beat >= 0);
   const dropped = grid.beats.length - kept.length;
-  return makeGrid(grid.beatsPerBar, kept, (((grid.downbeat - dropped) % bar) + bar) % bar);
+  const nudged = makeGrid(grid.beatsPerBar, kept, (((grid.downbeat - dropped) % bar) + bar) % bar);
+  return grid.barStarts ? { ...nudged, barStarts: grid.barStarts.map((beat) => beat - dropped).filter((beat) => beat >= 0) } : nudged;
 }

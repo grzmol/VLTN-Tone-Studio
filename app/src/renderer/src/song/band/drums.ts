@@ -12,7 +12,7 @@ import { CRASH, DRUM_DURATION, KICK, type NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
-import { barBeats, barStarts, clampVelocity, planIndexAt, stepAt } from "./timing";
+import { barBeats, barSpans, clampVelocity, fitStepsToBar, planIndexAt, stepAt } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
@@ -86,7 +86,8 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
 
   const random = createRandom(seed);
   const perBar = barBeats(grid);
-  const starts = barStarts(grid);
+  const spans = barSpans(grid);
+  const starts = spans.map((span) => span.start);
   const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
   const emit = (time: number, pitch: number, velocity: number) => notes.push({ time, pitch, velocity: clampVelocity(velocity), duration: DRUM_DURATION });
   const quiet = (beat: number): boolean => feel?.stops.has(beat) === true;
@@ -148,6 +149,8 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
     if (feel) hits = hitBeatHits(hits, feel, start, perBar, groove.steps);
+    // A bar that is shorter or longer than the rest (the bar lines move there) plays the part of the pattern that fits it.
+    hits = fitStepsToBar(hits, groove.steps, perBar, spans[k].beats);
     afterFill = filled;
 
     for (const hit of hits) {

@@ -18,7 +18,7 @@ import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barStarts, beatSpan, clampVelocity, planIndexAt, stepAt } from "./timing";
+import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, planIndexAt, stepAt } from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
 export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
@@ -341,7 +341,8 @@ function buildSlots(
 ): Slot[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
-  const starts = barStarts(grid);
+  const spans = barSpans(grid);
+  const starts = spans.map((span) => span.start);
   const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
   const barsInPlan = new Map<number, number>();
   for (const index of planOf) if (index >= 0) barsInPlan.set(index, (barsInPlan.get(index) ?? 0) + 1);
@@ -387,8 +388,10 @@ function buildSlots(
       continue;
     }
 
-    const end = barEnd(beats, start, perBar);
-    const nextBarBass = chordAt(start + perBar)?.bass ?? null;
+    // A bar can be shorter or longer than the rest where the song's bar lines move.
+    const length = spans[k].beats;
+    const end = barEnd(beats, start, length);
+    const nextBarBass = chordAt(start + length)?.bass ?? null;
     if (k === starts.length - 1) {
       if (!feel?.stops.has(start)) {
         slots.push({
@@ -451,7 +454,9 @@ function buildSlots(
 
     // Steps are drawn the same way in every mode, so the variation a bar gets does not depend on the mode or on the kick.
     const steps = style.meter.beatsPerBar * style.meter.stepsPerBeat;
-    const points = Array.from({ length: steps }, (_, step) => stepAt(beats, style, start, step, steps, perBar, settings.swing));
+    // The bar's own steps: the pattern's steps, cut short or carried on to the bar's length.
+    const barSteps = Math.max(1, Math.round((steps * length) / perBar));
+    const points = Array.from({ length: Math.max(steps, barSteps) }, (_, step) => stepAt(beats, style, start, step, steps, perBar, settings.swing));
     const walking = part === "walking" || (part === "groove" && settings.bassMode === "walking" && style.bass.walking);
     const own = ownSteps(part, plan.busy, steps, style.meter.stepsPerBeat, barInPlan);
     const roles = new Map<number, "root" | "fifth">();
@@ -473,7 +478,7 @@ function buildSlots(
     }
     // A chord that changes in the middle of a bar is struck there, for every part but the pedal and the walk.
     if (part !== "pedal" && !walking) {
-      for (let step = 1; step < steps; step++) {
+      for (let step = 1; step < barSteps; step++) {
         if (points[step].beat < beats.length && nameAt(points[step].beat) !== nameAt(points[step - 1].beat)) rhythm.push(step);
       }
     }
@@ -496,7 +501,7 @@ function buildSlots(
     ) {
       const firstBeat = beats.findIndex((time) => time >= nextPlan.start - 1e-9);
       const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
-      const quiet = Array.from({ length: perBar }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
+      const quiet = Array.from({ length }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
       if (first && !quiet) leadTarget = first.bass;
     }
     if (leadTarget !== null) {
@@ -517,9 +522,9 @@ function buildSlots(
     }
 
     const silent = (step: number): boolean => feel?.stops.has(points[step].beat) ?? false;
-    const stepList = [...new Set([...rhythm, ...variants.keys()])].filter((step) => step >= 0 && step < steps && !silent(step)).sort((a, b) => a - b);
+    const stepList = [...new Set([...rhythm, ...variants.keys()])].filter((step) => step >= 0 && step < barSteps && !silent(step)).sort((a, b) => a - b);
     const holdEnd = (beat: number): number => {
-      for (let b = beat + 1; b < start + perBar && b < beats.length; b++) if (nameAt(b) !== nameAt(beat)) return beats[b];
+      for (let b = beat + 1; b < start + length && b < beats.length; b++) if (nameAt(b) !== nameAt(beat)) return beats[b];
       return end;
     };
     let offBeat = 0;
