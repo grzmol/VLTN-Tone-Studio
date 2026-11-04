@@ -57,6 +57,7 @@ import { useChartUrl } from "./use-chart-url";
 import { audienceModel, type AudienceSongInput } from "@/song/performance/audience";
 import { useAudienceSettings } from "@/song/performance/audience-settings";
 import { useChartPage } from "@/song/performance/pdf/current-page";
+import { PerformanceViewSwitcher, readPerformanceView, savePerformanceView, type PerformanceView as ViewName } from "./PerformanceViews";
 
 function readNumber(raw: string, fallback: number, min: number, max: number): number {
   const n = raw === "" ? NaN : Number(raw);
@@ -422,7 +423,14 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         blackout: audienceSettings.blackout,
         blackBetweenSongs: audienceSettings.blackBetweenSongs,
       }),
-    [audienceSong, audienceSettings.showChords, audienceSettings.fontScale, audienceSettings.rotation, audienceSettings.blackout, audienceSettings.blackBetweenSongs],
+    [
+      audienceSong,
+      audienceSettings.showChords,
+      audienceSettings.fontScale,
+      audienceSettings.rotation,
+      audienceSettings.blackout,
+      audienceSettings.blackBetweenSongs,
+    ],
   );
   useAudienceFeed(session, key, audienceModelValue);
   useBandSyncControl(session);
@@ -528,12 +536,23 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     }
   }, [session, metronome]);
 
+  const [view, setView] = useState<ViewName>(readPerformanceView);
+  const chooseView = (next: ViewName) => {
+    setView(next);
+    savePerformanceView(next);
+  };
+  /** A view's wrapper shows only when it is selected and stage mode is off. Stage mode hides every view except the reader. */
+  const shownView = (name: ViewName) => (!stage && view === name ? "contents" : "none");
+
   return (
     <section className="glass flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-xl p-5" aria-label="Performance">
       <div style={{ display: stage ? "none" : "contents" }}>
-        <Button variant="outline" onClick={() => setStage(true)}>
-          Enter stage mode
-        </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PerformanceViewSwitcher view={view} onView={chooseView} />
+          <Button variant="outline" onClick={() => setStage(true)}>
+            Enter stage mode
+          </Button>
+        </div>
         <MissingPartsNotice songKey={key} sections={sectionList} playing={playing || library.playlistPlaying} />
         {analysis.notices.map((notice) => (
           <p key={notice.text} className="flex flex-wrap items-center gap-2 text-xs" role="status">
@@ -590,27 +609,9 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           }}
           onTap={tap}
         />
+      </div>
+      <div style={{ display: shownView("play") }}>
         <SectionStrip session={session} onSaveDefaults={saveSectionDefaults} />
-        <SpeedControls session={session} bpm={bpm} />
-        <SongShapeControls
-          key={key}
-          songKey={key}
-          audio={source?.audio ?? null}
-          silence={silence?.songKey === key ? silence.ends : null}
-          onChange={() => setShapeVersion((v) => v + 1)}
-        />
-        <SessionMidiHealth session={session} />
-        <SongKey
-          stems={stems}
-          original={source?.audio}
-          storageKey={key}
-          shift={shift}
-          libraryKey={savedSong?.key ?? undefined}
-          onSpellingKey={setSpellingKey}
-        />
-        <TrackImport playing={playing || library.playlistPlaying} />
-        <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
-        <BandPanelButton sections={sectionList} partChoices={partChoice} />
         <PerformanceMix
           session={session}
           stems={stems}
@@ -622,7 +623,28 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           onTrackInfo={setTrackInfo}
           partChoices={partChoice}
         />
-        <PerformanceOutputs player={player} />
+      </div>
+      <div style={{ display: shownView("song") }}>
+        <p className="text-xs text-silkscreen-3">Saved with this song.</p>
+        <SpeedControls session={session} bpm={bpm} />
+        <SongShapeControls
+          key={key}
+          songKey={key}
+          audio={source?.audio ?? null}
+          silence={silence?.songKey === key ? silence.ends : null}
+          onChange={() => setShapeVersion((v) => v + 1)}
+        />
+        <SongKey
+          stems={stems}
+          original={source?.audio}
+          storageKey={key}
+          shift={shift}
+          libraryKey={savedSong?.key ?? undefined}
+          onSpellingKey={setSpellingKey}
+        />
+        <TrackImport playing={playing || library.playlistPlaying} />
+        <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
+        <BandPanelButton sections={sectionList} partChoices={partChoice} />
         <BandPanel
           songKey={key}
           playing={playing || library.playlistPlaying}
@@ -652,23 +674,27 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           firstBeat={firstBeat}
           channels={source?.audio.channels ?? null}
         />
+        <SongTriggerField songId={source?.libraryId} songs={library.index.songs} inputReady={inputReady} />
       </div>
-      <StageView
-        session={session}
-        stage={stage}
-        onExitStage={() => setStage(false)}
-        chart={chart}
-        lyrics={lyrics}
-        chords={chords}
-        shift={shapeShift}
-        songKey={spellingKey}
-        onSaveChart={saveChart}
-        onImportMetadata={applyImportedMetadata}
-        beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
-        speedNote={speedNote(speed)}
-        pdf={pdfState}
-      />
-      <div style={{ display: stage ? "none" : "contents" }}>
+      <div style={{ display: stage || view === "play" ? "contents" : "none" }}>
+        <StageView
+          session={session}
+          stage={stage}
+          onExitStage={() => setStage(false)}
+          chart={chart}
+          lyrics={lyrics}
+          chords={chords}
+          shift={shapeShift}
+          songKey={spellingKey}
+          onSaveChart={saveChart}
+          onImportMetadata={applyImportedMetadata}
+          beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
+          speedNote={speedNote(speed)}
+          pdf={pdfState}
+        />
+      </div>
+      <div style={{ display: shownView("midi") }}>
+        <SessionMidiHealth session={session} />
         <PerformanceMidiSetup
           session={session}
           chart={chart}
@@ -678,11 +704,16 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           timecodeOffset={timecodeOffset}
           onTimecodeOffset={saveTimecodeOffset}
         />
-        <SongTriggerField songId={source?.libraryId} songs={library.index.songs} inputReady={inputReady} />
+      </div>
+      <div style={{ display: shownView("setup") }}>
+        <p className="text-xs text-silkscreen-3">These settings apply to every song.</p>
+        <PerformanceOutputs player={player} />
         <AudienceSettings />
         <BandSyncSettings />
         <RemoteControlSettings inputReady={inputReady} />
         <SongTriggerSettings songs={library.index.songs} inputReady={inputReady} />
+      </div>
+      <div style={{ display: shownView("lyrics") }}>
         <PerformanceAnalysis
           session={session}
           stems={stems}
@@ -703,6 +734,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           chordSource={harmony?.name ?? ""}
           onSelectChord={setSelectedChord}
         />
+      </div>
+      <div style={{ display: stage ? "none" : "contents" }}>
         <ChordVoicings chord={selectedChord} onClose={() => setSelectedChord(null)} />
       </div>
     </section>

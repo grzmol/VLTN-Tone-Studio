@@ -857,3 +857,12 @@ it("shows the global lead-in defaults, and a song without its own count-in leave
   expect((screen.getByLabelText("Default pre-roll (beats)") as HTMLInputElement).value).toBe("4");
   expect((screen.getByLabelText("Start delay (seconds)") as HTMLInputElement).value).toBe("");
 });
+
+it("opens on the view chosen last time and remembers a new choice", () => {
+  localStorage.setItem("vltn.performance.view", "setup");
+  render(<PerformancePanel />);
+  expect(screen.getByRole("tab", { name: "Setup" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(screen.getByRole("tab", { name: "MIDI" }));
+  expect(screen.getByRole("tab", { name: "MIDI" }).getAttribute("aria-selected")).toBe("true");
+  expect(localStorage.getItem("vltn.performance.view")).toBe("midi");
+});
