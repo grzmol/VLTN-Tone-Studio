@@ -12,14 +12,14 @@ import { host } from "@/host";
 
 const SLIDES = [
   { title: "Setlists and a stage mode", text: "Put a gig's presets in order, with a note on each song. Stage mode fills the window with the current preset and the next one, and follows the footswitch. If a slot is overwritten, the list tells you and offers to follow the preset.", image: setlist },
-  { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. A Mute switch sets Out to 0 while you tune and puts it back when you close the tuner.", image: tuner },
-  { title: "A metronome, Randomize and Morph", text: "Click at the preset's tempo through the pedal's sound card, with its own volume. The shuffle button nudges every knob, or morphs the sound toward another preset. Both can be undone.", image: rigTools },
   {
     title: "Split just the part of a song you want",
     text: "Drag across the song's waveform to pick a riff or a solo, hear it, and split only that part. It splits faster, uses less memory, and Tone Match reads that one tone instead of the whole song's average.",
     image: songPart,
     credit: { handle: "carlosadrianosousa", note: "who also fixed the IR match recorder in packaged builds and a crash in Tones search" },
   },
+  { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. A Mute switch sets Out to 0 while you tune and puts it back when you close the tuner.", image: tuner },
+  { title: "A metronome, Randomize and Morph", text: "Click at the preset's tempo through the pedal's sound card, with its own volume. The shuffle button nudges every knob, or morphs the sound toward another preset. Both can be undone.", image: rigTools },
 ];
 
 /** Help › What's new: a scroll-snap carousel of the release's headline features. Opens once after an upgrade (app/whats-new.ts). */
