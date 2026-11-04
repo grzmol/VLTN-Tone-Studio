@@ -186,6 +186,11 @@ describe("pedal verdicts", () => {
     expect(toneVerdict({ ...base, a2_models_count: 3, sizes: ["standard"] }).kind).toBe("ready");
     expect(toneVerdict({ ...base, custom_models_count: 1 })).toEqual({ kind: "not-loadable", reason: "custom" });
   });
+  it("doesn't throw on a search result without sizes", () => {
+    expect(toneVerdict({ ...base, a1_models_count: 1, sizes: undefined })).toEqual({ kind: "not-loadable", reason: "custom" });
+    expect(toneVerdict({ ...base, a1_models_count: 1, sizes: null })).toEqual({ kind: "not-loadable", reason: "custom" });
+    expect(toneVerdict({ ...base, a2_models_count: 1, sizes: undefined }).kind).toBe("ready");
+  });
   it("uses exact models in the sheet, and the local record for the format update", () => {
     expect(modelsVerdict("nam", [{ architecture_version: "2", size: "standard" }]).kind).toBe("ready");
     expect(modelsVerdict("nam", [{ architecture_version: "1", size: "nano" }]).kind).toBe("ready");
