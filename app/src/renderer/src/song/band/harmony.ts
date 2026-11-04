@@ -213,18 +213,23 @@ export function chordChangeTimes(perBeat: readonly ChordAtBeat[]): number[] {
 
 /**
  * Puts the performer's bass notes into the harmony (spec 87). On each beat inside an override the chord's bass becomes the override's pitch
- * class, with its octave nudge, and its root and quality stay. A beat with no chord keeps none: an override sets a note, not a chord.
+ * class, with its octave nudge, and its root and quality stay. A beat with no chord gets a plain chord on the chosen note, so the bass
+ * plays the note the performer asked for even where no chord was found.
  */
 export function withBassOverrides(perBeat: readonly ChordAtBeat[], overrides: readonly BassOverride[]): ChordAtBeat[] {
   if (overrides.length === 0) return [...perBeat];
   return perBeat.map((entry) => {
-    const override = entry.chord ? bassOverrideAt(overrides, entry.time) : undefined;
-    if (!entry.chord || !override) return entry;
-    const chord: ParsedChord = { ...entry.chord, bass: override.pc };
+    const override = bassOverrideAt(overrides, entry.time);
+    if (!override) return entry;
+    const base: ParsedChord = entry.chord ?? { root: override.pc, quality: "power", seventh: "none", bass: override.pc, name: `${NOTE_LETTERS[override.pc]}5` };
+    const chord: ParsedChord = { ...base, bass: override.pc };
     if (override.octave !== undefined) chord.bassOctave = override.octave;
     return { ...entry, chord };
   });
 }
+
+/** Sharp spellings for a chord made from a bass note alone. */
+const NOTE_LETTERS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /**
  * The chord on each beat of the song. The chart's chords are used when it has any timed chord, including `N`. Otherwise the detected

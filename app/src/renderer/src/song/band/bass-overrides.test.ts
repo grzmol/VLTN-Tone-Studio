@@ -206,3 +206,17 @@ describe("saved band settings", () => {
     expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassOverrides: "bad" })).toBe(false);
   });
 });
+
+describe("an override on a beat with no chord", () => {
+  it("plays the chosen note there instead of resting", async () => {
+    const { withBassOverrides } = await import("./harmony");
+    const perBeat: ChordAtBeat[] = [
+      { beat: 0, time: 0, chord: parseChordName("A") },
+      { beat: 1, time: 0.5, chord: null },
+    ];
+    const result = withBassOverrides(perBeat, [{ start: 0.5, end: 1, pc: 4 }]);
+    expect(result[1].chord?.bass).toBe(4);
+    expect(result[1].chord?.root).toBe(4);
+    expect(result[0].chord?.bass).toBe(9);
+  });
+});
