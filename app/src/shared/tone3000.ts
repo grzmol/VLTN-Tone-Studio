@@ -39,7 +39,7 @@ export function toneVerdict(tone: Pick<T3kTone, "format" | "a1_models_count" | "
   if (tone.format !== "nam") return { kind: "not-loadable", reason: "format" };
   if (record?.gp5.verdict === "reshape") return { kind: "reshape" };
   if (tone.a2_models_count > 0) return { kind: "ready" };
-  if (tone.a1_models_count > 0 && tone.sizes.some((s) => A1_SIZES.includes(s))) return { kind: "ready" };
+  if (tone.a1_models_count > 0 && tone.sizes?.some((s) => A1_SIZES.includes(s))) return { kind: "ready" };
   return { kind: "not-loadable", reason: "custom" };
 }
 
