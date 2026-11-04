@@ -1,6 +1,7 @@
 // Records the pedal's USB audio (or any audio input) for the IR match: getUserMedia with every voice-call
 // processing switched off, as the capture editor's live input does, into an AudioWorklet that hands back mono PCM.
-import workletUrl from "./recorder-worklet.js?url";
+// no-inline: a file this small would be inlined as a data: URL, which the app's CSP (script-src 'self') refuses to run.
+import workletUrl from "./recorder-worklet.js?url&no-inline";
 
 export interface AudioInput {
   deviceId: string;
