@@ -41,7 +41,7 @@ export function WhatsNewDialog() {
           <div ref={track} onScroll={onScroll} className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {SLIDES.map((s, i) => (
               <section key={s.title} aria-label={`${i + 1} of ${SLIDES.length}`} className="flex w-full shrink-0 snap-start flex-col gap-3">
-                <img src={s.image} alt="" className="aspect-[3/2] max-h-[max(120px,calc(100vh-270px))] w-full rounded-sm border border-white/10 object-cover object-top" />
+                <img src={s.image} alt="" draggable={false} className="aspect-[3/2] max-h-[max(120px,calc(100vh-270px))] w-full rounded-sm border border-white/10 object-cover object-top" />
                 <h3 className="text-[15px] font-semibold">{s.title}</h3>
                 <p className="text-[13px] text-pretty text-silkscreen-2">{s.text}</p>
               </section>
