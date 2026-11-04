@@ -2,6 +2,11 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Added
+- **Tune a song down or up.** A *Key* control in the Song screen's mixer moves every stem by up to 12 semitones either way without changing the tempo, so you can play along to a song in E♭ or D with your guitar in standard tuning. It uses the Rubber Band Library's finer (R3) engine in offline mode, which is the best quality available in the browser. The shift is computed in the background (a few seconds per stem and minute of music, with a percentage shown), playback carries on from the same second, *Reset* brings the original back without computing anything, and *Export stems* writes the tuned stems with the shift in the file name.
+
 ## [0.9.0] - 2026-11-04
 
 ### Added
