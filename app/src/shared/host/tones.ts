@@ -27,7 +27,8 @@ export interface T3kTone {
   images: string[] | null;
   format: T3kFormat;
   license: string;
-  sizes: T3kSize[];
+  /** Missing on some search results. */
+  sizes?: T3kSize[] | null;
   makes: { id: number; name: string }[];
   models_count: number;
   a1_models_count: number;
