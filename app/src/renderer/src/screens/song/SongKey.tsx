@@ -4,6 +4,7 @@ import { KEY_NAMES, SONG_KEYS, effectiveSongKey, keyAudio, type KeyEstimate, typ
 import { readOptions, setSetting } from "@/song/performance/settings";
 import { generatedTrackKeysIn, isCurrent, songAudioId } from "@/song/analysis/song-analysis";
 import { storedAnalysis } from "./use-song-analysis";
+import { HelpNote } from "@/components/ui/help-note";
 
 interface KeySettings {
   songKey: string;
@@ -165,10 +166,14 @@ export function SongKey({
               : "Open audio or split the song to analyse its key."}
       </span>
       {sectionLines.length > 0 && <p className="w-full text-sm">Section keys: {sectionLines.join(" · ")}</p>}
-      <p className="w-full text-xs text-silkscreen-3">
-        Guitar is preferred, then piano, other, bass, vocals or the original mix. This estimates the recording’s overall major/minor key; relative keys, modes
-        and key changes can be ambiguous. A manual choice is saved with the song. Key and chord transposition do not change audio or MIDI.
-      </p>
+      <div className="w-full">
+        <HelpNote>
+          <p>
+            Guitar is preferred, then piano, other, bass, vocals or the original mix. This estimates the recording’s overall major/minor key; relative keys,
+            modes and key changes can be ambiguous. A manual choice is saved with the song. Key and chord transposition do not change audio or MIDI.
+          </p>
+        </HelpNote>
+      </div>
       {error && (
         <p role="alert" className="w-full text-red-400">
           {error}

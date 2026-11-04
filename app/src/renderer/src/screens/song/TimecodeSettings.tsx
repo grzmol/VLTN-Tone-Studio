@@ -1,6 +1,7 @@
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import type { PerformanceSession } from "@/song/performance/session";
 import { parseOffset, TIMECODE_RATES, type TimecodeRate } from "@/song/performance/timecode";
+import { HelpNote } from "@/components/ui/help-note";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
@@ -67,12 +68,18 @@ export function TimecodeSettings({
           />
         </label>
       </div>
-      {"error" in parsed && offset.trim() && <p role="alert" className="text-silkscreen-3">{parsed.error}</p>}
-      <p className="text-silkscreen-3">
-        Timecode follows song time. A full frame goes out at start, seek, jumps, loops and speed changes, then quarter frames. Nothing is sent
-        during the count-in. Timecode replaces app MIDI clock. 29.97 drop-frame is not offered.
-        {bluetooth ? " Bluetooth is not recommended for timecode: use USB." : ""}
-      </p>
+      {"error" in parsed && offset.trim() && (
+        <p role="alert" className="text-silkscreen-3">
+          {parsed.error}
+        </p>
+      )}
+      <HelpNote>
+        <p>
+          Timecode follows song time. A full frame goes out at start, seek, jumps, loops and speed changes, then quarter frames. Nothing is sent during the
+          count-in. Timecode replaces app MIDI clock. 29.97 drop-frame is not offered.
+          {bluetooth ? " Bluetooth is not recommended for timecode: use USB." : ""}
+        </p>
+      </HelpNote>
     </div>
   );
 }

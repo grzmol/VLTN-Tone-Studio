@@ -10,6 +10,7 @@ import { readCrossfade, writeCrossfade } from "@/song/performance/crossfade";
 import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
+import { HelpNote } from "@/components/ui/help-note";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
@@ -176,12 +177,13 @@ export function PerformanceTransport({
                 : waitingForPlay
                   ? "Playlist waiting for Play"
                   : "Playlist playing"}{" "}
-            · Next:{" "}
-            {library.index.songs.find((s) => s.id === library.queue[library.position + 1])?.title ?? "End of set"}
+            · Next: {library.index.songs.find((s) => s.id === library.queue[library.position + 1])?.title ?? "End of set"}
           </span>
-          <p className="w-full text-sm text-silkscreen-3">
-            Songs advance automatically while the playlist is playing. MIDI output stays armed for this set while the same device remains connected.
-          </p>
+          <div className="w-full">
+            <HelpNote>
+              <p>Songs advance automatically while the playlist is playing. MIDI output stays armed for this set while the same device remains connected.</p>
+            </HelpNote>
+          </div>
         </div>
       )}
       {library.error && (
@@ -205,8 +207,7 @@ export function PerformanceTransport({
         {!source && <span>Open a song in Stems to perform.</span>}
         <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
           <label>
-            Song BPM{" "}
-            <BpmField bpm={bpm} disabled={playing} onBpm={onBpm} />
+            Song BPM <BpmField bpm={bpm} disabled={playing} onBpm={onBpm} />
           </label>
           {onDetect && (
             <Button variant="outline" disabled={detectDisabled} title="Detect the tempo from the audio" onClick={onDetect}>
@@ -276,9 +277,9 @@ export function PerformanceTransport({
               <Button variant="outline" disabled={playing || firstBeat === 0} onClick={() => onFirstBeat(0)}>
                 Reset first beat
               </Button>
-              <p className="text-xs">
-                While stopped, seek to the first downbeat and set it here. Clicks begin there; song audio and MIDI cue timestamps stay unchanged.
-              </p>
+              <HelpNote>
+                <p>While stopped, seek to the first downbeat and set it here. Clicks begin there; song audio and MIDI cue timestamps stay unchanged.</p>
+              </HelpNote>
               <label className="block">
                 Beats{" "}
                 <select aria-label="Beats" className={field} value={metronome.beats} onChange={(e) => metronome.onBeats(Number(e.target.value))}>
@@ -388,7 +389,9 @@ export function PerformanceTransport({
                   onChange={(e) => metronome.onVolume(Number(e.target.value))}
                 />
               </label>
-              <p>Set BPM to match the recording. Beat one is at the start of the audio; this does not detect tempo or stretch audio.</p>
+              <HelpNote>
+                <p>Set BPM to match the recording. Beat one is at the start of the audio; this does not detect tempo or stretch audio.</p>
+              </HelpNote>
             </div>
           </details>
           <label>

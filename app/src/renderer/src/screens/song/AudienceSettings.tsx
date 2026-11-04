@@ -7,6 +7,7 @@ import { host } from "@/host";
 import { AUDIENCE_LIMITS, AUDIENCE_ROTATIONS, type AudienceRotation } from "@shared/audience";
 import type { AudienceStatus } from "@shared/host/audience";
 import { useAudienceSettings } from "@/song/performance/audience-settings";
+import { HelpNote } from "@/components/ui/help-note";
 
 /** The audience display's controls and status: where it shows, how it is laid out, and blackout (spec 43). */
 export function AudienceSettings() {
@@ -121,9 +122,9 @@ export function AudienceSettings() {
           />
         </label>
       </div>
-      <p className="text-xs text-silkscreen-3">
-        The audience window shows the lyrics and chords of the song on screen, or its PDF page, and follows playback. Closing it does not stop playback.
-      </p>
+      <HelpNote>
+        <p>The audience window shows the lyrics and chords of the song on screen, or its PDF page, and follows playback. Closing it does not stop playback.</p>
+      </HelpNote>
     </section>
   );
 }

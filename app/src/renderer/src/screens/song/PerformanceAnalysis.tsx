@@ -13,6 +13,8 @@ import { readStoredBand } from "@/song/band/stored";
 import { isCurrent, type NamedAudio } from "@/song/analysis/song-analysis";
 
 // The chart editor is loaded when this panel first renders it, so the CodeMirror code is kept out of the main bundle.
+import { HelpNote } from "@/components/ui/help-note";
+
 const ChartCodeEditor = lazy(() => import("./ChartCodeEditor"));
 
 const field = "rounded border border-seam bg-transparent p-2";
@@ -97,7 +99,7 @@ export function useChordAnalysis(
       worker.terminate();
     };
     // The beats of the song's saved grid, so the chords change on the beats the song analysis would use.
-    const beats = songKey !== undefined ? readStoredBand(songKey).grid?.beats ?? null : null;
+    const beats = songKey !== undefined ? (readStoredBand(songKey).grid?.beats ?? null) : null;
     // The key the analysis found for the song sets the key prior, as the song analysis does.
     worker.postMessage({ harmony: harmonyAudio, bass, beats, key: known?.key?.estimate.name ?? null });
     return () => worker.terminate();
@@ -210,9 +212,7 @@ export function PerformanceAnalysis({
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <Suspense
-              fallback={
-                <textarea aria-label="Lyrics and MIDI chart" className={field + " min-h-64 w-full font-mono text-sm"} value={chart} readOnly />
-              }
+              fallback={<textarea aria-label="Lyrics and MIDI chart" className={field + " min-h-64 w-full font-mono text-sm"} value={chart} readOnly />}
             >
               <ChartCodeEditor
                 label="Lyrics and MIDI chart"
@@ -221,10 +221,12 @@ export function PerformanceAnalysis({
                 hint={"[00:00.00] [C]Verse\n[00:10.00] [Am]Your lyrics {midi:pc 1 0}\n[00:20.00] [F]Chorus {midi:cc 1 64 127}"}
               />
             </Suspense>
-            <p className="text-sm text-silkscreen-3">
-              Saved locally for this audio filename and length. LRC timestamps enable scrolling and MIDI. Chords use [Am] or [C/G]. MIDI: pc, cc, note, off,
-              sysex. Note cues need a matching off cue. Transpose changes the chart only.
-            </p>
+            <HelpNote>
+              <p>
+                Saved locally for this audio filename and length. LRC timestamps enable scrolling and MIDI. Chords use [Am] or [C/G]. MIDI: pc, cc, note, off,
+                sysex. Note cues need a matching off cue. Transpose changes the chart only.
+              </p>
+            </HelpNote>
           </div>
           <div className="max-h-96 overflow-auto rounded border border-seam p-4 text-2xl leading-relaxed" aria-label="Performance lyrics">
             {cues.length ? (
@@ -247,10 +249,12 @@ export function PerformanceAnalysis({
               ))}
             </select>
           </label>
-          <p className="text-sm text-silkscreen-3">
-            Guitar is preferred. If it is missing or silent, automatic selection tries piano, then other stems. Override the source if the song has no guitar
-            but separation left sound in that stem.
-          </p>
+          <HelpNote>
+            <p>
+              Guitar is preferred. If it is missing or silent, automatic selection tries piano, then other stems. Override the source if the song has no guitar
+              but separation left sound in that stem.
+            </p>
+          </HelpNote>
           <p className="text-sm text-silkscreen-3">
             {analysing
               ? "Analysing harmonic stem…"

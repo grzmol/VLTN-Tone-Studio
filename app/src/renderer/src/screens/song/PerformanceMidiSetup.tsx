@@ -8,6 +8,7 @@ import { MidiFileField } from "./MidiFileField";
 import type { MidiFileOption } from "@/song/performance/smf";
 import { MidiHealth } from "./MidiHealth";
 import { TimecodeSettings } from "./TimecodeSettings";
+import { HelpNote } from "@/components/ui/help-note";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
@@ -82,9 +83,9 @@ export function PerformanceMidiSetup({
   return (
     <section aria-label="Performance MIDI routing" className="space-y-3 rounded-xl border border-seam p-4">
       <h2 className="font-semibold">Performance MIDI controller</h2>
-      <p className="text-sm text-silkscreen-3">
-        Computer → Bluetooth or USB MIDI → GP-150 / GP-180 → physical MIDI OUT/THRU → MIDI pedals. Choose one performance output below.
-      </p>
+      <HelpNote>
+        <p>Computer → Bluetooth or USB MIDI → GP-150 / GP-180 → physical MIDI OUT/THRU → MIDI pedals. Choose one performance output below.</p>
+      </HelpNote>
       <div className="flex flex-wrap items-center gap-3 py-3">
         <div className="w-full space-y-2 rounded border border-seam p-3" aria-label="MIDI setup presets">
           <div className="flex flex-wrap items-center gap-3">
@@ -162,11 +163,13 @@ export function PerformanceMidiSetup({
               </select>
             </label>
           </div>
-          <p className="text-xs text-silkscreen-3">
-            Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Cue sending is armed per session. Bluetooth still
-            needs a manual connection. One-time GP-150 / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check saved chart
-            cues for conflicting tempo commands.
-          </p>
+          <HelpNote>
+            <p>
+              Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Cue sending is armed per session. Bluetooth
+              still needs a manual connection. One-time GP-150 / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check
+              saved chart cues for conflicting tempo commands.
+            </p>
+          </HelpNote>
           {midiConfig.output && (
             <p className="text-xs text-silkscreen-3">
               Remembered output: {midiConfig.output.name}.{" "}
@@ -249,19 +252,23 @@ export function PerformanceMidiSetup({
           Panic / disarm
         </Button>
       </div>
-      <p className="text-sm text-silkscreen-3">
-        Input: Start/Continue/Stop or CC 80 ≥ 64 toggles playback. Configure a GP-150 / GP-180 MIDI footswitch to send CC 80. Output is opt-in for each song or
-        playlist session. PC values are 0–127; channels are 1–16. Bluetooth uses its own connection and does not need Enable USB / system MIDI.
-      </p>
+      <HelpNote>
+        <p>
+          Input: Start/Continue/Stop or CC 80 ≥ 64 toggles playback. Configure a GP-150 / GP-180 MIDI footswitch to send CC 80. Output is opt-in for each song
+          or playlist session. PC values are 0–127; channels are 1–16. Bluetooth uses its own connection and does not need Enable USB / system MIDI.
+        </p>
+      </HelpNote>
       <p role="status" className="text-sm">
         {output?.state === "connected"
           ? `${portId === "bluetooth-midi" ? "Bluetooth" : "System MIDI"} output: ${output.name} · ${armed ? "Song cues enabled" : "Song cues off"}`
           : "Connect Bluetooth MIDI or enable USB / system MIDI, then select an output."}
       </p>
-      <p className="text-sm text-silkscreen-3">
-        For GP-150 / GP-180 tempo control, use the named Set tempo (BPM) command at song start with app MIDI Clock off, GP-150 / GP-180 clock source Internal
-        and TRS clock output On. Continuous app clock fluctuated in real GP-180 USB and Bluetooth tests with a TimeLine and caused audible delay changes.
-      </p>
+      <HelpNote>
+        <p>
+          For GP-150 / GP-180 tempo control, use the named Set tempo (BPM) command at song start with app MIDI Clock off, GP-150 / GP-180 clock source Internal
+          and TRS clock output On. Continuous app clock fluctuated in real GP-180 USB and Bluetooth tests with a TimeLine and caused audible delay changes.
+        </p>
+      </HelpNote>
       <TimecodeSettings session={session} offset={timecodeOffset} onOffset={onTimecodeOffset} bluetooth={portId === BLUETOOTH_PORT_ID} />
       <MidiFileField file={midiFile} onChange={onMidiFile} />
       {midiConfig.showCommands && (

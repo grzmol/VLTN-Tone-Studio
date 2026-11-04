@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { decodeMidiFile, encodeMidiFile, parseSmf, type MidiFileOption } from "@/song/performance/smf";
+import { HelpNote } from "@/components/ui/help-note";
 
 /** Attaches a song's standard MIDI file. The file is read first, so one that cannot play is refused and never saved. */
 type Summary = { count: number; seconds: number } | { error: string };
@@ -39,9 +40,9 @@ export function MidiFileField({ file, onChange }: { file: MidiFileOption | null;
   return (
     <div aria-label="Song MIDI file" className="space-y-2 rounded border border-seam p-3 text-sm">
       <h3 className="font-semibold">Song MIDI file</h3>
-      <p className="text-silkscreen-3">
-        A standard MIDI file (format 0 or 1) plays alongside the chart’s cues, at the song’s speed, when Send cues is on. It is saved with the song.
-      </p>
+      <HelpNote>
+        <p>A standard MIDI file (format 0 or 1) plays alongside the chart’s cues, at the song’s speed, when Send cues is on. It is saved with the song.</p>
+      </HelpNote>
       {file && (
         <p role="status">
           {file.name}

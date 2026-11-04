@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { host } from "@/host";
 import { BAND_SYNC_LIMITS } from "@shared/band-sync";
 import type { BandSyncStatus } from "@shared/host/band-sync";
+import { HelpNote } from "@/components/ui/help-note";
 
 /**
  * Band sync (spec 44): lets bandmates follow the song on their phones or tablets over this network. It is off until the performer starts
@@ -128,10 +129,12 @@ export function BandSyncSettings() {
         />
         Allow followers to play, pause and stop (off: they only follow the song)
       </label>
-      <p className="text-xs text-silkscreen-3">
-        Band sync is off unless you start it. Followers see the song, lyrics and chords; they never load songs or read your library. The
-        traffic is not encrypted, so only the PIN keeps others out: use it on a network you trust, and stop it when the set is over.
-      </p>
+      <HelpNote>
+        <p>
+          Band sync is off unless you start it. Followers see the song, lyrics and chords; they never load songs or read your library. The traffic is not
+          encrypted, so only the PIN keeps others out: use it on a network you trust, and stop it when the set is over.
+        </p>
+      </HelpNote>
     </section>
   );
 }

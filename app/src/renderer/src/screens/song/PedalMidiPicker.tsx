@@ -7,6 +7,7 @@ import { OpenMidiBrowser } from "./OpenMidiBrowser";
 import { DEFAULT_PEDAL_CHANNELS, usePedalLibrary } from "@/song/performance/pedal-library";
 import { saveMacro, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { macroCodeFor } from "@/song/performance/midi-macros";
+import { HelpNote } from "@/components/ui/help-note";
 
 export function PedalMidiPicker({
   time,
@@ -260,12 +261,18 @@ export function PedalMidiPicker({
               Save as macro
             </Button>
           </div>
-          {saved && <p role="status" className="text-sm">{saved}</p>}
+          {saved && (
+            <p role="status" className="text-sm">
+              {saved}
+            </p>
+          )}
           {action?.description && <p className="text-sm text-silkscreen-3">{action.description}</p>}
-          <p className="text-xs text-silkscreen-3">
-            Reference: {profile.id.startsWith("openmidi-") ? "OpenMIDI community data (Apache-2.0)" : profile.source}. Verify your pedal’s assignments and
-            firmware before a performance.
-          </p>
+          <HelpNote label="Reference">
+            <p>
+              Reference: {profile.id.startsWith("openmidi-") ? "OpenMIDI community data (Apache-2.0)" : profile.source}. Verify your pedal’s assignments and
+              firmware before a performance.
+            </p>
+          </HelpNote>
         </>
       )}
       <OpenMidiBrowser onImport={(profile) => importText(JSON.stringify(profile))} />
@@ -327,14 +334,16 @@ export function PedalMidiPicker({
             )}
             <Button onClick={saveNamedCommand}>Save named custom command</Button>
           </div>
-          <p className="text-xs text-silkscreen-3">
-            Use numbers from the pedal manual. Reuse the same pedal name to add more commands; the same command label updates that command. Saving a definition
-            does not send MIDI.
-          </p>
-          <p className="text-sm text-silkscreen-3">
-            Import a version 1 JSON profile, or edit the template below and save it. Profiles and channel/CC assignments stay on this computer; exported song
-            charts retain the actual MIDI commands and labels.
-          </p>
+          <HelpNote>
+            <p>
+              Use numbers from the pedal manual. Reuse the same pedal name to add more commands; the same command label updates that command. Saving a
+              definition does not send MIDI.
+            </p>
+            <p>
+              Import a version 1 JSON profile, or edit the template below and save it. Profiles and channel/CC assignments stay on this computer; exported song
+              charts retain the actual MIDI commands and labels.
+            </p>
+          </HelpNote>
           <div className="flex flex-wrap gap-3">
             <label className="cursor-pointer underline">
               Import pedal JSON

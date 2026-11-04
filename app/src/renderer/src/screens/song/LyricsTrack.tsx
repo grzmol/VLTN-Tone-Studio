@@ -4,19 +4,14 @@ import type { PcmAudio } from "@/song/types";
 import { cancelLyrics, generateLyrics, useLyricsJobs } from "@/song/performance/lyrics-jobs";
 import { chartSourceOf, lrcTexts, markLyricsEdited, previousChartOf, restoreLyricsChart } from "@/song/performance/lyrics-chart";
 import { hasSignal } from "@/song/performance/sources";
-import {
-  loadLyricsChoice,
-  LYRIC_LANGUAGES,
-  saveLyricsChoice,
-  type LyricsChoice,
-  type LyricsLanguage,
-} from "@/song/performance/lyrics-options";
+import { loadLyricsChoice, LYRIC_LANGUAGES, saveLyricsChoice, type LyricsChoice, type LyricsLanguage } from "@/song/performance/lyrics-options";
 import { lyricsOptions } from "@/song/performance/lyrics-song-options";
 import { getSetting, readOptions, setSetting } from "@/song/performance/settings";
 import { host } from "@/host";
 import { useActiveIndex } from "@/song/performance/playback-clock";
 import { LyricsModelPicker } from "./LyricsModelPicker";
 import { findLyricsModel } from "@/song/performance/lyrics-models";
+import { HelpNote } from "@/components/ui/help-note";
 
 /** What the chart's source means to the performer, shown under its title. */
 const SOURCE_NOTE = {
@@ -103,10 +98,12 @@ export function LyricsTrack({
   return (
     <section aria-label="Lyrics text track" className="space-y-3 rounded border border-seam p-4">
       <h3 className="font-semibold">Lyrics text track · from vocals</h3>
-      <p className="text-sm text-silkscreen-3">
-        Empty lyrics are generated from the vocals stem when you open Performance. You can switch tabs while transcription runs. Transcription runs on this
-        computer after a one-time model download; singing can be misheard. Your chart and MIDI cues are kept separately.
-      </p>
+      <HelpNote>
+        <p>
+          Empty lyrics are generated from the vocals stem when you open Performance. You can switch tabs while transcription runs. Transcription runs on this
+          computer after a one-time model download; singing can be misheard. Your chart and MIDI cues are kept separately.
+        </p>
+      </HelpNote>
       {!!text && <p className="text-sm text-silkscreen-3">{SOURCE_NOTE[source]}</p>}
       {confirming && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -205,9 +202,9 @@ export function LyricsTrack({
       </div>
       <details>
         <summary>Paste lyrics and time them</summary>
-        <p className="text-sm text-silkscreen-3">
-          One line per lyric line; a blank line starts a new section. Your words are kept exactly as typed. Only the timing comes from the vocals.
-        </p>
+        <HelpNote>
+          <p>One line per lyric line; a blank line starts a new section. Your words are kept exactly as typed. Only the timing comes from the vocals.</p>
+        </HelpNote>
         <textarea
           aria-label="Pasted lyrics"
           className="min-h-32 w-full rounded border border-seam bg-transparent p-2"

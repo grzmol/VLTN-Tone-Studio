@@ -5,6 +5,8 @@ import type { TimecodeRate } from "@/song/performance/timecode";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
 import { useBluetooth, resetBluetoothTiming } from "@/bluetooth/connection";
+import { HelpNote } from "@/components/ui/help-note";
+
 /** How often the counters on screen may refresh. The scheduler and Bluetooth writes update their stores far more often than that. */
 const REFRESH_MS = 500;
 
@@ -71,10 +73,12 @@ export function MidiHealth({
         <p>
           {report.commands} chart commands. {report.channels.map(([ch, count]) => `Ch ${ch}: ${count}`).join(" · ") || "No channel commands."}
         </p>
-        <p>
-          Warnings are advisory; intentional sequences are preserved. Up to 100 warnings are shown. Profile channels are app settings, not a readback of
-          physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical routing and receive channels before the set.
-        </p>
+        <HelpNote>
+          <p>
+            Warnings are advisory; intentional sequences are preserved. Up to 100 warnings are shown. Profile channels are app settings, not a readback of
+            physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical routing and receive channels before the set.
+          </p>
+        </HelpNote>
         {parseError ? (
           <p className="text-red-400">{parseError}</p>
         ) : report.issues.length ? (
@@ -89,10 +93,12 @@ export function MidiHealth({
         <p aria-label="MIDI timing totals">
           Queued: {timing.queued} · More than 5 ms late: {timing.late} · Worst dispatch lateness: {timing.maxLateMs.toFixed(1)} ms · Failures: {timing.failures}
         </p>
-        <p>
-          Times measure app dispatch to the selected MIDI API, not pedal delivery. Worker scheduling still crosses a window bridge for Web MIDI/Bluetooth.
-          Rendering or driver stalls can delay it; interrupted batches are discarded. Counters span songs in this app session.
-        </p>
+        <HelpNote>
+          <p>
+            Times measure app dispatch to the selected MIDI API, not pedal delivery. Worker scheduling still crosses a window bridge for Web MIDI/Bluetooth.
+            Rendering or driver stalls can delay it; interrupted batches are discarded. Counters span songs in this app session.
+          </p>
+        </HelpNote>
         {timing.lastFailure && <p>Last failure: {timing.lastFailure}</p>}
         {outputName && /bluetooth/i.test(outputName) && ble?.performanceTiming && (
           <p>

@@ -6,6 +6,7 @@ import { saveMacro, useMidiConfiguration } from "@/song/performance/midi-configu
 import { macroCodeFor } from "@/song/performance/midi-macros";
 import { MacroPanel } from "./MacroPanel";
 import { PedalMidiPicker } from "./PedalMidiPicker";
+import { HelpNote } from "@/components/ui/help-note";
 
 export function MidiCueBuilder({
   cues,
@@ -142,10 +143,12 @@ export function MidiCueBuilder({
           <MacroPanel time={seconds} onAdd={onAdd} onTest={onTest} canTest={canTest} />
         </div>
       </details>
-      <p className="text-xs text-silkscreen-3">
-        Set the channel to the target pedal. Added cues are saved in this song’s chart and sent during playback when Send cues is enabled. Program numbers are
-        wire values: a pedal labelled 1–128 may display one higher. Send MIDI now transmits immediately to the selected output.
-      </p>
+      <HelpNote>
+        <p>
+          Set the channel to the target pedal. Added cues are saved in this song’s chart and sent during playback when Send cues is enabled. Program numbers are
+          wire values: a pedal labelled 1–128 may display one higher. Send MIDI now transmits immediately to the selected output.
+        </p>
+      </HelpNote>
       {scheduled.length ? (
         <div className="max-h-48 overflow-auto">
           <table aria-label="Scheduled MIDI cues" className="w-full text-left text-sm">

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { loadOpenMidi, convertOpenMidi, type OpenMidiDevice } from "@/song/performance/openmidi";
 import type { PedalProfile } from "@/song/performance/pedal-profiles";
+import { HelpNote } from "@/components/ui/help-note";
 
 export function OpenMidiBrowser({ onImport }: { onImport: (profile: PedalProfile) => void }) {
   const [devices, setDevices] = useState<OpenMidiDevice[]>([]),
@@ -34,10 +35,12 @@ export function OpenMidiBrowser({ onImport }: { onImport: (profile: PedalProfile
     <details>
       <summary className="cursor-pointer text-sm">Browse OpenMIDI community pedals</summary>
       <div className="mt-3 space-y-3">
-        <p className="text-sm text-silkscreen-3">
-          Download the community catalogue from Morningstar Engineering’s OpenMIDI repository. Imported CC profiles are saved locally and remain available
-          offline. Manual-checked built-ins stay separate.
-        </p>
+        <HelpNote>
+          <p>
+            Download the community catalogue from Morningstar Engineering’s OpenMIDI repository. Imported CC profiles are saved locally and remain available
+            offline. Manual-checked built-ins stay separate.
+          </p>
+        </HelpNote>
         <Button variant="outline" disabled={busy || devices.length > 0} onClick={() => void load()}>
           {busy ? "Loading OpenMIDI…" : devices.length ? "OpenMIDI catalogue loaded" : "Load OpenMIDI catalogue"}
         </Button>
@@ -79,8 +82,10 @@ export function OpenMidiBrowser({ onImport }: { onImport: (profile: PedalProfile
                   {(() => {
                     try {
                       const result = convertOpenMidi(selected);
-                      return `${result.profile.actions.length} CC actions ready; ${result.skipped} unsupported entries skipped. ` +
-                        "Community/default CC mappings must match the pedal’s settings. Full setup notes are retained in the imported profile.";
+                      return (
+                        `${result.profile.actions.length} CC actions ready; ${result.skipped} unsupported entries skipped. ` +
+                        "Community/default CC mappings must match the pedal’s settings. Full setup notes are retained in the imported profile."
+                      );
                     } catch (e) {
                       return String(e);
                     }
@@ -91,10 +96,12 @@ export function OpenMidiBrowser({ onImport }: { onImport: (profile: PedalProfile
             )}
           </>
         )}
-        <p className="text-xs text-silkscreen-3">
-          Data: Morningstar Engineering / OpenMIDI, Apache-2.0. Attribution and the full licence are retained in imported/exported profiles. Importing does not
-          send MIDI.
-        </p>
+        <HelpNote label="Licence and attribution">
+          <p>
+            Data: Morningstar Engineering / OpenMIDI, Apache-2.0. Attribution and the full licence are retained in imported/exported profiles. Importing does
+            not send MIDI.
+          </p>
+        </HelpNote>
         {error && (
           <p role="alert" className="text-red-400">
             {error}
