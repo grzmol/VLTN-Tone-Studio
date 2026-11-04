@@ -5,32 +5,42 @@ import type { T3kTone } from "@shared/host/tones";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { host } from "@/host";
-import type { BassToneFile } from "@/song/band/arrangement";
+import type { BassToneFile, ToneRole } from "@/song/band/arrangement";
 import { SearchBar } from "@/screens/tones/SearchBar";
 import { ToneGrid } from "@/screens/tones/TonesScreen";
 import { loadAccount, loadRecords, useTones, type SearchFilters } from "@/screens/tones/store";
 
-export type BassSourceKind = "nam" | "ir";
+/** The gear a bass block can be: the TONE3000 search for it starts on that gear. */
+export type BassSourceRole = ToneRole;
 
 /**
- * The search a bass capture or cab IR starts from. TONE3000's metadata has no instrument field, so "bass" in the search and the amp and
- * pedal gears (captures) or the cab gear (IRs) are the closest the API can get. The user can change any of it.
+ * The search a bass block starts from, per role. TONE3000's metadata has no instrument field, so "bass" in the search and the gear of the
+ * role are the closest the API can get. The user can change any of it.
  */
-const BASS_PRESET: Record<BassSourceKind, { format: "nam" | "ir"; search: SearchFilters }> = {
-  nam: { format: "nam", search: { query: "bass", sort: "trending", gears: ["amp", "amp-cab", "pedal"], architecture: null } },
-  ir: { format: "ir", search: { query: "bass", sort: "trending", gears: ["cab"], architecture: null } },
+const ROLE_PRESET: Record<BassSourceRole, { format: "nam" | "ir"; search: SearchFilters }> = {
+  pedal: { format: "nam", search: { query: "bass", sort: "trending", gears: ["pedal"], architecture: null } },
+  preamp: { format: "nam", search: { query: "bass", sort: "trending", gears: ["outboard"], architecture: null } },
+  amp: { format: "nam", search: { query: "bass", sort: "trending", gears: ["amp", "amp-cab"], architecture: null } },
+  cab: { format: "ir", search: { query: "bass", sort: "trending", gears: ["cab"], architecture: null } },
+  space: { format: "ir", search: { query: "bass", sort: "trending", gears: ["space"], architecture: null } },
 };
-const TITLE: Record<BassSourceKind, string> = { nam: "Choose a bass capture", ir: "Choose a cab IR" };
-const FILE_BUTTON: Record<BassSourceKind, string> = { nam: "Open a .nam file…", ir: "Open a .wav file…" };
-const KIND_NAME: Record<BassSourceKind, string> = { nam: "capture", ir: "cab IR" };
+const TITLE: Record<BassSourceRole, string> = {
+  pedal: "Choose a bass pedal",
+  preamp: "Choose a preamp",
+  amp: "Choose a bass amp",
+  cab: "Choose a cab IR",
+  space: "Choose a space IR",
+};
+const KIND_NAME: Record<BassSourceRole, string> = { pedal: "pedal", preamp: "preamp", amp: "amp", cab: "cab IR", space: "space IR" };
+const KIND_PLURAL: Record<BassSourceRole, string> = { pedal: "pedals", preamp: "preamps", amp: "amps", cab: "cab IRs", space: "space IRs" };
 
 let savedSearch: { format: "all" | "nam" | "ir"; search: SearchFilters } | null = null;
 
-/** Starts the browser on the bass preset, keeping what it had to put back on close. Call before the dialog opens, so its search is the first. */
-export function presetBassSearch(kind: BassSourceKind): void {
+/** Starts the browser on the role's preset, keeping what it had to put back on close. Call before the dialog opens, so its search is the first. */
+export function presetBassSearch(role: BassSourceRole): void {
   const before = useTones.getState();
   savedSearch ??= { format: before.format, search: before.search };
-  useTones.setState({ format: BASS_PRESET[kind].format, search: BASS_PRESET[kind].search });
+  useTones.setState({ format: ROLE_PRESET[role].format, search: ROLE_PRESET[role].search });
   if (before.account === null) void loadAccount();
 }
 
@@ -43,20 +53,21 @@ export function restoreBassSearch(): void {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The model a capture uses: A2 first, then A1, as the capture editor opens a tone. An IR has one model. */
-function modelFor(kind: BassSourceKind, models: { id: number; architecture_version: string | null }[]) {
-  if (kind === "ir") return models[0];
+function modelFor(format: "nam" | "ir", models: { id: number; architecture_version: string | null }[]) {
+  if (format === "ir") return models[0];
   return models.find((m) => m.architecture_version === "2") ?? models.find((m) => m.architecture_version === "1");
 }
 
 export interface BassSourceDialogProps {
-  kind: BassSourceKind;
+  role: BassSourceRole;
   open: boolean;
   onClose(): void;
   /** The chosen capture or cab IR. The dialog is closed by the caller. */
   onPick(file: BassToneFile): void;
 }
 
-export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDialogProps) {
+export function BassSourceDialog({ role, open, onClose, onPick }: BassSourceDialogProps) {
+  const format = ROLE_PRESET[role].format;
   const account = useTones((s) => s.account);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,18 +76,18 @@ export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDial
   /** Downloads the tone's model into the tone folder, then hands it to the picker. */
   const pickTone = async (toneId: number, tone: T3kTone) => {
     setError(null);
-    const wanted = kind === "nam" ? "nam" : "ir";
-    if (tone.format !== wanted) {
-      setError(`${tone.title} is ${tone.format === "ir" ? "an IR" : "a NAM capture"}, not a bass ${KIND_NAME[kind]}.`);
+    if (tone.format !== format) {
+      setError(`${tone.title} is ${tone.format === "ir" ? "an IR" : "a NAM capture"}, not a bass ${KIND_NAME[role]}.`);
       return;
     }
     setBusy(`Downloading ${tone.title}…`);
     try {
-      const model = modelFor(kind, await host.tones.models(toneId));
+      const model = modelFor(format, await host.tones.models(toneId));
       if (!model) throw new Error(`${tone.title} has no model that can be used.`);
       const { record } = await host.tones.downloadModel(toneId, model.id);
       void loadRecords();
-      onPick({ source: "tone3000", toneId, modelId: model.id, name: record.title });
+      const older = model.architecture_version === "1" ? { older: true } : {};
+      onPick({ source: "tone3000", toneId, modelId: model.id, name: record.title, ...older });
     } catch (e) {
       setError(message(e));
     } finally {
@@ -87,7 +98,7 @@ export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDial
   const chooseFile = async () => {
     setError(null);
     try {
-      const picked = await host.tones.chooseLocalFile(kind);
+      const picked = await host.tones.chooseLocalFile(format);
       if (picked) onPick({ source: "file", path: picked.path, name: picked.name });
     } catch (e) {
       setError(message(e));
@@ -98,7 +109,7 @@ export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDial
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[90vh] min-w-0 overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{TITLE[kind]}</DialogTitle>
+          <DialogTitle>{TITLE[role]}</DialogTitle>
           <DialogDescription>
             Search TONE3000 for one, or open a file from this computer. The choice is used the next time you press Generate.
           </DialogDescription>
@@ -109,7 +120,7 @@ export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDial
             <ToneGrid kind="search" onOpen={(toneId, tone) => void pickTone(toneId, tone)} />
           </div>
         ) : (
-          <p className="text-silkscreen-2">Sign in to TONE3000 on the Tones screen to search its {KIND_NAME[kind]}s here.</p>
+          <p className="text-silkscreen-2">Sign in to TONE3000 on the Tones screen to search its {KIND_PLURAL[role]} here.</p>
         )}
         {busy && <p role="status">{busy}</p>}
         {error && (
@@ -119,7 +130,7 @@ export function BassSourceDialog({ kind, open, onClose, onPick }: BassSourceDial
         )}
         <div className="flex flex-wrap items-center gap-2 border-t border-seam pt-3">
           <Button variant="outline" onClick={() => void chooseFile()} disabled={busy !== null}>
-            {FILE_BUTTON[kind]}
+            {format === "nam" ? "Open a .nam file…" : "Open a .wav file…"}
           </Button>
         </div>
       </DialogContent>

@@ -8,7 +8,7 @@ import { convertSampleRate } from "@/snaptone/htkpa";
 import { readWavMono } from "@/userir/convert";
 import { unitEnergy, type GraphStage } from "@/screens/capture/audio/chain-graph";
 import { irLevelGain } from "@/screens/capture/audio/ir-level";
-import type { BassTone, BassToneFile, ToneBlock, ToneRole } from "./arrangement";
+import { TONE_BLOCK_TYPE, type BassTone, type BassToneFile, type ToneBlock, type ToneRole } from "./arrangement";
 import { PEAK_LIMIT } from "./render";
 import type { PcmAudio } from "../types";
 
@@ -99,7 +99,7 @@ async function loadIr(file: BassToneFile, files: BassToneFiles, role: ToneRole):
 }
 
 /** One chain block read and checked. */
-async function loadBlock(block: ToneBlock, files: BassToneFiles): Promise<LoadedBlock> {
+async function loadBlock(block: ToneBlock & { file: BassToneFile }, files: BassToneFiles): Promise<LoadedBlock> {
   const common = { role: block.role, on: block.on, inputDb: block.inputDb, outputDb: block.outputDb, mix: block.mix };
   try {
     if (block.type === "capture") return { ...common, type: "capture", model: await loadCapture(block.file, files) };
@@ -110,13 +110,37 @@ async function loadBlock(block: ToneBlock, files: BassToneFiles): Promise<Loaded
 }
 
 /**
- * Reads and checks the files of the blocks that are on, in order. Throws a BlockLoadError naming the first file that cannot be read, so
- * the notice can say which one it was.
+ * Reads and checks the files of the blocks that are on, in order. An empty slot (no file yet) plays nothing, so it is left out like an off
+ * block. Throws a BlockLoadError naming the first file that cannot be read, so the notice can say which one it was.
  */
 export async function loadBassTone(tone: Extract<BassTone, { kind: "chain" }>, files: BassToneFiles): Promise<LoadedBassTone> {
   const blocks: LoadedBlock[] = [];
-  for (const block of tone.blocks) if (block.on) blocks.push(await loadBlock(block, files));
+  for (const block of tone.blocks) if (block.on && block.file) blocks.push(await loadBlock({ ...block, file: block.file }, files));
   return { blocks, dryWet: tone.dryWet, fast: tone.fast };
+}
+
+/** A preset starts a chain of empty slots, one per role, so the performer fills the gear in. */
+export const BASS_TONE_PRESETS: readonly { name: string; blocks: { role: ToneRole; mix?: number }[] }[] = [
+  { name: "Bass DI + amp", blocks: [{ role: "amp" }, { role: "cab" }] },
+  { name: "Driven bass", blocks: [{ role: "pedal" }, { role: "amp" }, { role: "cab" }] },
+  { name: "Studio bass", blocks: [{ role: "pedal" }, { role: "amp" }, { role: "cab" }, { role: "space", mix: 0.2 }] },
+];
+
+/** The blocks of a preset: empty slots with their roles set, at unity levels, on. */
+export function presetBlocks(roles: readonly { role: ToneRole; mix?: number }[]): ToneBlock[] {
+  return roles.map(({ role, mix }) => ({ type: TONE_BLOCK_TYPE[role], role, file: null, inputDb: 0, outputDb: 0, mix: mix ?? 1, on: true }));
+}
+
+/** Seconds a capture renders at for a song of `songSeconds`, per capture, from the spec 83 measure (30 s of A2-Full is about 2.4 s). */
+const CAPTURE_SECONDS_PER_SONG_SECOND = { full: 0.08, lite: 0.05 };
+
+/**
+ * The estimated time Generate takes to render the chain for a song: the captures that are on and have a file, each at the time it takes per
+ * song second (Lite is quicker). IRs are convolutions and add little, so they are not counted.
+ */
+export function captureRenderSeconds(blocks: readonly ToneBlock[], songSeconds: number, fast: boolean): number {
+  const captures = blocks.filter((block) => block.on && block.file && block.type === "capture").length;
+  return captures * songSeconds * (fast ? CAPTURE_SECONDS_PER_SONG_SECOND.lite : CAPTURE_SECONDS_PER_SONG_SECOND.full);
 }
 
 /** The bass's samples at `rate` for the chain. Resampling uses the project's converter, which the cab IRs already go through. */

@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PcmAudio } from "../types";
 import type { BassTone, BassToneFile, ToneBlock } from "./arrangement";
-import { applyBassTone, CHAIN_RATE, renderBassTone, type BassChain, type BassToneFiles, type LoadedBassTone, type LoadedBlock } from "./bass-tone";
+import {
+  applyBassTone,
+  BASS_TONE_PRESETS,
+  CHAIN_RATE,
+  captureRenderSeconds,
+  presetBlocks,
+  renderBassTone,
+  type BassChain,
+  type BassToneFiles,
+  type LoadedBassTone,
+  type LoadedBlock,
+} from "./bass-tone";
 import { PEAK_LIMIT } from "./render";
 
 // The NAM engine itself needs an AudioWorklet, so the capture is passed through as its text, marked so the test can see it was prepared.
@@ -143,6 +154,44 @@ describe("renderBassTone", () => {
     const out = await renderBassTone(sine(4000, 110, 0.5), loaded(), spiky);
     const peak = Math.max(...out.channels.map((c) => Math.max(...c.map(Math.abs))));
     expect(peak).toBeLessThanOrEqual(PEAK_LIMIT + 1e-6);
+  });
+});
+
+describe("bass tone presets and the render-time estimate", () => {
+  it("starts a preset as empty slots with their roles, at unity levels, and a space IR at 20% mix", () => {
+    const blocks = presetBlocks([{ role: "pedal" }, { role: "amp" }, { role: "cab" }, { role: "space", mix: 0.2 }]);
+    expect(blocks.map((b) => [b.type, b.role, b.file, b.mix, b.on])).toEqual([
+      ["capture", "pedal", null, 1, true],
+      ["capture", "amp", null, 1, true],
+      ["ir", "cab", null, 1, true],
+      ["ir", "space", null, 0.2, true],
+    ]);
+  });
+
+  it("has the three presets, each a chain of its roles", () => {
+    expect(BASS_TONE_PRESETS.map((preset) => preset.name)).toEqual(["Bass DI + amp", "Driven bass", "Studio bass"]);
+    expect(BASS_TONE_PRESETS[2].blocks.map((block) => block.role)).toEqual(["pedal", "amp", "cab", "space"]);
+  });
+
+  it("estimates the captures' render time per song second, and less for Lite; IRs and empty slots are not counted", () => {
+    const amp = presetBlocks([{ role: "amp" }])[0];
+    const withFile = { ...amp, file: { source: "file" as const, path: "/a.nam", name: "a" } };
+    const cab = { ...withFile, type: "ir" as const, role: "cab" as const, file: { source: "file" as const, path: "/c.wav", name: "c" } };
+    expect(captureRenderSeconds([withFile], 480, false)).toBeCloseTo(38.4, 6);
+    expect(captureRenderSeconds([withFile], 480, true)).toBeCloseTo(24, 6);
+    expect(captureRenderSeconds([withFile, withFile], 480, false)).toBeCloseTo(76.8, 6);
+    expect(captureRenderSeconds([cab], 480, false)).toBe(0);
+    expect(captureRenderSeconds([amp], 480, false)).toBe(0);
+    expect(captureRenderSeconds([{ ...withFile, on: false }], 480, false)).toBe(0);
+  });
+
+  it("leaves an empty slot out of the chain, so loading never reads a file it does not have", async () => {
+    const files = { ...noFiles(), readNam: vi.fn(async () => "capture") };
+    const chain = vi.fn(identity);
+    const tone: BassTone = { kind: "chain", blocks: presetBlocks([{ role: "pedal" }, { role: "amp" }]), dryWet: 1, fast: false };
+    await applyBassTone(sine(2000, 110, 0.4), tone, files, chain);
+    expect(files.readNam).not.toHaveBeenCalled();
+    expect(chain).not.toHaveBeenCalled();
   });
 });
 

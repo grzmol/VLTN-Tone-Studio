@@ -668,7 +668,7 @@ function BandBody({
         }}
       />
 
-      <BandSettingsForm settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} />
+      <BandSettingsForm settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} songSeconds={songEnd} />
 
       <section aria-label="Sections" className="flex flex-col gap-2">
         <h3 className="font-semibold">Sections</h3>

@@ -317,8 +317,22 @@ describe("bass tone settings", () => {
   it("keeps at most six blocks, the first six, and fails the full check for a seventh", () => {
     const seven = Array.from({ length: 7 }, (_, i) => ({ ...room, file: { ...room.file, name: `Room ${i}` } }));
     const parsed = parseBassTone({ kind: "chain", blocks: seven, dryWet: 1, fast: false });
-    expect(parsed.kind === "chain" && parsed.blocks.map((b) => b.file.name)).toEqual(seven.slice(0, 6).map((b) => b.file.name));
+    expect(parsed.kind === "chain" && parsed.blocks.map((b) => b.file?.name)).toEqual(seven.slice(0, 6).map((b) => b.file.name));
     expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: seven, dryWet: 1, fast: false } })).toBe(false);
+  });
+
+  it("keeps an empty slot (a preset's block with no file yet), and an A1 capture's older flag", () => {
+    const slot = { type: "capture", role: "pedal", file: null, inputDb: 0, outputDb: 0, mix: 1, on: true };
+    const oldCapture = { ...amp, file: { ...capture, older: true } };
+    const tone = { kind: "chain", blocks: [slot, oldCapture], dryWet: 1, fast: false };
+    expect(parseBassTone(tone)).toEqual(tone);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: tone })).toBe(true);
+    expect(parseBassTone({ kind: "chain", blocks: [{ ...slot, file: "bass.nam" }], dryWet: 1, fast: false })).toEqual({
+      kind: "chain",
+      blocks: [],
+      dryWet: 1,
+      fast: false,
+    });
   });
 
   it("falls back to the defaults for a level, mix or dry/wet that is out of range, one field at a time", () => {

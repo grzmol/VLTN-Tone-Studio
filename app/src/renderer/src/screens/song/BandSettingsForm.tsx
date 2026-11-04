@@ -4,7 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { BASS_FROM, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type BassFrom, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
 import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
 import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
-import { BassTonePicker } from "./BassTonePicker";
+import { BassToneChain } from "./BassToneChain";
 import { BASS_PART_LABELS } from "./band-labels";
 /**
  * The track of a band slider. The theme's muted track is nearly the colour of the glass dialog, so at a value of 0 only the thumb showed.
@@ -29,10 +29,12 @@ export interface BandSettingsFormProps {
   onChange(patch: Partial<BandSettings>): void;
   /** Changes the style, which also sets its swing default. */
   onStyle(id: StyleId): void;
+  /** The song's length in seconds, for the bass tone's render-time estimate. */
+  songSeconds?: number;
 }
 
 /** The song-wide band settings. Changing one saves it; nothing is generated until Generate. */
-export function BandSettingsForm({ settings, followSources, onChange, onStyle }: BandSettingsFormProps) {
+export function BandSettingsForm({ settings, followSources, onChange, onStyle, songSeconds = 0 }: BandSettingsFormProps) {
   return (
     <section aria-label="Band settings" className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
       <h3 className="font-semibold sm:col-span-2">Settings</h3>
@@ -215,7 +217,7 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle }:
           </SelectContent>
         </Select>
       </label>
-      <BassTonePicker tone={settings.bassTone} onChange={(bassTone) => onChange({ bassTone })} />
+      <BassToneChain tone={settings.bassTone} songSeconds={songSeconds} onChange={(bassTone) => onChange({ bassTone })} />
     </section>
   );
 }

@@ -63,6 +63,8 @@ export interface BassToneFile {
   modelId?: number;
   /** Absolute path of a local file. */
   path?: string;
+  /** True for a TONE3000 capture that is an A1 model (an older capture), so the panel can say so. */
+  older?: boolean;
   /** The name the Band panel shows. */
   name: string;
 }
@@ -93,7 +95,8 @@ export const MAX_TONE_BLOCKS = 6;
 export interface ToneBlock {
   type: ToneBlockType;
   role: ToneRole;
-  file: BassToneFile;
+  /** The chosen file. Null is an empty slot (a preset's): it plays nothing until a file is chosen. */
+  file: BassToneFile | null;
   /** Input drive, in dB (BASS_TONE_INPUT_DB). */
   inputDb: number;
   /** Output level, in dB (BASS_TONE_OUTPUT_DB). */
@@ -469,7 +472,8 @@ function parseBassToneFile(value: unknown): BassToneFile | null {
   if (!isRecord(value) || typeof value.name !== "string" || value.name.trim() === "" || value.name.length > MAX_NAME) return null;
   if (value.source === "tone3000") {
     if (!isPositiveId(value.toneId) || !isPositiveId(value.modelId)) return null;
-    return { source: "tone3000", toneId: value.toneId, modelId: value.modelId, name: value.name };
+    const older = value.older === true ? { older: true } : {};
+    return { source: "tone3000", toneId: value.toneId, modelId: value.modelId, name: value.name, ...older };
   }
   if (value.source === "file") {
     if (typeof value.path !== "string" || value.path === "" || value.path.length > MAX_PATH) return null;
@@ -482,8 +486,8 @@ function parseBassToneFile(value: unknown): BassToneFile | null {
 function parseToneBlock(value: unknown): ToneBlock | null {
   if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return null;
   const role = value.role as ToneRole;
-  const file = parseBassToneFile(value.file);
-  if (!file || value.type !== TONE_BLOCK_TYPE[role]) return null;
+  const file = value.file === null ? null : parseBassToneFile(value.file);
+  if ((value.file !== null && !file) || value.type !== TONE_BLOCK_TYPE[role]) return null;
   return {
     type: TONE_BLOCK_TYPE[role],
     role,
@@ -500,7 +504,7 @@ function isToneBlock(value: unknown): boolean {
   if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return false;
   return (
     value.type === TONE_BLOCK_TYPE[value.role as ToneRole] &&
-    parseBassToneFile(value.file) !== null &&
+    (value.file === null || parseBassToneFile(value.file) !== null) &&
     isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) &&
     isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) &&
     isUnit(value.mix) &&

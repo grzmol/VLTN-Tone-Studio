@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { T3kTone } from "@shared/host/tones";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
-import { BassSourceDialog, presetBassSearch, restoreBassSearch } from "./BassSourceDialog";
+import { BassSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceRole } from "./BassSourceDialog";
 
 const mocks = vi.hoisted(() => ({
   tones: {
@@ -100,11 +100,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderDialog(kind: "nam" | "ir", onPick = vi.fn(), onClose = vi.fn()) {
-  presetBassSearch(kind);
+function renderDialog(role: BassSourceRole, onPick = vi.fn(), onClose = vi.fn()) {
+  presetBassSearch(role);
   render(
     <TooltipProvider>
-      <BassSourceDialog kind={kind} open onClose={onClose} onPick={onPick} />
+      <BassSourceDialog role={role} open onClose={onClose} onPick={onPick} />
     </TooltipProvider>,
   );
   return { onPick, onClose };
@@ -113,22 +113,22 @@ function renderDialog(kind: "nam" | "ir", onPick = vi.fn(), onClose = vi.fn()) {
 describe("BassSourceDialog", () => {
   it("starts the TONE3000 search on the bass preset, and lists only the captures for a capture", async () => {
     signIn("signed-in");
-    renderDialog("nam");
+    renderDialog("amp");
     expect(await screen.findByText("Bass amp")).toBeTruthy();
     expect(screen.queryByText("Bass cab")).toBeNull();
-    expect(mocks.tones.search).toHaveBeenCalledWith(expect.objectContaining({ query: "bass", gears: ["amp", "amp-cab", "pedal"] }), 1, undefined);
+    expect(mocks.tones.search).toHaveBeenCalledWith(expect.objectContaining({ query: "bass", gears: ["amp", "amp-cab"] }), 1, undefined);
   });
 
   it("lists only the cab IRs for a cab IR", async () => {
     signIn("signed-in");
-    renderDialog("ir");
+    renderDialog("cab");
     expect(await screen.findByText("Bass cab")).toBeTruthy();
     expect(screen.queryByText("Bass amp")).toBeNull();
   });
 
   it("picks a tone by downloading its A2 model, and hands the tone on", async () => {
     signIn("signed-in");
-    const { onPick } = renderDialog("nam");
+    const { onPick } = renderDialog("amp");
     fireEvent.click(await screen.findByText("Bass amp"));
     await waitFor(() => expect(onPick).toHaveBeenCalledWith({ source: "tone3000", toneId: 42, modelId: 8, name: "Bass amp" }));
     expect(mocks.tones.downloadModel).toHaveBeenCalledWith(42, 8);
@@ -137,7 +137,7 @@ describe("BassSourceDialog", () => {
   it("opens a .nam file by its path, and picks nothing when the file dialog is cancelled", async () => {
     signIn("signed-out");
     mocks.tones.chooseLocalFile.mockResolvedValueOnce({ path: "/Users/me/bass.nam", name: "bass" });
-    const { onPick } = renderDialog("nam");
+    const { onPick } = renderDialog("amp");
     fireEvent.click(screen.getByRole("button", { name: "Open a .nam file…" }));
     await waitFor(() => expect(onPick).toHaveBeenCalledWith({ source: "file", path: "/Users/me/bass.nam", name: "bass" }));
     expect(mocks.tones.chooseLocalFile).toHaveBeenCalledWith("nam");
@@ -149,9 +149,33 @@ describe("BassSourceDialog", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  it("starts each role on its own gear: a pedal, a preamp, an amp, a cab and a space", () => {
+    const gearsFor = (role: BassSourceRole) => {
+      presetBassSearch(role);
+      const { format, search } = useTones.getState();
+      restoreBassSearch();
+      return { format, gears: search.gears };
+    };
+    expect(gearsFor("pedal")).toEqual({ format: "nam", gears: ["pedal"] });
+    expect(gearsFor("preamp")).toEqual({ format: "nam", gears: ["outboard"] });
+    expect(gearsFor("amp")).toEqual({ format: "nam", gears: ["amp", "amp-cab"] });
+    expect(gearsFor("cab")).toEqual({ format: "ir", gears: ["cab"] });
+    expect(gearsFor("space")).toEqual({ format: "ir", gears: ["space"] });
+  });
+
+  it("marks an A1 capture as older, and takes the A2 model when there is one", async () => {
+    signIn("signed-in");
+    mocks.tones.models.mockResolvedValueOnce([
+      { id: 7, name: "A1 model", size: "standard", tone_id: 42, architecture_version: "1", model_url: "", updated_at: "" },
+    ]);
+    const { onPick } = renderDialog("amp");
+    fireEvent.click(await screen.findByText("Bass amp"));
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith({ source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp", older: true }));
+  });
+
   it("asks for a sign-in on the Tones screen when signed out, and still offers a file", async () => {
     signIn("signed-out");
-    renderDialog("ir");
+    renderDialog("cab");
     expect(screen.getByText(/Sign in to TONE3000 on the Tones screen to search its cab IRs here/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open a .wav file…" })).toBeTruthy();
     expect(mocks.tones.search).not.toHaveBeenCalled();
@@ -162,7 +186,7 @@ describe("presetBassSearch and restoreBassSearch", () => {
   it("put the browser's own filters back when the picker closes", () => {
     useTones.setState({ format: "all", search: { query: "marshall", sort: "newest", gears: ["pedal"], architecture: "2" } });
     signIn("signed-out");
-    presetBassSearch("ir");
+    presetBassSearch("cab");
     expect(useTones.getState().format).toBe("ir");
     expect(useTones.getState().search).toEqual({ query: "bass", sort: "trending", gears: ["cab"], architecture: null });
     restoreBassSearch();
