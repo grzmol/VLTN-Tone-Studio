@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectPitch, noteOf } from "./tuner";
+import { detectPitch, noteOf } from "./tuner-pitch";
 
 const SR = 48000;
 const tone = (hz: number, n = 4096) => Float32Array.from({ length: n }, (_, i) => 0.5 * Math.sin((2 * Math.PI * hz * i) / SR) + 0.2 * Math.sin((2 * Math.PI * 2 * hz * i) / SR));

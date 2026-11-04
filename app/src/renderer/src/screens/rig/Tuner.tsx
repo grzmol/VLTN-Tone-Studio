@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { isPedalInput, listInputs, type AudioInput } from "@/song/tonematch/recorder";
-import { detectPitch, noteOf, type Note } from "./tuner";
+import { detectPitch, noteOf, type Note } from "./tuner-pitch";
 
 /** A tuning fork, drawn like the lucide icons (the set has none). */
 function TuningForkIcon(props: SVGProps<SVGSVGElement>) {
