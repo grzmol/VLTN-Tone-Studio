@@ -6,8 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { isElectron } from "@/host";
 import { BASS_TONE_INPUT_DB, BASS_TONE_OUTPUT_DB, type BassTone, type BassToneFile } from "@/song/band/arrangement";
-import { singleStage } from "@/song/band/bass-tone";
+
 import { BassSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceKind } from "./BassSourceDialog";
+
+/** The one capture and cab IR a chain is shown as (the first active capture and the first active cab), until the picker is rebuilt for chains. */
+function singleStage(tone: Extract<BassTone, { kind: "chain" }>) {
+  const capture = tone.blocks.find((block) => block.on && block.type === "capture");
+  if (!capture) return null;
+  const cab = tone.blocks.find((block) => block.on && block.type === "ir" && block.role === "cab");
+  return { capture: capture.file, ir: cab?.file ?? null, inputDb: capture.inputDb, outputDb: capture.outputDb, blend: tone.dryWet };
+}
 
 /** The track of a band slider, as BandSettingsForm draws them: a lighter track keeps the full length visible at any value. */
 const BAND_TRACK = "bg-white/15";

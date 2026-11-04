@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
     readLocalNam: vi.fn(),
     readLocalIr: vi.fn(),
   },
-  chain: vi.fn(async (_model: string, input: Float32Array): Promise<Float32Array> => new Float32Array(input.length)),
+  chain: vi.fn(async (_blocks: unknown, input: Float32Array): Promise<Float32Array> => new Float32Array(input.length)),
   decodeAudioFile: vi.fn(async (): Promise<PcmAudio> => ({ sampleRate: 44100, channels: [new Float32Array(44100 * 8), new Float32Array(44100 * 8)] })),
   store: null as unknown as { getState(): unknown; setState(patch: unknown): void },
 }));
@@ -392,11 +392,13 @@ describe("Band panel", () => {
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     expect(await screen.findByText("Bass tone…")).toBeTruthy();
-    expect(mocks.chain.mock.calls[0][0]).toBe("capture-text");
-    finishChain(new Float32Array(44100 * SECONDS).fill(0.25));
+    const [blocks, sent] = mocks.chain.mock.calls[0] as unknown as [{ type: string; model: string }[], Float32Array];
+    expect(blocks[0]).toMatchObject({ type: "capture", model: "capture-text" });
+    finishChain(new Float32Array(sent.length).fill(0.25));
     await waitFor(() => expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1));
     const [saved] = (useSong.getState().applyGeneratedParts as unknown as { mock: { calls: [[{ bass: PcmAudio }]] } }).mock.calls[0];
-    expect(saved.bass.channels[0][20000]).toBeCloseTo(0.25, 2);
+    // The chain's level is matched to the clean bass (0.5), so a quiet chain (0.25) comes back to the clean loudness.
+    expect(saved.bass.channels[0][20000]).toBeCloseTo(0.5, 2);
   });
 
   it("asks before removing the generated parts, and removes them only on confirm", async () => {
