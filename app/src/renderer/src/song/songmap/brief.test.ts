@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseBandSettings } from "../band/arrangement";
 import { planSongMap, type SavedSong, type SongMapPart } from "./apply";
 import { draftSongMap, songBrief, type BriefInput } from "./brief";
-import { parseSongMap } from "./songmap";
+import { parseSongMap, writeSongMap } from "./songmap";
 
 /** Eight bars of four beats, starting at half a second: bar 2 starts at 2.5 s. */
 const beats = Array.from({ length: 32 }, (_, index) => 0.5 + index * 0.5);
@@ -197,15 +197,51 @@ describe("the brief's draft map", () => {
     expect(parseSongMap(draftText(brief)).map?.chart).toBe(fullSong.chart);
   });
 
-  it("writes back the saved values when every part is chosen unchanged", () => {
-    const saved: SavedSong = { bpm: "120", options: savedOptions, chart: fullSong.chart };
+  it("offers nothing when the draft is imported unchanged, so nothing is written", () => {
+    const saved: SavedSong = { bpm: "120", options: savedOptions, chart: fullSong.chart, lyrics: fullSong.lyrics };
     const map = parseSongMap(draftText(songBrief(fullSong))).map;
     expect(map).not.toBeNull();
     const plan = planSongMap(saved, map!);
-    const all = plan.parts.map((part) => part.part) as SongMapPart[];
-    const values = plan.values(all);
-    expect(values[":bpm"]).toBe("120");
-    expect(values[""]).toBe(fullSong.chart);
-    expect(JSON.parse(values[":options"])).toEqual(JSON.parse(JSON.stringify(savedOptions)));
+    expect(plan.parts).toEqual([]);
+    expect(plan.values([])).toEqual({});
+  });
+});
+
+describe("a song the app made itself", () => {
+  // The song as the analysis and the Performance screen save it: analysis section ids, a loop mode, a colour, lyrics only, band overrides.
+  const madeOptions: Record<string, unknown> = {
+    songKey: "A minor",
+    firstBeat: 0.5,
+    beats: 4,
+    analysis,
+    sections: [
+      { id: "x7f", name: "Verse", start: 0, end: 10, mode: "loop", color: "#ff0000" },
+      { id: "q2", name: "Chorus", start: 10, end: 20, mode: "skip", source: "detected" },
+    ],
+    band: parseBandSettings({
+      sections: { x7f: { style: "funk", play: { drums: false, bass: true } }, q2: { energy: 4 } },
+      bassOverrides: [{ start: 2, end: 4, pc: 7 }],
+    }),
+    beatGrid,
+  };
+  const madeInput: BriefInput = { title: "Made", durationSeconds: 20, bpm: "120", options: madeOptions, chart: "", lyrics: "[00:00.50] Hello" };
+  const madeSaved: SavedSong = { bpm: "120", options: madeOptions, chart: "", lyrics: madeInput.lyrics };
+  const everyPart: SongMapPart[] = ["tempo", "key", "sections", "band", "bassNotes", "chart", "notes"];
+
+  it("offers no part when the draft is imported unchanged", () => {
+    const map = parseSongMap(writeSongMap(draftSongMap(madeInput))).map!;
+    const plan = planSongMap(madeSaved, map);
+    expect(plan.parts).toEqual([]);
+    expect(plan.values(everyPart)).toEqual({});
+  });
+
+  it("offers only the drums and bass that were changed, and keeps the sections", () => {
+    const map = parseSongMap(writeSongMap(draftSongMap(madeInput))).map!;
+    map.sections[0].drums = true;
+    const plan = planSongMap(madeSaved, map);
+    expect(plan.parts.map((part) => part.part)).toEqual(["band"]);
+    const options = JSON.parse(plan.values(["band"])[":options"]);
+    expect(options.sections).toEqual(JSON.parse(JSON.stringify(madeOptions.sections)));
+    expect(options.band.sections.x7f.play).toEqual({ drums: true, bass: true });
   });
 });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { parseBandSettings } from "../band/arrangement";
 import { planSongMap, type SavedSong, type SongMapPart } from "./apply";
 import type { SongMap } from "./songmap";
 
-const blank: SavedSong = { bpm: "", options: {}, chart: "" };
+const blank: SavedSong = { bpm: "", options: {}, chart: "", lyrics: "" };
 
 /** A map with the given parts, and nothing else. */
 function mapWith(extra: Partial<SongMap> = {}): SongMap {
@@ -34,7 +35,7 @@ describe("planSongMap: the parts", () => {
   });
 
   it("says what the tempo replaces when the saved values differ", () => {
-    const saved: SavedSong = { bpm: "120", options: { firstBeat: 0.1, beats: 3 }, chart: "" };
+    const saved: SavedSong = { bpm: "120", options: { firstBeat: 0.1, beats: 3 }, chart: "", lyrics: "" };
     const plan = planSongMap(saved, mapWith({ bpm: 128.5, beatsPerBar: 4, firstBeat: 0.42 }));
     expect(plan.parts[0].replaces).toBe("Replaces 120 BPM, first beat 0:00.10, 3/4");
   });
@@ -45,25 +46,36 @@ describe("planSongMap: the parts", () => {
   });
 
   it("says a saved key is replaced", () => {
-    const plan = planSongMap({ bpm: "", options: { songKey: "A major" }, chart: "" }, mapWith({ key: { tonic: 9, mode: "minor", name: "A minor" } }));
+    const plan = planSongMap(
+      { bpm: "", options: { songKey: "A major" }, chart: "", lyrics: "" },
+      mapWith({ key: { tonic: 9, mode: "minor", name: "A minor" } }),
+    );
     expect(plan.parts[0].replaces).toBe("Replaces A major");
   });
 
   it("says how many sections the song has now", () => {
-    const saved: SavedSong = { bpm: "", options: { sections: [{ id: "a", name: "Intro", start: 0, end: 5, mode: "continue" }] }, chart: "" };
+    const saved: SavedSong = { bpm: "", options: { sections: [{ id: "a", name: "Intro", start: 0, end: 5, mode: "continue" }] }, chart: "", lyrics: "" };
     const plan = planSongMap(saved, mapWith({ sections: [verse, chorus] }));
     expect(plan.parts.find((part) => part.part === "sections")).toEqual({ part: "sections", summary: "2 sections", replaces: "Replaces your 1 section" });
     expect(plan.parts.find((part) => part.part === "band")?.summary).toBe("Drums and bass for 2 sections");
   });
 
   it("counts the bass notes and says what they replace", () => {
-    const saved: SavedSong = { bpm: "", options: { band: { bassOverrides: [{ start: 0, end: 1, pc: 0 }] } }, chart: "" };
-    const plan = planSongMap(saved, mapWith({ bassNotes: [{ start: 0, end: 4, pc: 9 }, { start: 4, end: 8, pc: 2 }] }));
+    const saved: SavedSong = { bpm: "", options: { band: { bassOverrides: [{ start: 0, end: 1, pc: 0 }] } }, chart: "", lyrics: "" };
+    const plan = planSongMap(
+      saved,
+      mapWith({
+        bassNotes: [
+          { start: 0, end: 4, pc: 9 },
+          { start: 4, end: 8, pc: 2 },
+        ],
+      }),
+    );
     expect(plan.parts[0]).toEqual({ part: "bassNotes", summary: "2 bass notes", replaces: "Replaces your 1 bass note" });
   });
 
   it("says the chart replaces a chart the song has, and not one it lacks", () => {
-    const withChart = planSongMap({ bpm: "", options: {}, chart: "[Verse]\nA" }, mapWith({ chart: "[Verse]\nG" }));
+    const withChart = planSongMap({ bpm: "", options: {}, chart: "[Verse]\nA", lyrics: "" }, mapWith({ chart: "[Verse]\nG" }));
     expect(withChart.parts[0].replaces).toBe("Replaces your chart");
     const without = planSongMap(blank, mapWith({ chart: "[Verse]\nG" }));
     expect(without.parts[0].replaces).toBeNull();
@@ -98,7 +110,7 @@ describe("planSongMap: the values", () => {
   });
 
   it("writes the tempo to the tenth of a BPM, as manual, and keeps other options", () => {
-    const saved: SavedSong = { bpm: "", options: { mixer: 2, tempoSource: "detected" }, chart: "" };
+    const saved: SavedSong = { bpm: "", options: { mixer: 2, tempoSource: "detected" }, chart: "", lyrics: "" };
     const values = planSongMap(saved, full).values(["tempo"]);
     expect(values[":bpm"]).toBe("128.6");
     const options = optionsOf(values);
@@ -107,7 +119,7 @@ describe("planSongMap: the values", () => {
   });
 
   it("writes the key as the override name, and keeps the rest", () => {
-    const values = planSongMap({ bpm: "", options: { tempoSource: "detected" }, chart: "" }, full).values(["key"]);
+    const values = planSongMap({ bpm: "", options: { tempoSource: "detected" }, chart: "", lyrics: "" }, full).values(["key"]);
     expect(optionsOf(values)).toMatchObject({ songKey: "F# minor", tempoSource: "detected" });
   });
 
@@ -127,8 +139,10 @@ describe("planSongMap: the values", () => {
     expect(band.sections["map-2"]).toEqual({ play: { drums: false, bass: false }, energy: 4, loud: 5 });
   });
 
-  it("writes nothing for the band without the sections", () => {
-    expect(planSongMap(blank, full).values(["band"])).toEqual({});
+  it("writes the song style with the band, and no section overrides, when the song has no sections yet", () => {
+    const band = optionsOf(planSongMap(blank, full).values(["band"])).band as { style: string; sections: Record<string, unknown> };
+    expect(band.style).toBe("pop");
+    expect(band.sections).toEqual({});
   });
 
   it("drops band overrides for sections the map does not have", () => {
@@ -136,6 +150,7 @@ describe("planSongMap: the values", () => {
       bpm: "",
       options: { band: { sections: { "old-1": { energy: 2 }, "map-1": { fills: 2 } } } },
       chart: "",
+      lyrics: "",
     };
     const band = optionsOf(planSongMap(saved, full).values(["sections", "band"])).band as { sections: Record<string, unknown> };
     expect(Object.keys(band.sections)).toEqual(["map-1", "map-2"]);
@@ -158,14 +173,119 @@ describe("planSongMap: the values", () => {
     expect(Object.keys(values)).toEqual([""]);
   });
 
-  it("gives the same values when the same map is applied twice", () => {
-    const saved: SavedSong = { bpm: "120", options: { mixer: 2 }, chart: "" };
+  it("offers nothing the second time the same map is applied", () => {
+    const saved: SavedSong = { bpm: "120", options: { mixer: 2 }, chart: "", lyrics: "" };
     const choice: SongMapPart[] = ["tempo", "key", "sections", "band", "bassNotes", "chart", "notes"];
     const once = planSongMap(saved, full).values(choice);
-    const after: SavedSong = { bpm: once[":bpm"], options: JSON.parse(once[":options"]), chart: once[""] };
-    const again = planSongMap(after, full).values(choice);
-    // The options compare as parsed: the key order of an override can differ, the values cannot.
-    expect({ ...again, ":options": undefined }).toEqual({ ...once, ":options": undefined });
-    expect(optionsOf(again)).toEqual(optionsOf(once));
+    const after: SavedSong = { bpm: once[":bpm"], options: JSON.parse(once[":options"]), chart: once[""], lyrics: "" };
+    const second = planSongMap(after, full);
+    expect(second.parts).toEqual([]);
+    expect(second.values(choice)).toEqual({});
+  });
+});
+
+describe("planSongMap: keeping the song's sections", () => {
+  const kept: SavedSong = {
+    bpm: "",
+    options: {
+      sections: [
+        { id: "x7f", name: "Verse 1", start: 0, end: 10, mode: "loop", color: "#ff0000" },
+        { id: "q2", name: "Chorus", start: 10, end: 20, mode: "skip" },
+      ],
+    },
+    chart: "",
+    lyrics: "",
+  };
+
+  it("keeps a saved section's id, mode and colour, and takes the map's name and times", () => {
+    const map = mapWith({
+      sections: [
+        { start: 0, end: 12, name: "Verse" },
+        { start: 10, end: 20, name: "Chorus" },
+      ],
+    });
+    const plan = planSongMap(kept, map);
+    expect(plan.parts.find((part) => part.part === "sections")?.replaces).toBe("Replaces your 2 sections");
+    expect(optionsOf(plan.values(["sections"])).sections).toEqual([
+      { id: "x7f", name: "Verse", start: 0, end: 12, mode: "loop", color: "#ff0000" },
+      { id: "q2", name: "Chorus", start: 10, end: 20, mode: "skip" },
+    ]);
+  });
+
+  it("gives a new section an id that no kept section has", () => {
+    const saved: SavedSong = { bpm: "", options: { sections: [{ id: "map-1", name: "Chorus", start: 20, end: 40, mode: "continue" }] }, chart: "", lyrics: "" };
+    const map = mapWith({
+      sections: [
+        { start: 0, end: 20, name: "Intro" },
+        { start: 20, end: 40, name: "Chorus" },
+      ],
+    });
+    const sections = optionsOf(planSongMap(saved, map).values(["sections"])).sections as { id: string; name: string }[];
+    expect(sections.map((section) => [section.name, section.id])).toEqual([
+      ["Intro", "map-2"],
+      ["Chorus", "map-1"],
+    ]);
+  });
+
+  it("offers no sections part when the list is the same", () => {
+    const saved: SavedSong = { bpm: "", options: { sections: [{ id: "a", name: "Verse", start: 0, end: 20, mode: "continue" }] }, chart: "", lyrics: "" };
+    const plan = planSongMap(saved, mapWith({ sections: [{ start: 0, end: 20, name: "Verse" }] }));
+    expect(plan.parts.map((part) => part.part)).not.toContain("sections");
+  });
+
+  it("keeps the band override of a kept section under its id", () => {
+    const saved: SavedSong = {
+      bpm: "",
+      options: { sections: kept.options.sections, band: parseBandSettings({ sections: { x7f: { style: "funk" } } }) },
+      chart: "",
+      lyrics: "",
+    };
+    const map = mapWith({ sections: [{ start: 0, end: 10, name: "Verse 1", drums: false }] });
+    const band = optionsOf(planSongMap(saved, map).values(["sections", "band"])).band as { sections: Record<string, { style?: string; play?: unknown }> };
+    expect(band.sections.x7f).toMatchObject({ style: "funk", play: { drums: false, bass: true } });
+    expect(Object.keys(band.sections)).toEqual(["x7f"]);
+  });
+});
+
+describe("planSongMap: parts that would change nothing", () => {
+  it("offers no tempo when the values match, and writes no source", () => {
+    const saved: SavedSong = { bpm: "120", options: { firstBeat: 0.42, beats: 4, tempoSource: "detected" }, chart: "", lyrics: "" };
+    const plan = planSongMap(saved, mapWith({ bpm: 120.04, firstBeat: 0.42, beatsPerBar: 4 }));
+    expect(plan.parts.map((part) => part.part)).not.toContain("tempo");
+    expect(plan.values(["tempo"])).toEqual({});
+  });
+
+  it("writes only the tempo value that differs, and only its source", () => {
+    const saved: SavedSong = { bpm: "120", options: { firstBeat: 0.42, beats: 3, tempoSource: "detected", beatsSource: "detected" }, chart: "", lyrics: "" };
+    const plan = planSongMap(saved, mapWith({ bpm: 120, firstBeat: 0.42, beatsPerBar: 4 }));
+    expect(plan.parts[0]).toEqual({ part: "tempo", summary: "Tempo 4/4", replaces: "Replaces 3/4" });
+    const values = plan.values(["tempo"]);
+    expect(values[":bpm"]).toBeUndefined();
+    expect(optionsOf(values)).toMatchObject({ beats: 4, beatsSource: "manual", tempoSource: "detected", firstBeat: 0.42 });
+  });
+
+  it("offers no chart that is only the song's lyrics", () => {
+    const saved: SavedSong = { bpm: "", options: {}, chart: "", lyrics: "[Verse]\nG" };
+    expect(planSongMap(saved, mapWith({ chart: "[Verse]\nG" })).parts).toEqual([]);
+    expect(planSongMap(saved, mapWith({ chart: "[Verse]\nA" })).parts.map((part) => part.part)).toEqual(["chart"]);
+  });
+
+  it("offers no key, notes or bass notes that are already saved", () => {
+    const saved: SavedSong = {
+      bpm: "",
+      options: {
+        songKey: "F# minor",
+        songMapNotes: "Hold the second chorus.",
+        band: parseBandSettings({ bassOverrides: [{ start: 2, end: 4, pc: 7, octave: -1 }] }),
+      },
+      chart: "",
+      lyrics: "",
+    };
+    const map = mapWith({
+      key: { tonic: 6, mode: "minor", name: "F# minor" },
+      notes: "Hold the second chorus.",
+      bassNotes: [{ start: 2, end: 4, pc: 7, octave: -1 }],
+    });
+    expect(planSongMap(saved, map).parts).toEqual([]);
   });
 });

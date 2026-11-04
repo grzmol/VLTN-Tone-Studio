@@ -35,7 +35,12 @@ const PART_NAMES: Record<SongMapPart, string> = {
 
 /** The song's tempo, options and chart as they are saved now. */
 function savedSongOf(songKey: string): SavedSong {
-  return { bpm: getSetting(songKey, ":bpm"), options: readOptions<Record<string, unknown>>(songKey, {}), chart: getSetting(songKey, "") };
+  return {
+    bpm: getSetting(songKey, ":bpm"),
+    options: readOptions<Record<string, unknown>>(songKey, {}),
+    chart: getSetting(songKey, ""),
+    lyrics: getSetting(songKey, ":lyrics"),
+  };
 }
 
 function isSuffix(name: string): name is SettingSuffix {
