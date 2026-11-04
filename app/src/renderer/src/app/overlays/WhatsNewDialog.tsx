@@ -4,16 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { useUi } from "@/state/ui";
 import { WHATS_NEW_VERSION, saveWhatsNewSeen } from "@/state/whats-new";
-import stems from "@/assets/whats-new/stems.webp";
-import toneMatch from "@/assets/whats-new/tone-match.webp";
-import search from "@/assets/whats-new/search.webp";
-import gear from "@/assets/whats-new/gear.webp";
+import setlist from "@/assets/whats-new/setlist.webp";
+import tuner from "@/assets/whats-new/tuner.webp";
+import rigTools from "@/assets/whats-new/rig-tools.webp";
 
 const SLIDES = [
-  { title: "Pedals and amps that look like the real thing", text: "Every effect is drawn after the pedal it models, with its own colour, size and lettering, joined by patch cables. The board fits itself to the window; a zoom bar and a loupe on the knob you turn take you closer.", image: gear },
-  { title: "Pick the stem separation model", text: "Before the first split, choose a model (Standard, Best or Fine-tuned) and a quality (Fast, Balanced or Max). Models download, resume and delete from the same picker.", image: stems },
-  { title: "Tone match builds a SnapTone", text: "Your downloaded NAM captures are ranked against the song's guitar. Build the SnapTone with a cab IR designed for that song; nothing is written until you press Write.", image: toneMatch },
-  { title: "Search TONE3000 in the app", text: "A new Search tab with gear, architecture and sort filters. Browse is still there as a fallback.", image: search },
+  { title: "Setlists and a stage mode", text: "Put a gig's presets in order, with a note on each song. Stage mode fills the window with the current preset and the next one, and follows the footswitch. If a slot is overwritten, the list tells you and offers to follow the preset.", image: setlist },
+  { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. On the GP-5 and GP-50 a switch puts the pedal in tuner mode, so nothing plays while you tune.", image: tuner },
+  { title: "A metronome, Randomize and Morph", text: "Click at the preset's tempo through the pedal's sound card, with its own volume. The shuffle button nudges every knob, or morphs the sound toward another preset. Both can be undone.", image: rigTools },
 ];
 
 /** Help › What's new: a scroll-snap carousel of the release's headline features. Opens once after an upgrade (app/whats-new.ts). */
