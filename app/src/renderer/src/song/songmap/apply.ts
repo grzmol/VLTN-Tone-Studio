@@ -142,10 +142,10 @@ export function planSongMap(saved: SavedSong, map: SongMap): SongMapPlan {
     const existing = parseSections(options.sections).length;
     parts.push({
       part: "sections",
-      summary: `${map.sections.length} sections`,
-      replaces: existing ? `Replaces your ${existing} sections` : null,
+      summary: counted(map.sections.length, "section"),
+      replaces: existing ? `Replaces your ${counted(existing, "section")}` : null,
     });
-    parts.push({ part: "band", summary: `Drums and bass for ${map.sections.length} sections`, replaces: null });
+    parts.push({ part: "band", summary: `Drums and bass for ${counted(map.sections.length, "section")}`, replaces: null });
   }
   if (map.bassNotes.length) {
     const existing = parseBandSettings(options.band).bassOverrides.length;
@@ -162,7 +162,7 @@ export function planSongMap(saved: SavedSong, map: SongMap): SongMapPlan {
     const previous = typeof options.songMapNotes === "string" ? options.songMapNotes : "";
     parts.push({
       part: "notes",
-      summary: notesSummary(map.notes),
+      summary: `Notes: ${notesSummary(map.notes)}`,
       replaces: previous.trim() && previous !== map.notes ? "Replaces your saved notes" : null,
     });
   }

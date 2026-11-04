@@ -52,7 +52,7 @@ describe("planSongMap: the parts", () => {
   it("says how many sections the song has now", () => {
     const saved: SavedSong = { bpm: "", options: { sections: [{ id: "a", name: "Intro", start: 0, end: 5, mode: "continue" }] }, chart: "" };
     const plan = planSongMap(saved, mapWith({ sections: [verse, chorus] }));
-    expect(plan.parts.find((part) => part.part === "sections")).toEqual({ part: "sections", summary: "2 sections", replaces: "Replaces your 1 sections" });
+    expect(plan.parts.find((part) => part.part === "sections")).toEqual({ part: "sections", summary: "2 sections", replaces: "Replaces your 1 section" });
     expect(plan.parts.find((part) => part.part === "band")?.summary).toBe("Drums and bass for 2 sections");
   });
 
@@ -72,7 +72,9 @@ describe("planSongMap: the parts", () => {
   it("cuts a long notes summary to 60 characters", () => {
     const notes = "x".repeat(100);
     const plan = planSongMap(blank, mapWith({ notes }));
-    expect(plan.parts[0].summary).toHaveLength(60);
+    // The summary is "Notes: " and then the text, cut to 60 characters.
+    expect(plan.parts[0].summary).toHaveLength("Notes: ".length + 60);
+    expect(plan.parts[0].summary.startsWith("Notes: ")).toBe(true);
     expect(plan.parts[0].summary.endsWith("…")).toBe(true);
   });
 });
