@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   flush: vi.fn(async () => {}),
   setSetting: vi.fn(),
   library: { queue: [] as string[], position: 0, load: vi.fn(async () => {}) },
+  saveFiles: vi.fn(async (files: { name: string }[]) => files[0].name),
 }));
 
 vi.mock("@/song/performance/settings", () => ({
@@ -21,6 +22,7 @@ vi.mock("@/song/performance/settings", () => ({
   flushSettings: () => mocks.flush(),
 }));
 vi.mock("@/song/library", () => ({ useSongLibrary: { getState: () => mocks.library } }));
+vi.mock("@/host", () => ({ host: { song: { saveFiles: mocks.saveFiles } } }));
 
 const KEY = "vltn.song:song-1";
 
@@ -44,8 +46,16 @@ function mapText(extra: Partial<SongMap> = {}): string {
   return writeSongMap(map);
 }
 
-function renderCard(props: { libraryId?: string; playing?: boolean } = {}) {
-  return render(<SongMapImport songKey={KEY} libraryId={"libraryId" in props ? props.libraryId : "song-1"} playing={props.playing ?? false} />);
+function renderCard(props: { libraryId?: string; playing?: boolean; title?: string; durationSeconds?: number } = {}) {
+  return render(
+    <SongMapImport
+      songKey={KEY}
+      libraryId={"libraryId" in props ? props.libraryId : "song-1"}
+      playing={props.playing ?? false}
+      title={props.title}
+      durationSeconds={props.durationSeconds}
+    />,
+  );
 }
 
 function disabled(name: string): boolean {
@@ -79,6 +89,7 @@ beforeEach(() => {
   mocks.setSetting.mockClear();
   mocks.flush.mockClear();
   mocks.library.load.mockClear();
+  mocks.saveFiles.mockClear();
 });
 
 afterEach(() => {
@@ -160,5 +171,50 @@ describe("SongMapImport dialog", () => {
     expect(mocks.values.get(KEY + ":options")).toBe(before);
     expect(mocks.values.get(KEY + ":bpm")).toBe("100");
     expect(mocks.library.load).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SongMapImport song brief", () => {
+  it("is disabled for a song with no audio", () => {
+    renderCard({ title: "Test song", durationSeconds: 0 });
+    expect(disabled("Export song brief…")).toBe(true);
+    expect(disabled("Copy brief")).toBe(true);
+  });
+
+  it("saves the brief under the song's name, through the same save path as the chart export", async () => {
+    mocks.values.set(KEY, "[00:00.50] [Am]Hello");
+    renderCard({ title: "Test song", durationSeconds: 61 });
+    fireEvent.click(screen.getByRole("button", { name: "Export song brief…" }));
+    await waitFor(() => expect(mocks.saveFiles).toHaveBeenCalledTimes(1));
+    const [files, label] = mocks.saveFiles.mock.calls[0] as unknown as [{ name: string; bytes: Uint8Array }[], string];
+    expect(label).toBe("Export song brief");
+    expect(files[0].name).toBe("Test song - song brief.md");
+    const text = new TextDecoder().decode(files[0].bytes);
+    expect(text.startsWith("# Song brief: Test song\n")).toBe(true);
+    expect(text).toContain("[00:00.50] [Am]Hello");
+  });
+
+  it("replaces the characters a file name cannot hold", async () => {
+    renderCard({ title: "AC/DC: Live?", durationSeconds: 61 });
+    fireEvent.click(screen.getByRole("button", { name: "Export song brief…" }));
+    await waitFor(() => expect(mocks.saveFiles).toHaveBeenCalledTimes(1));
+    const [files] = mocks.saveFiles.mock.calls[0] as unknown as [{ name: string }[]];
+    expect(files[0].name).toBe("AC-DC- Live- - song brief.md");
+  });
+
+  it("says why the brief could not be saved", async () => {
+    mocks.saveFiles.mockRejectedValueOnce(new Error("disk full"));
+    renderCard({ title: "Test song", durationSeconds: 61 });
+    fireEvent.click(screen.getByRole("button", { name: "Export song brief…" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("The song brief could not be saved: disk full"));
+  });
+
+  it("copies the brief to the clipboard", async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderCard({ title: "Test song", durationSeconds: 61 });
+    fireEvent.click(screen.getByRole("button", { name: "Copy brief" }));
+    await waitFor(() => expect(status()).toBe("Song brief copied."));
+    expect(writeText.mock.calls[0][0].startsWith("# Song brief: Test song\n")).toBe(true);
   });
 });

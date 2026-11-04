@@ -9,9 +9,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { HelpNote } from "@/components/ui/help-note";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { SETTING_SUFFIXES } from "@shared/song-library";
+import { host } from "@/host";
 import { useSongLibrary } from "@/song/library";
 import { flushSettings, getSetting, readOptions, setSetting } from "@/song/performance/settings";
 import { planSongMap, type SavedSong, type SongMapPart, type SongMapPlan } from "@/song/songmap/apply";
+import { songBrief, type BriefInput } from "@/song/songmap/brief";
 import { parseSongMap } from "@/song/songmap/songmap";
 import { useSongMapUndo } from "@/song/songmap/undo";
 
@@ -50,6 +52,24 @@ function defaultChoice(plan: SongMapPlan): SongMapPart[] {
   return plan.parts.filter((part) => !(part.part === "chart" && part.replaces)).map((part) => part.part);
 }
 
+/** The file name of the brief: the song's title, with the characters a file name cannot hold replaced. */
+function briefFileName(title: string): string {
+  const safe = title.trim().replace(/[\\/:*?"<>|]/g, "-") || "Song";
+  return `${safe} - song brief.md`;
+}
+
+/** What the brief is written from, as the song is saved now. */
+function briefInputOf(songKey: string, title: string, durationSeconds: number): BriefInput {
+  return {
+    title,
+    durationSeconds,
+    bpm: getSetting(songKey, ":bpm"),
+    options: readOptions<Record<string, unknown>>(songKey, {}),
+    chart: getSetting(songKey, ""),
+    lyrics: getSetting(songKey, ":lyrics"),
+  };
+}
+
 /** Saves the song's pending settings to the library, then loads the song again, so every panel reads the new values. */
 async function saveAndReload(libraryId: string): Promise<void> {
   await flushSettings();
@@ -64,8 +84,23 @@ function writeEntries(songKey: string, entries: [SettingSuffix, string][]): void
   for (const [suffix, value] of entries) setSetting(songKey, suffix, value);
 }
 
-/** The song map card in the This song view, with the import dialog it opens. */
-export function SongMapImport({ songKey, libraryId, playing }: { songKey: string; libraryId?: string; playing: boolean }) {
+/**
+ * The song map card in the This song view, with the import dialog it opens. The brief export needs the song's audio: `durationSeconds` is
+ * its length, and zero means no audio is loaded.
+ */
+export function SongMapImport({
+  songKey,
+  libraryId,
+  playing,
+  title = "",
+  durationSeconds = 0,
+}: {
+  songKey: string;
+  libraryId?: string;
+  playing: boolean;
+  title?: string;
+  durationSeconds?: number;
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -107,7 +142,9 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
     const entries = settingEntries(Object.entries(plan.values(choice)));
     const before = entries.map(([suffix]): [string, string] => [suffix, getSetting(songKey, suffix)]);
     // A part is named by its plan's summary where the summary has the count (the bass notes), and by its name otherwise.
-    const applied = choice.map((part) => (part === "bassNotes" ? (plan.parts.find((item) => item.part === part)?.summary ?? PART_NAMES[part]) : PART_NAMES[part]));
+    const applied = choice.map((part) =>
+      part === "bassNotes" ? (plan.parts.find((item) => item.part === part)?.summary ?? PART_NAMES[part]) : PART_NAMES[part],
+    );
     try {
       writeEntries(songKey, entries);
       await saveAndReload(libraryId);
@@ -129,6 +166,26 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
       setProblem(`The song map could not be undone: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
+  const hasAudio = durationSeconds > 0;
+  // The brief is built when it is asked for, so it holds the song as it is then. Neither action changes the song.
+  const exportBrief = async () => {
+    try {
+      const bytes = new TextEncoder().encode(songBrief(briefInputOf(songKey, title, durationSeconds)));
+      await host.song.saveFiles([{ name: briefFileName(title), bytes }], "Export song brief");
+      setProblem("");
+    } catch (error) {
+      setProblem(`The song brief could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  const copyBrief = async () => {
+    try {
+      await navigator.clipboard.writeText(songBrief(briefInputOf(songKey, title, durationSeconds)));
+      setProblem("");
+      setStatus("Song brief copied.");
+    } catch (error) {
+      setProblem(`The song brief could not be copied: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const showUndo = undo?.songKey === songKey;
   // The line after Apply comes from the stored record, so it survives the reload; "undone" and errors are this card's own.
   const shownStatus = status || (showUndo && undo ? `Song map applied: ${undo.applied}.` : "");
@@ -145,6 +202,18 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
           </Button>
           <Button variant="outline" size="sm" disabled={!!refusal} title={refusal || undefined} onClick={openPaste}>
             Paste…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!hasAudio}
+            title={hasAudio ? undefined : "Load a song with audio to export its brief."}
+            onClick={() => void exportBrief()}
+          >
+            Export song brief…
+          </Button>
+          <Button variant="outline" size="sm" disabled={!hasAudio} onClick={() => void copyBrief()}>
+            Copy brief
           </Button>
         </>
       }
@@ -185,7 +254,6 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
           {problem}
         </p>
       )}
-      {/* Export song brief… (spec 95) goes here, next to the import buttons. */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
@@ -216,11 +284,7 @@ export function SongMapImport({ songKey, libraryId, playing }: { songKey: string
               <legend className="font-semibold">What will change</legend>
               {plan.parts.map((part) => (
                 <label key={part.part} className="flex items-start gap-2 text-sm">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={choice.includes(part.part)}
-                    onCheckedChange={(value) => toggle(part.part, value === true)}
-                  />
+                  <Checkbox className="mt-0.5" checked={choice.includes(part.part)} onCheckedChange={(value) => toggle(part.part, value === true)} />
                   <span>
                     {part.summary}
                     {part.replaces && <span className="block text-xs text-amber-300">{part.replaces}</span>}

@@ -643,7 +643,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           libraryKey={savedSong?.key ?? undefined}
           onSpellingKey={setSpellingKey}
         />
-        <SongMapImport songKey={key} libraryId={source?.libraryId} playing={playing || library.playlistPlaying} />
+        <SongMapImport
+          songKey={key}
+          libraryId={source?.libraryId}
+          playing={playing || library.playlistPlaying}
+          title={source?.name ?? ""}
+          durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
+        />
         <TrackImport playing={playing || library.playlistPlaying} />
         <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
         <BandPanelButton sections={sectionList} partChoices={partChoice} />
