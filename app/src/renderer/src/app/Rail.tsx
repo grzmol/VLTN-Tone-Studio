@@ -1,11 +1,12 @@
 import type { LucideIcon } from "lucide-react";
-import { AudioLines, AudioWaveform, Cable, LibraryBig, Settings2, Usb } from "lucide-react";
+import { AudioLines, AudioWaveform, Cable, LibraryBig, ListMusic, Settings2, Usb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNav, type Screen } from "@/state/nav";
 
 const ITEMS: { screen: Screen; label: string; icon: LucideIcon }[] = [
   { screen: "rig", label: "Rig", icon: Cable },
   { screen: "library", label: "Library", icon: LibraryBig },
+  { screen: "setlist", label: "Setlist", icon: ListMusic },
   { screen: "tones", label: "Tones", icon: AudioWaveform },
   { screen: "device", label: "Device", icon: Usb },
   { screen: "song", label: "Song", icon: AudioLines },
