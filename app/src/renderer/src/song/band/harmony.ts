@@ -8,6 +8,7 @@ import { chordPattern } from "../performance/reader";
 import type { BassLineBeat } from "../analysis/bass-line";
 import { BASS_LINE_CONFIDENT } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
+import { bassOverrideAt, type BassOverride, type OverrideOctave } from "./bass-overrides";
 
 /** A chord on a chart line that has no following timed line lasts this many seconds, per chord on the line. */
 export const LAST_CHORD_SECONDS = 2;
@@ -24,6 +25,8 @@ export interface ParsedChord {
   bass: number;
   /** The chord name as written, such as `D/F#`. */
   name: string;
+  /** The octave the performer nudged the bass note by (bass-overrides.ts). Absent when the note is not set by hand. */
+  bassOctave?: OverrideOctave;
 }
 
 /** A chord name and the time it starts, from the chart or from detection. */
@@ -209,9 +212,25 @@ export function chordChangeTimes(perBeat: readonly ChordAtBeat[]): number[] {
 }
 
 /**
+ * Puts the performer's bass notes into the harmony (spec 87). On each beat inside an override the chord's bass becomes the override's pitch
+ * class, with its octave nudge, and its root and quality stay. A beat with no chord keeps none: an override sets a note, not a chord.
+ */
+export function withBassOverrides(perBeat: readonly ChordAtBeat[], overrides: readonly BassOverride[]): ChordAtBeat[] {
+  if (overrides.length === 0) return [...perBeat];
+  return perBeat.map((entry) => {
+    const override = entry.chord ? bassOverrideAt(overrides, entry.time) : undefined;
+    if (!entry.chord || !override) return entry;
+    const chord: ParsedChord = { ...entry.chord, bass: override.pc };
+    if (override.octave !== undefined) chord.bassOctave = override.octave;
+    return { ...entry, chord };
+  });
+}
+
+/**
  * The chord on each beat of the song. The chart's chords are used when it has any timed chord, including `N`. Otherwise the detected
  * chords are used, ignoring their confidence. The result is snapped to the beats and short blips are merged. With `bassLine` (the
- * original bass, when the setting asks for it), the played bass notes replace the chords' bass (see withOriginalBass).
+ * original bass, when the setting asks for it), the played bass notes replace the chords' bass (see withOriginalBass). The performer's
+ * overrides (spec 87) come last, so they win over both.
  */
 export function harmonyForSong(
   grid: BeatGrid,
@@ -219,9 +238,11 @@ export function harmonyForSong(
   detected: readonly Chord[],
   songEnd: number,
   bassLine: readonly BassLineBeat[] | null = null,
+  overrides: readonly BassOverride[] = [],
 ): ChordAtBeat[] {
   const fromChart = chartChordEvents(cues);
   const events = fromChart.length ? fromChart : detected.map(({ time, name }) => ({ time, name }));
   const perBeat = mergeShortChords(chordsPerBeat(grid, events, songEnd));
-  return bassLine ? withOriginalBass(perBeat, bassLine) : perBeat;
+  const withBass = bassLine ? withOriginalBass(perBeat, bassLine) : perBeat;
+  return withBassOverrides(withBass, overrides);
 }

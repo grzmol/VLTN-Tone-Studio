@@ -184,6 +184,13 @@ function nearestOctave(pc: number, from: number, range: Range, strong: boolean):
   return candidates.reduce((best, note) => (Math.abs(note - from) < Math.abs(best - from) ? note : best));
 }
 
+/** The note moved by a performer's octave nudge, when the moved note stays in the range. Otherwise the note as it was. */
+function nudgedPitch(pitch: number, octave: number | undefined, range: Range): number {
+  if (!octave) return pitch;
+  const moved = pitch + 12 * octave;
+  return moved >= range.low && moved <= range.high ? moved : pitch;
+}
+
 /** A note a `semitones` step below or above `target`, whichever is closer to `from`. Null when neither is in range. */
 function approachNote(target: number, from: number, range: Range, semitones: number): number | null {
   const options = [target - semitones, target + semitones].filter((note) => note >= range.low && note <= range.high);
@@ -617,9 +624,10 @@ export function generateBass(
   slots.forEach((slot, i) => {
     if (!slot.chord) return;
     const next = slots[i + 1];
-    const { pitch, approach } = slot.variant
-      ? variantPitch(slot.chord, slot.variant, previous, range)
-      : pitchOf(slot, slot.chord, next, previous, range, settings);
+    const chosen = slot.variant ? variantPitch(slot.chord, slot.variant, previous, range) : pitchOf(slot, slot.chord, next, previous, range, settings);
+    // A note the performer set by hand (bass-overrides.ts) moves by its octave nudge, on a chord note and not on an approach.
+    const approach = chosen.approach;
+    const pitch = approach || slot.variant ? chosen.pitch : nudgedPitch(chosen.pitch, slot.chord.bassOctave, range);
     const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0) + (slot.hitOne ? HIT_ONE_ACCENT : 0);
     const nextTime = next ? next.time : slot.barEnd;
     picked.push({

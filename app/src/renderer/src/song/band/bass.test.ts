@@ -440,3 +440,26 @@ describe("generateBass by bass part", () => {
     expect([0, 1].map((bar) => inBar(short, bar).length)).toEqual([2, 2]);
   });
 });
+
+describe("generateBass with the performer's bass notes (spec 87)", () => {
+  const names = barsOf("C", "G");
+  const grid = gridOf(names.length);
+  const plans = [planFor(names.length)];
+  /** The harmony with the second bar's bass set to `bass`, and an octave nudge when given. */
+  const withBass = (bass: number, octave?: 1 | -1): ChordAtBeat[] =>
+    harmonyFor(names).map((entry, beat) =>
+      beat < 4 || !entry.chord ? entry : { ...entry, chord: { ...entry.chord, bass, ...(octave ? { bassOctave: octave } : {}) } },
+    );
+  const firstOf = (notes: readonly NoteEvent[], bar: number) => inBar(notes, bar)[0];
+
+  it("plays the performer's note on the bar it covers", () => {
+    const notes = generateBass(grid, withBass(2), plans, settingsFor(), [], 3);
+    expect(pc(firstOf(notes, 1).pitch)).toBe(2);
+  });
+
+  it("moves the note by an octave nudge", () => {
+    const plain = generateBass(grid, withBass(2), plans, settingsFor(), [], 3);
+    const up = generateBass(grid, withBass(2, 1), plans, settingsFor(), [], 3);
+    expect(firstOf(up, 1).pitch - firstOf(plain, 1).pitch).toBe(12);
+  });
+});

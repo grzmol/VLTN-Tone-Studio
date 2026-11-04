@@ -94,7 +94,7 @@ export function followFor(settings: BandSettings, stems: Stems | null, mix: PcmA
  */
 export function bandHarmony(input: Pick<BandInputs, "grid" | "cues" | "chords" | "songEnd" | "settings" | "bassLine">): ChordAtBeat[] {
   const original = input.settings.bassFrom === "original" ? (input.bassLine ?? null) : null;
-  return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original);
+  return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original, input.settings.bassOverrides);
 }
 
 /** The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. */
