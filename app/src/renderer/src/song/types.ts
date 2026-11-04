@@ -1,6 +1,7 @@
 // Song: a user's audio file split into stems (Stem Splitter) and analysed for a preset on the pedal (Tone Match).
 // The store (song/store.ts, `useSong`) owns the loaded song and its stems; Tone Match only reads them.
 import type { SeparationModelId, StemName } from "@shared/host/song";
+import type { SongRange } from "./range";
 import type { QualityId, SplitChoice } from "./stems/options";
 import type { Backend } from "./stems/protocol";
 
@@ -43,12 +44,16 @@ export interface SplitInfo {
   /** Where the passes ran */
   backends: Backend[];
   seconds: number;
+  /** The part of the song that was split; absent for the whole song */
+  range?: SongRange;
 }
 
 export interface SongState {
   source: SongSource | null;
   /** Present once a split finished for `source`; cleared when another song loads */
   stems: Stems | null;
+  /** The part of `source` the next split takes; null for the whole song. Cleared when another song loads */
+  range: SongRange | null;
   status: SplitStatus;
   /** Model and quality the next split uses (remembered across launches) */
   choice: SplitChoice;
@@ -57,6 +62,10 @@ export interface SongState {
   /** Split `source` with `choice` (downloads the model on first use); cancels a running split when called again */
   split(): Promise<void>;
   setChoice(patch: Partial<SplitChoice>): void;
+  /** Choose the part to split (kept inside the song, at least MIN_RANGE_SECONDS long); null for the whole song */
+  setRange(range: SongRange | null): void;
+  /** Drop the stems to choose another part of the same song */
+  clearStems(): void;
   cancel(): void;
   reset(): void;
 }

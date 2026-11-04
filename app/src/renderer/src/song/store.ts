@@ -2,11 +2,13 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { findModel } from "@shared/host/song";
 import { decodeSong } from "./decode";
 import { separateStems, type Separation, type SeparationProgress, type SplitSettings } from "./stems/engine";
+import { audioSeconds, clampRange, sliceAudio } from "./range";
 import { findQuality, loadSplitChoice, saveSplitChoice, type SplitChoice } from "./stems/options";
 import type { PcmAudio, SongState, SplitInfo, Stems } from "./types";
 
 // The loaded song and its stems (contract: types.ts). One job at a time: loading another song or splitting
-// again aborts the running split; results of a superseded job are dropped.
+// again aborts the running split; results of a superseded job are dropped. A split takes the chosen part of the
+// song (`range`), or all of it.
 
 export interface SongDeps {
   decode(file: File): Promise<PcmAudio>;
@@ -35,13 +37,14 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
   return create<SongStore>((set, get) => ({
     source: null,
     stems: null,
+    range: null,
     status: { kind: "idle" },
     choice: deps.loadChoice(),
     lastSplit: null,
 
     async load(file) {
       const ctrl = begin();
-      set({ source: null, stems: null, lastSplit: null, status: { kind: "decoding" } });
+      set({ source: null, stems: null, range: null, lastSplit: null, status: { kind: "decoding" } });
       try {
         const audio = await deps.decode(file);
         if (ctrl.signal.aborted) return;
@@ -54,10 +57,11 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
     },
 
     async split() {
-      const { source, choice } = get();
+      const { source, choice, range } = get();
       const model = findModel(choice.model);
       const quality = findQuality(choice.quality);
       if (!source || !model || !quality) return;
+      const audio = sliceAudio(source.audio, range);
       const ctrl = begin();
       set({ stems: null, lastSplit: null, status: { kind: "splitting", fraction: 0, backend: null, pass: 1, passes: model.passes.length } });
       const onProgress = (p: SeparationProgress) => {
@@ -65,7 +69,7 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
         set({ status: p.stage === "model" ? { kind: "model", fraction: p.fraction, bytes: p.bytes } : { kind: "splitting", fraction: p.fraction, backend: p.backend, pass: p.pass, passes: p.passes } });
       };
       try {
-        const res = await deps.separate(source.audio, { model, quality }, onProgress, ctrl.signal);
+        const res = await deps.separate(audio, { model, quality }, onProgress, ctrl.signal);
         if (ctrl.signal.aborted || get().source !== source) return;
         const stems: Stems = {};
         for (const name of model.stems) {
@@ -73,7 +77,8 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
           if (!channels) throw new Error(`The split returned no ${name} stem.`);
           stems[name] = { sampleRate: source.audio.sampleRate, channels };
         }
-        set({ stems, lastSplit: { model: model.id, quality: quality.id, backends: res.backends, seconds: res.seconds }, status: { kind: "done" } });
+        const lastSplit: SplitInfo = { model: model.id, quality: quality.id, backends: res.backends, seconds: res.seconds, ...(range && { range }) };
+        set({ stems, lastSplit, status: { kind: "done" } });
       } catch (e) {
         if (!ctrl.signal.aborted && !isAbort(e)) set({ status: { kind: "error", message: message(e) } });
       } finally {
@@ -87,6 +92,16 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
       set({ choice });
     },
 
+    setRange(range) {
+      const { source } = get();
+      if (source) set({ range: clampRange(range, audioSeconds(source.audio)) });
+    },
+
+    clearStems() {
+      if (get().status.kind !== "done") return;
+      set({ stems: null, lastSplit: null, status: { kind: "idle" } });
+    },
+
     cancel() {
       if (!job) return;
       job.abort();
@@ -97,7 +112,7 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
     reset() {
       job?.abort();
       job = null;
-      set({ source: null, stems: null, lastSplit: null, status: { kind: "idle" } });
+      set({ source: null, stems: null, range: null, lastSplit: null, status: { kind: "idle" } });
     },
   }));
 }
