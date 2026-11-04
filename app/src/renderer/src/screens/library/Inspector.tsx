@@ -18,6 +18,7 @@ import { useLibraryActions } from "./actions";
 import { formatDay } from "./dnd";
 import { writableCollections } from "./LocalPane";
 import { emptyName, isEmptyName, useLibrary } from "./store";
+import { metaKey, normTag, useMeta, useTags } from "./tags";
 
 const CORE = [2, 9, 3, 4, 5];
 
@@ -330,6 +331,7 @@ function LocalInspector({ p }: { p: LocalPreset }) {
             )}
             <ChainPreview s={s} />
             <Patch s={s} />
+            <MetaEditor p={p} />
             {p.source && <p className="text-xs text-silkscreen-3">From {p.source}, added {formatDay(p.addedAt)}</p>}
           </>
         ) : (
@@ -358,6 +360,45 @@ function LocalInspector({ p }: { p: LocalPreset }) {
         )}
       </Actions>
     </>
+  );
+}
+
+/** Star rating and tags of a preset on this computer (tags.ts). */
+function MetaEditor({ p }: { p: LocalPreset }) {
+  const meta = useMeta(p);
+  const key = metaKey(p);
+  const { setStars, addTag, removeTag } = useTags.getState();
+  const [draft, setDraft] = useState("");
+  const commit = () => {
+    addTag(key, draft);
+    setDraft("");
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-0.5" role="group" aria-label="Rating">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} type="button" aria-label={`${n} ${n === 1 ? "star" : "stars"}`} aria-pressed={meta.stars >= n} onClick={() => setStars(key, n)} className={cn("text-lg leading-none", meta.stars >= n ? "text-silkscreen" : "text-silkscreen-3")}>
+            {meta.stars >= n ? "★" : "☆"}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {meta.tags.map((t) => (
+          <button key={t} type="button" aria-label={`Remove tag ${t}`} onClick={() => removeTag(key, t)} className="rounded-full bg-faceplate-raised px-2 py-0.5 text-xs text-silkscreen-2 hover:text-led-fault">
+            #{t} <XIcon className="inline size-3" aria-hidden />
+          </button>
+        ))}
+        <Input
+          className="h-7 w-32 text-xs"
+          placeholder="Add tag"
+          aria-label="Add tag"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === ",") && normTag(draft) && (e.preventDefault(), commit())}
+          onBlur={commit}
+        />
+      </div>
+    </div>
   );
 }
 
