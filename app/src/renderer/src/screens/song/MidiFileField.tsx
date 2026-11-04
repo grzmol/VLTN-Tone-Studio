@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { decodeMidiFile, encodeMidiFile, parseSmf, type MidiFileOption } from "@/song/performance/smf";
@@ -38,8 +39,7 @@ export function MidiFileField({ file, onChange }: { file: MidiFileOption | null;
     }
   };
   return (
-    <div aria-label="Song MIDI file" className="space-y-2 rounded border border-seam p-3 text-sm">
-      <h3 className="font-semibold">Song MIDI file</h3>
+    <SettingsCard title="Song MIDI file" summary={file ? file.name : "No file attached"} storageKey="midi-file">
       <HelpNote>
         <p>A standard MIDI file (format 0 or 1) plays alongside the chart’s cues, at the song’s speed, when Send cues is on. It is saved with the song.</p>
       </HelpNote>
@@ -75,6 +75,6 @@ export function MidiFileField({ file, onChange }: { file: MidiFileOption | null;
           {error}
         </p>
       )}
-    </div>
+    </SettingsCard>
   );
 }

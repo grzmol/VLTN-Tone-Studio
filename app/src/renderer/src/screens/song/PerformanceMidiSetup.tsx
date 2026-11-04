@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { BluetoothControls } from "@/bluetooth/BluetoothControls";
@@ -81,8 +82,11 @@ export function PerformanceMidiSetup({
   const outputs = [...(access?.outputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
   const inputs = [...(access?.inputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
   return (
-    <section aria-label="Performance MIDI routing" className="space-y-3 rounded-xl border border-seam p-4">
-      <h2 className="font-semibold">Performance MIDI controller</h2>
+    <SettingsCard
+      title="Performance MIDI controller"
+      summary={`${output?.state === "connected" ? output.name : "Output disconnected"} · ${armed ? "Cues armed" : "Cues disarmed"}`}
+      storageKey="midi-controller"
+    >
       <HelpNote>
         <p>Computer → Bluetooth or USB MIDI → GP-150 / GP-180 → physical MIDI OUT/THRU → MIDI pedals. Choose one performance output below.</p>
       </HelpNote>
@@ -302,6 +306,6 @@ export function PerformanceMidiSetup({
           confirm clock routing.
         </p>
       </details>
-    </section>
+    </SettingsCard>
   );
 }

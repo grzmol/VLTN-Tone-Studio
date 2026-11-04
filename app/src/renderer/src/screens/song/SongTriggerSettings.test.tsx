@@ -11,6 +11,7 @@ const pc = { type: "pc", channel: 2, program: 9 };
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("vltn.card.song-triggers", "open");
   useMidiConfiguration.getState().update({ bindings: defaultBindings() });
 });
 afterEach(() => cleanup());

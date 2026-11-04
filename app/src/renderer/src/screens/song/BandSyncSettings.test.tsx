@@ -48,6 +48,7 @@ const on = (patch: Partial<BandSyncStatus> = {}): BandSyncStatus =>
   });
 
 beforeEach(() => {
+  localStorage.setItem("vltn.card.band-sync", "open");
   api.status.mockResolvedValue(off());
   api.onStatus.mockReturnValue(() => {});
   api.start.mockResolvedValue(on());

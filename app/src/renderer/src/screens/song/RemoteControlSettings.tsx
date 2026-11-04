@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -124,14 +125,16 @@ export function RemoteControlSettings({ inputReady }: { inputReady: boolean }) {
     startLearn({ source, action, ...(index === undefined ? {} : { index }) });
   };
   return (
-    <section aria-label="Remote control" className="glass flex flex-col gap-3 rounded-xl p-4">
+    <SettingsCard
+      title="Remote control"
+      summary={`${bindings.length} binding${bindings.length === 1 ? "" : "s"}`}
+      storageKey="remote-control"
+      defaultOpen={false}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">Remote control</h3>
-          <p className="text-[12px] text-silkscreen-3">
-            {bindings.length} binding{bindings.length === 1 ? "" : "s"}. Any action can run from a MIDI message or a key, including a Bluetooth page-turner.
-          </p>
-        </div>
+        <p className="text-[12px] text-silkscreen-3">
+          {bindings.length} binding{bindings.length === 1 ? "" : "s"}. Any action can run from a MIDI message or a key, including a Bluetooth page-turner.
+        </p>
         <Button variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? "Hide remote control" : "Edit remote control"}
         </Button>
@@ -146,7 +149,7 @@ export function RemoteControlSettings({ inputReady }: { inputReady: boolean }) {
           save={save}
         />
       )}
-    </section>
+    </SettingsCard>
   );
 }
 

@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { LibrarySong } from "@shared/song-library";
 import { describeBinding } from "@/song/performance/bindings";
@@ -35,13 +36,16 @@ export function SongTriggerSettings({ songs: library, inputReady }: { songs: rea
   });
   const hint = WHILE_PLAYING_OPTIONS.find((option) => option.id === options.whilePlaying)?.hint;
   return (
-    <section aria-label="Song triggers" className="glass flex flex-col gap-3 rounded-xl p-4">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-sm font-medium">Load songs from MIDI</h3>
-        <p className="text-[12px] text-silkscreen-3">
-          {withTrigger.length} song{withTrigger.length === 1 ? "" : "s"} with a trigger. Triggers listen on the selected MIDI input, and our own output is ignored.
-        </p>
-      </div>
+    <SettingsCard
+      title="Load songs from MIDI"
+      summary={`${withTrigger.length} song${withTrigger.length === 1 ? "" : "s"} with a trigger`}
+      storageKey="song-triggers"
+      defaultOpen={false}
+    >
+      <p className="text-[12px] text-silkscreen-3">
+        {withTrigger.length} song{withTrigger.length === 1 ? "" : "s"} with a trigger. Triggers listen on the selected MIDI input, and our own output is
+        ignored.
+      </p>
       <label className="flex items-center gap-2 text-[13px]">
         <Checkbox aria-label="Load songs from MIDI" checked={options.listen} onCheckedChange={(checked) => save({ listen: checked === true })} />
         Load songs from MIDI on the selected input
@@ -83,6 +87,6 @@ export function SongTriggerSettings({ songs: library, inputReady }: { songs: rea
           ))}
         </ul>
       )}
-    </section>
+    </SettingsCard>
   );
 }

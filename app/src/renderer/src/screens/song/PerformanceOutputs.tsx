@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useOutputSettings } from "@/song/audio/output-settings";
@@ -68,8 +69,7 @@ export function PerformanceOutputs({ player }: { player: { outputChannels: numbe
   const clickOptions = deviceOptions(devices, config.clickDevice);
 
   return (
-    <section aria-label="Audio outputs" className="flex flex-col gap-3 text-sm">
-      <h3 className="font-semibold">Audio outputs</h3>
+    <SettingsCard title="Audio outputs" summary="Main, click and aux outputs" storageKey="outputs" defaultOpen={false}>
       <div className="flex flex-wrap gap-3">
         <DeviceSelect
           label="Main device"
@@ -136,6 +136,6 @@ export function PerformanceOutputs({ player }: { player: { outputChannels: numbe
           );
         })}
       </div>
-    </section>
+    </SettingsCard>
   );
 }

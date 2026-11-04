@@ -1,3 +1,4 @@
+import { SettingsCard } from "@/components/ui/settings-card";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { lrcTime, midiCommand, type Cue } from "@/song/performance/chart";
@@ -60,8 +61,7 @@ export function MidiCueBuilder({
         ? `CC ${bytes[1]} = ${bytes[2]}`
         : bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
   return (
-    <div aria-label="MIDI cue builder" className="space-y-3 rounded border border-seam p-3">
-      <h3 className="font-semibold">Song MIDI cues</h3>
+    <SettingsCard title="Song MIDI cues" summary={`${cues.length} cue${cues.length === 1 ? "" : "s"}`} storageKey="midi-cues">
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label>
           At seconds
@@ -181,6 +181,6 @@ export function MidiCueBuilder({
           {error}
         </p>
       )}
-    </div>
+    </SettingsCard>
   );
 }

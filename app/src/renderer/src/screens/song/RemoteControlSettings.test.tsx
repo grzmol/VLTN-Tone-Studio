@@ -6,13 +6,18 @@ import { RemoteControlSettings } from "./RemoteControlSettings";
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("vltn.card.remote-control", "open");
   stopLearn();
   useMidiConfiguration.getState().update({ bindings: defaultBindings() });
 });
 afterEach(() => cleanup());
 
 it("is closed by default, and lists each action with its bindings when opened", () => {
+  localStorage.removeItem("vltn.card.remote-control");
   render(<RemoteControlSettings inputReady />);
+  const title = screen.getByRole("button", { name: "Remote control" });
+  expect(title.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(title);
   expect(screen.queryByText("Next song")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Edit remote control" }));
   expect(screen.getByText("Next section")).toBeTruthy();

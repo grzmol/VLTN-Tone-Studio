@@ -14,6 +14,7 @@ function player(outputChannels = 4) {
 }
 
 beforeEach(() => {
+  localStorage.setItem("vltn.card.outputs", "open");
   useOutputSettings.setState({ config: DEFAULT_OUTPUTS });
   vi.stubGlobal("navigator", { mediaDevices: { enumerateDevices: async () => devices, addEventListener: vi.fn(), removeEventListener: vi.fn() } });
 });
