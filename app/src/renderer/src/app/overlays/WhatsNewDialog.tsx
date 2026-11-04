@@ -7,11 +7,19 @@ import { WHATS_NEW_VERSION, saveWhatsNewSeen } from "@/state/whats-new";
 import setlist from "@/assets/whats-new/setlist.webp";
 import tuner from "@/assets/whats-new/tuner.webp";
 import rigTools from "@/assets/whats-new/rig-tools.webp";
+import songPart from "@/assets/whats-new/song-part.webp";
+import { host } from "@/host";
 
 const SLIDES = [
   { title: "Setlists and a stage mode", text: "Put a gig's presets in order, with a note on each song. Stage mode fills the window with the current preset and the next one, and follows the footswitch. If a slot is overwritten, the list tells you and offers to follow the preset.", image: setlist },
   { title: "A tuner, with a mute switch", text: "A chromatic tuner on the pedal's USB audio or any input. A Mute switch sets Out to 0 while you tune and puts it back when you close the tuner.", image: tuner },
   { title: "A metronome, Randomize and Morph", text: "Click at the preset's tempo through the pedal's sound card, with its own volume. The shuffle button nudges every knob, or morphs the sound toward another preset. Both can be undone.", image: rigTools },
+  {
+    title: "Split just the part of a song you want",
+    text: "Drag across the song's waveform to pick a riff or a solo, hear it, and split only that part. It splits faster, uses less memory, and Tone Match reads that one tone instead of the whole song's average.",
+    image: songPart,
+    credit: { handle: "carlosadrianosousa", note: "who also fixed the IR match recorder in packaged builds and a crash in Tones search" },
+  },
 ];
 
 /** Help › What's new: a scroll-snap carousel of the release's headline features. Opens once after an upgrade (app/whats-new.ts). */
@@ -44,6 +52,15 @@ export function WhatsNewDialog() {
                 <img src={s.image} alt="" draggable={false} className="aspect-[3/2] max-h-[max(120px,calc(100vh-270px))] w-full rounded-sm border border-white/10 object-cover object-top" />
                 <h3 className="text-[15px] font-semibold">{s.title}</h3>
                 <p className="text-[13px] text-pretty text-silkscreen-2">{s.text}</p>
+                {s.credit && (
+                  <p className="text-[12px] text-pretty text-silkscreen-3">
+                    Contributed by{" "}
+                    <button type="button" className="text-silkscreen underline underline-offset-2" onClick={() => void host.app.openExternal(`https://github.com/${s.credit.handle}`)}>
+                      @{s.credit.handle}
+                    </button>
+                    , {s.credit.note}.
+                  </p>
+                )}
               </section>
             ))}
           </div>

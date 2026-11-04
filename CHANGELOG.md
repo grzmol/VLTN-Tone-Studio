@@ -9,12 +9,15 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **A metronome.** The clock button next to *Tap* clicks at the preset's tempo, and a tempo change while it runs is heard on the next beat. It plays through the pedal's USB sound card when the pedal is connected, otherwise through the system output, and says which in a toast. A volume slider sits next to it and is remembered.
 - **Setlists and a stage mode.** A new *Setlist* screen holds ordered lists of pedal presets for a gig, one set per pedal model, with a note on every song, reordering by drag or arrow buttons, and JSON export and import. A preset remembers its name, so when a slot is overwritten the list warns you and offers to follow the preset to its new slot or to take the new one. *Stage mode* fills the window with the current preset's name, your note and the next preset; → / Space / Page Down play the next one, ← / Page Up the previous, Esc leaves, and it follows the footswitch.
 - **Tags, star ratings and search by model in the Library.** Rate presets on this computer, tag them, and filter the list by name, tag, a model in the chain or stars (`plexi clean stars:4`).
+- **Split just a part of a song** (#39, by [@carlosadrianosousa](https://github.com/carlosadrianosousa)). Before the split, the Stems tab shows the song's waveform: drag across it to pick a riff or a solo (at least 5 s), preview it with *Play the part*, and only that part is split, so it is faster, uses less memory, and Tone Match reads that one tone instead of the whole song's average. The summary names the part, and *Choose another part…* goes back to the picker without reloading the song. With no part chosen nothing changes.
 - **Randomize and Morph.** The shuffle button on the Rig nudges every knob by a subtle, medium or wild amount (levels and switches stay put), or morphs the sound toward another preset with a slider (blocks that run the same model blend, the others stay). Both land in the undo history.
 
 ### Changed
 - **Roboto for headings and Open Sans for the rest of the interface** (it was Inter). Both fonts ship with the app, so nothing is downloaded.
 
 ### Fixed
+- **The IR match recorder works in packaged builds** (#38, by [@carlosadrianosousa](https://github.com/carlosadrianosousa)). The recorder's worklet was small enough for Vite to inline as a `data:` URL, which the app's Content Security Policy refuses to run, so *Match the cabinet with an IR* failed with "Unable to load a worklet's module". It is now always its own file.
+- **Searching Tones no longer crashes on a result without sizes** (#37, by [@carlosadrianosousa](https://github.com/carlosadrianosousa)). TONE3000 sometimes returns a tone without `sizes`, which threw a `TypeError` in the grid and in the "compatible only" filter.
 - **The TONE3000 App key setting now explains itself.** The old text said to leave the key empty to use the one the build came with; it now says where to get a key and that changing it signs you out.
 
 ## [0.8.1] - 2026-10-21
