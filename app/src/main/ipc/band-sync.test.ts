@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ vi.mock("electron", () => ({
   screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({}), on: () => {}, removeListener: () => {} },
 }));
 
-import { BandSyncServer, followerFiles, isLanAddress, lanAddresses, originHost, parseSettings, parseStartOptions } from "./band-sync";
+import { BandSyncServer, followerFiles, hostAllowed, isLanAddress, lanAddresses, originHost, parseSettings, parseStartOptions } from "./band-sync";
 
 const MODEL: AudienceModel = {
   songKey: "A",
@@ -357,6 +358,41 @@ describe("signing in", () => {
     same.ws.close();
   });
 
+  it("refuses a request or socket whose Host is not the address and port it listens on", async () => {
+    const { port, pin } = await started();
+    const ask = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const socket = netConnect(port, "127.0.0.1", () => socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
+        let reply = "";
+        socket.on("data", (chunk) => (reply += chunk.toString()));
+        socket.on("close", () => resolve(Number(/^HTTP\/1\.1 (\d+)/.exec(reply)?.[1])));
+        socket.on("error", reject);
+      });
+    expect(await ask(`127.0.0.1:${port}`)).toBe(200);
+    expect(await ask(`rebind.example:${port}`)).toBe(403);
+    expect(await ask("127.0.0.1")).toBe(403);
+    expect(await ask(`127.0.0.1:${port + 1}`)).toBe(403);
+    const good = await signedIn(port, pin);
+    good.ws.close();
+    const bad = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Host: `rebind.example:${port}` } });
+    const status = await new Promise<number>((resolve) => {
+      bad.on("error", () => {});
+      bad.on("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+    });
+    expect(status).toBe(403);
+  });
+
+  it("checks a Host header exactly", () => {
+    expect(hostAllowed("10.0.0.5:5790", "10.0.0.5", 5790)).toBe(true);
+    expect(hostAllowed("10.0.0.5", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5", "10.0.0.5", 80)).toBe(true);
+    expect(hostAllowed("10.0.0.5:80", "10.0.0.5", 80)).toBe(true);
+    expect(hostAllowed("evil.example:5790", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5:5790.evil.example", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed(undefined, "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5:5790", null, 5790)).toBe(false);
+  });
+
   it("refuses an Origin of null, the value sandboxed and file pages send", async () => {
     const { port } = await started();
     await expect(connect(port, { origin: "null" })).rejects.toThrow(/403/);
@@ -502,6 +538,23 @@ describe("messages from a signed-in follower", () => {
     await vi.waitFor(() => expect(controls).toEqual(["transport.playPause"]));
   });
 
+  it("tells signed-in followers at once when remote control is switched, and enforces it on the next command", async () => {
+    const { server, controls } = serverWith();
+    const { port, pin } = await started(false, server);
+    const { ws, inbox } = await signedIn(port, pin);
+    const waiting = await connect(port);
+    server.setAllowControl(true);
+    await vi.waitFor(() => expect(inbox.messages).toContainEqual({ type: "control-allowed", allowed: true }));
+    expect(waiting.inbox.messages).toEqual([]);
+    ws.send(JSON.stringify({ type: "control", action: "transport.play" }));
+    await vi.waitFor(() => expect(controls).toEqual(["transport.play"]));
+    server.setAllowControl(false);
+    await vi.waitFor(() => expect(inbox.messages).toContainEqual({ type: "control-allowed", allowed: false }));
+    ws.send(JSON.stringify({ type: "control", action: "transport.stop" }));
+    expect(await until(inbox, "error")).toEqual({ type: "error", message: "Remote control is off." });
+    expect(controls).toEqual(["transport.play"]);
+  });
+
   it("limits how many controls a follower can send each second", async () => {
     const { server, controls } = serverWith();
     const { port, pin } = await started(true, server);
@@ -510,6 +563,82 @@ describe("messages from a signed-in follower", () => {
     await vi.waitFor(() => expect(inbox.messages.some((m) => m.type === "error")).toBe(true));
     expect(controls.length).toBe(4);
     expect(inbox.messages.find((m) => m.type === "error")).toEqual({ type: "error", message: "Too many controls. Wait a moment." });
+  });
+});
+
+/** A socket that takes messages but never finishes a close handshake, like a client that ignores the close frame. */
+class StubbornSocket extends EventEmitter {
+  readyState = 1;
+  bufferedAmount = 0;
+  sent: Record<string, unknown>[] = [];
+  closeCalls: number[] = [];
+  terminated = false;
+  send(text: string) {
+    this.sent.push(JSON.parse(text));
+  }
+  close(code: number) {
+    this.closeCalls.push(code);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  say(message: object) {
+    this.emit("message", Buffer.from(JSON.stringify(message)), false);
+  }
+}
+
+describe("a follower that ignores the close frame", () => {
+  async function stubbornFollower(allowControl: boolean) {
+    const { server, controls } = serverWith();
+    const { pin } = await started(allowControl, server);
+    const socket = new StubbornSocket();
+    (server as unknown as { accept(socket: unknown, address: string): void }).accept(socket, "10.0.0.9");
+    socket.say({ type: "hello", pin });
+    expect(socket.sent[0]).toMatchObject({ type: "hello" });
+    return { server, controls, socket, pin };
+  }
+
+  it("is cut off after a new PIN, and cannot control anything meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, controls, socket } = await stubbornFollower(true);
+      server.rotatePin();
+      expect(socket.sent.at(-1)).toEqual({ type: "closing", reason: "pin-changed" });
+      expect(socket.closeCalls).toEqual([1008]);
+      expect(server.snapshot().followers).toBe(0);
+      socket.say({ type: "control", action: "transport.stop" });
+      expect(controls).toEqual([]);
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is cut off when the sync stops", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, socket } = await stubbornFollower(false);
+      server.stop();
+      expect(socket.sent.at(-1)).toEqual({ type: "closing", reason: "stopped" });
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not terminated if it does close in time", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, socket } = await stubbornFollower(false);
+      server.rotatePin();
+      socket.emit("close");
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

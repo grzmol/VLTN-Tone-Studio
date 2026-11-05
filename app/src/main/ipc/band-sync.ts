@@ -52,6 +52,8 @@ const SECURITY_HEADERS = {
 } as const;
 /** Control messages are counted over this window. */
 const CONTROL_WINDOW_MS = 1000;
+/** A dropped follower gets this long to take the closing message and close frame before its socket is terminated. */
+const CLOSE_GRACE_MS = 250;
 /** The content types of the files a follower page can load. Anything else is refused when the files are read. */
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -126,6 +128,15 @@ export function originHost(origin: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a Host header names this server: exactly `address:port`, or the bare address when the port is 80. Anything else, such as a
+ * name that a hostile page has pointed at this address (DNS rebinding), is refused, so only a page opened by the address can talk to it.
+ */
+export function hostAllowed(host: unknown, address: string | null, port: number): boolean {
+  if (typeof host !== "string" || !address) return false;
+  return host === `${address}:${port}` || (port === 80 && host === address);
 }
 
 /** The private IPv4 addresses on this computer, with their interface names. Loopback and public addresses are never listed. */
@@ -244,11 +255,7 @@ export class BandSyncServer {
   /** Stops listening. Every follower is told the sync stopped, and every session ends. */
   stop(): void {
     if (!this.http) return;
-    for (const peer of this.peers) {
-      this.send(peer, { type: "closing", reason: "stopped" });
-      peer.socket.close(1001, "stopped");
-    }
-    this.peers.clear();
+    this.dropAll({ type: "closing", reason: "stopped" }, 1001, "stopped");
     this.auth.endSessions();
     this.socketServer?.close();
     this.http.close();
@@ -262,17 +269,38 @@ export class BandSyncServer {
   /** A new PIN. Every follower is disconnected and must sign in again with it. */
   rotatePin(): void {
     if (!this.http) return;
-    for (const peer of this.peers) {
-      if (peer.signedIn) this.send(peer, { type: "closing", reason: "pin-changed" });
-      peer.socket.close(1008, "pin changed");
-    }
-    this.peers.clear();
+    this.dropAll({ type: "closing", reason: "pin-changed" }, 1008, "pin changed");
     this.auth.rotate();
     this.options.onChange();
   }
 
+  /**
+   * Ends every connection now. The peers leave the set first, so nothing they send afterwards is heard. The closing message is sent,
+   * the close handshake is started and the socket is terminated shortly after, because a client that ignores the close frame would
+   * otherwise keep its connection until the library's own timeout (30 seconds).
+   */
+  private dropAll(closing: ServerMessage, code: number, reason: string): void {
+    const dropped = [...this.peers];
+    this.peers.clear();
+    for (const peer of dropped) {
+      if (peer.timer) clearTimeout(peer.timer);
+      peer.timer = null;
+      if (peer.signedIn) this.send(peer, closing);
+      peer.signedIn = false;
+      peer.socket.close(code, reason);
+      // The closing message and close frame get a moment to leave. A client that does not answer is then cut off.
+      const cutOff = setTimeout(() => peer.socket.terminate(), CLOSE_GRACE_MS);
+      cutOff.unref();
+      peer.socket.once("close", () => clearTimeout(cutOff));
+    }
+  }
+
+  /** The performer flipped "allow control". Every signed-in follower is told at once; the next command is checked against it. */
   setAllowControl(allowControl: boolean): void {
     this.allowControl = allowControl;
+    for (const peer of this.peers) {
+      if (peer.signedIn) this.send(peer, { type: "control-allowed", allowed: allowControl });
+    }
   }
 
   /**
@@ -314,6 +342,10 @@ export class BandSyncServer {
   }
 
   private answer(req: IncomingMessage, res: ServerResponse): void {
+    if (!hostAllowed(req.headers.host, this.address, this.port)) {
+      res.writeHead(403, SECURITY_HEADERS).end();
+      return;
+    }
     const head = req.method === "HEAD";
     if (req.method !== "GET" && !head) {
       res.writeHead(405, { ...SECURITY_HEADERS, Allow: "GET, HEAD" }).end();
@@ -345,6 +377,7 @@ export class BandSyncServer {
       socket.destroy();
     };
     try {
+      if (!hostAllowed(req.headers.host, this.address, this.port)) return refuse("403 Forbidden");
       let path: string;
       try {
         path = new URL(req.url ?? "/", "http://band.sync").pathname;
@@ -402,6 +435,11 @@ export class BandSyncServer {
   }
 
   private receive(peer: Peer, text: string, isBinary: boolean): void {
+    // A peer that was dropped (new PIN, stop) is no longer in the set. Whatever it still sends is ignored.
+    if (!this.peers.has(peer)) {
+      peer.socket.terminate();
+      return;
+    }
     if (isBinary) return this.refuse(peer, "Messages must be text.");
     // A frame that is not JSON is not a band follower. That connection is closed; others are not affected.
     try {
@@ -469,6 +507,7 @@ export class BandSyncServer {
   }
 
   private control(peer: Peer, action: FollowerAction): void {
+    if (!peer.signedIn || !this.peers.has(peer)) return;
     if (!this.allowControl) return this.send(peer, { type: "error", message: "Remote control is off." });
     const now = this.now();
     peer.controls = peer.controls.filter((at) => now - at < CONTROL_WINDOW_MS);

@@ -285,6 +285,14 @@ describe("FollowerClient song and clock", () => {
     expect(state().clock).toBeNull();
   });
 
+  it("shows or hides the controls when the performer flips remote control", () => {
+    const { sockets, state } = live(false);
+    sockets[0].receive({ type: "control-allowed", allowed: true });
+    expect(state().controlAllowed).toBe(true);
+    sockets[0].receive({ type: "control-allowed", allowed: false });
+    expect(state().controlAllowed).toBe(false);
+  });
+
   it("ignores a message that is not JSON", () => {
     const { sockets, state } = live(false);
     sockets[0].onmessage?.("{nope");
