@@ -1,3 +1,4 @@
+import type { FlacBits } from "@shared/flac";
 import type { PcmAudio } from "../types";
 import type { FlacRequest, FlacResponse } from "./flac-worker";
 
@@ -18,9 +19,9 @@ function run(request: FlacRequest, transfer: Transferable[]): Promise<FlacRespon
   });
 }
 
-/** Encodes one track. The channels are copied into the worker, so the song in memory stays intact. */
-export async function encodeTrack(audio: PcmAudio): Promise<Uint8Array> {
-  const result = await run({ kind: "encode", audio }, []);
+/** Encodes one track at the given depth (16 for stems and imports; see `storedBits`). The channels are copied into the worker, so the song in memory stays intact. */
+export async function encodeTrack(audio: PcmAudio, bits: FlacBits = 16): Promise<Uint8Array> {
+  const result = await run({ kind: "encode", audio: { sampleRate: audio.sampleRate, channels: audio.channels, bits } }, []);
   return result.bytes!;
 }
 

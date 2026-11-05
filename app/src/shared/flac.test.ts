@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFlac, encodeFlac, quantize } from "./flac";
+import { decodeFlac, encodeFlac, matchesQuantized, quantizer, scaleOf, storedBits, toPcm } from "./flac";
 
 function tone(frames: number, offset: number): Float32Array {
   const out = new Float32Array(frames);
@@ -10,13 +10,50 @@ function tone(frames: number, offset: number): Float32Array {
 describe("FLAC codec", () => {
   it("round-trips stereo audio bit-exactly at 24 bits", async () => {
     const channels = [tone(50000, 0), tone(50000, 400)];
-    const decoded = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels }));
+    const decoded = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels, bits: 24 }));
     expect(decoded.sampleRate).toBe(44100);
+    expect(decoded.bits).toBe(24);
     expect(decoded.channels).toHaveLength(2);
-    for (let c = 0; c < 2; c++) {
-      expect(decoded.channels[c]).toHaveLength(50000);
-      for (let i = 0; i < 50000; i++) expect(Math.round(decoded.channels[c][i] * (2 ** 23 - 1))).toBe(quantize(channels[c][i]));
-    }
+    expect(matchesQuantized(decoded, channels, 24)).toBe(true);
+  });
+
+  it("stores 16 bits by default and decodes to the dithered 16-bit values", async () => {
+    const channels = [tone(50000, 0), tone(50000, 400)];
+    const decoded = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels }));
+    expect(decoded.bits).toBe(16);
+    expect(matchesQuantized(decoded, channels, 16)).toBe(true);
+    expect(matchesQuantized(decoded, channels, 24)).toBe(false);
+  });
+
+  it("dithers 16-bit output by at most two steps, and a fixed seed gives the same bits every time", () => {
+    const x = tone(20000, 0);
+    const [ints] = toPcm([x], 16);
+    for (let i = 0; i < x.length; i++) expect(Math.abs(ints[i] - x[i] * scaleOf(16))).toBeLessThan(2);
+    expect(toPcm([x], 16)[0]).toEqual(ints);
+    // Silence still dithers, so a fade to zero does not leave a gap in the noise floor.
+    expect(new Set(toPcm([new Float32Array(1000)], 16)[0]).size).toBeGreaterThan(1);
+    expect(toPcm([new Float32Array(1000)], 24)[0].every((v) => v === 0)).toBe(true);
+  });
+
+  it("streams in blocks to the same integers as a single pass", () => {
+    const x = tone(1000, 0);
+    const y = tone(1000, 50);
+    const whole = new Int32Array(2000);
+    quantizer(16)([x, y], 0, 1000, whole);
+    const split = new Int32Array(2000);
+    const q = quantizer(16);
+    q([x, y], 0, 400, split.subarray(0, 800));
+    q([x, y], 400, 600, split.subarray(800));
+    expect(split).toEqual(whole);
+  });
+
+  it("picks 24 bits for the source only when its original was deeper than 16 bits", () => {
+    expect(storedBits("source", 24)).toBe(24);
+    expect(storedBits("source", 32)).toBe(24);
+    expect(storedBits("source", 16)).toBe(16);
+    expect(storedBits("source", undefined)).toBe(16);
+    expect(storedBits("stem", 24)).toBe(16);
+    expect(storedBits("user", 24)).toBe(16);
   });
 
   it("keeps mono and sample rates", async () => {
@@ -26,7 +63,7 @@ describe("FLAC codec", () => {
   });
 
   it("clips out-of-range samples instead of wrapping", async () => {
-    const decoded = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels: [Float32Array.of(2, -2, 0.5, 0)] }));
+    const decoded = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels: [Float32Array.of(2, -2, 0.5, 0)], bits: 24 }));
     expect(Array.from(decoded.channels[0].slice(0, 2))).toEqual([1, -1]);
   });
 

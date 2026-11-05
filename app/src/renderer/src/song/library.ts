@@ -21,6 +21,7 @@ import type { TimecodeTail } from "./performance/midi-scheduler";
 import { playNext, addToQueue as queueAdd, removeFromQueue as queueRemove, moveInQueue as queueMove, setEntryOverride as queueOverride, type QueueEdit } from "./queue";
 import { overridesFor, type EntryOverride } from "@shared/entry-overrides";
 import { decodeTrack, encodeTrack } from "./codec/flac-client";
+import { storedBits } from "@shared/flac";
 import { migrateLyricsJob } from "./performance/lyrics-jobs";
 import { playerShape, shapeFromOptions } from "./performance/song-shape";
 import { sharedPlaybackEngine } from "./audio/playback-engine";
@@ -247,7 +248,7 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
   return {
     id,
     title: song.title,
-    source: { name: song.sourceName, libraryId: song.id, audio: source },
+    source: { name: song.sourceName, libraryId: song.id, audio: source, bits: sourceEntry?.[1].bits },
     stems: stems as Stems,
     settings: merged === options ? song.settings : { ...song.settings, ":options": merged },
     tracks,
@@ -729,9 +730,12 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         const assets: { name: string; bytes: Uint8Array }[] = [],
           audioInfo: LibraryAudio[] = [];
         for (const [key, audio] of tracks) {
-          const bytes = await encodeTrack(audio);
+          const info = key === "source" ? undefined : state.tracks[key],
+            kind = key === "source" ? "source" : (info?.kind ?? "stem");
+          // Stems and imports are 16-bit; the source keeps 24 bits only when its original file was deeper (see `storedBits`).
+          const bits = storedBits(kind, source.bits);
+          const bytes = await encodeTrack(audio, bits);
           const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
-          const info = key === "source" ? undefined : state.tracks[key];
           assets.push({ name: flacName(key), bytes });
           audioInfo.push({
             name: info?.name ?? key,
@@ -742,7 +746,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
             codec: "flac",
             bytes: bytes.length,
             sha256,
-            kind: key === "source" ? "source" : (info?.kind ?? "stem"),
+            kind,
             ...savedSettingsOf(info),
           });
         }

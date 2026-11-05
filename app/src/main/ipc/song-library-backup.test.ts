@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { c as createTar, x as extractTar, Header } from "tar";
-import { decodeFlac, encodeFlac, quantize } from "@shared/flac";
+import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
 import { isLegacySong } from "@shared/song-library";
 import { SongLibraryStore } from "./song-library-store";
 import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
@@ -14,13 +14,11 @@ import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacy
 let temp: string, root: string, archive: string, store: SongLibraryStore;
 const tracks = ["source.flac", "guitar.flac"];
 const save = saveFlacSong;
-/** The stored track decodes to the original float32 audio, quantized to 24 bits. */
+/** The stored track decodes to the original float32 audio, quantized to the fixture's 16 bits (dither included). */
 async function expectAudio(libraryRoot: string, id: string, fixture: FixtureSong) {
   for (const [name, channels] of Object.entries(fixture.audio)) {
     const decoded = await decodeFlac(await readSaved(libraryRoot, id, `${name}.flac`));
-    decoded.channels.forEach((channel, c) =>
-      expect(Array.from(channel.map((v) => Math.round(v * (2 ** 23 - 1))))).toEqual(Array.from(channels[c].map(quantize))),
-    );
+    expect(matchesQuantized(decoded, channels, 16)).toBe(true);
   }
 }
 async function unpack() {

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { decodeFlac, encodeFlac, quantize } from "@shared/flac";
+import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
 import { isLegacySong } from "@shared/song-library";
 import { SongLibraryStore, libraryFilePath } from "./song-library-store";
 import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
@@ -17,13 +17,11 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
-/** The decoded track must equal the stored float32 audio quantized to 24 bits. */
+/** The decoded track must equal the stored float32 audio quantized to the fixture's 16 bits (dither included). */
 async function expectAudio(fixture: FixtureSong, name: string) {
   const decoded = await decodeFlac(await readSaved(root, fixture.song.id, `${name}.flac`));
   expect(decoded.channels).toHaveLength(fixture.audio[name].length);
-  decoded.channels.forEach((channel, c) => {
-    expect(Array.from(channel.map((v) => Math.round(v * (2 ** 23 - 1))))).toEqual(Array.from(fixture.audio[name][c].map(quantize)));
-  });
+  expect(matchesQuantized(decoded, fixture.audio[name], 16)).toBe(true);
 }
 it("round-trips audio, charts and duplicate playlist entries across restart", async () => {
   const first = await flacSong(1),

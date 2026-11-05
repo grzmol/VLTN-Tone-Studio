@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { exportBackup, readBackup, readBackupIndex } from "./song-library-backup";
 import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
-import { decodeFlac, encodeFlac, quantize } from "@shared/flac";
+import { decodeFlac, encodeFlac, matchesQuantized, storedBits } from "@shared/flac";
 import {
   CHART_ANNOTATIONS_FILE,
   CHART_ANNOTATIONS_MAX_BYTES,
@@ -24,6 +24,7 @@ import {
   isTrackFileName,
   trackFiles,
   trackKey,
+  trackKindOf,
   upgradeIndex,
   validId,
   validateFolders,
@@ -529,12 +530,12 @@ export class SongLibraryStore {
           if (raw.byteLength !== track.frames * 4) throw new Error("Damaged saved audio.");
           channels.push(new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)));
         }
-        const bytes = await encodeFlac({ sampleRate: track.sampleRate, channels });
+        // v1 saves do not record the original file's depth, so the source is stored at 16 bits (see `storedBits`).
+        const bits = storedBits(trackKindOf(track));
+        const bytes = await encodeFlac({ sampleRate: track.sampleRate, channels, bits });
         const check = await decodeFlac(bytes);
-        const same =
-          check.channels.length === channels.length &&
-          check.channels.every((ch, c) => ch.length === track.frames && ch.every((v, i) => Math.round(v * (2 ** 23 - 1)) === quantize(channels[c][i])));
-        if (!same || check.sampleRate !== track.sampleRate) throw new Error("Converted audio did not match the original.");
+        // The check compares against the integers that were written, so the 16-bit dither is part of the expected value.
+        if (!matchesQuantized(check, channels, bits) || check.sampleRate !== track.sampleRate) throw new Error("Converted audio did not match the original.");
         await writeFile(join(this.root, target, flacName(track.name)), bytes);
         audio.push({ ...track, file: flacName(track.name), codec: "flac", bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
       }
