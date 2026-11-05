@@ -404,8 +404,9 @@ export class MockGp200 {
     }
   }
 
+  /** Flag 0 = the slot holds data, 1 = empty (as real units answer). */
   #nameReply(type, slot, entry) {
-    this.#reply(rec.nameEntry(type, slot, entry.data ? 1 : 0, entry.sum, entry.name));
+    this.#reply(rec.nameEntry(type, slot, entry.data ? 0 : 1, entry.sum, entry.name));
   }
 
   /** Dangerous frames are recorded and never change state. */
