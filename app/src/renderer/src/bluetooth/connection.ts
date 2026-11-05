@@ -122,12 +122,14 @@ export class BleMidiConnection {
     useBluetooth.setState({ diagnostics: this.diagnostics });
   }
   /** Open the GATT link and MIDI characteristic. `previous` carries the counters over when restoring a lost link. */
-  static async open(device: BleDevice, previous?: BluetoothDiagnostics): Promise<BleMidiConnection> {
+  static async open(device: BleDevice, previous?: BluetoothDiagnostics, signal?: AbortSignal): Promise<BleMidiConnection> {
     try {
       const server = await device.gatt?.connect();
       if (!server) throw new Error("The selected device has no Bluetooth GATT server.");
+      signal?.throwIfAborted();
       const service = await server.getPrimaryService(MIDI_SERVICE);
       const characteristic = await service.getCharacteristic(MIDI_CHARACTERISTIC);
+      signal?.throwIfAborted();
       if (
         (!characteristic.properties.notify && !characteristic.properties.indicate) ||
         (!characteristic.properties.write && !characteristic.properties.writeWithoutResponse)
@@ -142,14 +144,15 @@ export class BleMidiConnection {
         connection.abandon();
         throw e;
       }
-      if (connection.state !== "connected") {
+      if (signal?.aborted || connection.state !== "connected") {
         connection.abandon();
+        signal?.throwIfAborted();
         throw new Error("Bluetooth disconnected during setup. Keep the device nearby and try connecting again.");
       }
       connection.established = true;
       return connection;
     } catch (e) {
-      device.gatt?.disconnect();
+      releaseDevice(device);
       throw e;
     }
   }
@@ -383,7 +386,12 @@ export class BleMidiConnection {
   /** Give up on a session that never finished setting up. Unlike close(), this leaves a reconnect in progress alone. */
   private abandon() {
     this.teardown({ reconnect: false });
-    this.device.gatt?.disconnect();
+    releaseDevice(this.device);
+  }
+  /** Drop a session nobody is using: close its listeners, and the radio link unless the user's own link shares the device. */
+  discard() {
+    this.teardown({ reconnect: false });
+    releaseDevice(this.device);
   }
   /** The user's disconnect: no automatic reconnect. */
   close() {
@@ -394,15 +402,27 @@ export class BleMidiConnection {
   }
 }
 
+/**
+ * Disconnect the radio unless another link is using the same device. A reconnect attempt that finishes late and
+ * a link the user just opened by hand share one BluetoothDevice, and disconnecting it would end the user's link.
+ */
+function releaseDevice(device: BleDevice) {
+  const { connection, connecting } = useBluetooth.getState();
+  if (connecting || connection?.device === device) return;
+  device.gatt?.disconnect();
+}
+
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-let reconnectRun = 0;
+/** Aborted when the running reconnect is stopped or replaced; every attempt checks it before it touches the store. */
+let reconnectAbort: AbortController | undefined;
 
 /** Wait before reconnect attempt `n`: 0.5, 1, 2, 4 s … capped at 30 s. */
 export const reconnectDelay = (attempt: number) => Math.min(RECONNECT_FIRST_MS * 2 ** (attempt - 1), RECONNECT_MAX_MS);
 
-/** Stop restoring a lost link (the user disconnected or chose another device). */
+/** Stop restoring a lost link (the user disconnected, connected by hand or chose another device), including an attempt already running. */
 export function stopBluetoothReconnect() {
-  reconnectRun++;
+  reconnectAbort?.abort();
+  reconnectAbort = undefined;
   clearTimeout(reconnectTimer);
   reconnectTimer = undefined;
   if (useBluetooth.getState().reconnect) useBluetooth.setState({ reconnect: null });
@@ -411,16 +431,19 @@ export function stopBluetoothReconnect() {
 /** Reconnect to the same device without the chooser; BluetoothDevice objects stay valid while the page is alive. */
 function startBluetoothReconnect(device: BleDevice, diagnostics: BluetoothDiagnostics) {
   stopBluetoothReconnect();
-  const run = reconnectRun;
+  const abort = new AbortController();
+  const { signal } = abort;
+  reconnectAbort = abort;
   const schedule = (attempt: number) => {
     useBluetooth.setState({ reconnect: { attempt } });
     reconnectTimer = setTimeout(async () => {
       try {
-        const connection = await BleMidiConnection.open(device, diagnostics);
-        if (run !== reconnectRun) return connection.close();
+        const connection = await BleMidiConnection.open(device, diagnostics, signal);
+        // A stale attempt is dropped without touching the current link: it only lets go of its own listeners.
+        if (signal.aborted) return connection.discard();
         useBluetooth.setState({ connection, reconnect: null, error: null });
       } catch {
-        if (run === reconnectRun) schedule(attempt + 1);
+        if (!signal.aborted) schedule(attempt + 1);
       }
     }, reconnectDelay(attempt));
   };

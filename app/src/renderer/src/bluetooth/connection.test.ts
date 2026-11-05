@@ -400,6 +400,78 @@ describe("Bluetooth auto-reconnect", () => {
     expect(useBluetooth.getState().reconnect).toBeNull();
     expect(useBluetooth.getState().connection).toBeNull();
   });
+  /** Lose the link, then hold the first reconnect attempt inside gatt.connect() until `finish` is called. */
+  async function attemptInFlight() {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    const server = await f.gatt.connect();
+    let finish!: () => void;
+    f.gatt.connect.mockClear();
+    f.gatt.connect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(server);
+        }),
+    );
+    f.gatt.connected = false;
+    f.device.dispatchEvent(new Event("gattserverdisconnected"));
+    await flush(500);
+    expect(f.gatt.connect).toHaveBeenCalledTimes(1);
+    return { f, finish };
+  }
+  it("keeps a link the user opened by hand when a reconnect attempt that was running finishes late", async () => {
+    const { f, finish } = await attemptInFlight();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: vi.fn().mockResolvedValue(f.device) } });
+    const manual = await connectBluetooth();
+    expect(useBluetooth.getState().connection).toBe(manual);
+    expect(useBluetooth.getState().reconnect).toBeNull();
+    f.gatt.disconnect.mockClear();
+    finish();
+    await flush(60_000);
+    expect(f.gatt.disconnect).not.toHaveBeenCalled();
+    expect(manual.state).toBe("connected");
+    expect(useBluetooth.getState().connection).toBe(manual);
+    expect(useBluetooth.getState().reconnect).toBeNull();
+    expect(useBluetooth.getState().diagnostics?.reconnects).not.toBe(1);
+  });
+  it("does not retry after a manual connect when the running attempt fails late", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    let fail!: () => void;
+    f.gatt.connect.mockClear();
+    f.gatt.connect.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = () => reject(new Error("out of range"));
+        }),
+    );
+    f.gatt.connected = false;
+    f.device.dispatchEvent(new Event("gattserverdisconnected"));
+    await flush(500);
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: vi.fn().mockResolvedValue(f.device) } });
+    const manual = await connectBluetooth();
+    f.gatt.connect.mockClear();
+    fail();
+    await flush(60_000);
+    expect(f.gatt.connect).not.toHaveBeenCalled();
+    expect(manual.state).toBe("connected");
+    expect(useBluetooth.getState().reconnect).toBeNull();
+  });
+  it("aborts the attempt that is already running when the user stops reconnecting", async () => {
+    const { f, finish } = await attemptInFlight();
+    expect(useBluetooth.getState().reconnect).toEqual({ attempt: 1 });
+    stopBluetoothReconnect();
+    expect(useBluetooth.getState().reconnect).toBeNull();
+    f.gatt.connected = true;
+    finish();
+    await flush(60_000);
+    expect(useBluetooth.getState().connection).toBeNull();
+    expect(useBluetooth.getState().reconnect).toBeNull();
+    expect(f.gatt.connect).toHaveBeenCalledTimes(1);
+    expect(f.gatt.disconnect).toHaveBeenCalled();
+  });
 });
 
 it("offers both GP-150 and GP-180 Bluetooth names without requiring service advertising", async () => {
