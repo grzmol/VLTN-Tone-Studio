@@ -273,3 +273,32 @@ describe("backup and restore", () => {
     expect(useSongLibrary.getState()).toMatchObject({ backupPreview: null, notice: "Backup restore cancelled." });
   });
 });
+
+it("a re-save keeps the saved tracks this session could not read, and never saves a mix as the source", async () => {
+  decodeAll();
+  // The source file is damaged, so the session plays a mix of the stems.
+  fetchFile.mockImplementation(async (url: string) => (String(url).includes("source") ? new Response(null, { status: 404 }) : file()));
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await useSongLibrary.getState().load(saved.id);
+  await useSongLibrary.getState().save("Saved song", "");
+  const [metadata, assets] = api.save.mock.calls[0];
+  expect(assets).toEqual([]);
+  expect(codec.encodeTrack).not.toHaveBeenCalled();
+  expect(metadata.audio.map((a: { file: string; sha256: string }) => [a.file, a.sha256])).toEqual(saved.audio.map((a) => [a.file, a.sha256]));
+  expect(metadata.duration).toBe(saved.duration);
+});
+it("a re-save keeps an unread stem but drops one the user removed", async () => {
+  decodeAll();
+  const two = { ...saved, audio: [...saved.audio, { ...saved.audio[1], name: "bass", file: "bass.flac", sha256: "c".repeat(64) }] };
+  api.index.mockResolvedValue({ ...emptyLibrary(), songs: [two] });
+  api.audioUrls.mockResolvedValue({ source: "u/source.flac", guitar: "u/guitar.flac", bass: "u/bass.flac" });
+  fetchFile.mockImplementation(async (url: string) => (String(url).includes("bass") ? new Response(null, { status: 404 }) : file()));
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await useSongLibrary.getState().load(saved.id);
+  await useSongLibrary.getState().save("Saved song", "");
+  expect(api.save.mock.calls[0][0].audio.map((a: { name: string }) => a.name)).toEqual(["source", "guitar", "bass"]);
+  const { guitar: _removed, ...rest } = useSong.getState().stems!;
+  useSong.setState({ stems: Object.keys(rest).length ? rest : null });
+  await useSongLibrary.getState().save("Saved song", "");
+  expect(api.save.mock.calls[1][0].audio.map((a: { name: string }) => a.name)).toEqual(["source", "bass"]);
+});
