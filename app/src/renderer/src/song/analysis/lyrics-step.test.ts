@@ -26,11 +26,13 @@ describe("lyricsStep", () => {
     expect(onText).toHaveBeenCalledWith("[00:01.00] Hold on");
   });
 
-  it("reports nothing when no words were heard", async () => {
+  it("reports nothing when no words were heard, and says so through onNone", async () => {
     transcribe.mockResolvedValueOnce({ text: "", placed: 0 });
     const onText = vi.fn();
-    await lyricsStep({ options, onText }).run(audioWith(pcm), new AbortController().signal, { audioId: "a", version: 2 });
+    const onNone = vi.fn();
+    await lyricsStep({ options, onText, onNone }).run(audioWith(pcm), new AbortController().signal, { audioId: "a", version: 2 });
     expect(onText).not.toHaveBeenCalled();
+    expect(onNone).toHaveBeenCalledOnce();
   });
 
   it("passes the transcriber's status on, and reports a failure with its message before it goes on", async () => {

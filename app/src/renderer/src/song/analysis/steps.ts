@@ -255,6 +255,8 @@ export interface LyricsStepInput {
   pasted?: string[];
   /** Receives the chart text when the step found words. The caller decides whether to save it. */
   onText(text: string): void;
+  /** Called when the vocals had no words to chart, such as an instrumental passage or a song with no singing, so the caller can say so. */
+  onNone?(): void;
   /** Receives the transcriber's status as it goes, such as a model download. */
   onStatus?(status: string): void;
   /** Receives why the step failed, before the error goes on to the run. A stop is not a failure, so nothing is reported for it. */
@@ -274,6 +276,7 @@ export function lyricsStep(input: LyricsStepInput): AnalysisStep {
       try {
         const { text } = await transcribeLyrics({ audio: vocals, options: input.options, pasted: input.pasted, signal, onStatus: input.onStatus });
         if (text) input.onText(text);
+        else input.onNone?.();
       } catch (e) {
         if (!signal.aborted) input.onError?.(e instanceof Error ? e.message : String(e));
         throw e;

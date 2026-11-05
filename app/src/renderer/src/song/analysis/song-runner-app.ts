@@ -88,6 +88,7 @@ function lyricsFor(key: string, captured: CapturedRun): AnalysisStep | null {
   return lyricsStep({
     options: captured.lyricsOptions,
     onText: (text) => (captured.lyrics = text),
+    onNone: () => (captured.note = "No singing found, so no lyrics were made."),
     onStatus: (status) => songRunner.state.setState({ step: lyricsStepText(status) }),
     onError: (reason) => (captured.note = `Lyrics failed: ${reason}`),
   });
