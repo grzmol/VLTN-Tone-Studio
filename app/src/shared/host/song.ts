@@ -147,6 +147,8 @@ export interface SaveFile {
 }
 
 export interface SongHostApi {
+  /** Desktop managed song library: saved songs as FLAC, backups, and the kept copy of a converted library. */
+  library?: import("../song-library").SongLibraryApi;
   /** Local names (ModelFile.file) of the model files downloaded and checked already */
   downloadedFiles(): Promise<string[]>;
   /**

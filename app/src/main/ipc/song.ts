@@ -1,8 +1,8 @@
-import { app, net, type BrowserWindow } from "electron";
+import { app, net, shell, type BrowserWindow } from "electron";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   findModel,
   MODEL_CHECKSUM_ERROR,
@@ -18,6 +18,9 @@ import { sanitizeFileName } from "@shared/files-naming";
 import { HostError } from "@shared/ipc";
 import { handle, sendTo, showOpenDialog, showSaveDialog } from "./handle";
 import { downloadPart as downloadPartFile, PROGRESS_EVERY_BYTES } from "./model-download";
+import { SongLibraryStore } from "./song-library-store";
+import { createTrash } from "./trash";
+import type { LibrarySong, LibraryTransferProgress, RestoreMode } from "@shared/song-library";
 
 // The Song screen's separation models (src/shared/host/song.ts): each file is downloaded on first use into
 // userData/models, resumed from a `.part` file after an interrupted download, checked against its pinned SHA-256
@@ -61,7 +64,61 @@ async function ensureFile(f: ModelFile, onBytes: (received: number) => void, sig
   await rename(partPath(f), filePath(f));
 }
 
+/** Where saved songs live. `main/index.ts` serves files below it through the `app://library` protocol. */
+export const libraryRoot = () => join(app.getPath("userData"), "song-library");
+
 export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
+  // Deleted songs go to the OS Trash; the library's own .trash folder only when the OS refuses.
+  const library = new SongLibraryStore(libraryRoot(), Date.now, createTrash(libraryRoot(), (path) => shell.trashItem(path)));
+  handle("song:library:index", () => library.index());
+  handle("song:library:v1BackupBytes", () => library.v1BackupBytes());
+  handle("song:library:removeV1Backup", () => library.removeV1Backup());
+  handle("song:library:begin", (_e, song: LibrarySong) => library.begin(song));
+  handle("song:library:write", (_e, token: string, name: string, bytes: Uint8Array) => library.write(token, name, bytes));
+  handle("song:library:commit", (_e, token: string) => library.commit(token));
+  handle("song:library:abort", (_e, token: string) => library.abort(token));
+  handle("song:library:audioUrls", (_e, id: string) => library.audioUrls(id));
+  handle("song:library:updateSettings", (_e, id: string, patch: Record<string, string>) => library.updateSettings(id, patch));
+  handle("song:library:remove", (_e, id: string) => library.remove(id));
+  const transferProgress = (value: LibraryTransferProgress) => sendTo(getWindow, "song:library:progress", value);
+  handle("song:library:exportBackup", async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const selection = await showSaveDialog(getWindow(), {
+      title: "Export portable song library",
+      defaultPath: join(app.getPath("documents"), "Tone-Studio-library-" + stamp + ".tar.gz"),
+      filters: [{ name: "Portable song library", extensions: ["tar.gz"] }],
+    });
+    if (selection.canceled || !selection.filePath) return null;
+    const result = await library.exportBackup(selection.filePath, transferProgress);
+    return { ...result, fileName: basename(selection.filePath) };
+  });
+  // The renderer never names a path: the backup it inspected is the one it restores.
+  let chosenBackup: string | null = null;
+  handle("song:library:inspectBackup", async () => {
+    const selection = await showOpenDialog(getWindow(), {
+      title: "Restore song library",
+      properties: ["openFile"],
+      filters: [{ name: "Portable song library", extensions: ["gz", "tgz"] }],
+    });
+    chosenBackup = null;
+    if (selection.canceled || !selection.filePaths[0]) return null;
+    const path = selection.filePaths[0];
+    const preview = await library.inspectBackup(path);
+    chosenBackup = path;
+    return { ...preview, fileName: basename(path) };
+  });
+  handle("song:library:restoreBackup", async (_e, mode: RestoreMode) => {
+    if (!chosenBackup) throw new HostError("invalid", "Choose a backup to restore first.");
+    if (mode !== "skip" && mode !== "copy") throw new HostError("invalid", "Unknown restore mode.");
+    const path = chosenBackup;
+    chosenBackup = null;
+    const result = await library.restoreBackup(path, transferProgress, mode);
+    return { ...result, fileName: basename(path) };
+  });
+  library.startSweeping();
+  app.once("will-quit", () => library.stopSweeping());
+  // A library saved as raw audio by a fork build is converted to FLAC in the background; the song list shows each song as soon as it is done.
+  void library.migrate(transferProgress).catch((e) => console.error("Song library conversion failed", e));
   // One download per file at a time; a second request (retry, another model sharing the file) joins it. A joined
   // download keeps the signal of the request that started it, so cancelling a joiner doesn't stop the file.
   const pending = new Map<string, Promise<void>>();
