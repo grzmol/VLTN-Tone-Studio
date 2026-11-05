@@ -2,10 +2,10 @@
 //   <root>/backups/<device key>-YYYY-MM-DD[-n]/<slot label>-Name.prst (+ backup.json)   read-only snapshots of the pedal
 //   <root>/backups/.tmp-*  backups being written: renamed into place when complete, swept on start-up if abandoned
 //   <root>/library/<dir>/collection.json + *.prst                                       Imported files, Replaced presets, user collections
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
-import { writeJsonAtomic } from "./fs-atomic";
+import { renameRetry, rmRetry, writeJsonAtomic } from "./fs-atomic";
 import { backupsToPrune, type BackupRetention } from "@shared/backup-retention";
 import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
 import type { BackupSlot, CollectionInfo, CollectionKind, LocalPreset, NewPreset, PickedFile } from "@shared/host/files";
@@ -217,6 +217,7 @@ export class LibraryStore {
     // Built in a temp folder and renamed once every file is in, so a backup cut short by a crash or a full disk never
     // shows up in the library looking complete.
     const temp = await mkdtemp(join(this.backupsDir, TEMP_PREFIX));
+    let dir: string;
     try {
       const files: string[] = [];
       for (const s of slots) {
@@ -226,13 +227,19 @@ export class LibraryStore {
       }
       await writeJsonAtomic(join(temp, "backup.json"), { createdAt: now.toISOString(), device, slots: slots.length, files });
       // Named just before the rename, so a backup finished meanwhile can't take the name.
-      const dir = backupDirName(now, await listDirs(this.backupsDir), device);
-      await rename(temp, join(this.backupsDir, dir));
-      return this.backupInfo(dir);
+      dir = backupDirName(now, await listDirs(this.backupsDir), device);
     } catch (e) {
-      await rm(temp, { recursive: true, force: true }).catch(() => {});
+      await rmRetry(temp, { recursive: true, force: true }).catch(() => {});
       throw e;
     }
+    try {
+      await renameRetry(temp, join(this.backupsDir, dir));
+    } catch (e) {
+      // The copy is complete, so it stays where it is rather than being thrown away with the failed rename.
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new HostError("io", `The backup is complete but couldn't be moved into place (${reason}). Its files are in ${temp}`);
+    }
+    return this.backupInfo(dir);
   }
 
   /**
@@ -249,7 +256,7 @@ export class LibraryStore {
         () => now,
       );
       if (now - modified < TEMP_MAX_AGE_MS) continue;
-      await rm(path, { recursive: true, force: true });
+      await rmRetry(path, { recursive: true, force: true });
       removed++;
     }
     return removed;
