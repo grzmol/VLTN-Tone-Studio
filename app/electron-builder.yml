@@ -21,6 +21,9 @@ files:
   - "!node_modules/sharp/**"
   - "!node_modules/@img/**"
   - "!node_modules/onnxruntime-node/**"
+  # pdf.js is bundled into the renderer by Vite. It also lists an optional native canvas (about 30 MB of Skia) for Node rendering,
+  # which the app never uses: charts are drawn in the renderer with the browser's own canvas.
+  - "!node_modules/@napi-rs/**"
 asarUnpack: []
 # Unsigned Mac builds get a valid ad-hoc signature (scripts/adhoc-sign.cjs); a real signing identity skips it.
 afterPack: scripts/adhoc-sign.cjs
