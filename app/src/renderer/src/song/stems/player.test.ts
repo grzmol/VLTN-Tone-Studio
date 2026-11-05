@@ -607,6 +607,24 @@ it("loops a song by jumping back to its trimmed start just before the end, with 
   vi.useRealTimers();
 });
 
+it("announces the loop pass it schedules, so the session can tell the MIDI scheduler", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: pcm(1000) }, undefined, { trimStart: 2, trimEnd: 8, endBehaviour: "loop" });
+  const passes: unknown[] = [];
+  player.onLoopScheduled = (loop) => passes.push(loop);
+  await player.play();
+  const ctx = Context.instances[0];
+  ctx.currentTime = 15.2;
+  vi.advanceTimersByTime(50);
+  expect(passes).toEqual([{ to: 2, at: 8, when: 16.02 }]);
+  // One pass is announced once, however often the timer checks.
+  vi.advanceTimersByTime(200);
+  expect(passes).toHaveLength(1);
+  await player.dispose();
+  vi.useRealTimers();
+});
+
 it("swaps a render in at a beat, keeping the song position, and plays the new buffers at the new rate", async () => {
   vi.useFakeTimers();
   vi.stubGlobal("AudioContext", Context);

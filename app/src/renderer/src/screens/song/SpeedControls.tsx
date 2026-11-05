@@ -1,9 +1,46 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { debouncedCommit } from "@/song/performance/debounced-commit";
 import { effectiveBpm } from "@/song/performance/speed";
 import { useSession, type PerformanceSession } from "@/song/performance/session";
 
 const field = "rounded border border-seam bg-transparent p-2";
+
+/**
+ * A number field for pitch or fine tune. What is typed shows at once, but the speed changes (and a render starts) 250 ms after the
+ * last keystroke, or at once on Enter or when the field is left, so typing "-12" does not render "-" and "-1" on the way.
+ */
+function NumberField({ label, value, min, max, onCommit }: { label: string; value: number; min: number; max: number; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = useMemo(
+    () =>
+      debouncedCommit<string>((text) => {
+        setDraft(null);
+        onCommit(Number(text) || 0);
+      }),
+    [onCommit],
+  );
+  // A field that goes away with a change still waiting commits it, so nothing typed is lost.
+  useEffect(() => commit.flush, [commit]);
+  return (
+    <input
+      aria-label={label}
+      className={field + " w-20"}
+      type="number"
+      min={min}
+      max={max}
+      value={draft ?? value}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        commit.change(e.target.value);
+      }}
+      onBlur={commit.flush}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit.flush();
+      }}
+    />
+  );
+}
 
 /**
  * The song's speed, pitch and fine tune, and whether the chord names follow the pitch. The speed slider commits when it is let go,
@@ -14,6 +51,8 @@ export function SpeedControls({ session, bpm }: { session: PerformanceSession; b
   const rendering = useSession(session, (s) => s.rendering);
   const [draft, setDraft] = useState<number | null>(null);
   const percent = draft ?? Math.round(speed.rate * 100);
+  const setSemitones = useCallback((semitones: number) => session.setSpeed({ semitones }), [session]);
+  const setCents = useCallback((cents: number) => session.setSpeed({ cents }), [session]);
   const commit = (e: { currentTarget: HTMLInputElement }) => {
     if (draft === null) return;
     setDraft(null);
@@ -43,27 +82,11 @@ export function SpeedControls({ session, bpm }: { session: PerformanceSession; b
       </Button>
       <label>
         Pitch{" "}
-        <input
-          aria-label="Pitch semitones"
-          className={field + " w-20"}
-          type="number"
-          min="-6"
-          max="6"
-          value={speed.semitones}
-          onChange={(e) => session.setSpeed({ semitones: Number(e.target.value) || 0 })}
-        />
+        <NumberField label="Pitch semitones" value={speed.semitones} min={-6} max={6} onCommit={setSemitones} />
       </label>
       <label>
         Fine tune{" "}
-        <input
-          aria-label="Pitch cents"
-          className={field + " w-20"}
-          type="number"
-          min="-50"
-          max="50"
-          value={speed.cents}
-          onChange={(e) => session.setSpeed({ cents: Number(e.target.value) || 0 })}
-        />{" "}
+        <NumberField label="Pitch cents" value={speed.cents} min={-50} max={50} onCommit={setCents} />{" "}
         cents
       </label>
       <label className="flex items-center gap-2">

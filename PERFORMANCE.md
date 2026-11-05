@@ -215,7 +215,8 @@ All results are from a GP-180 (firmware 1.1.1) with a Strymon TimeLine on its MI
 
 | Date | Test | Result |
 | --- | --- | --- |
-| 21 Oct 2026 | USB read-only inspection and full 200-preset backup | Passed. No writes were tested. |
+| 21 Oct 2026 | USB inspection and full 200-preset backup | Passed. |
+| 26 Oct 2026 | USB editor writes (GP-180, firmware 1.1.1) | Passed. |
 | 21 Oct 2026 | Bluetooth editor handshake | Connected but no replies, so editor use over Bluetooth is disabled. |
 | 22 Oct 2026 | Timed patch changes over Bluetooth, 15 → 16 → 13 | Passed. The TimeLine followed, and a seek did not replay cues. |
 | 22 Oct 2026 | One-time tempo command (120 and 141 BPM) over Bluetooth | Held steady on both pedals. |

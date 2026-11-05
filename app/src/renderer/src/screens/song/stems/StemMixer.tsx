@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useNav } from "@/state/nav";
 import { useStatusHints } from "@/state/ui";
 import { useSong } from "@/song/store";
-import { defaultMix, formatTime, peaks, type Mix, type StemMix } from "@/song/stems/mix";
+import { defaultMix, formatTime, mergeMix, peaks, type Mix, type StemMix } from "@/song/stems/mix";
 import { findQuality } from "@/song/stems/options";
 import { StemPlayer } from "@/song/stems/player";
 import { encodeWav } from "@/song/wav";
@@ -68,6 +68,8 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
   const first = stems[names[0]]!;
   const duration = first.channels[0].length / first.sampleRate;
   const [mix, setMix] = useState<Mix>(() => readOptions(settingsKey, { mix: defaultMix() }).mix);
+  // The mix as last read or saved: the Performance mixer saves into the same options, so only what changed here is written.
+  const savedMix = useRef<Mix | null>(mix);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState<Partial<Record<StemName, number>> | null>(null);
@@ -90,7 +92,11 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
 
   useEffect(() => player?.setMix(mix), [player, mix]);
   useEffect(() => {
-    try { setSetting(settingsKey, ':options', JSON.stringify({ ...readOptions(settingsKey, {}), mix })); }
+    try {
+      const options = readOptions<{ mix?: Mix }>(settingsKey, {});
+      setSetting(settingsKey, ':options', JSON.stringify({ ...options, mix: mergeMix(options.mix, savedMix.current, mix) }));
+      savedMix.current = mix;
+    }
     catch (e) { notifyError('Could not save mixer settings', e); }
   }, [settingsKey, mix]);
 

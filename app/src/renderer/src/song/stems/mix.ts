@@ -21,6 +21,23 @@ export const defaultStemMix = (): StemMix => ({ ...DEFAULT_STEM_MIX });
 
 export const defaultMix = (keys: readonly string[] = STEM_NAMES): Mix => Object.fromEntries(keys.map((n) => [n, defaultStemMix()]));
 
+const sameStemMix = (a: StemMix | undefined, b: StemMix | undefined) =>
+  a !== undefined && b !== undefined && a.volume === b.volume && a.mute === b.mute && a.solo === b.solo && a.pan === b.pan;
+
+/**
+ * The mix to save when a mixer writes `next`. The Stems tab and the Performance mixer keep one saved mix between them, and each holds
+ * its own copy, so a copy that is out of date must not overwrite what the other saved. Only the tracks `next` changed from `previous`
+ * (the mix this mixer last read or wrote) are taken from it; every other track keeps its saved entry. A track the saved mix lacks
+ * is added.
+ */
+export function mergeMix(saved: Mix | undefined, previous: Mix | null, next: Mix): Mix {
+  const merged: Mix = { ...saved };
+  for (const key of Object.keys(next)) {
+    if (!(key in merged) || !sameStemMix(previous?.[key], next[key])) merged[key] = next[key];
+  }
+  return merged;
+}
+
 /**
  * Linear gain per track: with any track soloed only soloed, unmuted tracks play; otherwise every unmuted track. `keys` are the tracks
  * the song plays. A track with no entry in `mix` takes the default.

@@ -123,6 +123,7 @@ vi.mock("@/song/stems/player", () => ({
     disposed = false;
     isPlaying = false;
     onEnded?: () => void;
+    onLoopScheduled: ((loop: { to: number; at: number; when: number }) => void) | null = null;
     onOutputWarning: ((message: string) => void) | null = null;
     constructor() {
       mocks.players.push(this);
@@ -949,6 +950,16 @@ describe("sections", () => {
     at(16.1);
     expect(session.state.playing).toBe(true);
     expect(mocks.jumps).toHaveLength(1);
+  });
+
+  it("tells the scheduler when the player wraps a song set to loop: a planned jump at the loop point", () => {
+    const { session } = playing([], 55);
+    const player = session.state.player as unknown as { onLoopScheduled: (loop: { to: number; at: number; when: number }) => void };
+    player.onLoopScheduled({ to: 2, at: 60, when: 60 });
+    expect(mocks.plans.at(-1)).toMatchObject({ cap: 60, jump: { position: 2 } });
+    // The decision clears once the audio passes the wrap, as for a section jump.
+    at(60.1);
+    expect(session.state.sectionNext).toBeNull();
   });
 
   it("cancels an armed jump: the decision is undone and the hold is lifted", () => {
