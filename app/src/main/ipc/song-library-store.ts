@@ -60,6 +60,11 @@ export type DiskIndex = SongLibrary & { revisions: Record<string, string> };
  * index still finds it. The name is not a song id, so the sweep and the index never treat it as a song.
  */
 export const V1_BACKUP = "v1-backup";
+/**
+ * Written into a song's folder just before it goes to the Trash, holding the song's index entry. A folder put back from the Trash is
+ * in no index, so this lets the sweep recognise it and add the song again instead of deleting it.
+ */
+export const SONG_MARKER = "song.json";
 const V1_README = `This folder is a copy of your song library from before it moved to compressed audio (library version 1).
 
   library.json        the old index
@@ -223,6 +228,10 @@ export class SongLibraryStore {
         if (folder) {
           const entries = await readdir(path).catch(() => null);
           if (!entries || entries.some(isV1Audio)) continue;
+          if (entries.includes(SONG_MARKER) && (await this.readopt(index, name))) {
+            live.add(name);
+            continue;
+          }
           const junk = entries.every((e) => e.endsWith(".tmp") || e.endsWith(".partial"));
           if (startup && junk) {
             await rm(path, { recursive: true, force: true }).catch(() => {});
@@ -233,6 +242,27 @@ export class SongLibraryStore {
         if (info && info.mtimeMs <= cutoff) await rm(path, { recursive: true, force: true }).catch(() => {});
       }
     });
+  }
+  /**
+   * Adds back a song whose folder was put back from the Trash: the folder holds the song's entry (see `SONG_MARKER`), every file it lists is
+   * there at its size, and the library does not already hold a song with that id. Publishes the index, then removes the marker.
+   */
+  private async readopt(index: DiskIndex, folder: string): Promise<boolean> {
+    try {
+      const path = join(this.root, folder);
+      const song = JSON.parse(await readFile(join(path, SONG_MARKER), "utf8")) as LibrarySong;
+      validateSong(song);
+      if (index.songs.some((s) => s.id === song.id) || !song.audio.every(isFlacTrack)) return false;
+      for (const track of song.audio)
+        for (const { file, bytes } of trackFiles(track)) if ((await stat(join(path, file))).size !== bytes) return false;
+      index.songs = [...index.songs, song];
+      index.revisions[song.id] = folder;
+      await this.publish(index);
+      await rm(join(path, SONG_MARKER), { force: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const job = this.tail.then(fn, fn);
@@ -762,7 +792,8 @@ export class SongLibraryStore {
   async remove(id: string): Promise<void> {
     return this.serial(async () => {
       const index = await this.read(),
-        rev = index.revisions[id];
+        rev = index.revisions[id],
+        removed = index.songs.find((s) => s.id === id);
       index.songs = index.songs.filter((s) => s.id !== id);
       // Each entry that was the removed song is taken out, and any set heading that pointed past it moves with it.
       index.playlists = index.playlists.map((playlist) => {
@@ -773,7 +804,11 @@ export class SongLibraryStore {
       delete index.revisions[id];
       index.history = withoutSong(index.history, id);
       await this.publish(index);
-      if (rev && validId(rev)) await this.trash(join(this.root, rev)).catch(() => {});
+      if (rev && validId(rev)) {
+        // Best effort: without the marker the folder still goes to the Trash, it just cannot be put back.
+        if (removed) await writeJsonAtomic(join(this.root, rev, SONG_MARKER), removed).catch(() => {});
+        await this.trash(join(this.root, rev)).catch(() => {});
+      }
     });
   }
 }
