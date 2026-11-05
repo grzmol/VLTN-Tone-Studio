@@ -2,9 +2,10 @@ import type * as FlacModule from "libflacjs/dist/libflac";
 import type { TrackKind } from "./song-library";
 
 /**
- * Lossless FLAC for the song library. The same module runs in the main process (migration) and in a renderer worker (save and load), so it
- * uses the plain pure-JavaScript libflac build, whose memory image is embedded. The WASM build and the `min` build fetch a second file by URL,
- * which neither Node nor the packaged app can serve; with the `min` build the encoder silently fails to initialise.
+ * Lossless FLAC for the song library. The encoder and the main process (migration) use the plain pure-JavaScript libflac build, whose memory
+ * image is embedded, so they need no second file. The renderer's load path decodes with the WASM build (`loadFlacWasm`) instead. Its binary
+ * is a file of the bundle that the renderer fetches, and the packaged app serves it (checked on the packaged macOS build, with a 200 and
+ * `application/wasm`). The `min` build is not used: it fetches a `.mem` file the bundle does not carry, and its encoder silently fails.
  *
  * Samples are stored as integers at 16 or 24 bits. Stems and imported tracks are 16-bit with TPDF dither; the source is 24-bit only when its
  * original file was more than 16-bit (see `storedBits`). Decoding reads either depth, so older 24-bit files stay readable.
