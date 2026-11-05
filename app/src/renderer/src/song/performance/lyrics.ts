@@ -215,16 +215,70 @@ export function isDangling(text: string): boolean {
   return DANGLING.has(bareWord(text));
 }
 
-/** Music markers Whisper writes for instruments and silence. The symbols and bracketed words are removed, not sung. */
-const MUSIC_MARKER = /\[\s*(?:music|instrumental|applause|silence|solo|intro|outro)\s*\]|\(\s*(?:music|instrumental|applause|silence|solo|intro|outro)\s*\)/gi;
+/** Square brackets and *actions* are always annotations. Matched by shape, not by a word list. */
+const ALWAYS_ANNOTATION = /\[[^[\]]*\]|\*[^*]+\*/g;
+/** Parentheses hold sung backing vocals too, so they are annotations only when their contents look like one. */
+const PAREN = /\(([^()]*)\)/g;
+/** Words that open a parenthesised annotation, such as "(singing in French)" or "(instrumental)". */
+const ANNOTATION_WORDS = /^(?:music|instrumental|inaudible|applause|silence|laughs?|laughing|singing|speaking|humming|whistling|foreign language|chorus|verse|intro|outro|solo|bridge)\b/i;
+/** Note symbols Whisper writes for instruments. */
+const NOTE_SYMBOLS = /[♪♫♬♩]/gu;
+/** A bracket or parenthesis opened in one word and closed in a later one: the words between are an annotation. */
+const OPENS = /[[(]/;
+const CLOSES = /[\])]/;
+/** How far an annotation may run before it is treated as ordinary text. */
+const MAX_ANNOTATION_WORDS = 12;
 
-/** The sung text of a word, with music markers and note symbols removed. Empty for a word that was only a marker. */
+/** Whether the contents of a parenthesis are an annotation: no letters at all, or they open with an annotation word. */
+export function isParenAnnotation(contents: string): boolean {
+  const trimmed = contents.trim();
+  return !/\p{L}/u.test(trimmed) || ANNOTATION_WORDS.test(trimmed);
+}
+
+/** The sung text of a word, with annotations and note symbols removed. Empty for a word that was only an annotation. */
 export function stripMarkers(text: string): string {
   return text
-    .replace(MUSIC_MARKER, " ")
-    .replace(/[♪♫♬♩]/gu, " ")
+    .replace(ALWAYS_ANNOTATION, " ")
+    .replace(PAREN, (_match, contents: string) => (isParenAnnotation(contents) ? " " : ` ${contents} `))
+    .replace(NOTE_SYMBOLS, " ")
+    .replace(/[[\]()]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Drops words from an opening bracket or parenthesis to the word that closes it, when that span is an annotation. A "[" span is
+ * always one. A "(" span is one only when its words look like an annotation (see isParenAnnotation).
+ */
+function dropAnnotationSpans(words: readonly TimedWord[]): TimedWord[] {
+  const kept: TimedWord[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const text = words[i].text;
+    const open = text.search(OPENS);
+    if (open >= 0 && !CLOSES.test(text.slice(open))) {
+      let close = -1;
+      for (let j = i + 1; j < words.length && j <= i + MAX_ANNOTATION_WORDS; j++) {
+        if (CLOSES.test(words[j].text)) {
+          close = j;
+          break;
+        }
+      }
+      if (close >= 0) {
+        const inner = words
+          .slice(i, close + 1)
+          .map((word) => word.text)
+          .join(" ")
+          .replace(/^[[(]/, "")
+          .replace(/[\])]$/, "");
+        if (text[open] === "[" || isParenAnnotation(inner)) {
+          i = close;
+          continue;
+        }
+      }
+    }
+    kept.push(words[i]);
+  }
+  return kept;
 }
 
 /** A line may run longer than MAX_LINE_WORDS only to move its break past a dangling word. */
@@ -312,10 +366,9 @@ function joinShortLines(groups: TimedWord[][]): TimedWord[][] {
  */
 export function songLines(words: readonly TimedWord[]): LyricSegment[] {
   let previousStart = -Infinity;
-  const timed = [...words]
+  const timed = dropAnnotationSpans([...words].sort((a, b) => a.start - b.start))
     .map((word) => ({ text: stripMarkers(word.text), start: word.start, end: word.end }))
     .filter((word) => word.text)
-    .sort((a, b) => a.start - b.start)
     .map((word) => {
       const start = Math.max(word.start, previousStart + MIN_WORD_STEP_SECONDS);
       previousStart = start;

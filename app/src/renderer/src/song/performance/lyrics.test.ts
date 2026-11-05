@@ -256,6 +256,47 @@ describe("stripMarkers", () => {
     expect(stripMarkers("[Applause] yeah")).toBe("yeah");
   });
 
+  it("keeps a sung parenthesis as words, and drops a parenthesis that is an annotation", () => {
+    expect(stripMarkers("(let it burn)")).toBe("let it burn");
+    expect(stripMarkers("(Oh, oh)")).toBe("Oh, oh");
+    expect(stripMarkers("(instrumental)")).toBe("");
+    expect(stripMarkers("(singing in French)")).toBe("");
+    expect(stripMarkers("(laughs)")).toBe("");
+    expect(stripMarkers("(♪)")).toBe("");
+    expect(stripMarkers("(2x)")).toBe("2x");
+  });
+
+  it("drops a bracketed annotation of any words, across words, without shifting the next line", () => {
+    const lines = songLines([
+      { text: "hold", start: 1, end: 1.3 },
+      { text: "still", start: 1.4, end: 1.7 },
+      { text: "[singing", start: 3, end: 3.3 },
+      { text: "in", start: 3.4, end: 3.5 },
+      { text: "French]", start: 3.6, end: 3.9 },
+      { text: "im", start: 5, end: 5.3 },
+      { text: "coming", start: 5.4, end: 5.7 },
+    ]);
+    expect(lyricsLrc(lines)).toBe("[00:01.00] hold still\n[00:05.00] im coming");
+  });
+
+  it("keeps a sung parenthesis that spans words, and drops one that is an annotation across words", () => {
+    expect(
+      songLines([
+        { text: "(let", start: 1, end: 1.3 },
+        { text: "it", start: 1.4, end: 1.5 },
+        { text: "burn)", start: 1.6, end: 1.9 },
+      ]).map((line) => line.text),
+    ).toEqual(["let it burn"]);
+    expect(
+      songLines([
+        { text: "(singing", start: 1, end: 1.3 },
+        { text: "in", start: 1.4, end: 1.5 },
+        { text: "French)", start: 1.6, end: 1.9 },
+        { text: "hi", start: 5, end: 5.3 },
+      ]),
+    ).toEqual([{ time: 5, text: "hi" }]);
+  });
+
   it("drops a line that is only markers", () => {
     expect(
       songLines([
