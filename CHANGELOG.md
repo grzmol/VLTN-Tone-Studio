@@ -9,6 +9,20 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 - **Tune the Tone Match proposal on the pedal.** A new *Tune it on the pedal* card under the proposal checks it against what the pedal really plays. You play up to six takes of about 15 s in the song's style; each one is recorded through the pedal's USB audio and compared with the song's guitar (the same texture distance the offline refinement uses, so the takes don't have to be the same notes). After each take the five Guitar EQ bands are corrected from the spectral gap and the amp's Gain from the gain score. It stops when the takes stop getting closer, keeps the best one, and *Keep these settings* puts them in the proposal. Everything plays through the Rig's live edits and nothing is written to a slot.
 
+### Changed
+- **Pick the Valeton Suite again after updating.** Only a path chosen in the file picker is trusted now, so the path stored by an earlier version no longer counts: Settings shows no Suite until you choose it with *Choose…*, and *Open Valeton Suite* does nothing until then (on macOS the default install in Applications still works with no path). The app no longer opens or runs any other path the page asks for: only folders it hands out itself (logs, the library) and files you picked in a dialog.
+- **Deleting in the Library moves things to the Trash.** Deleted collections, presets and capture versions go to the system Trash (a `.trash` folder in the library if the Trash refuses, emptied of anything older than 30 days), so a mis-click can be undone. The dialogs and toasts say so. The web build still deletes for good and says that.
+- **Window and file safety.** The main window runs sandboxed, and MIDI, SysEx and audio capture are granted only to Tone Studio's own pages.
+
+### Fixed
+- **Settings and library files survive a crash or a full disk.** Settings, collection details, tone records, capture drafts and the window position are written to a temp file and renamed into place, one save at a time, so a crash can no longer leave half a file or lose a change. A settings file that can't be read is kept as `settings.corrupt-<date>.json` instead of being overwritten with defaults, and only known settings with the right type are kept. On Windows, a rename that fails because Defender or an indexer holds the file is retried for about a second.
+- **A pedal backup is never listed half done.** A backup is built in a temp folder and moved into place only when every file is in, and Restore refuses one that is missing files. If the final move fails, the finished copy is kept and the error says where it is. Left-over temp folders are removed an hour later.
+- **Writes can't drop unsaved edits, and stale backup copies are flagged.** Writing a preset to another slot while the current one has unsaved edits is refused. The write dialog warns when the backup copy it would use may be older than what is on the pedal. Progress messages use the pedal's own slot names (GP-200 family *12-C*).
+- **Downloads can no longer hang.** A stalled separation model or TONE3000 download fails after about a minute and a model download picks up where it stopped. The Song screen has a *Cancel* next to the model progress. Download errors keep their own message (not found, signed out, rate limited) instead of the generic one.
+- **TONE3000 sign-in is kept private.** The token goes only to TONE3000 over https, including across redirects. On Linux without a keyring the token stays in memory for the run instead of being kept on disk with a fixed key, and Settings says so. TONE3000 images are limited to 10 MB and an image type, and the image cache is capped at 50 MB.
+- **Closing the window on macOS doesn't break the app.** Reopening it works, and a preset opened from Finder while no window is open is queued instead of lost. Clicking *Download* twice no longer starts two update downloads.
+
+
 ## [0.9.0] - 2026-11-04
 
 ### Added
