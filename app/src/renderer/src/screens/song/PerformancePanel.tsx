@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSong } from "@/song/store";
-import { defaultMix, type Mix } from "@/song/stems/mix";
+import { defaultMix, mergeMix, type Mix } from "@/song/stems/mix";
 import type { TrackBuses } from "@/song/stems/player";
 import { songCues } from "@/song/performance/song-cues";
 import { midiFileFromOptions, type MidiFileOption } from "@/song/performance/smf";
@@ -201,6 +201,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   };
   // An imported track starts on the bus, volume and pan it saved; a choice the song made since then wins.
   const [mix, setMix] = useState(() => withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
+  // The mix as last read or saved: the Stems tab saves into the same options, so only what changed here is written.
+  const savedMix = useRef<Mix | null>(options.mix);
   const [trackBuses, setTrackBuses] = useState<TrackBuses>(() => ({ ...busDefaults(tracks), ...options.trackBuses }));
   useEffect(() => {
     setMix((current) => ({ ...mixDefaults(tracks), ...current }));
@@ -495,18 +497,21 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   }, [player, trackBuses]);
   useEffect(() => {
     try {
+      const saved = readOptions<{ mix?: Mix }>(key, {});
+      const mergedMix = mergeMix(saved.mix, savedMix.current, mix);
+      savedMix.current = mix;
       setSetting(
         key,
         ":options",
         JSON.stringify({
-          ...readOptions(key, {}),
+          ...saved,
           firstBeat,
           beats,
           shift,
           capo,
           clock,
           volume,
-          mix,
+          mix: mergedMix,
           trackBuses,
           partChoice,
           chordChoice,

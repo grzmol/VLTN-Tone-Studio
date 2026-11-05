@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultMix, formatTime, peaks, rms, stemGains } from "./mix";
+import { defaultMix, formatTime, mergeMix, peaks, rms, stemGains } from "./mix";
 
 describe("stem mixer", () => {
   it("plays every unmuted stem at its volume", () => {
@@ -33,5 +33,25 @@ describe("stem mixer", () => {
   it("formats times as m:ss", () => {
     expect(formatTime(83.4)).toBe("1:23");
     expect(formatTime(5)).toBe("0:05");
+  });
+});
+
+describe("mergeMix", () => {
+  const entry = (volume: number, mute = false) => ({ volume, mute, solo: false });
+  it("keeps what the other mixer saved when this one writes a copy that is out of date", () => {
+    // The Stems tab muted the drums after the Performance mixer last read the mix.
+    const saved = { drums: entry(1, true), bass: entry(1) };
+    const previous = { drums: entry(1), bass: entry(1) };
+    const next = { drums: entry(1), bass: entry(0.5) };
+    expect(mergeMix(saved, previous, next)).toEqual({ drums: entry(1, true), bass: entry(0.5) });
+  });
+  it("writes the tracks this mixer changed, and adds tracks the saved mix lacks", () => {
+    const saved = { drums: entry(1, true) };
+    const previous = { drums: entry(1, true) };
+    const next = { drums: entry(1, true), track1: entry(0.7) };
+    expect(mergeMix(saved, previous, next)).toEqual({ drums: entry(1, true), track1: entry(0.7) });
+  });
+  it("starts from nothing saved", () => {
+    expect(mergeMix(undefined, null, { vocals: entry(0.3) })).toEqual({ vocals: entry(0.3) });
   });
 });
