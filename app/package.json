@@ -15,7 +15,7 @@
     "web": "vite --config vite.web.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "test:toolkit": "node --test src/renderer/src/gp5/tests/ src/renderer/src/gp200/tests/ src/renderer/src/gp150/tests/",
+    "test:toolkit": "node --test \"src/renderer/src/gp5/tests/*.test.mjs\" \"src/renderer/src/gp200/tests/*.test.mjs\" \"src/renderer/src/gp150/tests/*.test.mjs\"",
     "build:wasm": "clang --target=wasm32 -O3 -msimd128 -nostdlib -Wl,--no-entry -Wl,--export=a1_process -Wl,--export=__heap_base -Wl,--import-memory -o src/renderer/src/snaptone/a1kernel.wasm src/renderer/src/snaptone/a1kernel.c && clang --target=wasm32 -O3 -msimd128 -nostdlib -Wl,--no-entry -Wl,--export=a2_process -Wl,--export=__heap_base -Wl,--import-memory -o src/renderer/src/snaptone/a2kernel.wasm src/renderer/src/snaptone/a2kernel.c",
     "dist": "electron-vite build && electron-builder"
   },
