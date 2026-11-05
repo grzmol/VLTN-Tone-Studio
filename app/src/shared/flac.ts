@@ -33,8 +33,9 @@ export function storedBits(kind: TrackKind, sourceBits?: number): FlacBits {
 
 /**
  * Turns float samples into the integers a FLAC stream holds, frame by frame and channel by channel. At 16 bits each sample gets TPDF dither
- * (two uniform values of half a step each), so the rounding error is noise instead of distortion. The dither comes from a fixed-seed generator,
- * so the same input always gives the same integers. Each call starts that generator again.
+ * (two uniform values of half a step each), so the rounding error is noise instead of distortion. A sample already within 0.01 of a 16-bit
+ * step is rounded without dither: that is a 16-bit value read back from a saved file, and dithering it again would drift every re-save by
+ * a step. The dither comes from a fixed-seed generator, so the same input always gives the same integers. Each call starts that generator again.
  */
 export function quantizer(bits: FlacBits): (channels: Float32Array[], start: number, count: number, out: Int32Array) => void {
   const scale = scaleOf(bits);
@@ -50,7 +51,8 @@ export function quantizer(bits: FlacBits): (channels: Float32Array[], start: num
     for (let i = 0; i < count; i++) {
       for (let c = 0; c < width; c++) {
         const x = Math.max(-1, Math.min(1, channels[c][start + i])) * scale;
-        const dither = bits === 16 ? next() + next() - 1 : 0;
+        const onGrid = Math.abs(x - Math.round(x)) < 0.01;
+        const dither = bits === 16 && !onGrid ? next() + next() - 1 : 0;
         out[i * width + c] = Math.max(-scale, Math.min(scale, Math.round(x + dither)));
       }
     }

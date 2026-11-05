@@ -30,9 +30,18 @@ describe("FLAC codec", () => {
     const [ints] = toPcm([x], 16);
     for (let i = 0; i < x.length; i++) expect(Math.abs(ints[i] - x[i] * scaleOf(16))).toBeLessThan(2);
     expect(toPcm([x], 16)[0]).toEqual(ints);
-    // Silence still dithers, so a fade to zero does not leave a gap in the noise floor.
-    expect(new Set(toPcm([new Float32Array(1000)], 16)[0]).size).toBeGreaterThan(1);
+    // A quiet signal below one step still dithers rather than dropping to zero.
+    expect(new Set(toPcm([new Float32Array(1000).fill(0.4 / scaleOf(16))], 16)[0]).size).toBeGreaterThan(1);
+    // Digital silence is exact zero: it is already on the grid, so it is not dithered.
+    expect(toPcm([new Float32Array(1000)], 16)[0].every((v) => v === 0)).toBe(true);
     expect(toPcm([new Float32Array(1000)], 24)[0].every((v) => v === 0)).toBe(true);
+  });
+
+  it("re-encoding 16-bit output at 16 bits keeps the same integers", async () => {
+    const first = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels: [tone(20000, 0), tone(20000, 300)] }));
+    const second = await decodeFlac(await encodeFlac({ sampleRate: 44100, channels: first.channels, bits: 16 }));
+    expect(matchesQuantized(first, first.channels, 16)).toBe(true);
+    expect(second.channels).toEqual(first.channels);
   });
 
   it("streams in blocks to the same integers as a single pass", () => {
