@@ -106,7 +106,7 @@ export class SongLibraryStore {
   constructor(
     private root: string,
     private now: () => number = Date.now,
-    /** Takes a deleted song or its PDF out of the library. Desktop passes the OS Trash; the default keeps it in `<root>/.trash`. */
+    /** Takes a deleted song out of the library. Desktop passes the OS Trash; the default keeps it in `<root>/.trash`. */
     private trash: TrashFn = createTrash(root),
   ) {}
   /** Sweeps now and then every 10 minutes. The library's Trash is emptied of 30-day-old entries once, at start-up. */
