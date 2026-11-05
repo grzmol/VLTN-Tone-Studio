@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeJson, serial, writeJsonAtomic, writeJsonAtomicSync } from "./fs-atomic";
+import { mergeJson, retryBusy, serial, writeJsonAtomic, writeJsonAtomicSync } from "./fs-atomic";
 
 let dir: string;
 
@@ -79,5 +79,47 @@ describe("mergeJson", () => {
     await writeFile(path, "{ not json");
     await mergeJson(path, { b: 2 });
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ b: 2 });
+  });
+});
+
+describe("retryBusy", () => {
+  const locked = (code: string) => Object.assign(new Error(`${code}: locked`), { code });
+
+  it("tries again after EPERM, EBUSY and EACCES and returns the result", async () => {
+    for (const code of ["EPERM", "EBUSY", "EACCES"]) {
+      const sleep = vi.fn(async () => {});
+      let failures = 2;
+      const op = vi.fn(async () => {
+        if (failures-- > 0) throw locked(code);
+        return "done";
+      });
+      await expect(retryBusy(op, sleep)).resolves.toBe("done");
+      expect(op).toHaveBeenCalledTimes(3);
+      expect(sleep).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("waits a little longer each time, about a second in all", async () => {
+    const waits: number[] = [];
+    const op = vi.fn(async () => {
+      throw locked("EBUSY");
+    });
+    await expect(retryBusy(op, async (ms) => void waits.push(ms))).rejects.toThrow("EBUSY");
+    expect(op).toHaveBeenCalledTimes(5);
+    expect(waits).toEqual([...waits].sort((a, b) => a - b));
+    expect(waits.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1000);
+  });
+
+  it("gives up with the original error when the file stays locked", async () => {
+    const error = locked("EPERM");
+    await expect(retryBusy(() => Promise.reject(error), async () => {})).rejects.toBe(error);
+  });
+
+  it("does not retry other errors", async () => {
+    const op = vi.fn(async () => {
+      throw locked("ENOENT");
+    });
+    await expect(retryBusy(op, async () => {})).rejects.toThrow("ENOENT");
+    expect(op).toHaveBeenCalledTimes(1);
   });
 });
