@@ -4,7 +4,17 @@ import { decodeSong } from "./decode";
 import { separateStems, type Separation, type SeparationProgress, type SplitSettings } from "./stems/engine";
 import { audioSeconds, clampRange, sliceAudio } from "./range";
 import { findQuality, loadSplitChoice, saveSplitChoice, type SplitChoice } from "./stems/options";
+import { sourceBitDepth } from "@shared/source-bits";
 import type { PcmAudio, SongState, SplitInfo, Stems } from "./types";
+
+/** The bit depth of an opened file, from its header. Lossy and unreadable files give undefined, which stores the source at 16 bits. */
+async function originalBits(file: File): Promise<number | undefined> {
+  try {
+    return sourceBitDepth(new Uint8Array(await file.slice(0, 64).arrayBuffer()));
+  } catch {
+    return undefined;
+  }
+}
 
 // The loaded song and its stems (contract: types.ts). One job at a time: loading another song or splitting
 // again aborts the running split; results of a superseded job are dropped. A split takes the chosen part of the
@@ -48,7 +58,7 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
       try {
         const audio = await deps.decode(file);
         if (ctrl.signal.aborted) return;
-        set({ source: { name: file.name, audio }, status: { kind: "idle" } });
+        set({ source: { name: file.name, audio, bits: await originalBits(file) }, status: { kind: "idle" } });
       } catch (e) {
         if (!ctrl.signal.aborted) set({ status: { kind: "error", message: message(e) } });
       } finally {

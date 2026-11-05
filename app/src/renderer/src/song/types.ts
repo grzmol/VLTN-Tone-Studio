@@ -12,13 +12,19 @@ export { STEM_NAMES, type StemName } from "@shared/host/song";
 export interface PcmAudio {
   sampleRate: number;
   channels: Float32Array[];
+  /** The depth a saved FLAC was stored at, when it was decoded from one (see `storedBits` in shared/flac). */
+  bits?: number;
 }
 
 /** The decoded song, resampled to the separation rate (44.1 kHz stereo). */
 export interface SongSource {
+  /** Set once the song is saved to the library, or when it was loaded from there */
+  libraryId?: string;
   /** File name as dropped or picked, shown in the UI */
   name: string;
   audio: PcmAudio;
+  /** The bit depth of the original file when it is known (see `sourceBitDepth`). Decides whether the saved source is 24-bit. */
+  bits?: number;
 }
 
 /** A split's stems: the model's subset of STEM_NAMES (four-stem models have no guitar or piano). */
