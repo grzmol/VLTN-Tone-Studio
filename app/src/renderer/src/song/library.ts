@@ -195,6 +195,12 @@ function readyNotice(title: string, skipped: string[]): string {
  */
 const storedTrack = new WeakMap<PcmAudio, { songId: string; track: LibraryAudio }>();
 
+/**
+ * The saved tracks of a song that could not be read when it was loaded, by song id. The session does not hold their audio, so a re-save
+ * carries their stored entries and files over as they are, instead of dropping them. Replaced on every load of the song.
+ */
+const unreadTracks = new Map<string, LibraryAudio[]>();
+
 /** Fetches a saved track straight from the app protocol and decodes it in a worker; nothing is copied through IPC. */
 async function loadTrack(url: string, track: LibraryAudio, songId: string): Promise<PcmAudio> {
   const response = await fetch(url);
@@ -229,6 +235,7 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
     }),
   );
   const found = loaded.filter((entry) => entry !== null);
+  unreadTracks.set(id, song.audio.filter((track) => !found.some(([read]) => read === track)));
   const sourceEntry = found.find(([track]) => trackKindOf(track) === "source");
   const playable = found.filter(([track]) => trackKindOf(track) !== "source");
   if (!sourceEntry && !playable.length) throw new Error("Missing or damaged audio: none of this song's tracks can be read.");
@@ -729,8 +736,11 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           source = state.source;
         if (!source || ["decoding", "model", "splitting"].includes(state.status.kind)) throw new Error("Wait for the song to finish loading or splitting.");
         const id = source.libraryId ?? crypto.randomUUID();
+        // Tracks the session never read are kept as saved. A source that could not be read is only a mix made for playing, never saved.
+        const unread = unreadTracks.get(id) ?? [];
+        const unreadSource = unread.find((track) => trackKindOf(track) === "source");
         const tracks: [string, PcmAudio][] = [
-          ["source", source.audio],
+          ...(unreadSource ? [] : [["source", source.audio] as [string, PcmAudio]]),
           ...Object.entries(state.stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
         ];
         // One track at a time keeps the encoder's copy of the audio to a single track.
@@ -768,12 +778,16 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           audioInfo.push(entry);
           audioObjects.push([audio, entry]);
         }
+        const heldKeys = new Set(audioInfo.map(trackKey));
+        const carried = unread.filter((track) => !heldKeys.has(trackKey(track)));
+        audioInfo.unshift(...carried.filter((track) => trackKindOf(track) === "source"));
+        audioInfo.push(...carried.filter((track) => trackKindOf(track) !== "source"));
         const song: LibrarySong = {
           id,
           title: title.trim() || source.name,
           artist: artist.trim(),
           sourceName: source.name,
-          duration: source.audio.channels[0].length / source.audio.sampleRate,
+          duration: unreadSource ? unreadSource.frames / unreadSource.sampleRate : source.audio.channels[0].length / source.audio.sampleRate,
           audio: audioInfo,
           settings: readSettings(performanceKey(source)),
           updated: new Date().toISOString(),
