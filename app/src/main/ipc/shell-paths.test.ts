@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { isExecutable, isInside, MAC_SUITE, ShellPaths, suiteToLaunch } from "./shell-paths";
+import { isInside, MAC_SUITE, ShellPaths, suiteToLaunch } from "./shell-paths";
 
 let base: string;
 let userData: string;
@@ -62,30 +62,6 @@ describe("isInside", () => {
     expect(isInside("/a/ud", "/a/ud/logs/x.txt")).toBe(true);
     expect(isInside("/a/ud", "/a/udx/file")).toBe(false);
     expect(isInside("/a/ud", "/a/file")).toBe(false);
-  });
-});
-
-describe("isExecutable", () => {
-  const file = { isDirectory: () => false, mode: 0o644 };
-  const dir = { isDirectory: () => true, mode: 0o755 };
-
-  it("treats launcher extensions as programs, whatever the platform", () => {
-    for (const name of ["Valeton Suite.app", "setup.exe", "run.BAT", "tool.command", "start.sh", "app.AppImage"]) {
-      expect(isExecutable(join(userData, name), null, "darwin")).toBe(true);
-    }
-  });
-
-  it("refuses a file with the execute bit on macOS and Linux, but not on Windows", () => {
-    const script = { isDirectory: () => false, mode: 0o755 };
-    expect(isExecutable("/ud/tool", script, "darwin")).toBe(true);
-    expect(isExecutable("/ud/tool", script, "linux")).toBe(true);
-    expect(isExecutable("/ud/tool", script, "win32")).toBe(false);
-  });
-
-  it("does not treat a plain file or a folder as a program", () => {
-    expect(isExecutable("/ud/logs/log.txt", file, "darwin")).toBe(false);
-    expect(isExecutable("/ud/logs", dir, "darwin")).toBe(false);
-    expect(isExecutable("/ud/logs/log.txt", null, "darwin")).toBe(false);
   });
 });
 

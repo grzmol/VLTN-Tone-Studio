@@ -6,7 +6,7 @@ import { HostError } from "@shared/ipc";
 import { handle, shellPaths } from "./handle";
 import { serial, writeJsonAtomic } from "./fs-atomic";
 import { logMain } from "./log";
-import { isExecutable, suiteToLaunch } from "./shell-paths";
+import { suiteToLaunch } from "./shell-paths";
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
 let cache: AppSettings | null = null;
@@ -91,14 +91,15 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
   handle("app:openPath", async (_e, path: string) => {
     const full = await allowedShellPath(path);
     const info = await stat(full).catch(() => null);
-    if (isExecutable(full, info, process.platform)) throw new HostError("invalid", "Tone Studio doesn't open programs");
+    // openPath is only for folders (logs, the library). Files are never opened, so nothing can be launched through it.
+    if (!info?.isDirectory()) throw new HostError("invalid", "Tone Studio only opens folders");
     const err = await shell.openPath(full);
     if (err) throw new HostError("io", err);
   });
   handle("app:launchSuite", async () => {
     const suite = suiteToLaunch(await loadSettings(), process.platform);
     if (!suite) throw new HostError("invalid", "Choose Valeton Suite in Settings first");
-    // Launching a program is this channel's job, so it skips the executable check openPath applies.
+    // Launching a program is this channel's job, so it is not limited to folders the way openPath is.
     const err = await shell.openPath(suite);
     if (err) throw new HostError("io", err);
   });
