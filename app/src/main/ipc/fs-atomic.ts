@@ -33,6 +33,28 @@ export const renameRetry = (from: string, to: string) => retryBusy(() => rename(
 /** rm that retries while the file or folder is locked. */
 export const rmRetry = (path: string, options: { recursive?: boolean; force?: boolean } = {}) => retryBusy(() => rm(path, options));
 
+/**
+ * Flushes a file or a folder to disk. A folder's flush makes the files created or renamed in it durable. Some systems cannot open a
+ * folder to flush it (Windows), and there the call does nothing.
+ */
+export async function syncPath(path: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(path, "r");
+  } catch (e) {
+    if (process.platform === "win32") return;
+    throw e;
+  }
+  try {
+    await handle.sync();
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== "EINVAL" && code !== "EPERM" && code !== "EISDIR") throw e;
+  } finally {
+    await handle.close();
+  }
+}
+
 const tempPathFor = (path: string) => `${path}.${randomBytes(6).toString("hex")}.tmp`;
 
 /** Writes `value` as pretty JSON, creating the folder if needed. Rejects, and leaves `path` untouched, if anything fails. */
@@ -48,6 +70,8 @@ export async function writeJsonAtomic(path: string, value: unknown): Promise<voi
       await handle.close();
     }
     await renameRetry(tmp, path);
+    // The rename is only durable once the folder is flushed too.
+    await syncPath(dirname(path));
   } catch (e) {
     await rmRetry(tmp, { force: true }).catch(() => {});
     throw e;
