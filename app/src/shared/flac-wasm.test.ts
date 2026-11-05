@@ -30,6 +30,16 @@ describe("FLAC decoding with the WASM build", () => {
     expect(wasm.channels).toEqual(asm.channels);
   });
 
+  // Stems are stored at 16 bits and the source at 24; both depths must decode bit for bit the same on either build.
+  it.each([16, 24] as const)("gives the same %i-bit samples as the asm.js build", async (bits) => {
+    const bytes = await encodeFlac({ sampleRate: 44100, channels: [tone(90000, 0), tone(90000, 250)], bits });
+    const asm = await decodeFlac(bytes);
+    const wasm = await decodeFlac(bytes, loadFlacWasm(wasmPath));
+    expect(asm.bits).toBe(bits);
+    expect(wasm.bits).toBe(bits);
+    expect(wasm.channels).toEqual(asm.channels);
+  });
+
   it("rejects damaged data the same way", async () => {
     const bytes = await encodeFlac({ sampleRate: 44100, channels: [tone(20000, 0)] });
     await expect(decodeFlac(bytes.slice(0, Math.floor(bytes.length / 2)), loadFlacWasm(wasmPath))).rejects.toThrow();
