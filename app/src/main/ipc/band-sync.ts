@@ -130,6 +130,15 @@ export function originHost(origin: unknown): string | null {
   }
 }
 
+/**
+ * Whether a Host header names this server: exactly `address:port`, or the bare address when the port is 80. Anything else, such as a
+ * name that a hostile page has pointed at this address (DNS rebinding), is refused, so only a page opened by the address can talk to it.
+ */
+export function hostAllowed(host: unknown, address: string | null, port: number): boolean {
+  if (typeof host !== "string" || !address) return false;
+  return host === `${address}:${port}` || (port === 80 && host === address);
+}
+
 /** The private IPv4 addresses on this computer, with their interface names. Loopback and public addresses are never listed. */
 export function lanAddresses(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces()): LanAddress[] {
   const found: LanAddress[] = [];
@@ -329,6 +338,10 @@ export class BandSyncServer {
   }
 
   private answer(req: IncomingMessage, res: ServerResponse): void {
+    if (!hostAllowed(req.headers.host, this.address, this.port)) {
+      res.writeHead(403, SECURITY_HEADERS).end();
+      return;
+    }
     const head = req.method === "HEAD";
     if (req.method !== "GET" && !head) {
       res.writeHead(405, { ...SECURITY_HEADERS, Allow: "GET, HEAD" }).end();
@@ -360,6 +373,7 @@ export class BandSyncServer {
       socket.destroy();
     };
     try {
+      if (!hostAllowed(req.headers.host, this.address, this.port)) return refuse("403 Forbidden");
       let path: string;
       try {
         path = new URL(req.url ?? "/", "http://band.sync").pathname;

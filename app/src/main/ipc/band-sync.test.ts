@@ -18,7 +18,7 @@ vi.mock("electron", () => ({
   screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({}), on: () => {}, removeListener: () => {} },
 }));
 
-import { BandSyncServer, followerFiles, isLanAddress, lanAddresses, originHost, parseSettings, parseStartOptions } from "./band-sync";
+import { BandSyncServer, followerFiles, hostAllowed, isLanAddress, lanAddresses, originHost, parseSettings, parseStartOptions } from "./band-sync";
 
 const MODEL: AudienceModel = {
   songKey: "A",
@@ -356,6 +356,41 @@ describe("signing in", () => {
     await expect(connect(port, { origin: "http://evil.example" })).rejects.toThrow(/403/);
     const same = await connect(port, { origin: `http://127.0.0.1:${port}` });
     same.ws.close();
+  });
+
+  it("refuses a request or socket whose Host is not the address and port it listens on", async () => {
+    const { port, pin } = await started();
+    const ask = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const socket = netConnect(port, "127.0.0.1", () => socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
+        let reply = "";
+        socket.on("data", (chunk) => (reply += chunk.toString()));
+        socket.on("close", () => resolve(Number(/^HTTP\/1\.1 (\d+)/.exec(reply)?.[1])));
+        socket.on("error", reject);
+      });
+    expect(await ask(`127.0.0.1:${port}`)).toBe(200);
+    expect(await ask(`rebind.example:${port}`)).toBe(403);
+    expect(await ask("127.0.0.1")).toBe(403);
+    expect(await ask(`127.0.0.1:${port + 1}`)).toBe(403);
+    const good = await signedIn(port, pin);
+    good.ws.close();
+    const bad = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Host: `rebind.example:${port}` } });
+    const status = await new Promise<number>((resolve) => {
+      bad.on("error", () => {});
+      bad.on("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+    });
+    expect(status).toBe(403);
+  });
+
+  it("checks a Host header exactly", () => {
+    expect(hostAllowed("10.0.0.5:5790", "10.0.0.5", 5790)).toBe(true);
+    expect(hostAllowed("10.0.0.5", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5", "10.0.0.5", 80)).toBe(true);
+    expect(hostAllowed("10.0.0.5:80", "10.0.0.5", 80)).toBe(true);
+    expect(hostAllowed("evil.example:5790", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5:5790.evil.example", "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed(undefined, "10.0.0.5", 5790)).toBe(false);
+    expect(hostAllowed("10.0.0.5:5790", null, 5790)).toBe(false);
   });
 
   it("refuses an Origin of null, the value sandboxed and file pages send", async () => {
