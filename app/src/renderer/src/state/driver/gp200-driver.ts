@@ -47,8 +47,17 @@ function toGlobals(values: Gp200Globals, firmware: string | null): Gp200GlobalsS
   return { values: { ...values }, records: gp200GlobalRecords(values), ...(firmware ? { firmware } : {}) };
 }
 
-/** Name tables of the SnapTone and User IR slots: flag 1 = the slot holds data. */
-const toTable = (list: NameEntry[]): SlotName[] => list.map((e) => ({ slot: e.slot, name: e.name, kind: e.flag ? "user" : "empty" }));
+/** A name the pedal gives a SnapTone or User IR slot it holds nothing in ("", "User IR", "User IR 3", "SnapTone 3", "Empty"). */
+const isDefaultSlotName = (name: string) => /^(|Empty|User IR( \d+)?|SnapTone( \d+)?)$/.test(name.trim());
+
+/**
+ * Name tables of the SnapTone and User IR slots. The pedal flags each slot: 0 = holds data, 1 = empty (the GP-5 and
+ * GP-150 families use the same convention). Any other flag, or an "empty" slot with a name of its own, is "unknown":
+ * never offered as empty, so it can't be overwritten without the Replace warning.
+ */
+export const gp200SlotKind = (e: Pick<NameEntry, "flag" | "name">): NonNullable<SlotName["kind"]> =>
+  e.flag === 0 ? "user" : e.flag === 1 ? (isDefaultSlotName(e.name) ? "empty" : "unknown") : "unknown";
+const toTable = (list: NameEntry[]): SlotName[] => list.map((e) => ({ slot: e.slot, name: e.name, kind: gp200SlotKind(e) }));
 
 /** The GP-200's default slot names ("User IR 3", "SnapTone 3") for a table the pedal didn't list: contents unknown. */
 const unlistedTable = (kind: "irs" | "snapTones"): SlotName[] => {
