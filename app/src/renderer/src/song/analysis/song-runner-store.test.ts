@@ -51,7 +51,7 @@ function wired(separate: () => Promise<Separation>) {
       return { key: "song", title: source.name, audioId: songAudioId(source.audio, stems), audio: {} as AnalysisAudio };
     },
     audioId,
-    read: (): SavedSong => ({ bpm: saved[":bpm"] ?? "120", options: {}, chart: "", lyrics: "" }),
+    read: (): SavedSong => ({ bpm: saved[":bpm"] ?? "120", options: JSON.parse(saved[":options"] ?? "{}"), chart: "", lyrics: "" }),
     write: (_key, values) => {
       writes.push(values);
       Object.assign(saved, values);
@@ -104,6 +104,21 @@ describe("a split parks the mix-only run", () => {
     expect(saved[":bpm"]).toBe("99");
     expect(writes).toHaveLength(1);
     expect(runner.state.getState().running).toBe(false);
+    unwatch();
+  });
+});
+
+describe("a split after the mix-only run has finished", () => {
+  it("starts the split's own run without a click once the mix-only run has finished", async () => {
+    const { store, runner, saved, writes, unwatch } = wired(async () => separation());
+    await store.getState().load(file("Song.wav"));
+    for (let i = 0; i < 20 && runner.state.getState().running; i++) await settle();
+    expect(saved[":bpm"]).toBe("77");
+
+    await store.getState().split();
+    for (let i = 0; i < 20 && runner.state.getState().running; i++) await settle();
+    expect(saved[":bpm"]).toBe("99");
+    expect(writes).toHaveLength(2);
     unwatch();
   });
 });
