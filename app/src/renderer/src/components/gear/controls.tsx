@@ -50,8 +50,8 @@ interface KnobHitProps {
 }
 
 /**
- * role="slider" button: arrows ±1 step, PageUp/PageDown ±10, Home/End, drag vertically or scroll to turn
- * (Shift fine), double-click to type a value.
+ * role="slider" button: arrows ±1 step, PageUp/PageDown ±10, Home/End, drag vertically, or scroll to turn once it has focus
+ * (click or Tab to it first; Shift fine), double-click to type a value.
  */
 export function KnobHit({ label, value, spec, onChange, disabled, onActive, onTurning, className, style, children }: KnobHitProps) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -76,13 +76,14 @@ export function KnobHit({ label, value, spec, onChange, disabled, onActive, onTu
   const isActive = focused || dragging || editing;
   useEffect(() => latest.current.onActive?.(isActive), [isActive]);
 
-  // Wheel needs a non-passive listener to keep the page from scrolling while turning.
+  // Wheel needs a non-passive listener to keep the page from scrolling while turning. Only a focused knob turns with the wheel,
+  // so scrolling the page over an unfocused knob scrolls the page and leaves the value alone.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       const { value: v, spec: s, onChange: change, disabled: off } = latest.current;
-      if (off || !change) return;
+      if (off || !change || document.activeElement !== el) return;
       e.preventDefault();
       const next = wheelValue(v, e.deltaY, s, e.shiftKey);
       if (next !== v) {

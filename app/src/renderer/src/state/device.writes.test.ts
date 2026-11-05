@@ -1,4 +1,4 @@
-// Every supported model takes memory writes on a real pedal (mode "webmidi"): none is read-only. The simulator stands
+// Every supported model takes memory writes on a real pedal (mode "webmidi"): including GP-180 without a session unlock. The simulator stands
 // in for the pedal; only the store's mode says "real".
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
