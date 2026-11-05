@@ -11,6 +11,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 ### Fixed
 - **GP-150 / GP-180 record levels accept the pedal's −21 dB.** A GP-180 reported its Bluetooth and Mic record levels as −21 dB, which the app declared out of range, so the value was shown wrong and could not be set back. Their range is now −21…+20 dB.
+- **GP-180 editor writes are checked on a real pedal.** Renaming a preset, saving it to a slot, reading it back and changing a pedal setting over USB all worked on a GP-180 (firmware 1.1.1). Uploading a User IR was not tried.
 
 ## [0.9.0] - 2026-11-04
 
