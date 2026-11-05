@@ -15,6 +15,8 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { "@": resolve("src/renderer/src"), "@shared": resolve("src/shared") } },
     plugins: [react(), tailwindcss()],
+    // The FLAC codec worker imports the libflac module, which a worker bundle can only do as an ES module.
+    worker: { format: "es" },
     // onnxruntime-web (Song stem splitter worker) ships a ready ESM bundle; pre-bundling it on first use reloads the page.
     optimizeDeps: { exclude: ["onnxruntime-web"] },
   },
