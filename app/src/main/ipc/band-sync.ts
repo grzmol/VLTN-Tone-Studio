@@ -295,8 +295,12 @@ export class BandSyncServer {
     }
   }
 
+  /** The performer flipped "allow control". Every signed-in follower is told at once; the next command is checked against it. */
   setAllowControl(allowControl: boolean): void {
     this.allowControl = allowControl;
+    for (const peer of this.peers) {
+      if (peer.signedIn) this.send(peer, { type: "control-allowed", allowed: allowControl });
+    }
   }
 
   /**

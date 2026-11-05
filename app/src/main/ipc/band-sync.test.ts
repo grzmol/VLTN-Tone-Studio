@@ -538,6 +538,23 @@ describe("messages from a signed-in follower", () => {
     await vi.waitFor(() => expect(controls).toEqual(["transport.playPause"]));
   });
 
+  it("tells signed-in followers at once when remote control is switched, and enforces it on the next command", async () => {
+    const { server, controls } = serverWith();
+    const { port, pin } = await started(false, server);
+    const { ws, inbox } = await signedIn(port, pin);
+    const waiting = await connect(port);
+    server.setAllowControl(true);
+    await vi.waitFor(() => expect(inbox.messages).toContainEqual({ type: "control-allowed", allowed: true }));
+    expect(waiting.inbox.messages).toEqual([]);
+    ws.send(JSON.stringify({ type: "control", action: "transport.play" }));
+    await vi.waitFor(() => expect(controls).toEqual(["transport.play"]));
+    server.setAllowControl(false);
+    await vi.waitFor(() => expect(inbox.messages).toContainEqual({ type: "control-allowed", allowed: false }));
+    ws.send(JSON.stringify({ type: "control", action: "transport.stop" }));
+    expect(await until(inbox, "error")).toEqual({ type: "error", message: "Remote control is off." });
+    expect(controls).toEqual(["transport.play"]);
+  });
+
   it("limits how many controls a follower can send each second", async () => {
     const { server, controls } = serverWith();
     const { port, pin } = await started(true, server);

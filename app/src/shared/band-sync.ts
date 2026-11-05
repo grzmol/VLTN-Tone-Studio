@@ -48,6 +48,7 @@ export type ClientMessage =
 /** What the server sends. `song` carries the audience model, `state` the clock snapshot, and `pong` answers a ping with the server's times. */
 export type ServerMessage =
   | { type: "hello"; protocol: number; token: string; controlAllowed: boolean }
+  | { type: "control-allowed"; allowed: boolean }
   | { type: "refused"; reason: RefusalReason; retryAfter: number }
   | { type: "song"; model: AudienceModel }
   | { type: "state"; clock: AudienceClock }

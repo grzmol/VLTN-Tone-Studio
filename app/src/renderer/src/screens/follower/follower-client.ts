@@ -183,6 +183,9 @@ export class FollowerClient {
     switch (message.type) {
       case "hello":
         return this.welcome(message.protocol, message.token, message.controlAllowed);
+      case "control-allowed":
+        if (this.state.phase === "live" && typeof message.allowed === "boolean") this.setState({ controlAllowed: message.allowed });
+        return;
       case "refused":
         return this.refused(message.reason, message.retryAfter);
       case "song": {
