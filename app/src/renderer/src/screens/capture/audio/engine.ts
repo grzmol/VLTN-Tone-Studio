@@ -8,6 +8,7 @@ import wasmUrl from "neural-amp-modeler-wasm/dist/engine/nam-engine.wasm?url";
 import type { Shaping } from "@shared/host/capture";
 import { postFilters, preFilters, type FilterSpec } from "../nam/shaping";
 import diGuitarUrl from "./di-guitar.flac?url";
+import { irLevelGain } from "./ir-level";
 
 export const SAMPLE_RATE = 48000;
 /** Below the 0.5 breakpoint selects the Lite submodel; negative = the full model (NAM core semantics). */
@@ -226,25 +227,64 @@ export class Audition {
   }
 }
 
-/** Offline render of a clip through one choice of the chain; returns the mono output. */
-export async function renderOffline(text: string, choice: ModelChoice, settings: ChainSettings, clipId: ClipId): Promise<Float32Array> {
-  const clip = CLIPS.find((c) => c.id === clipId)!;
-  // Decode at 48 kHz with a throwaway offline context, then render into one of the clip's length.
-  const decoder = new OfflineAudioContext(1, 1, SAMPLE_RATE);
-  const buffer = await decodeClip(decoder, clip.url);
-  const ctx = new OfflineAudioContext(1, buffer.length, SAMPLE_RATE);
+/**
+ * Offline render of one choice of the chain; returns the mono output. The input is a built-in clip, or mono samples already at
+ * SAMPLE_RATE (the output then has the samples' length). With `cabIr` (samples at SAMPLE_RATE) the output goes through a convolver
+ * after the chain, and the output keeps the input's length, so the IR's tail is cut off. The IR is level-matched: its output is scaled
+ * back to the RMS of the chain's output before the IR (ir-level.ts), so the IR changes the tone, not the loudness.
+ */
+export async function renderOffline(
+  text: string,
+  choice: ModelChoice,
+  settings: ChainSettings,
+  input: ClipId | Float32Array,
+  cabIr: Float32Array | null = null,
+): Promise<Float32Array> {
+  // A clip is decoded at 48 kHz with a throwaway offline context, then rendered into a context of the clip's length.
+  const clip = typeof input === "string" ? CLIPS.find((c) => c.id === input)! : null;
+  const decoded = clip ? await decodeClip(new OfflineAudioContext(1, 1, SAMPLE_RATE), clip.url) : null;
+  const frames = decoded ? decoded.length : (input as Float32Array).length;
+  const ir = cabIr && cabIr.length > 0 ? cabIr : null;
+  // With an IR the context has two channels: the chain's output before the IR (channel 0) and after it (channel 1). One render gives
+  // both, so the level can be matched without a second NAM render.
+  const ctx = new OfflineAudioContext(ir ? 2 : 1, ir ? frames + ir.length : frames, SAMPLE_RATE);
   await registerWorklet(ctx);
   const nam = await createNode(ctx, text, choice.slimSize);
   const chain = new Chain(ctx, new Map([[choice.id, nam]]));
   chain.apply(settings, choice.id);
-  chain.output.connect(ctx.destination);
+  if (ir) {
+    const merger = ctx.createChannelMerger(2);
+    const convolver = ctx.createConvolver();
+    // The convolver's own normalisation scales the IR by about -29 dB for a unit impulse. The level is matched below instead.
+    convolver.normalize = false;
+    const irBuffer = ctx.createBuffer(1, ir.length, SAMPLE_RATE);
+    irBuffer.copyToChannel(ir as Float32Array<ArrayBuffer>, 0);
+    convolver.buffer = irBuffer;
+    chain.output.connect(merger, 0, 0);
+    chain.output.connect(convolver).connect(merger, 0, 1);
+    merger.connect(ctx.destination);
+  } else {
+    chain.output.connect(ctx.destination);
+  }
   const src = ctx.createBufferSource();
-  src.buffer = buffer;
+  if (decoded) {
+    src.buffer = decoded;
+  } else {
+    const buffer = ctx.createBuffer(1, frames, SAMPLE_RATE);
+    buffer.copyToChannel(input as Float32Array<ArrayBuffer>, 0);
+    src.buffer = buffer;
+  }
   src.connect(chain.input);
   src.start();
   const out = await ctx.startRendering();
   void nam.dispose();
-  return out.getChannelData(0);
+  if (!ir) return out.getChannelData(0).slice(0, frames);
+  const dry = out.getChannelData(0).subarray(0, frames);
+  const wet = out.getChannelData(1).subarray(0, frames);
+  const gain = irLevelGain(dry, wet);
+  const matched = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) matched[i] = wet[i] * gain;
+  return matched;
 }
 
 /** Peak per bucket (absolute, full scale = 1) for the waveform. */

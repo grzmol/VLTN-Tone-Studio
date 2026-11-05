@@ -105,3 +105,14 @@ export function describeSlots(slots: number[], label: (slot: number) => string):
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
   return `${slots.length === 1 ? "Slot" : "Slots"} ${list}`;
 }
+
+/**
+ * Copy for the Restore dialog when the pedal already holds every slot of the backup, so "Write only changed slots" has
+ * nothing to write. Nothing on the pedal would change, so there is no loss to warn about.
+ */
+export function alreadyMatchesCopy(pedal: string): { title: string; description: string } {
+  return {
+    title: `The ${pedal} already matches this backup`,
+    description: "Every slot holds the same preset as this backup, so restoring would change nothing. Choose Write all to replace every slot anyway.",
+  };
+}

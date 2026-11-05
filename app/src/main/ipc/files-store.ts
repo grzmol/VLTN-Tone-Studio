@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/prom
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
 import { renameRetry, rmRetry, writeJsonAtomic } from "./fs-atomic";
+import { backupsToPrune, type BackupRetention } from "@shared/backup-retention";
 import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
 import type { BackupSlot, CollectionInfo, CollectionKind, LocalPreset, NewPreset, PickedFile } from "@shared/host/files";
 import { MAX_PRST_BYTES, PRST_MODELS, isDeviceKey, profileFor, prstName, sniffPrst, type DeviceKey } from "@shared/devices";
@@ -132,11 +133,13 @@ export class LibraryStore {
     let device: DeviceKey | null = null;
     // The files the copy meant to hold, as backup.json lists them once the copy is complete. Older backups list none.
     let listed: string[] = [];
+    let pinned = false;
     try {
       const raw: unknown = JSON.parse(await readFile(join(path, "backup.json"), "utf8"));
       if (raw && typeof raw === "object" && "createdAt" in raw && typeof raw.createdAt === "string") createdAt = raw.createdAt;
       if (raw && typeof raw === "object" && "device" in raw && isDeviceKey(raw.device)) device = raw.device;
       if (raw && typeof raw === "object" && "files" in raw && Array.isArray(raw.files)) listed = raw.files.filter((f): f is string => typeof f === "string");
+      pinned = raw !== null && typeof raw === "object" && "pinned" in raw && raw.pinned === true;
     } catch {
       // Folders copied in by hand have no backup.json.
     }
@@ -146,14 +149,24 @@ export class LibraryStore {
     device ??= named?.device ?? (files.length ? sniffPrst(new Uint8Array(await readFile(join(path, files[0])))) : null);
     const title = device ? `${profileFor(device).name} backup` : "Backup";
     const incomplete = listed.some((f) => !files.includes(f));
-    return { id: `backups/${dir}`, kind: "backup", title, device, createdAt, count: files.length, path, incomplete };
+    return { id: `backups/${dir}`, kind: "backup", title, device, createdAt, count: files.length, path, incomplete, pinned };
   }
 
   private async libraryInfo(dir: string): Promise<CollectionInfo> {
     const path = join(this.libraryDir, dir);
     const meta = await this.readMeta(dir);
     const files = await this.prstFiles(path);
-    return { id: `library/${dir}`, kind: meta.kind, title: meta.title, device: null, createdAt: meta.createdAt, count: files.length, path, incomplete: false };
+    return {
+      id: `library/${dir}`,
+      kind: meta.kind,
+      title: meta.title,
+      device: null,
+      createdAt: meta.createdAt,
+      count: files.length,
+      path,
+      incomplete: false,
+      pinned: false,
+    };
   }
 
   async listCollections(): Promise<CollectionInfo[]> {
@@ -196,9 +209,9 @@ export class LibraryStore {
     );
   }
 
-  async saveBackup(slots: BackupSlot[], now = new Date()): Promise<CollectionInfo> {
+  async saveBackup(slots: BackupSlot[], now = new Date(), sourceDevice?: DeviceKey): Promise<CollectionInfo> {
     if (!slots.length) throw new HostError("invalid", "Nothing to back up");
-    const device = commonModel(slots.map((s) => s.prst));
+    const device = commonModel(slots.map((s) => s.prst), sourceDevice);
     if (!device) throw new HostError("invalid", "A backup holds the presets of one pedal model");
     await mkdir(this.backupsDir, { recursive: true });
     // Built in a temp folder and renamed once every file is in, so a backup cut short by a crash or a full disk never
@@ -261,6 +274,22 @@ export class LibraryStore {
     return { dir, path };
   }
 
+  /** Pins or unpins a backup in its backup.json. Pinned backups are never pruned. Returns the backup as listed now. */
+  async setBackupPinned(id: string, pinned: boolean): Promise<CollectionInfo> {
+    const { root, dir, path } = this.collectionPath(id);
+    if (root !== "backups") throw new HostError("invalid", "Only backups can be pinned");
+    if (!(await exists(path))) throw new HostError("not-found", "This backup no longer exists");
+    const file = join(path, "backup.json");
+    const raw: unknown = await readFile(file, "utf8").then(
+      (text) => JSON.parse(text) as unknown,
+      () => null,
+    );
+    // A folder copied in by hand has no backup.json; pinning it writes one that holds only the flag.
+    const meta = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    await writeJsonAtomic(file, { ...meta, pinned });
+    return this.backupInfo(dir);
+  }
+
   async createCollection(title: string): Promise<CollectionInfo> {
     const clean = title.trim();
     if (!clean) throw new HostError("invalid", "A collection needs a name");
@@ -286,6 +315,17 @@ export class LibraryStore {
     if (root !== "library") throw new HostError("invalid", "Backups are read-only");
     if ((await this.readMeta(dir)).kind !== "collection") throw new HostError("invalid", "Only your own collections can be deleted");
     await this.trash(path);
+  }
+
+  /**
+   * Moves the backups of `device` that `policy` no longer keeps to the Trash, oldest first. Pinned backups and other models'
+   * backups stay. Returns the ids moved.
+   */
+  async pruneBackups(device: DeviceKey, policy: BackupRetention, now = new Date()): Promise<string[]> {
+    const backups = (await this.listCollections()).filter((c) => c.kind === "backup" && c.device === device);
+    const doomed = backupsToPrune(backups, policy, now);
+    for (const c of doomed) await this.trash(this.collectionPath(c.id).path);
+    return doomed.map((c) => c.id);
   }
 
   /** Drops entries that have been in the in-library Trash for 30 days. Run at start-up. */

@@ -4,12 +4,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { notifyError } from "@/app/notify";
 import { host, isElectron } from "@/host";
 import { useNav } from "@/state/nav";
 import { loadAccount, setAppKey, signOut, useTones } from "@/screens/tones/store";
 import { listNames } from "@shared/devices";
+import { BACKUP_RETENTIONS, RETENTION_LABELS } from "@shared/backup-retention";
 import { useAppSettings } from "./settings-store";
 import { OldLibraryCopy } from "./OldLibraryCopy";
 import { useDevice, usePedalName, useProfile } from "@/state/device";
@@ -56,6 +58,36 @@ export function SettingsView() {
           <Row label="Back up before every write" description="Before the app saves, renames or writes a slot, it copies what is in that slot now into Replaced presets.">
             <Switch checked={settings.backupBeforeWrite} disabled={!loaded} onCheckedChange={(v) => save({ backupBeforeWrite: v })} aria-label="Back up before every write" />
           </Row>
+          {/* Pruning runs in the desktop app, where the backups folder is. */}
+          {isElectron && (
+            <Row
+              label="Keep backups"
+              description={
+                "After each backup, the older backups of that pedal move to the Trash. " +
+                "Pinned backups are never moved, and backups of other pedals are left alone."
+              }
+            >
+              <Select
+                value={settings.backupRetention}
+                disabled={!loaded}
+                onValueChange={(v) => {
+                  const retention = BACKUP_RETENTIONS.find((r) => r === v);
+                  if (retention) save({ backupRetention: retention });
+                }}
+              >
+                <SelectTrigger aria-label="Keep backups" className="w-[240px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BACKUP_RETENTIONS.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {RETENTION_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+          )}
         </Section>
 
         <Section title="Pedal connection">
@@ -84,6 +116,8 @@ export function SettingsView() {
             />
           </Row>
         </Section>
+
+        <OldLibraryCopy />
 
         <Section title="TONE3000 account">
           <AppKeyRow />

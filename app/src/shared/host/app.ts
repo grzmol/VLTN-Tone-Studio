@@ -1,4 +1,5 @@
 import type { AppEvent } from "../ipc";
+import { BACKUP_RETENTIONS, type BackupRetention } from "../backup-retention";
 
 export interface AppSettings {
   /** Show knob values printed under the labels on gear art. */
@@ -11,6 +12,8 @@ export interface AppSettings {
   portPattern: string | null;
   /** Ask for a backup before every write to pedal memory. */
   backupBeforeWrite: boolean;
+  /** After each backup, move the older backups of that pedal model to the Trash: "all" keeps every one (pinned backups are always kept). */
+  backupRetention: BackupRetention;
   /** Desktop app: look for a new release on GitHub after launch and every few hours. */
   checkForUpdates: boolean;
   /**
@@ -26,6 +29,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   suitePathPicked: false,
   portPattern: null,
   backupBeforeWrite: true,
+  backupRetention: "all",
   checkForUpdates: true,
   gp50Extras: false,
 };
@@ -37,6 +41,7 @@ const MAIN_ONLY_KEYS: ReadonlySet<string> = new Set(["valetonSuitePath", "suiteP
 
 /** A value of the type its default has; the nullable settings also take null. */
 function hasSettingType(key: keyof AppSettings, value: unknown): boolean {
+  if (key === "backupRetention") return (BACKUP_RETENTIONS as readonly unknown[]).includes(value);
   const fallback = DEFAULT_SETTINGS[key];
   return fallback === null ? value === null || typeof value === "string" : typeof value === typeof fallback;
 }

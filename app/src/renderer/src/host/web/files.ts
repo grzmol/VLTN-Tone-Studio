@@ -31,6 +31,8 @@ interface CollectionRow {
   createdAt: string;
   /** Backups only; rows saved before GP-50 support have none (their id names the model, see info) */
   device?: DeviceKey;
+  /** Backups only: kept when old backups are pruned */
+  pinned?: boolean;
 }
 
 interface PresetRow {
@@ -111,7 +113,7 @@ const toPreset = (r: PresetRow): LocalPreset => ({
 async function info(row: CollectionRow): Promise<CollectionInfo> {
   const count = await done((await db()).transaction("presets").objectStore("presets").index("collection").count(row.id));
   const device = row.kind === "backup" ? (row.device ?? parseBackupDirName(parseCollectionId(row.id)?.dir ?? "")?.device ?? null) : null;
-  return { ...row, device, count, path: null, incomplete: false };
+  return { ...row, device, count, path: null, incomplete: false, pinned: row.pinned === true };
 }
 
 async function requireLibrary(id: string): Promise<CollectionRow> {
@@ -189,9 +191,9 @@ export const webFiles: FilesApi = {
     return (await presetRows(id)).map(toPreset);
   },
 
-  async saveBackup(slots) {
+  async saveBackup(slots, sourceDevice) {
     if (!slots.length) throw new HostError("invalid", "Nothing to back up");
-    const device = commonModel(slots.map((s) => s.prst));
+    const device = commonModel(slots.map((s) => s.prst), sourceDevice);
     if (!device) throw new HostError("invalid", "A backup holds the presets of one pedal model");
     const now = new Date();
     const dirs = (await allCollections()).filter((c) => c.kind === "backup").map((c) => parseCollectionId(c.id)!.dir);
@@ -255,6 +257,16 @@ export const webFiles: FilesApi = {
     const tx = (await db()).transaction("presets", "readwrite");
     tx.objectStore("presets").delete(`${id}\n${presetId}`);
     await finished(tx);
+  },
+
+  async setBackupPinned(id, pinned) {
+    const row = await getCollection(id);
+    if (!row || row.kind !== "backup") throw new HostError("not-found", "This backup no longer exists");
+    const next = { ...row, pinned };
+    const tx = (await db()).transaction("collections", "readwrite");
+    tx.objectStore("collections").put(next);
+    await finished(tx);
+    return info(next);
   },
 
   async pickPrstFiles() {
