@@ -189,8 +189,14 @@ function readyNotice(title: string, skipped: string[]): string {
   return `${title} ready. Skipped ${skipped.join(", ")}: missing or damaged audio.`;
 }
 
+/**
+ * The saved file each loaded track came from, and the song it belongs to. A track whose audio is still this object has not changed, so a
+ * save keeps its file instead of encoding it again. Any edit that makes new audio makes a new object, which is encoded as usual.
+ */
+const storedTrack = new WeakMap<PcmAudio, { songId: string; track: LibraryAudio }>();
+
 /** Fetches a saved track straight from the app protocol and decodes it in a worker; nothing is copied through IPC. */
-async function loadTrack(url: string, track: LibraryAudio): Promise<PcmAudio> {
+async function loadTrack(url: string, track: LibraryAudio, songId: string): Promise<PcmAudio> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Missing or damaged ${track.name} audio.`);
   const file = await response.arrayBuffer();
@@ -198,6 +204,7 @@ async function loadTrack(url: string, track: LibraryAudio): Promise<PcmAudio> {
   const audio = await decodeTrack(file);
   if (audio.channels.length !== track.channels || audio.channels[0].length !== track.frames || audio.sampleRate !== track.sampleRate)
     throw new Error(`Missing or damaged ${track.name} audio.`);
+  storedTrack.set(audio, { songId, track });
   return audio;
 }
 /**
@@ -212,7 +219,7 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
   const loaded = await Promise.all(
     song.audio.map(async (track) => {
       try {
-        return [track, await loadTrack(urls[trackKey(track)], track)] as const;
+        return [track, await loadTrack(urls[trackKey(track)], track, id)] as const;
       } catch (e) {
         // The song still plays without this track, so the reason is kept for the console rather than shown in the notice.
         console.error(`Could not read the ${track.name} audio of ${song.title}`, e);
@@ -727,28 +734,39 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           ...Object.entries(state.stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
         ];
         // One track at a time keeps the encoder's copy of the audio to a single track.
+        // A track still holding the audio it was loaded with keeps its saved file: nothing is sent, and the store carries the file over.
         const assets: { name: string; bytes: Uint8Array }[] = [],
-          audioInfo: LibraryAudio[] = [];
+          audioInfo: LibraryAudio[] = [],
+          audioObjects: [PcmAudio, LibraryAudio][] = [];
         for (const [key, audio] of tracks) {
           const info = key === "source" ? undefined : state.tracks[key],
             kind = key === "source" ? "source" : (info?.kind ?? "stem");
-          // Stems and imports are 16-bit; the source keeps 24 bits only when its original file was deeper (see `storedBits`).
-          const bits = storedBits(kind, source.bits);
-          const bytes = await encodeTrack(audio, bits);
-          const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
-          assets.push({ name: flacName(key), bytes });
-          audioInfo.push({
+          const kept = storedTrack.get(audio);
+          let file: string, bytes: number, sha256: string;
+          if (kept && kept.songId === id && kept.track.file && kept.track.bytes !== undefined && kept.track.sha256) {
+            ({ file, bytes, sha256 } = { file: kept.track.file, bytes: kept.track.bytes, sha256: kept.track.sha256 });
+          } else {
+            // Stems and imports are 16-bit; the source keeps 24 bits only when its original file was deeper (see `storedBits`).
+            const encoded = await encodeTrack(audio, storedBits(kind, source.bits));
+            file = flacName(key);
+            bytes = encoded.length;
+            sha256 = hex(await crypto.subtle.digest("SHA-256", encoded as Uint8Array<ArrayBuffer>));
+            assets.push({ name: file, bytes: encoded });
+          }
+          const entry: LibraryAudio = {
             name: info?.name ?? key,
             sampleRate: audio.sampleRate,
             frames: audio.channels[0].length,
             channels: audio.channels.length,
-            file: flacName(key),
+            file,
             codec: "flac",
-            bytes: bytes.length,
+            bytes,
             sha256,
             kind,
             ...savedSettingsOf(info),
-          });
+          };
+          audioInfo.push(entry);
+          audioObjects.push([audio, entry]);
         }
         const song: LibrarySong = {
           id,
@@ -761,6 +779,8 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           updated: new Date().toISOString(),
         };
         await api().save(song, assets);
+        // The saved files are now this song's stored files, so the next save keeps them too.
+        for (const [audio, entry] of audioObjects) storedTrack.set(audio, { songId: id, track: entry });
         if (useSong.getState().source === source) {
           const saved = { ...source, libraryId: id };
           // Background transcription/key analysis can finish while audio is being copied.

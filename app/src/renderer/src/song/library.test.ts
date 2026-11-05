@@ -771,3 +771,46 @@ describe("playlist writes", () => {
     expect(stored.map((p) => p.id)).toEqual(["p2"]);
   });
 });
+
+/** Each decode gives its own audio object, as the real decoder does, so each track's identity is its own. */
+const decodeAll = () => codec.decodeTrack.mockImplementation(async () => ({ sampleRate: 44100, channels: [new Float32Array([0, 0.25, -0.25])] }));
+it("a settings-only re-save keeps every stored file and encodes nothing", async () => {
+  decodeAll();
+  await useSongLibrary.getState().load(saved.id);
+  setSetting(performanceKey(useSong.getState().source), ":bpm", "100");
+  await useSongLibrary.getState().save("Saved song", "");
+  const [metadata, assets] = api.save.mock.calls[0];
+  expect(assets).toEqual([]);
+  expect(codec.encodeTrack).not.toHaveBeenCalled();
+  expect(metadata.id).toBe(saved.id);
+  expect(metadata.audio.map((a: { file: string; bytes: number; sha256: string }) => [a.file, a.bytes, a.sha256])).toEqual(
+    saved.audio.map((a) => [a.file, a.bytes, a.sha256]),
+  );
+});
+it("encodes only the track whose audio changed, and keeps the other stored files", async () => {
+  decodeAll();
+  await useSongLibrary.getState().load(saved.id);
+  const stems = useSong.getState().stems!;
+  useSong.setState({ stems: { ...stems, guitar: { sampleRate: 44100, channels: [new Float32Array([0.5, 0.5, 0.5])] } } });
+  await useSongLibrary.getState().save("Saved song", "");
+  const [metadata, assets] = api.save.mock.calls[0];
+  expect(assets.map((a: { name: string }) => a.name)).toEqual(["guitar.flac"]);
+  expect(codec.encodeTrack).toHaveBeenCalledTimes(1);
+  expect(metadata.audio[0]).toMatchObject({ file: "source.flac", bytes: 8, sha256: saved.audio[0].sha256 });
+  expect(metadata.audio[1]).toMatchObject({ file: "guitar.flac", bytes: 4 });
+  expect(metadata.audio[1].sha256).not.toBe(saved.audio[1].sha256);
+});
+it("a new song's second save reuses the files its first save wrote", async () => {
+  const source = { name: "draft.wav", audio };
+  useSong.setState({ source, stems: { guitar: audio } });
+  await useSongLibrary.getState().save("Draft", "");
+  expect(codec.encodeTrack).toHaveBeenCalledTimes(2);
+  const [first] = api.save.mock.calls[0];
+  setSetting(performanceKey(useSong.getState().source), ":bpm", "101");
+  await useSongLibrary.getState().save("Draft", "");
+  const [second, assets] = api.save.mock.calls[1];
+  expect(codec.encodeTrack).toHaveBeenCalledTimes(2);
+  expect(assets).toEqual([]);
+  expect(second.id).toBe(first.id);
+  expect(second.audio.map((a: { sha256: string }) => a.sha256)).toEqual(first.audio.map((a: { sha256: string }) => a.sha256));
+});
