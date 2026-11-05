@@ -70,6 +70,41 @@ describe("RenderQueue", () => {
     expect((await second)!.vocals!.channels[0]).toHaveLength(Math.round(100 / 0.8));
   });
 
+  it("aborts the renders of the old setting when a new one comes", async () => {
+    const signals: AbortSignal[] = [];
+    const queue = new RenderQueue((input, _settings, signal) => {
+      signals.push(signal!);
+      return new Promise((resolve, reject) => {
+        signal!.addEventListener("abort", () => reject(new Error("aborted")));
+        void resolve;
+        void input;
+      });
+    });
+    const first = queue.render(base, speed({ rate: 0.5 }));
+    expect(signals.map((s) => s.aborted)).toEqual([false, false]);
+    void queue.render(base, speed({ rate: 0.8 })).catch(() => {});
+    expect(signals.slice(0, 2).map((s) => s.aborted)).toEqual([true, true]);
+    expect(signals.slice(2).map((s) => s.aborted)).toEqual([false, false]);
+    // The overtaken render ends quietly with null, not with the abort as an error
+    expect(await first).toBeNull();
+  });
+
+  it("aborts what runs when the song's renders are cleared", async () => {
+    let signal: AbortSignal | undefined;
+    const queue = new RenderQueue((_input, _settings, s) => {
+      signal = s;
+      return new Promise(() => {});
+    });
+    void queue.render(base, speed({ rate: 0.5 }));
+    queue.clear();
+    expect(signal!.aborted).toBe(true);
+  });
+
+  it("still reports a real failure", async () => {
+    const queue = new RenderQueue(() => Promise.reject(new Error("boom")));
+    await expect(queue.render(base, speed({ rate: 0.5 }))).rejects.toThrow("boom");
+  });
+
   it("answers a repeated setting from memory, and keeps only the current and the last one", async () => {
     const rec = recorder();
     const queue = new RenderQueue(rec.stretch);
