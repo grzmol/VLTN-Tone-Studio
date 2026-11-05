@@ -52,8 +52,8 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
-      # macOS and Windows file systems ignore case, so two files that differ only by case
-      # (tuner.ts next to Tuner.tsx) break here and not on ubuntu. Typecheck runs here for that reason.
+      # macOS and Windows file systems ignore case, so two files in one folder that differ only by case
+      # break here and not on ubuntu. Typecheck runs here for that reason.
       - run: npm run typecheck
       # Compiles only: packaging (electron-builder) stays in release.yml.
       - run: npx electron-vite build
