@@ -74,6 +74,8 @@ To go back to the old library:
 
 To delete this copy, use Settings > Library > Remove the old library copy. Nothing is deleted until you do that.
 `;
+/** A v1 audio file: one raw float32 file per channel. The sweep keeps folders that hold them. */
+const isV1Audio = (name: string): boolean => name.endsWith(".f32");
 const exists = (path: string): Promise<boolean> =>
   stat(path).then(
     () => true,
@@ -180,7 +182,8 @@ export class SongLibraryStore {
   startSweeping(): void {
     void sweepLibraryTrash(this.root).catch((e) => console.error("Song library trash sweep failed", e));
     const sweep = () => void this.sweep().catch((e) => console.error("Song library sweep failed", e));
-    sweep();
+    // The first sweep runs at start-up, queued before the v1 conversion, so it clears a conversion's leftovers first.
+    void this.sweep(true).catch((e) => console.error("Song library sweep failed", e));
     this.sweeper = setInterval(sweep, SWEEP_INTERVAL_MS);
     this.sweeper.unref?.();
   }
@@ -191,8 +194,10 @@ export class SongLibraryStore {
    * Drops save sessions older than an hour and deletes folders in the library root that no revision refers to. Runs inside `serial()`, so no
    * commit or restore is publishing while it looks, and only deletes what is also older than an hour, so a fresh save is never touched.
    *
+   * At start-up (`startup`), an unreferenced folder that is empty or holds only partial or temporary files is removed whatever its age:
+   * that is what a conversion killed part-way leaves. Folders holding v1 audio are never removed here, and `v1-backup` is never a revision.
    */
-  async sweep(): Promise<void> {
+  async sweep(startup = false): Promise<void> {
     return this.serial(async () => {
       const cutoff = this.now() - ORPHAN_AGE_MS;
       for (const [token, { created }] of this.pending) {
@@ -213,6 +218,15 @@ export class SongLibraryStore {
           temp = name.startsWith("index-") && name.endsWith(".tmp");
         if ((!folder && !temp) || live.has(name) || this.pending.has(name) || this.converting.has(name)) continue;
         const path = join(this.root, name);
+        if (folder) {
+          const entries = await readdir(path).catch(() => null);
+          if (!entries || entries.some(isV1Audio)) continue;
+          const junk = entries.every((e) => e.endsWith(".tmp") || e.endsWith(".partial"));
+          if (startup && junk) {
+            await rm(path, { recursive: true, force: true }).catch(() => {});
+            continue;
+          }
+        }
         const info = await stat(path).catch(() => null);
         if (info && info.mtimeMs <= cutoff) await rm(path, { recursive: true, force: true }).catch(() => {});
       }
