@@ -91,6 +91,8 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
   const library = new SongLibraryStore(libraryRoot(), Date.now, createTrash(libraryRoot(), (path) => shell.trashItem(path)));
   handle('song:library:preflight', (_e, ids: string[]) => library.preflight(ids));
   handle('song:library:index', () => library.index());
+  handle('song:library:v1BackupBytes', () => library.v1BackupBytes());
+  handle('song:library:removeV1Backup', () => library.removeV1Backup());
   handle('song:library:begin', (_e, song: LibrarySong) => library.begin(song));
   handle('song:library:write', (_e, token: string, name: string, bytes: Uint8Array) => library.write(token, name, bytes));
   handle('song:library:commit', (_e, token: string) => library.commit(token));

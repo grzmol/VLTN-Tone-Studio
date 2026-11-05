@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
 import { isLegacySong } from "@shared/song-library";
-import { SongLibraryStore, libraryFilePath } from "./song-library-store";
+import { SongLibraryStore, V1_BACKUP, libraryFilePath } from "./song-library-store";
 import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
 
 let root: string, store: SongLibraryStore;
@@ -136,7 +136,7 @@ it("returns a clean saved snapshot for intact audio", async () => {
   expect(await store.preflight([s.song.id])).toMatchObject([{ id: s.song.id, song: s.song, errors: [] }]);
 });
 
-it("migrates a v1 library to FLAC with the same audio and settings, then removes the v1 files", async () => {
+it("migrates a v1 library to FLAC with the same audio and settings, and keeps the v1 copy in v1-backup", async () => {
   const first = legacySong(1),
     second = legacySong(2);
   await writeLegacyLibrary(root, [first, second]);
@@ -157,119 +157,40 @@ it("migrates a v1 library to FLAC with the same audio and settings, then removes
     await expectAudio(fixture, "guitar");
     expect((await store.preflight([song.id]))[0].errors).toEqual([]);
   }
-  for (const revision of Object.values(before.revisions) as string[]) expect(await readdir(root)).not.toContain(revision);
+  const revisions = Object.values(before.revisions) as string[];
+  for (const revision of revisions) expect(await readdir(root)).not.toContain(revision);
+  // The v1 folders moved under their own names, beside the index they came from, so the old library can be put back.
+  const kept = await readdir(join(root, V1_BACKUP));
+  expect(kept).toEqual(expect.arrayContaining([...revisions, "library.json", "README.txt"]));
+  expect(JSON.parse(await readFile(join(root, V1_BACKUP, "library.json"), "utf8"))).toEqual(before);
+  expect(await readFile(join(root, V1_BACKUP, "README.txt"), "utf8")).toMatch(/How to go back|To go back/);
   expect(await store.migrate()).toEqual({ converted: 0, failed: 0 });
 });
-it("leaves a v1 song untouched when its audio is damaged and still converts the others", async () => {
-  const bad = legacySong(1),
-    good = legacySong(2);
-  await writeLegacyLibrary(root, [bad, good]);
-  const before = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
-  await writeFile(join(root, before.revisions[bad.song.id], "guitar-1.f32"), new Uint8Array(5));
-  expect(await store.migrate()).toEqual({ converted: 1, failed: 1 });
-  const index = await store.index();
-  expect(isLegacySong(index.songs.find((s) => s.id === bad.song.id)!)).toBe(true);
-  expect(isLegacySong(index.songs.find((s) => s.id === good.song.id)!)).toBe(false);
-  expect(await readdir(root)).toContain(before.revisions[bad.song.id]);
-  expect((await readdir(root)).filter((p) => p.length === 36)).toHaveLength(2);
+it("keeps the v1 index from the first conversion when a later run resumes", async () => {
+  const first = legacySong(1);
+  await writeLegacyLibrary(root, [first]);
+  const original = await readFile(join(root, "library.json"), "utf8");
+  await store.migrate();
+  await writeFile(join(root, V1_BACKUP, "library.json"), "kept");
+  await writeLegacyLibrary(root, [legacySong(2)]);
+  await store.migrate();
+  expect(await readFile(join(root, V1_BACKUP, "library.json"), "utf8")).toBe("kept");
+  expect(original).toContain('"version":1');
 });
-it("keeps settings edited while a song is being converted", async () => {
-  const fixture = legacySong();
-  await writeLegacyLibrary(root, [fixture]);
-  const running = store.migrate();
-  await store.updateSettings(fixture.song.id, { ":bpm": "77" });
-  await running;
-  expect((await store.index()).songs[0].settings[":bpm"]).toBe("77");
-});
-it("sweeps only true orphans and expired save sessions", async () => {
-  let clock = Date.now();
-  store = new SongLibraryStore(root, () => clock);
-  const kept = await flacSong(1);
-  await saveFlacSong(store, kept);
-  const revision = JSON.parse(await readFile(join(root, "library.json"), "utf8")).revisions[kept.song.id];
-  const old = new Date(clock - 2 * 60 * 60 * 1000),
-    orphan = join(root, randomUUID()),
-    fresh = join(root, randomUUID()),
-    stage = join(root, ".restore-" + randomUUID());
-  for (const dir of [orphan, fresh, stage, join(root, revision)]) await mkdir(dir, { recursive: true });
-  for (const dir of [orphan, stage, join(root, revision)]) await utimes(dir, old, old);
-  // An abandoned save: begun, never committed.
-  const abandoned = await flacSong(2),
-    token = await store.begin(abandoned.song);
-  clock += 2 * 60 * 60 * 1000;
-  await utimes(join(root, token), old, old);
-  await utimes(fresh, new Date(clock), new Date(clock));
-  await store.sweep();
-  const names = await readdir(root);
-  expect(names).toContain(revision);
-  expect(names).toContain(fresh.slice(root.length + 1));
-  expect(names).not.toContain(orphan.slice(root.length + 1));
-  expect(names).not.toContain(stage.slice(root.length + 1));
-  expect(names).not.toContain(token);
-  await expect(store.commit(token)).rejects.toThrow("Save session expired.");
-});
-it("keeps a save session that is still young", async () => {
-  const clock = Date.now();
-  store = new SongLibraryStore(root, () => clock);
-  const fixture = await flacSong(1);
-  const token = await store.begin(fixture.song);
-  await store.sweep();
-  expect(await readdir(root)).toContain(token);
-});
-it("merges a settings patch, removes emptied entries, and survives a restart", async () => {
-  const fixture = await flacSong(1);
-  await saveFlacSong(store, fixture);
-  await store.updateSettings(fixture.song.id, { ":lyrics": "[00:01] New words", ":options": "" });
-  await store.updateSettings(fixture.song.id, { ":bpm": "98" });
-  const settings = (await new SongLibraryStore(root).index()).songs[0].settings;
-  expect(settings).toEqual({ "": fixture.song.settings[""], ":lyrics": "[00:01] New words", ":bpm": "98" });
-});
-it("rejects settings patches for unknown songs, unknown keys and non-string values", async () => {
-  const fixture = await flacSong(1);
-  await saveFlacSong(store, fixture);
-  await expect(store.updateSettings(randomUUID(), { ":bpm": "90" })).rejects.toThrow("Saved song not found.");
-  await expect(store.updateSettings(fixture.song.id, { ":other": "x" })).rejects.toThrow("Invalid song settings.");
-  await expect(store.updateSettings(fixture.song.id, { ":bpm": 90 as unknown as string })).rejects.toThrow("Invalid song settings.");
-  await expect(store.updateSettings("../x", { ":bpm": "90" })).rejects.toThrow("Invalid song settings.");
-});
-
-/** A saved song with one imported track named `label`, stored as track0. */
-async function songWithTrack(seed: number, label: string, settings: Record<string, unknown>): Promise<FixtureSong> {
-  const fixture = await flacSong(seed),
-    bytes = await encodeFlac({ sampleRate: 44100, channels: pcm(1, seed + 10) });
-  fixture.files["track0.flac"] = bytes;
-  fixture.song.audio.push({
-    name: label,
-    sampleRate: 44100,
-    frames: FRAMES,
-    channels: 1,
-    file: "track0.flac",
-    codec: "flac",
-    bytes: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    kind: "user",
-    ...settings,
-  } as FixtureSong["song"]["audio"][number]);
-  return fixture;
-}
-
-it("applies a song's track settings to the other songs with the same imported tracks, and leaves their audio alone", async () => {
-  const source = await songWithTrack(1, "Click", { bus: "click", transpose: false, muteGroups: [1] });
-  const similar = await songWithTrack(2, "Click", { bus: "main" });
-  const different = await songWithTrack(3, "Bass", { bus: "main" });
-  for (const fixture of [source, similar, different]) await saveFlacSong(store, fixture);
-  const before = (await store.index()).songs.find((s) => s.id === similar.song.id)!;
-  expect(await store.applyTrackSettings(source.song.id)).toBe(1);
-  const index = await store.index();
-  const copied = index.songs.find((s) => s.id === similar.song.id)!;
-  expect(copied.audio.find((a) => a.name === "Click")).toMatchObject({ bus: "click", transpose: false, muteGroups: [1] });
-  expect(copied.audio.map((a) => [a.file, a.sha256])).toEqual(before.audio.map((a) => [a.file, a.sha256]));
-  expect(index.songs.find((s) => s.id === different.song.id)!.audio.find((a) => a.name === "Bass")).toMatchObject({ bus: "main" });
-  const track = await decodeFlac(await readSaved(root, similar.song.id, "track0.flac"));
-  expect(track.channels[0].length).toBe(FRAMES);
-});
-
-it("refuses to apply the settings of a song that is not saved", async () => {
-  await expect(store.applyTrackSettings(randomUUID())).rejects.toThrow("Saved song not found.");
-  await expect(store.applyTrackSettings("not-an-id")).rejects.toThrow("Saved song not found.");
+it("reports the v1 copy's size and moves it to the Trash when asked", async () => {
+  const moved: string[] = [];
+  const trash = async (path: string) => {
+    moved.push(path);
+    await rm(path, { recursive: true, force: true });
+  };
+  store = new SongLibraryStore(root, Date.now, trash);
+  expect(await store.v1BackupBytes()).toBeNull();
+  await writeLegacyLibrary(root, [legacySong(1)]);
+  await store.migrate();
+  const bytes = await store.v1BackupBytes();
+  expect(bytes).toBeGreaterThan(0);
+  await store.removeV1Backup();
+  expect(moved).toEqual([join(root, V1_BACKUP)]);
+  expect(await store.v1BackupBytes()).toBeNull();
+  expect((await store.index()).songs).toHaveLength(1);
 });

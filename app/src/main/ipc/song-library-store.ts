@@ -53,6 +53,41 @@ import { validateAnnotations } from "@shared/chart-annotations";
 import { writeJsonAtomic } from "./fs-atomic";
 
 export type DiskIndex = SongLibrary & { revisions: Record<string, string> };
+/**
+ * Where the library keeps the v1 copy after conversion: the v1 index and each converted song's old folder, under its old name, so the old
+ * index still finds it. The name is not a song id, so the sweep and the index never treat it as a song.
+ */
+export const V1_BACKUP = "v1-backup";
+const V1_README = `This folder is a copy of your song library from before it moved to compressed audio (library version 1).
+
+  library.json        the old index
+  <folder names>      each song's old audio, under the name the old index uses
+
+Your songs play from the converted copies in the library. Nothing here is needed for them.
+The copy is the library as it was on the first launch of the new version. Songs changed since then are not in it.
+
+To go back to the old library:
+  1. Quit VLTN Tone Studio.
+  2. Move library.json and the song folders from this folder into the song library folder, the one that holds this v1-backup folder.
+     Replace the current library.json. Keep the folder names the same.
+  3. Open the library with an older release that reads version 1 libraries.
+
+To delete this copy, use Settings > Library > Remove the old library copy. Nothing is deleted until you do that.
+`;
+const exists = (path: string): Promise<boolean> =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+/** The size of every file under `dir`, in bytes. */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    total += entry.isDirectory() ? await folderBytes(path) : (await stat(path)).size;
+  }
+  return total;
+}
 /** A save session or staging folder older than this is abandoned: the renderer crashed or the user gave up. */
 export const ORPHAN_AGE_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
@@ -155,6 +190,7 @@ export class SongLibraryStore {
   /**
    * Drops save sessions older than an hour and deletes folders in the library root that no revision refers to. Runs inside `serial()`, so no
    * commit or restore is publishing while it looks, and only deletes what is also older than an hour, so a fresh save is never touched.
+   *
    */
   async sweep(): Promise<void> {
     return this.serial(async () => {
@@ -176,8 +212,9 @@ export class SongLibraryStore {
         const folder = validId(name) || name.startsWith(".restore-"),
           temp = name.startsWith("index-") && name.endsWith(".tmp");
         if ((!folder && !temp) || live.has(name) || this.pending.has(name) || this.converting.has(name)) continue;
-        const info = await stat(join(this.root, name)).catch(() => null);
-        if (info && info.mtimeMs <= cutoff) await rm(join(this.root, name), { recursive: true, force: true }).catch(() => {});
+        const path = join(this.root, name);
+        const info = await stat(path).catch(() => null);
+        if (info && info.mtimeMs <= cutoff) await rm(path, { recursive: true, force: true }).catch(() => {});
       }
     });
   }
@@ -494,6 +531,7 @@ export class SongLibraryStore {
    */
   async migrate(progress: (p: LibraryTransferProgress) => void = () => {}): Promise<{ converted: number; failed: number }> {
     const todo = (await this.serial(() => this.read())).songs.filter(isLegacySong).map((s) => s.id);
+    if (todo.length) await this.keepV1Index();
     let converted = 0,
       failed = 0;
     for (const id of todo) {
@@ -506,6 +544,16 @@ export class SongLibraryStore {
     }
     if (todo.length) progress({ phase: "Conversion complete", completed: todo.length, total: todo.length });
     return { converted, failed };
+  }
+  /**
+   * Keeps the v1 index before the first conversion writes anything, and a README beside it. Kept once: a later run after an interruption
+   * must not overwrite the index that was on disk before any conversion.
+   */
+  private async keepV1Index(): Promise<void> {
+    const dir = join(this.root, V1_BACKUP);
+    await mkdir(dir, { recursive: true });
+    if (!(await exists(join(dir, "library.json")))) await copyFile(join(this.root, "library.json"), join(dir, "library.json"));
+    if (!(await exists(join(dir, "README.txt")))) await writeFile(join(dir, "README.txt"), V1_README);
   }
   private async migrateSong(id: string): Promise<boolean> {
     const { song, revision } = await this.serial(async () => {
@@ -548,7 +596,9 @@ export class SongLibraryStore {
         index.songs = index.songs.map((s) => (s.id === id ? { ...now, audio } : s));
         index.revisions[id] = target;
         await this.publish(index);
-        await rm(join(this.root, revision), { recursive: true, force: true }).catch(() => {});
+        // The published song no longer needs the v1 folder, but the copy stays for a way back. The move cannot fail the conversion: the song
+        // is already converted, and a folder left behind is kept by the sweep.
+        await rename(join(this.root, revision), join(this.root, V1_BACKUP, revision)).catch((e) => console.error("Could not move the v1 copy to v1-backup", e));
         return true;
       });
     } catch (e) {
@@ -658,6 +708,19 @@ export class SongLibraryStore {
         pdf: `app://library/${rev}/${CHART_FILE}`,
         ...(song.chart.annotations ? { annotations: `app://library/${rev}/${CHART_ANNOTATIONS_FILE}` } : {}),
       };
+    });
+  }
+  /** The size of the v1 copy in bytes, or null when there is none to remove. */
+  async v1BackupBytes(): Promise<number | null> {
+    return this.serial(async () => {
+      const dir = join(this.root, V1_BACKUP);
+      return (await exists(dir)) ? folderBytes(dir) : null;
+    });
+  }
+  /** Moves the v1 copy to the Trash, the OS Trash on desktop. Songs are not affected: they play from their converted copies. */
+  async removeV1Backup(): Promise<void> {
+    return this.serial(async () => {
+      await this.trash(join(this.root, V1_BACKUP));
     });
   }
   async remove(id: string): Promise<void> {

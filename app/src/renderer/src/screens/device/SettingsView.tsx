@@ -13,6 +13,7 @@ import { loadAccount, setAppKey, signOut, useTones } from "@/screens/tones/store
 import { listNames } from "@shared/devices";
 import { BACKUP_RETENTIONS, RETENTION_LABELS } from "@shared/backup-retention";
 import { useAppSettings } from "./settings-store";
+import { OldLibraryCopy } from "./OldLibraryCopy";
 import { useDevice, usePedalName, useProfile } from "@/state/device";
 import { EXPERIMENTAL_FEATURES } from "@/state/device-model";
 import { SUPPORTED_DEVICE_KEYS } from "@/state/driver/types";
@@ -115,6 +116,8 @@ export function SettingsView() {
             />
           </Row>
         </Section>
+
+        <OldLibraryCopy />
 
         <Section title="TONE3000 account">
           <AppKeyRow />
