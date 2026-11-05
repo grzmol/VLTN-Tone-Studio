@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -510,6 +511,82 @@ describe("messages from a signed-in follower", () => {
     await vi.waitFor(() => expect(inbox.messages.some((m) => m.type === "error")).toBe(true));
     expect(controls.length).toBe(4);
     expect(inbox.messages.find((m) => m.type === "error")).toEqual({ type: "error", message: "Too many controls. Wait a moment." });
+  });
+});
+
+/** A socket that takes messages but never finishes a close handshake, like a client that ignores the close frame. */
+class StubbornSocket extends EventEmitter {
+  readyState = 1;
+  bufferedAmount = 0;
+  sent: Record<string, unknown>[] = [];
+  closeCalls: number[] = [];
+  terminated = false;
+  send(text: string) {
+    this.sent.push(JSON.parse(text));
+  }
+  close(code: number) {
+    this.closeCalls.push(code);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  say(message: object) {
+    this.emit("message", Buffer.from(JSON.stringify(message)), false);
+  }
+}
+
+describe("a follower that ignores the close frame", () => {
+  async function stubbornFollower(allowControl: boolean) {
+    const { server, controls } = serverWith();
+    const { pin } = await started(allowControl, server);
+    const socket = new StubbornSocket();
+    (server as unknown as { accept(socket: unknown, address: string): void }).accept(socket, "10.0.0.9");
+    socket.say({ type: "hello", pin });
+    expect(socket.sent[0]).toMatchObject({ type: "hello" });
+    return { server, controls, socket, pin };
+  }
+
+  it("is cut off after a new PIN, and cannot control anything meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, controls, socket } = await stubbornFollower(true);
+      server.rotatePin();
+      expect(socket.sent.at(-1)).toEqual({ type: "closing", reason: "pin-changed" });
+      expect(socket.closeCalls).toEqual([1008]);
+      expect(server.snapshot().followers).toBe(0);
+      socket.say({ type: "control", action: "transport.stop" });
+      expect(controls).toEqual([]);
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is cut off when the sync stops", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, socket } = await stubbornFollower(false);
+      server.stop();
+      expect(socket.sent.at(-1)).toEqual({ type: "closing", reason: "stopped" });
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not terminated if it does close in time", async () => {
+    vi.useFakeTimers();
+    try {
+      const { server, socket } = await stubbornFollower(false);
+      server.rotatePin();
+      socket.emit("close");
+      vi.advanceTimersByTime(1000);
+      expect(socket.terminated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
