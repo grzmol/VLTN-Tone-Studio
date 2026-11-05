@@ -12,22 +12,35 @@ import {
   emptyLibrary,
   flacName,
   isFlacTrack,
+  isIsoTime,
   isLegacySong,
+  copyTrackSettings,
   isTrackFileName,
-  trackKindOf,
+  trackFiles,
   trackKey,
+  trackKindOf,
   upgradeIndex,
   validId,
+  validateFolders,
+  validateOrganisation,
   validatePlaylists,
   validateSong,
+  validateSongPatch,
+  type LibraryChange,
+  type LibraryFolder,
   type LibrarySong,
   type Playlist,
   type SongLibrary,
+  type SongMetaPatch,
   type StoredLibrary,
   type LibraryTransferProgress,
   type LibraryBackupPreview,
   type RestoreMode,
 } from "@shared/song-library";
+import { HISTORY_MAX, type HistoryEntry } from "@shared/song-library";
+import { appendPlay, withoutSong } from "@shared/library-history";
+import { removeEntry } from "@shared/playlist-sets";
+import { isStringList } from "@shared/library-filter";
 import { syncPath, writeJsonAtomic } from "./fs-atomic";
 
 export type DiskIndex = SongLibrary & { revisions: Record<string, string> };
@@ -74,20 +87,69 @@ async function folderBytes(dir: string): Promise<number> {
   return total;
 }
 /** A save session or staging folder older than this is abandoned: the renderer crashed or the user gave up. */
-/** Play history keeps the most recent entries only, so the index stays small. */
-const HISTORY_MAX = 500;
 export const ORPHAN_AGE_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 /** Songs with the same source audio are the same song. Older saves and raw-float songs carry no digest and never match. */
 export const contentHash = (song: LibrarySong): string | undefined => song.audio.find((a) => a.name === "source")?.sha256;
+/** The tempo a song's saved settings hold, when it is a usable number. The library keeps it in the song's details for sorting. */
+export function tempoOf(settings: Record<string, string>): number | undefined {
+  const bpm = Number(settings[":bpm"]);
+  return Number.isFinite(bpm) && bpm >= 20 && bpm <= 400 ? bpm : undefined;
+}
+
+/** The song with a metadata change applied. A field the patch leaves out is kept; `null` clears it. */
+function applyMetaPatch(song: LibrarySong, patch: SongMetaPatch, updated: string): LibrarySong {
+  const pick = <T,>(value: T | null | undefined, current: T | undefined): T | undefined => (value === undefined ? current : (value ?? undefined));
+  return {
+    ...song,
+    key: pick(patch.key, song.key),
+    year: pick(patch.year, song.year),
+    color: pick(patch.color, song.color),
+    notes: pick(patch.notes, song.notes),
+    folderId: pick(patch.folderId, song.folderId),
+    keywords: patch.keywords ?? song.keywords,
+    updated,
+  };
+}
+
+/** Fields a saved song carries that the renderer's save does not send back. A re-save keeps them rather than dropping them. */
+const KEPT_ON_SAVE = ["key", "year", "color", "notes", "folderId", "keywords", "playCount", "lastPlayed"] as const;
+
 const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 /**
- * The song being saved, with what the library keeps about it (its creation time, and any field a later version stored) taken from the
- * saved copy. The creation time is the first save's, so re-saving never makes an old song look new.
+ * The song being saved, with the details it does not carry (the library's own counts and notes) taken from the saved copy. The creation
+ * time is the first save's, so re-saving never makes an old song look new.
  */
 function keepSavedDetails(saved: LibrarySong | undefined, song: LibrarySong, now: string): LibrarySong {
-  return { ...saved, ...song, created: saved?.created ?? song.created ?? now };
+  const next: LibrarySong = { ...song, created: saved?.created ?? song.created ?? now };
+  if (!saved) return next;
+  for (const key of KEPT_ON_SAVE) if (next[key] === undefined && saved[key] !== undefined) Object.assign(next, { [key]: saved[key] });
+  return next;
+}
+
+/** The folders in `ids` and every folder above them, so a folder kept on its own still has its parents. */
+function withAncestors(folders: readonly LibraryFolder[], ids: readonly string[]): Set<string> {
+  const parents = new Map(folders.map((folder) => [folder.id, folder.parentId]));
+  const kept = new Set<string>();
+  for (const start of ids) {
+    let id: string | undefined = start;
+    for (let steps = 0; id !== undefined && !kept.has(id) && steps <= folders.length; steps++) {
+      kept.add(id);
+      id = parents.get(id);
+    }
+  }
+  return kept;
+}
+
+/** A smart playlist's folder rules, with the folder ids of a restore. A folder not in the map keeps its id. */
+function remapFolderRules(smart: NonNullable<Playlist["smart"]>, folderIds: Map<string, string>): NonNullable<Playlist["smart"]> {
+  return {
+    ...smart,
+    rules: smart.rules.map((rule) =>
+      rule.field === "folder" && isStringList(rule.value) ? { ...rule, value: rule.value.map((id) => folderIds.get(id) ?? id) } : rule,
+    ),
+  };
 }
 
 /**
@@ -213,11 +275,48 @@ export class SongLibraryStore {
     // A v4 library is refused by older apps, which would otherwise misread the metadata and folders. See SONG-LIBRARY.md.
     await writeJsonAtomic(join(this.root, "library.json"), { ...index, version: LIBRARY_VERSION });
   }
+  async preflight(ids: string[]): Promise<import("@shared/song-library").LibraryPreflightSong[]> {
+    if (!Array.isArray(ids) || ids.length > 10000 || ids.some((id) => typeof id !== "string" || !validId(id))) throw new Error("Invalid playlist song IDs.");
+    return this.serial(async () => {
+      const index = await this.read();
+      const results: import("@shared/song-library").LibraryPreflightSong[] = [];
+      for (const id of new Set(ids)) {
+        const song = index.songs.find((s) => s.id === id),
+          errors: string[] = [];
+        if (!song) {
+          results.push({ id, errors: ["Song is missing from the library."] });
+          continue;
+        }
+        try {
+          validateSong(song);
+        } catch {
+          results.push({ id, errors: ["Saved song metadata is invalid."] });
+          continue;
+        }
+        const revision = index.revisions[id];
+        if (!revision || !validId(revision)) errors.push("Saved audio revision is missing.");
+        else
+          for (const track of song.audio)
+            for (const { file, bytes } of trackFiles(track)) {
+              try {
+                const info = await stat(join(this.root, revision, file));
+                if (!info.isFile() || info.size !== bytes) errors.push(`${file}: audio file has an invalid size or type.`);
+              } catch {
+                errors.push(`${file}: audio file is missing or inaccessible.`);
+              }
+            }
+        results.push({ id, song, errors });
+      }
+      return results;
+    });
+  }
   async index(): Promise<SongLibrary> {
     const { revisions: _, ...index } = await this.read();
     return index;
   }
   async begin(song: LibrarySong): Promise<string> {
+    // The tempo follows the song's saved setting, so the library's copy never drifts from the song's own.
+    song = { ...song, bpm: tempoOf(song.settings) };
     validateSong(song);
     if (!song.audio.every(isFlacTrack)) throw new Error("Songs are saved as FLAC.");
     const token = randomUUID();
@@ -291,6 +390,89 @@ export class SongLibraryStore {
       return Object.fromEntries(song.audio.map((a) => [trackKey(a), `app://library/${rev}/${a.file}`]));
     });
   }
+  async playlists(playlists: Playlist[]): Promise<void> {
+    return this.serial(async () => {
+      const index = await this.read();
+      validatePlaylists(playlists, index.songs);
+      index.playlists = playlists;
+      await this.publish(index);
+    });
+  }
+  /**
+   * Copies the track settings of song `id` onto every other song with the same imported tracks. Only the saved settings change, never the
+   * audio, so this publishes one index and no files. Resolves with how many songs changed.
+   */
+  async applyTrackSettings(id: string): Promise<number> {
+    if (!validId(id)) throw new Error("Saved song not found.");
+    return this.serial(async () => {
+      const index = await this.read(),
+        from = index.songs.find((s) => s.id === id);
+      if (!from) throw new Error("Saved song not found.");
+      const now = new Date().toISOString();
+      let changed = 0;
+      index.songs = index.songs.map((song) => {
+        if (song.id === id) return song;
+        const copied = copyTrackSettings(from, song);
+        if (!copied) return song;
+        changed++;
+        const updated = { ...copied, updated: now };
+        validateSong(updated);
+        return updated;
+      });
+      if (changed) await this.publish(index);
+      return changed;
+    });
+  }
+  /**
+   * Applies one change to the library's organisation in a single publish: song details, the folders, a play, or the history. Everything
+   * is checked against the whole index before it is written, so a bad change leaves the library as it was.
+   */
+  async organise(change: LibraryChange): Promise<void> {
+    if (!change || typeof change !== "object") throw new Error("Invalid library change.");
+    return this.serial(async () => {
+      const index = await this.read();
+      switch (change.kind) {
+        case "songs": {
+          if (!Array.isArray(change.ids) || change.ids.length > 10000 || change.ids.some((id) => !validId(id))) throw new Error("Invalid song details.");
+          validateSongPatch(change.patch);
+          const ids = new Set(change.ids);
+          const now = new Date().toISOString();
+          index.songs = index.songs.map((song) => (ids.has(song.id) ? applyMetaPatch(song, change.patch, now) : song));
+          break;
+        }
+        case "folders": {
+          validateFolders(change.folders);
+          const kept = new Set(change.folders.map((f) => f.id));
+          for (const folder of index.folders) {
+            if (kept.has(folder.id)) continue;
+            if (index.songs.some((song) => song.folderId === folder.id)) throw new Error("Only an empty folder can be deleted.");
+          }
+          index.folders = change.folders;
+          break;
+        }
+        case "played": {
+          if (!validId(change.id) || !isIsoTime(change.at) || (change.setId !== undefined && !validId(change.setId))) throw new Error("Invalid play.");
+          // A song removed while it was playing is simply not counted; the play is not an error.
+          if (!index.songs.some((song) => song.id === change.id)) return;
+          const entry: HistoryEntry = change.setId ? { songId: change.id, at: change.at, setId: change.setId } : { songId: change.id, at: change.at };
+          index.history = appendPlay(index.history, entry);
+          index.songs = index.songs.map((song) =>
+            song.id === change.id ? { ...song, playCount: (song.playCount ?? 0) + 1, lastPlayed: change.at } : song,
+          );
+          break;
+        }
+        case "history": {
+          if (!Array.isArray(change.history) || change.history.length > HISTORY_MAX) throw new Error("Invalid play history.");
+          index.history = change.history;
+          break;
+        }
+        default:
+          throw new Error("Invalid library change.");
+      }
+      validateOrganisation(index);
+      await this.publish(index);
+    });
+  }
   /** Merges the changed entries into the song's settings. An empty value removes the entry. */
   async updateSettings(id: string, patch: Record<string, string>): Promise<void> {
     if (!validId(id) || !patch || typeof patch !== "object" || Object.values(patch).some((v) => typeof v !== "string"))
@@ -300,7 +482,8 @@ export class SongLibraryStore {
         song = index.songs.find((s) => s.id === id);
       if (!song) throw new Error("Saved song not found.");
       const merged = Object.fromEntries(Object.entries({ ...song.settings, ...patch }).filter(([, value]) => value));
-      const updated = { ...song, settings: merged, updated: new Date().toISOString() };
+      // The tempo is kept in the song's details too, so the library can sort and search by it.
+      const updated = { ...song, settings: merged, bpm: tempoOf(merged), updated: new Date().toISOString() };
       validateSong(updated);
       index.songs = index.songs.map((s) => (s.id === id ? updated : s));
       await this.publish(index);
@@ -368,29 +551,40 @@ export class SongLibraryStore {
           moved.push(target);
           revisions[ids.get(song.id)!] = revision;
         }
-        const songs = fresh.map((song) => ({ ...song, id: ids.get(song.id)! }));
+        // Folders get new ids, so a restore never merges into a folder of the same id. Skip mode brings back only the folders the restored
+        // songs are in, and their parents, so a skipped song does not leave empty folders behind.
+        const needed = mode === "skip" ? withAncestors(backup.folders, fresh.map((song) => song.folderId).filter((id): id is string => !!id)) : null;
+        const folderIds = new Map<string, string>();
+        for (const folder of backup.folders) if (!needed || needed.has(folder.id)) folderIds.set(folder.id, randomUUID());
+        const folders: LibraryFolder[] = backup.folders
+          .filter((folder) => folderIds.has(folder.id))
+          .map((folder) => ({ id: folderIds.get(folder.id)!, name: folder.name, ...(folder.parentId ? { parentId: folderIds.get(folder.parentId) } : {}) }));
+        const songs = fresh.map((song) => ({
+          ...song,
+          id: ids.get(song.id)!,
+          folderId: song.folderId ? folderIds.get(song.folderId) : undefined,
+        }));
         let playlists = backup.playlists.map((playlist) => ({
           ...playlist,
           id: randomUUID(),
           songs: playlist.songs.map((id) => ids.get(id)!),
+          ...(playlist.smart ? { smart: remapFolderRules(playlist.smart, folderIds) } : {}),
         }));
         if (mode === "skip") {
           const key = (p: Playlist) => JSON.stringify([p.name, p.songs]);
           const have = new Set(current.playlists.map(key));
           playlists = playlists.filter((p) => !have.has(key(p)));
         }
-        // Folders and play history belong to later versions of the library. They are carried across as they are: a folder with an id the
-        // library already has is the same folder, and history entries follow their songs to the new ids.
-        const known = new Set(current.folders.map((folder) => folder.id));
-        const history = backup.history.flatMap((entry) => (ids.has(entry.songId) ? [{ ...entry, songId: ids.get(entry.songId)! }] : []));
+        const history = backup.history.map((entry) => ({ ...entry, songId: ids.get(entry.songId)! }));
         const next: DiskIndex = {
           version: LIBRARY_VERSION,
           songs: [...current.songs, ...songs],
           playlists: [...current.playlists, ...playlists],
-          folders: [...current.folders, ...backup.folders.filter((folder) => !known.has(folder.id))],
+          folders: [...current.folders, ...folders],
           history: [...current.history, ...history].slice(-HISTORY_MAX),
           revisions,
         };
+        validateOrganisation(next);
         validatePlaylists(next.playlists, next.songs);
         await this.publish(next);
         moved.length = 0;
@@ -503,10 +697,14 @@ export class SongLibraryStore {
         rev = index.revisions[id],
         removed = index.songs.find((s) => s.id === id);
       index.songs = index.songs.filter((s) => s.id !== id);
-      // A deleted song leaves every playlist it was in. Playlist entries are plain song ids in this version.
-      index.playlists = index.playlists.map((playlist) => ({ ...playlist, songs: playlist.songs.filter((entry) => entry !== id) }));
-      index.history = index.history.filter((entry) => entry.songId !== id);
+      // Each entry that was the removed song is taken out, and any set heading that pointed past it moves with it.
+      index.playlists = index.playlists.map((playlist) => {
+        let next = playlist;
+        for (let i = playlist.songs.length - 1; i >= 0; i--) if (next.songs[i] === id) next = { ...next, ...removeEntry(next, i) };
+        return next;
+      });
       delete index.revisions[id];
+      index.history = withoutSong(index.history, id);
       await this.publish(index);
       if (rev && validId(rev)) {
         // Best effort: without the marker the folder still goes to the Trash, it just cannot be put back.

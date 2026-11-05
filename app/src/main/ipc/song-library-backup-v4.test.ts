@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { c as createTar, x as extractTar } from "tar";
 import { SongLibraryStore } from "./song-library-store";
-import { flacSong, saveFlacSong } from "./song-library-fixtures";
+import { flacSong, saveFlacSong, type FixtureSong } from "./song-library-fixtures";
 
 /*
- * Backups in the v4 model: folders and play history are carried across as they are, songs keep the fields a later version stored on
- * them, and an archive written before v4 still restores.
+ * Backups in the v4 model: the metadata, folders, play history and smart playlists round-trip, copies get new folder ids, and an archive
+ * written before v4 still restores.
  */
 let temp: string, archive: string;
 const TRACKS = ["source.flac", "guitar.flac"];
@@ -46,46 +46,62 @@ async function rewriteIndex(dir: string, next: (index: Record<string, unknown>) 
   await writeFile(manifestPath, JSON.stringify(manifest));
 }
 
-it("carries folders, play history and fields it does not know across a restore, and follows history to the new song ids", async () => {
+it("round-trips song details, folders, history and smart rules, with new folder ids on a copy", async () => {
   const store = new SongLibraryStore(join(temp, "library"));
   const fixture = await flacSong(1);
   await saveFlacSong(store, fixture);
+  const gigs = randomUUID(),
+    summer = randomUUID();
+  await store.organise({
+    kind: "folders",
+    folders: [
+      { id: gigs, name: "Gigs" },
+      { id: summer, name: "Summer", parentId: gigs },
+    ],
+  });
+  await store.organise({ kind: "songs", ids: [fixture.song.id], patch: { folderId: summer, keywords: ["encore"], color: "#22c55e" } });
+  await store.organise({ kind: "played", id: fixture.song.id, at: "2026-06-01T20:00:00.000Z" });
+  await store.playlists([
+    { id: randomUUID(), name: "Summer", songs: [], smart: { match: "all", rules: [{ field: "folder", op: "in", value: [gigs] }], sort: "title" } },
+    { id: randomUUID(), name: "Gig", songs: [fixture.song.id], overrides: [{ autoplay: false, endBehaviour: "stop" }] },
+  ]);
   await store.exportBackup(archive);
-  const gigs = randomUUID();
-  const dir = await unpack();
-  await rewriteIndex(
-    dir,
-    (index) => ({
-      ...index,
-      folders: [{ id: gigs, name: "Gigs" }],
-      history: [{ songId: fixture.song.id, at: "2026-06-01T20:00:00.000Z" }],
-      songs: (index.songs as Record<string, unknown>[]).map((song) => ({ ...song, folderId: gigs, keywords: ["encore"] })),
-    }),
-    4,
-  );
-  await repack(dir);
 
   const restored = new SongLibraryStore(join(temp, "restored"));
-  expect(await restored.restoreBackup(archive)).toEqual({ songs: 1, playlists: 0 });
+  expect(await restored.restoreBackup(archive)).toEqual({ songs: 1, playlists: 2 });
   const index = await restored.index();
   const [song] = index.songs;
-  expect(index.folders).toEqual([{ id: gigs, name: "Gigs" }]);
-  expect(song).toMatchObject({ folderId: gigs, keywords: ["encore"] });
-  expect(song.id).not.toBe(fixture.song.id);
+  const newGigs = index.folders.find((f) => f.name === "Gigs")!,
+    newSummer = index.folders.find((f) => f.name === "Summer")!;
+  expect(newGigs.id).not.toBe(gigs);
+  expect(newSummer.parentId).toBe(newGigs.id);
+  expect(song.folderId).toBe(newSummer.id);
+  expect(song).toMatchObject({ keywords: ["encore"], color: "#22c55e", playCount: 1, lastPlayed: "2026-06-01T20:00:00.000Z" });
   expect(index.history).toEqual([{ songId: song.id, at: "2026-06-01T20:00:00.000Z" }]);
+  expect(index.playlists[0].smart!.rules[0].value).toEqual([newGigs.id]);
+  expect(index.playlists.find((p) => p.name === "Gig")!.overrides).toEqual([{ autoplay: false, endBehaviour: "stop" }]);
 });
 
-it("keeps what a later version stored when a song is saved again", async () => {
+it("in skip mode keeps the songs already in the library and brings back only the folders a restored song uses", async () => {
   const store = new SongLibraryStore(join(temp, "library"));
-  const fixture = await flacSong(1);
-  await saveFlacSong(store, { ...fixture, song: { ...fixture.song, ...{ keywords: ["encore"] } } });
-  const resaved = { ...fixture.song, title: "Renamed" };
-  const token = await store.begin(resaved);
-  await store.commit(token);
-  expect((await store.index()).songs[0]).toMatchObject({ title: "Renamed", keywords: ["encore"] });
+  const fixture: FixtureSong = await flacSong(1);
+  await saveFlacSong(store, fixture);
+  const gigs = randomUUID();
+  await store.organise({ kind: "folders", folders: [{ id: gigs, name: "Gigs" }] });
+  await store.organise({ kind: "songs", ids: [fixture.song.id], patch: { folderId: gigs } });
+  await store.organise({ kind: "played", id: fixture.song.id, at: "2026-06-01T20:00:00.000Z" });
+  await store.exportBackup(archive);
+
+  const existing = new SongLibraryStore(join(temp, "existing"));
+  await saveFlacSong(existing, await flacSong(1));
+  const result = await existing.restoreBackup(archive, undefined, "skip");
+  expect(result).toEqual({ songs: 0, playlists: 0, skipped: 1 });
+  const index = await existing.index();
+  expect(index.folders).toEqual([]);
+  expect(index.history).toEqual([{ songId: index.songs[0].id, at: "2026-06-01T20:00:00.000Z" }]);
 });
 
-it("restores an archive written before v4, with the details it had", async () => {
+it("restores an archive written before v4, with the metadata it had and the new fields empty", async () => {
   const store = new SongLibraryStore(join(temp, "library"));
   const fixture = await flacSong(2);
   await saveFlacSong(store, fixture);
@@ -96,7 +112,9 @@ it("restores an archive written before v4, with the details it had", async () =>
     dir,
     (index) => {
       const { folders: _folders, history: _history, ...rest } = index;
-      const songs = (rest.songs as Record<string, unknown>[]).map(({ created: _c, ...song }) => song);
+      const songs = (rest.songs as Record<string, unknown>[]).map(
+        ({ bpm: _b, created: _c, keywords: _k, playCount: _p, lastPlayed: _l, folderId: _f, ...song }) => song,
+      );
       return { ...rest, version: 3, songs };
     },
     3,
@@ -108,7 +126,7 @@ it("restores an archive written before v4, with the details it had", async () =>
   const index = await restored.index();
   expect(index.version).toBe(4);
   expect(index.folders).toEqual([]);
-  expect(index.songs[0]).toMatchObject({ title: fixture.song.title, created: fixture.song.updated });
+  expect(index.songs[0]).toMatchObject({ title: fixture.song.title, playCount: 0, keywords: [], bpm: 120 });
   expect(index.songs[0].audio.map((a) => a.kind)).toEqual(["source", "stem"]);
 });
 
