@@ -30,11 +30,24 @@ export const HARMONY_STEMS: readonly StemName[] = ["other", "guitar", "piano"];
  * change of source is analysed again.
  */
 export function harmonyOf(stems: Stems | null, mix: PcmAudio, chordChoice: StemName | "" = ""): NamedAudio {
-  if (chordChoice && hasSignal(stems?.[chordChoice])) return { name: chordChoice, audio: stems![chordChoice]! };
+  const parts = harmonyPartsOf(stems, chordChoice);
+  if (!parts) return { name: "mix", audio: mix };
+  const audio = parts.length === 1 ? stems![parts[0]]! : sumAudio(parts.map((name) => stems![name]!));
+  return { name: parts.join("+"), audio };
+}
+
+/**
+ * The name `harmonyOf` gives, without adding any audio together. The panel shows the name on every render, so it must not pay for the sum.
+ */
+export function harmonyNameOf(stems: Stems | null, chordChoice: StemName | "" = ""): string {
+  return harmonyPartsOf(stems, chordChoice)?.join("+") ?? "mix";
+}
+
+/** The stems the harmony is read from, or null when the song's mix is used. */
+function harmonyPartsOf(stems: Stems | null, chordChoice: StemName | ""): StemName[] | null {
+  if (chordChoice && hasSignal(stems?.[chordChoice])) return [chordChoice];
   const parts = HARMONY_STEMS.filter((name) => hasSignal(stems?.[name]));
-  if (parts.length === 1) return { name: parts[0], audio: stems![parts[0]]! };
-  if (parts.length) return { name: parts.join("+"), audio: sumAudio(parts.map((name) => stems![name]!)) };
-  return { name: "mix", audio: mix };
+  return parts.length ? parts : null;
 }
 
 /** The bounds, in seconds, of the sections a saved song holds. Anything that is not a section is left out. */

@@ -8,7 +8,7 @@ import { midiFileFromOptions, type MidiFileOption } from "@/song/performance/smf
 import { chordDisplayTranspose, clampCapo, effectiveBpm, keySpelling } from "@/song/performance/speed";
 import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { SpeedControls } from "./SpeedControls";
-import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
+import { bassOf, harmonyNameOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { PerformanceSession, carriedInto, leftPerformance, useSession, type Timing } from "@/song/performance/session";
 import { isMetronomeMode, recordTap, tapBpm, type MetronomeMode } from "@/song/performance/rhythm";
 import { parseSections, saveLiveAsDefault, type Section } from "@/song/performance/sections";
@@ -209,7 +209,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const [chordChoice, setChordChoice] = useState<StemName | "">(options.chordChoice);
   // The audio the chords are read from, and the bass, as the song analysis reads them, so the screen shows what a run would find.
   const harmony = useMemo(() => (source ? harmonyOf(stems, source.audio, chordChoice) : null), [source, stems, chordChoice]);
-  const automaticSource = useMemo(() => (source ? harmonyOf(stems, source.audio).name : ""), [source, stems]);
+  const automaticSource = useMemo(() => (source ? harmonyNameOf(stems) : ""), [source, stems]);
   const bass = useMemo(() => bassOf(stems), [stems]);
   // The song's MIDI file is saved with its options, so it is read back here when the song is shown.
   const [midiFile, setMidiFile] = useState<MidiFileOption | null>(() => midiFileFromOptions(options));

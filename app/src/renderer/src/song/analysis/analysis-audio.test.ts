@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PcmAudio, Stems } from "../types";
-import { bassOf, buildAnalysisAudio, harmonyOf, sectionBoundsOf } from "./analysis-audio";
+import type { PcmAudio, StemName, Stems } from "../types";
+import { bassOf, buildAnalysisAudio, harmonyNameOf, harmonyOf, sectionBoundsOf } from "./analysis-audio";
 
 const tone = (level = 0.5): PcmAudio => ({ sampleRate: 44100, channels: [new Float32Array(4410).fill(level)] });
 const silence = (): PcmAudio => ({ sampleRate: 44100, channels: [new Float32Array(4410)] });
@@ -78,6 +78,18 @@ describe("harmonyOf and bassOf", () => {
   it("uses the mix when no harmony stem has a signal", () => {
     expect(harmonyOf({ drums: tone(0.5) }, mix)).toEqual({ name: "mix", audio: mix });
     expect(harmonyOf(null, mix)).toEqual({ name: "mix", audio: mix });
+  });
+
+  it("names the harmony the same way without adding any audio together", () => {
+    const cases: Array<[Parameters<typeof harmonyOf>[0], StemName | ""]> = [
+      [{ other: tone(0.1), piano: tone(0.2), guitar: silence() }, ""],
+      [{ guitar: tone(0.2), drums: tone(0.5) }, ""],
+      [{ other: tone(0.1), vocals: tone(0.4) }, "vocals"],
+      [{ other: tone(0.1), vocals: silence() }, "vocals"],
+      [{ drums: tone(0.5) }, ""],
+      [null, ""],
+    ];
+    for (const [stems, choice] of cases) expect(harmonyNameOf(stems, choice)).toBe(harmonyOf(stems, mix, choice).name);
   });
 
   it("gives the bass stem only when it has a signal", () => {
