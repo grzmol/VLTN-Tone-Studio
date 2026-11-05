@@ -5,6 +5,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 ## [Unreleased]
 
 ### Added
+- **Bluetooth MIDI for the GP-150 and GP-180.** The Device screen has a *Connect Bluetooth MIDI* button that opens a BLE-MIDI link to the pedal (desktop chooser, pairing prompt, automatic reconnect) and the diagnostic report now includes the Bluetooth state and counters. Editing the pedal stays on USB, because a GP-180 on firmware 1.1.1 did not answer the editor handshake over Bluetooth. See `BLUETOOTH.md`.
 - **Tune a song down or up.** A *Key* control in the Song screen's mixer moves every stem by up to 12 semitones either way without changing the tempo, so you can play along to a song in E♭ or D with your guitar in standard tuning. It uses the Rubber Band Library's finer (R3) engine in offline mode, which is the best quality available in the browser. The shift is computed in the background (a few seconds per stem and minute of music, with a percentage shown), playback carries on from the same second, *Reset* brings the original back without computing anything, and *Export stems* writes the tuned stems with the shift in the file name.
 
 - **Tune the Tone Match proposal on the pedal.** A new *Tune it on the pedal* card under the proposal checks it against what the pedal really plays. You play up to six takes of about 15 s in the song's style; each one is recorded through the pedal's USB audio and compared with the song's guitar (the same texture distance the offline refinement uses, so the takes don't have to be the same notes). After each take the five Guitar EQ bands are corrected from the spectral gap and the amp's Gain from the gain score. It stops when the takes stop getting closer, keeps the best one, and *Keep these settings* puts them in the proposal. Everything plays through the Rig's live edits and nothing is written to a slot.
@@ -25,6 +26,8 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **Downloads can no longer hang.** A stalled separation model or TONE3000 download fails after about a minute and a model download picks up where it stopped. The Song screen has a *Cancel* next to the model progress. Download errors keep their own message (not found, signed out, rate limited) instead of the generic one.
 - **TONE3000 sign-in is kept private.** The token goes only to TONE3000 over https, including across redirects. On Linux without a keyring the token stays in memory for the run instead of being kept on disk with a fixed key, and Settings says so. TONE3000 images are limited to 10 MB and an image type, and the image cache is capped at 50 MB.
 - **Closing the window on macOS doesn't break the app.** Reopening it works, and a preset opened from Finder while no window is open is queued instead of lost. Clicking *Download* twice no longer starts two update downloads.
+- **GP-150 / GP-180 record levels accept the pedal's −21 dB.** A GP-180 reported its Bluetooth and Mic record levels as −21 dB, which the app declared out of range, so the value was shown wrong and could not be set back. Their range is now −21…+20 dB.
+- **GP-180 editor writes are checked on a real pedal.** Renaming a preset, saving it to a slot, reading it back and changing a pedal setting over USB all worked on a GP-180 (firmware 1.1.1). Uploading a User IR was not tried.
 
 
 ## [0.9.0] - 2026-11-04

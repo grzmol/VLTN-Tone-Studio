@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 import { DEVICE_KEYS, profileFor } from "@shared/devices";
 import { pedalOnUsb, runningPortHolder } from "@shared/host/device";
 import { useDevice } from "@/state/device";
-import { pedalName, slotLabel, vendorApps } from "@/state/device-model";
+import { attachedDevice, pedalName, slotLabel, vendorApps } from "@/state/device-model";
+import { BluetoothControls } from "@/bluetooth/BluetoothControls";
+import { bluetoothOffered } from "@/bluetooth/availability";
 import { clock, pedalModelName, requestErrorLine, type ConnectionView, type Led } from "./guidance";
 
 /** Models the Device screen offers to simulate (registry profiles with a simulator). */
@@ -114,6 +116,7 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 pb-0.5">
+        {bluetoothOffered(attachedDevice(d)) && <BluetoothControls editor />}
         {connected ? (
           <>
             <Button variant="ghost" onClick={readAgain} disabled={!!d.busy}>
