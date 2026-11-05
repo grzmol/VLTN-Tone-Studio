@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { c as createTar, x as extractTar, Header } from "tar";
 import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
-import { isLegacySong } from "@shared/song-library";
+import { CONVERTING_PHASE, isLegacySong } from "@shared/song-library";
 import { SongLibraryStore } from "./song-library-store";
 import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
 
@@ -86,9 +86,12 @@ it("restores a version 1 backup of raw float32 files and converts it to FLAC wit
   await repack(dir, undefined, ["source-0.f32", "guitar-0.f32", "guitar-1.f32"]);
   const destination = join(temp, "restored"),
     restored = new SongLibraryStore(destination);
-  expect(await restored.restoreBackup(archive)).toEqual({ songs: 1, playlists: 0 });
-  expect(isLegacySong((await restored.index()).songs[0])).toBe(true);
-  expect(await restored.migrate()).toEqual({ converted: 1, failed: 0 });
+  const phases: string[] = [];
+  expect(await restored.restoreBackup(archive, (p) => phases.push(p.phase))).toEqual({ songs: 1, playlists: 0 });
+  // The restore converted the song itself, so it opens at once and a later migrate has nothing left to do.
+  expect(isLegacySong((await restored.index()).songs[0])).toBe(false);
+  expect(phases).toContain(CONVERTING_PHASE);
+  expect(await restored.migrate()).toEqual({ converted: 0, failed: 0 });
   const [song] = (await restored.index()).songs;
   expect(song.settings).toEqual(old.song.settings);
   await expectAudio(destination, song.id, old);

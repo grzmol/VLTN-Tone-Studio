@@ -524,6 +524,17 @@ export class SongLibraryStore {
     progress?: (p: LibraryTransferProgress) => void,
     mode: RestoreMode = "copy",
   ): Promise<{ songs: number; playlists: number; skipped?: number }> {
+    const result = await this.restoreSongs(path, progress, mode);
+    // Songs a v1 backup brought back are converted now, with progress, so they open without waiting for a restart. A song that fails
+    // stays as it was and is tried again at the next start; the restore itself has succeeded.
+    await this.migrate(progress).catch((e) => console.error("Song library conversion failed", e));
+    return result;
+  }
+  private async restoreSongs(
+    path: string,
+    progress: ((p: LibraryTransferProgress) => void) | undefined,
+    mode: RestoreMode,
+  ): Promise<{ songs: number; playlists: number; skipped?: number }> {
     return this.serial(async () => {
       const stage = join(this.root, ".restore-" + randomUUID()),
         moved: string[] = [];
