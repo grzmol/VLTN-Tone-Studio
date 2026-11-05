@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import { useSong } from "@/song/store";
 import { useNav } from "@/state/nav";
 
-export type SongTab = "stems" | "tone";
+export type SongTab = "stems" | "tone" | "songs";
 
-const isSongTab = (param: string | null): param is SongTab => param === "stems" || param === "tone";
+const isSongTab = (param: string | null): param is SongTab => param === "stems" || param === "tone" || param === "songs";
 
 /**
  * The tab last opened by name. AppShell mounts only the active screen, so this lives outside React: a bare

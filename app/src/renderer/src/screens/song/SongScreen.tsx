@@ -9,6 +9,7 @@ import { AUDIO_ACCEPT } from "@/song/decode";
 import { useSong } from "@/song/store";
 import { StemsPanel } from "./stems/StemsPanel";
 import { ToneMatchPanel } from "./tonematch/ToneMatchPanel";
+import { SongLibraryPanel } from "./SongLibraryPanel";
 import { useSongTab, type SongTab } from "./tab";
 
 /** Decode `file`; the Stems tab then offers the model and quality choice before the split. */
@@ -58,6 +59,7 @@ export function SongScreen() {
             <TabsList aria-label="Song">
               <TabsTrigger value="stems">Stems</TabsTrigger>
               <TabsTrigger value="tone">Tone match</TabsTrigger>
+              <TabsTrigger value="songs">Songs</TabsTrigger>
             </TabsList>
             {source && (
               <Button variant="outline" onClick={pick}>
@@ -72,6 +74,9 @@ export function SongScreen() {
         </TabsContent>
         <TabsContent value="tone" className="flex min-h-0 flex-col">
           <ToneMatchPanel />
+        </TabsContent>
+        <TabsContent value="songs" className="flex min-h-0 flex-col">
+          <SongLibraryPanel onPick={pick} />
         </TabsContent>
       </Tabs>
     </div>
