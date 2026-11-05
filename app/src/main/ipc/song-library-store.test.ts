@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -334,4 +334,24 @@ it("carries files that are not tracks into the new revision, so a re-save keeps 
   const token = await store.begin({ ...original.song, title: "Renamed" });
   await store.commit(token);
   expect(await readFile(join(root, await currentRevision(original.song.id), "chart.pdf"), "utf8")).toBe("pdf bytes");
+});
+
+it("adds a song back when its folder is put back from the Trash, and keeps the audio", async () => {
+  let clock = Date.now();
+  store = new SongLibraryStore(root, () => clock);
+  const s = await flacSong();
+  await saveFlacSong(store, s);
+  const revision = JSON.parse(await readFile(join(root, "library.json"), "utf8")).revisions[s.song.id];
+  await store.remove(s.song.id);
+  expect((await store.index()).songs).toEqual([]);
+  // Put Back: the folder returns to the library root, older than the sweep's cut-off.
+  const [entry] = await readdir(join(root, ".trash"));
+  await rename(join(root, ".trash", entry), join(root, revision));
+  const old = new Date(clock - 2 * 60 * 60 * 1000);
+  await utimes(join(root, revision), old, old);
+  await store.sweep();
+  expect((await store.index()).songs.map((x) => x.id)).toEqual([s.song.id]);
+  expect(await readdir(join(root, revision))).not.toContain("song.json");
+  await expectAudio(s, "source");
+  expect(Object.keys(await store.audioUrls(s.song.id)).sort()).toEqual(["guitar", "source"]);
 });
