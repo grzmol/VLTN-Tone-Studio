@@ -77,11 +77,14 @@ export function matchesQuantized(decoded: FlacAudio, channels: Float32Array[], b
   );
 }
 
-let loading: Promise<typeof FlacModule> | undefined;
-function loadFlac(): Promise<typeof FlacModule> {
+/** The libflac build the encoder and the main process use: plain asm.js, with its memory image embedded. */
+type FlacBuild = typeof FlacModule;
+
+let loading: Promise<FlacBuild> | undefined;
+function loadFlac(): Promise<FlacBuild> {
   loading ??= import("libflacjs/dist/libflac.js").then(
     (m) =>
-      new Promise<typeof FlacModule>((resolve) => {
+      new Promise<FlacBuild>((resolve) => {
         const flac = ((m as { default?: unknown }).default ?? m) as typeof FlacModule;
         if (flac.isReady()) resolve(flac);
         else flac.on("ready", () => resolve(flac));
@@ -126,8 +129,25 @@ export async function encodeFlac(audio: FlacAudio): Promise<Uint8Array> {
   return result;
 }
 
-export async function decodeFlac(bytes: Uint8Array): Promise<FlacAudio> {
-  const flac = await loadFlac();
+let wasmLoading: Promise<FlacBuild> | undefined;
+/**
+ * The WASM build of the same libflac decoder. On a four-minute stereo track it decodes about twice as fast as the asm.js build and gives
+ * the same samples, so the renderer's load path uses it for decoding. Its binary is not found by the module itself: `wasmUrl` is where the
+ * caller's bundle serves `libflac.wasm.wasm`. The module reads that from `FLAC_SCRIPT_LOCATION`, and it must be set before the module loads.
+ */
+export function loadFlacWasm(wasmUrl: string): Promise<FlacBuild> {
+  wasmLoading ??= (async () => {
+    (globalThis as { FLAC_SCRIPT_LOCATION?: Record<string, string> }).FLAC_SCRIPT_LOCATION = { "libflac.wasm.wasm": wasmUrl };
+    const m = (await import("libflacjs/dist/libflac.wasm.js")) as unknown as { default?: unknown };
+    const flac = ((m as { default?: unknown }).default ?? m) as FlacBuild;
+    await new Promise<void>((resolve) => (flac.isReady() ? resolve() : flac.on("ready", () => resolve())));
+    return flac;
+  })();
+  return wasmLoading;
+}
+/** Decodes a FLAC file with the given libflac build (asm.js by default). Both builds give the same samples. */
+export async function decodeFlac(bytes: Uint8Array, build: Promise<FlacBuild> = loadFlac()): Promise<FlacAudio> {
+  const flac = await build;
   const decoder = flac.create_libflac_decoder(false);
   if (!decoder) throw new Error("Could not start the FLAC decoder.");
   let sampleRate = 0,
