@@ -34,6 +34,11 @@ function spec(name: Gp150GlobalName, s: SpecInput): Gp150GlobalSpec {
 }
 
 const level = (label: string, group: GlobalSpec["group"]): SpecInput => ({ label, group, min: -20, max: 20, unit: "dB" });
+/**
+ * The Bluetooth and Mic record levels run from −21 dB, the lowest value a GP-180 (firmware 1.1.1, over USB) has
+ * reported for them, up to +20. The raw value is the signed i16 dB value, so −21 is 0xFFEB.
+ */
+const recordLevel = (label: string): SpecInput => ({ label, group: "recording", min: -21, max: 20, unit: "dB" });
 
 /** Every setting the GP-150 reports, in Suite's menu order. */
 export const GP150_GLOBAL_SPECS: readonly Gp150GlobalSpec[] = Object.freeze([
@@ -47,8 +52,8 @@ export const GP150_GLOBAL_SPECS: readonly Gp150GlobalSpec[] = Object.freeze([
   spec("micJack", { label: "Mic/phones jack", group: "audio", labels: ["TRS", "TRRS"] }),
   spec("globalEq", { label: "Global EQ", group: "audio", labels: OFF_ON }),
   spec("usbRecLevel", level("USB record level", "recording")),
-  spec("btRecLevel", level("Bluetooth record level", "recording")),
-  spec("micRecLevel", level("Mic record level", "recording")),
+  spec("btRecLevel", recordLevel("Bluetooth record level")),
+  spec("micRecLevel", recordLevel("Mic record level")),
   spec("recModeL", { label: "Record mode, left", group: "recording", labels: ["Dry", "Wet"] }),
   spec("recModeR", { label: "Record mode, right", group: "recording", labels: ["Dry", "Wet"] }),
   spec("usbMonitorLevel", level("USB monitor level", "recording")),

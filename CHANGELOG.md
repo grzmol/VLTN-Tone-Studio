@@ -9,6 +9,9 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 - **Tune the Tone Match proposal on the pedal.** A new *Tune it on the pedal* card under the proposal checks it against what the pedal really plays. You play up to six takes of about 15 s in the song's style; each one is recorded through the pedal's USB audio and compared with the song's guitar (the same texture distance the offline refinement uses, so the takes don't have to be the same notes). After each take the five Guitar EQ bands are corrected from the spectral gap and the amp's Gain from the gain score. It stops when the takes stop getting closer, keeps the best one, and *Keep these settings* puts them in the proposal. Everything plays through the Rig's live edits and nothing is written to a slot.
 
+### Fixed
+- **GP-150 / GP-180 record levels accept the pedal's −21 dB.** A GP-180 reported its Bluetooth and Mic record levels as −21 dB, which the app declared out of range, so the value was shown wrong and could not be set back. Their range is now −21…+20 dB.
+
 ## [0.9.0] - 2026-11-04
 
 ### Added
