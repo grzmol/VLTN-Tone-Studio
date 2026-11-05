@@ -156,6 +156,8 @@ export class StemPlayer {
   private unlisten: () => void;
   /** Called when playback reaches the end on its own */
   onEnded: (() => void) | null = null;
+  /** Called when a loop pass is scheduled: at song time `at` the song jumps back to `to`, and the jump takes effect at audio time `when`. */
+  onLoopScheduled: ((loop: { to: number; at: number; when: number }) => void) | null = null;
   /** Called when an output cannot be used and audio falls back to the default output */
   onOutputWarning: ((message: string) => void) | null = null;
 
@@ -347,7 +349,9 @@ export class StemPlayer {
   private keepLooping(): void {
     if (!this.playing || this.next || this.prepared || this.endBehaviour !== "loop" || this.duration <= this.start) return;
     const remaining = this.audioTimeOf(this.duration) - this.ctx.currentTime;
-    if (remaining <= LOOP_AHEAD_S && remaining >= JUMP_MIN_S) this.prepareJump(this.start, this.duration);
+    if (remaining > LOOP_AHEAD_S || remaining < JUMP_MIN_S) return;
+    const when = this.prepareJump(this.start, this.duration);
+    if (when !== null) this.onLoopScheduled?.({ to: this.start, at: this.duration, when });
   }
 
   /** Ramps every stem's fade for a start at `start` from song time `from`: a crossfade's curve in, or the song's own fades. */

@@ -553,6 +553,18 @@ export class PerformanceSession {
     const stopOutputs = useOutputSettings.subscribe((state, previous) => {
       if (state.config !== previous.config) applyOutputs();
     });
+    // The player wraps a looping song on its own, so the scheduler is told the way it is for a section jump: a planned jump at the wrap.
+    player.onLoopScheduled = ({ to, at, when }) => {
+      if (this.state.player !== player || this.section || this.renderSwap) return;
+      this.section = {
+        kind: "jump",
+        ctxAt: when,
+        before: this.state.sectionLive,
+        sections: this.playableSections,
+        schedule: { cap: at, jump: { at: this.clockOf(when), position: to } },
+      };
+      this.sendPlan();
+    };
     player.onEnded = () => {
       // A song the session has let go of has nothing left to say to it.
       if (this.state.player !== player) return;
