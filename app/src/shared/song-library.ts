@@ -166,6 +166,9 @@ export interface LibraryTransferProgress {
   completed: number;
   total: number;
 }
+/** The `phase` of the progress events the v1 conversion sends at start-up, and the one it sends when every song is done. */
+export const CONVERTING_PHASE = "Converting saved songs";
+export const CONVERTED_PHASE = "Conversion complete";
 export interface LibraryTransferResult {
   songs: number;
   playlists: number;

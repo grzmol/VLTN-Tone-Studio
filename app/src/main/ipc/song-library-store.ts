@@ -5,6 +5,8 @@ import { exportBackup, readBackup, readBackupIndex } from "./song-library-backup
 import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
 import { decodeFlac, encodeFlac, matchesQuantized, storedBits } from "@shared/flac";
 import {
+  CONVERTED_PHASE,
+  CONVERTING_PHASE,
   CHART_ANNOTATIONS_FILE,
   CHART_ANNOTATIONS_MAX_BYTES,
   CHART_FILE,
@@ -549,14 +551,14 @@ export class SongLibraryStore {
     let converted = 0,
       failed = 0;
     for (const id of todo) {
-      progress({ phase: "Converting saved songs", completed: converted + failed, total: todo.length });
+      progress({ phase: CONVERTING_PHASE, completed: converted + failed, total: todo.length });
       try {
         if (await this.migrateSong(id)) converted++;
       } catch {
         failed++;
       }
     }
-    if (todo.length) progress({ phase: "Conversion complete", completed: todo.length, total: todo.length });
+    if (todo.length) progress({ phase: CONVERTED_PHASE, completed: todo.length, total: todo.length });
     return { converted, failed };
   }
   /**
