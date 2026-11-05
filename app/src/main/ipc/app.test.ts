@@ -44,14 +44,20 @@ describe("app:openPath", () => {
     expect(electron.shell.openPath).toHaveBeenCalledWith(join(electron.userData, "logs"));
   });
 
-  it("refuses a program inside userData, a .app folder or a .sh script", async () => {
-    await mkdir(join(electron.userData, "Helper.app"));
+  it("refuses a file inside userData, whatever its name", async () => {
     await writeFile(join(electron.userData, "run.sh"), "echo hi");
-    for (const name of ["Helper.app", "run.sh"]) {
+    await writeFile(join(electron.userData, "notes.txt"), "hi");
+    for (const name of ["run.sh", "notes.txt"]) {
       const res = await call("app:openPath", join(electron.userData, name));
       expect(res.ok).toBe(false);
       expect(res.error?.code).toBe("invalid");
     }
+    expect(electron.shell.openPath).not.toHaveBeenCalled();
+  });
+
+  it("refuses a path that doesn't exist", async () => {
+    const res = await call("app:openPath", join(electron.userData, "missing"));
+    expect(res.error?.code).toBe("invalid");
     expect(electron.shell.openPath).not.toHaveBeenCalled();
   });
 
