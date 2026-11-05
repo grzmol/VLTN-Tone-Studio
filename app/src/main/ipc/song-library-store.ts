@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { exportBackup, readBackup, readBackupIndex } from "./song-library-backup";
@@ -315,12 +315,13 @@ export class SongLibraryStore {
     return this.serial(async () => {
       const song = this.pending.get(token)?.song;
       if (!song) throw new Error("Save session expired.");
-      for (const a of song.audio) {
-        if ((await stat(join(this.root, token, a.file!))).size !== a.bytes) throw new Error("Incomplete song save.");
-      }
       const index = await this.read();
       const old = index.revisions[song.id];
       const saved = index.songs.find((s) => s.id === song.id);
+      await this.carryAudio(token, song, old && validId(old) ? old : undefined, saved);
+      for (const a of song.audio) {
+        if ((await stat(join(this.root, token, a.file!))).size !== a.bytes) throw new Error("Incomplete song save.");
+      }
       const kept = keepSavedDetails(saved, song, new Date().toISOString());
       validateSong(kept);
       if (old && validId(old)) await carryChart(join(this.root, old), join(this.root, token), kept.chart);
@@ -330,6 +331,25 @@ export class SongLibraryStore {
       this.pending.delete(token);
       if (old && validId(old)) await rm(join(this.root, old), { recursive: true, force: true }).catch(() => {});
     });
+  }
+  /**
+   * Puts into the new revision each track the save did not send, because its audio did not change. The file comes from the song's current
+   * revision: a hard link where the disk allows it, a copy otherwise. Its size and SHA-256 must match the index, so a file that is missing
+   * or changed fails the save instead of saving a broken song.
+   */
+  private async carryAudio(token: string, song: LibrarySong, old: string | undefined, saved: LibrarySong | undefined): Promise<void> {
+    for (const a of song.audio) {
+      const target = join(this.root, token, a.file!);
+      if (await exists(target)) continue;
+      const previous = saved?.audio.find((p) => p.file === a.file);
+      if (!old || !previous || previous.sha256 !== a.sha256 || previous.bytes !== a.bytes) throw new Error("Incomplete song save.");
+      const from = join(this.root, old, a.file!);
+      await link(from, target).catch(() => copyFile(from, target)).catch(() => {
+        throw new Error("Incomplete song save.");
+      });
+      const bytes = await readFile(target);
+      if (bytes.byteLength !== a.bytes || sha256Hex(bytes) !== a.sha256) throw new Error("Incomplete song save.");
+    }
   }
   async abort(token: string): Promise<void> {
     if (!this.pending.delete(token) || !validId(token)) return;

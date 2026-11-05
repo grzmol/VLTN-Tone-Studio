@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -51,8 +51,10 @@ it("writes a v2 index and hands out protocol URLs instead of audio bytes", async
 it("keeps the last complete revision after an incomplete replacement", async () => {
   const original = await flacSong();
   await saveFlacSong(store, original);
-  const token = await store.begin({ ...original.song, title: "Replacement" });
-  await expect(store.commit(token)).rejects.toThrow();
+  // The guitar's audio changed, so its new file must be sent. Nothing is sent here, and a file the save did not send is only carried over when it is unchanged.
+  const changed = original.song.audio.map((a) => (a.name === "guitar" ? { ...a, sha256: "c".repeat(64) } : a));
+  const token = await store.begin({ ...original.song, audio: changed, title: "Replacement" });
+  await expect(store.commit(token)).rejects.toThrow("Incomplete song save.");
   await store.abort(token);
   expect((await store.index()).songs[0].title).toBe(original.song.title);
   await expectAudio(original, "source");
@@ -337,4 +339,57 @@ it("applies a song's track settings to the other songs with the same imported tr
 it("refuses to apply the settings of a song that is not saved", async () => {
   await expect(store.applyTrackSettings(randomUUID())).rejects.toThrow("Saved song not found.");
   await expect(store.applyTrackSettings("not-an-id")).rejects.toThrow("Saved song not found.");
+});
+
+/** The revision folder the index currently points at for a song. */
+async function currentRevision(songId: string): Promise<string> {
+  return JSON.parse(await readFile(join(root, "library.json"), "utf8")).revisions[songId];
+}
+it("carries files the save did not send into the new revision by hard link, and removes the old revision", async () => {
+  const original = await flacSong(1);
+  await saveFlacSong(store, original);
+  const oldRevision = await currentRevision(original.song.id);
+  const inodes: Record<string, number> = {};
+  for (const name of Object.keys(original.files)) inodes[name] = (await stat(join(root, oldRevision, name))).ino;
+  const token = await store.begin({ ...original.song, title: "Renamed" });
+  await store.commit(token);
+  const revision = await currentRevision(original.song.id);
+  expect(revision).not.toBe(oldRevision);
+  for (const [name, bytes] of Object.entries(original.files)) {
+    expect(new Uint8Array(await readFile(join(root, revision, name)))).toEqual(bytes);
+    expect((await stat(join(root, revision, name))).ino).toBe(inodes[name]);
+  }
+  await expect(stat(join(root, oldRevision))).rejects.toThrow();
+  expect((await store.index()).songs[0].title).toBe("Renamed");
+  await expectAudio(original, "guitar");
+});
+it("fails the save when a carried file is missing or changed, and keeps the last complete revision", async () => {
+  const original = await flacSong(2);
+  await saveFlacSong(store, original);
+  const oldRevision = await currentRevision(original.song.id);
+  const missing = await store.begin({ ...original.song, title: "Missing" });
+  await rm(join(root, oldRevision, "guitar.flac"));
+  await expect(store.commit(missing)).rejects.toThrow("Incomplete song save.");
+  await store.abort(missing);
+  await saveFlacSong(store, original);
+  const changed = await store.begin({ ...original.song, title: "Changed" });
+  const current = await currentRevision(original.song.id);
+  await writeFile(join(root, current, "guitar.flac"), new Uint8Array(original.files["guitar.flac"].length).fill(7));
+  await expect(store.commit(changed)).rejects.toThrow("Incomplete song save.");
+  await store.abort(changed);
+  expect((await store.index()).songs[0].title).toBe(original.song.title);
+});
+it("keeps a 24-bit stem 24-bit when a settings-only save carries its file over", async () => {
+  const fixture = await flacSong(3);
+  const deep = await encodeFlac({ sampleRate: 44100, channels: fixture.audio.guitar, bits: 24 });
+  fixture.files["guitar.flac"] = deep;
+  const entry = fixture.song.audio.find((a) => a.name === "guitar")!;
+  entry.bytes = deep.length;
+  entry.sha256 = createHash("sha256").update(deep).digest("hex");
+  await saveFlacSong(store, fixture);
+  const token = await store.begin({ ...fixture.song, settings: { ...fixture.song.settings, ":bpm": "96" } });
+  await store.commit(token);
+  const stored = await readSaved(root, fixture.song.id, "guitar.flac");
+  expect(stored).toEqual(deep);
+  expect((await decodeFlac(stored)).bits).toBe(24);
 });
