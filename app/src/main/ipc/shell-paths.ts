@@ -2,13 +2,10 @@
 // a dialog result (the user picked it, see handle.ts) and anything under userData (the app's own folders). Any other
 // path is refused, so a compromised renderer cannot open or launch an arbitrary file.
 import { realpath as realpathFs } from "node:fs/promises";
-import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /** Valeton Suite's default install on macOS. */
 export const MAC_SUITE = "/Applications/Valeton Suite.app";
-
-/** Opening one of these runs a program, so openPath refuses them even inside userData. */
-const EXECUTABLE_EXTENSIONS = [".app", ".exe", ".bat", ".cmd", ".com", ".command", ".msi", ".pkg", ".sh", ".desktop", ".appimage"];
 
 export interface ShellPathsDeps {
   /** The app's userData folder. A function, so it is read when needed (the app path is not known at import time). */
@@ -45,16 +42,6 @@ export class ShellPaths {
 export function isInside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
-}
-
-/**
- * True when opening the path would run something: a program by extension, or (not on Windows) a file with an execute
- * bit. `info` is the path's stat, or null when it could not be read.
- */
-export function isExecutable(path: string, info: { isDirectory(): boolean; mode: number } | null, platform: NodeJS.Platform): boolean {
-  if (EXECUTABLE_EXTENSIONS.includes(extname(path).toLowerCase())) return true;
-  if (platform === "win32" || !info || info.isDirectory()) return false;
-  return (info.mode & 0o111) !== 0;
 }
 
 /**
