@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BlockState, ModelInfo, ParamInfo } from "@/state/device-types";
-import { morphed, randomized } from "./variation";
+import { morphed, randomized } from "./variation-params";
 
 const param = (name: string, index: number, extra: Partial<ParamInfo> = {}): ParamInfo => ({ name, index, min: 0, max: 100, step: 1, default: 50, ...extra });
 const model = { fxid: 1, params: [param("Gain", 0), param("Volume", 1), param("Bright", 2, { toggle: true, max: 1 })] } as unknown as ModelInfo;

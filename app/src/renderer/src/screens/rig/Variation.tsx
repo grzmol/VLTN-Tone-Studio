@@ -13,7 +13,7 @@ import { toPresetState } from "@/state/preset-codec";
 import type { PresetState } from "@/state/device-types";
 import { useLibrary } from "@/screens/library/store";
 import { applyBlock, editBlock, recordBlock, snapshot } from "./edits";
-import { morphed, randomized } from "./variation";
+import { morphed, randomized } from "./variation-params";
 
 const AMOUNTS = [
   ["Subtle", 0.08],
