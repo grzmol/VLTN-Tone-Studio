@@ -52,7 +52,7 @@ import { appendPlay, withoutSong } from "@shared/library-history";
 import { removeEntry } from "@shared/playlist-sets";
 import { isStringList } from "@shared/library-filter";
 import { validateAnnotations } from "@shared/chart-annotations";
-import { writeJsonAtomic } from "./fs-atomic";
+import { syncPath, writeJsonAtomic } from "./fs-atomic";
 
 export type DiskIndex = SongLibrary & { revisions: Record<string, string> };
 /**
@@ -352,6 +352,10 @@ export class SongLibraryStore {
       for (const a of song.audio) {
         if ((await stat(join(this.root, token, a.file!))).size !== a.bytes) throw new Error("Incomplete song save.");
       }
+      // Every file of the new revision, and the folder holding them, is on disk before the index points at it. The old revision stays until then.
+      const folder = join(this.root, token);
+      for (const name of await readdir(folder)) await syncPath(join(folder, name));
+      await syncPath(folder);
       const kept = keepSavedDetails(saved, song, new Date().toISOString());
       validateSong(kept);
       if (old && validId(old)) await carryChart(join(this.root, old), join(this.root, token), kept.chart);
