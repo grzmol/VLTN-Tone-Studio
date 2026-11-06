@@ -213,6 +213,20 @@ async function createWindow() {
     }
     saveBounds(win);
   });
+  // The Song screen asks the page to stay open (beforeunload) while the open song has audio that is not saved. Ask here, as the close handler
+  // above does, instead of closing without a word or refusing without a reason.
+  win.webContents.on("will-prevent-unload", (e) => {
+    if (!win) return;
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      buttons: ["Keep open", "Close without saving"],
+      defaultId: 0,
+      cancelId: 0,
+      message: "The open song has audio that isn't saved yet",
+      detail: "Generated or imported tracks are lost if you close now. Keep the window open, then save the song from the Song screen.",
+    });
+    if (choice === 1) e.preventDefault();
+  });
   win.on("focus", () => sendEvent({ type: "window-focus", focused: true }));
   win.on("blur", () => sendEvent({ type: "window-focus", focused: false }));
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
