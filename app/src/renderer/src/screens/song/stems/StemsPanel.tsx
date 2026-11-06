@@ -12,6 +12,7 @@ import { STEM_NAMES } from "@/song/types";
 import { findModel, missingBytes, type SeparationModel, type SeparationModelId } from "@shared/host/song";
 import { PartPicker } from "./PartPicker";
 import { StemMixer } from "./StemMixer";
+import { AfterSplitOptions, AnalyseSongButton, RunStatus } from "./AfterSplitOptions";
 import { megabytes, SplitOptions, useDownloadedFiles } from "./SplitOptions";
 
 const PANEL = "glass rounded-xl min-w-0 min-h-0";
@@ -64,6 +65,10 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
   if (stems && source && hasStems)
     return (
       <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-end gap-3 px-2 pt-2">
+          <RunStatus />
+          <AnalyseSongButton />
+        </div>
         <StemMixer key={source.libraryId ?? source.name} stems={stems} songName={source.name} />
       </div>
     );
@@ -129,6 +134,7 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
               <EmptyContent className="max-w-xl gap-4">
                 <PartPicker className="w-full" />
                 <SplitOptions className="w-full" />
+                <AfterSplitOptions className="w-full" />
               </EmptyContent>
             </Empty>
             <div className={cn("flex justify-center", over && "invisible")}>{splitButton}</div>
