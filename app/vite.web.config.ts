@@ -12,5 +12,5 @@ export default defineConfig({
   worker: { format: 'es' },
   server: { port: 5790, strictPort: true },
   // onnxruntime-web (Song stem splitter worker) ships a ready ESM bundle; pre-bundling it on first use reloads the page.
-  optimizeDeps: { exclude: ["onnxruntime-web"] },
+  optimizeDeps: { exclude: ["onnxruntime-web", "@huggingface/transformers"] },
 });
