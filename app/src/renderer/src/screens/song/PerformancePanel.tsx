@@ -10,6 +10,14 @@ import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { SpeedControls } from "./SpeedControls";
 import { bassOf, harmonyNameOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { PerformanceSession, carriedInto, leftPerformance, useSession, type Timing } from "@/song/performance/session";
+import {
+  ownClickSounds,
+  readClickSoundDefaults,
+  resolveClickSounds,
+  saveClickSoundDefaults,
+  type ClickSounds,
+  type ClickSoundsOwn,
+} from "@/song/performance/click-sound";
 import { isMetronomeMode, recordTap, tapBpm, type MetronomeMode } from "@/song/performance/rhythm";
 import { parseSections, saveLiveAsDefault, type Section } from "@/song/performance/sections";
 import { ownLeadIn, readLeadInDefaults, resolveLeadIn, saveLeadInDefaults, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
@@ -132,6 +140,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         lyricsLanguage: "auto",
         metronomeMode: "",
         countInBars: "",
+        metronomeSound: "",
+        countInSound: "",
         preRollBeats: "",
         startDelay: "",
         sections: [] as unknown[],
@@ -178,6 +188,18 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setLeadDefaults(next);
     try {
       saveLeadInDefaults(next);
+    } catch (e) {
+      session.fail(e);
+    }
+  };
+  // The metronome's and the count-in's sounds, the same way: a song's own value ("" uses the default) over a global default.
+  const [soundOwn, setSoundOwn] = useState<ClickSoundsOwn>(() => ownClickSounds(options));
+  const [soundDefaults, setSoundDefaults] = useState<ClickSounds>(readClickSoundDefaults);
+  const sounds = useMemo(() => resolveClickSounds(soundOwn, soundDefaults), [soundOwn, soundDefaults]);
+  const setSoundDefault = (next: ClickSounds) => {
+    setSoundDefaults(next);
+    try {
+      saveClickSoundDefaults(next);
     } catch (e) {
       session.fail(e);
     }
@@ -518,6 +540,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           lyricsLanguage: readOptions(key, { lyricsLanguage: "auto" }).lyricsLanguage,
           metronomeMode: metronome,
           countInBars: lead.countInBars,
+          metronomeSound: soundOwn.sound,
+          countInSound: soundOwn.countInSound,
           preRollBeats: lead.preRollBeats,
           startDelay: lead.startDelay,
           sections: sectionList,
@@ -526,10 +550,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     } catch (e) {
       session.fail(e);
     }
-  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, partChoice, chordChoice, metronome, lead, sectionList]);
+  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, partChoice, chordChoice, metronome, lead, soundOwn, sectionList]);
   useEffect(() => {
-    player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat });
-  }, [player, metronome, bpm, beats, volume, firstBeat]);
+    player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
+  }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
   useEffect(() => {
     player?.setShape(playerShape(shapeFromOptions(getSetting(key, ":options"))));
@@ -612,6 +636,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             onLead: setLeadOwn,
             leadDefaults,
             onLeadDefault: setLeadDefault,
+            soundOwn,
+            onSoundOwn: setSoundOwn,
+            soundDefaults,
+            onSoundDefaults: setSoundDefault,
           }}
           onTap={tap}
         />

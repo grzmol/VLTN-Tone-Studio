@@ -487,6 +487,21 @@ it("remembers global metronome, song clock and mixer settings without arming MID
   expect(mocks.send).not.toHaveBeenCalled();
 });
 
+it("sets the count-in and sounds from the transport menus, and the settings controls and player follow", () => {
+  localStorage.clear();
+  render(<PerformancePanel />);
+  fireEvent.change(screen.getByLabelText("Count-in bars"), { target: { value: "1" } });
+  fireEvent.change(screen.getByLabelText("Metronome sound"), { target: { value: "hihat" } });
+  fireEvent.change(screen.getByLabelText("Count-in sound"), { target: { value: "sticks" } });
+  expect((screen.getByLabelText("Count-in") as HTMLSelectElement).value).toBe("1");
+  expect(mocks.metronome.mock.lastCall?.[0]).toMatchObject({ sound: "hihat", countInSound: "sticks" });
+  // The default sound is what a song without its own choice uses; the count-in sound follows the metronome unless set.
+  fireEvent.change(screen.getByLabelText("Metronome sound"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Count-in sound"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Default metronome sound"), { target: { value: "ride" } });
+  expect(mocks.metronome.mock.lastCall?.[0]).toMatchObject({ sound: "ride", countInSound: "same" });
+});
+
 it("remembers which bus each track plays on", () => {
   localStorage.clear();
   const view = render(<PerformancePanel />);
