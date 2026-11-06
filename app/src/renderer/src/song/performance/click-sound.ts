@@ -4,18 +4,64 @@ import { readOptions, setSetting } from "./settings";
 // song/band/samples.ts), so a count-in can sound like a drummer counting the band in. The count-in has its own choice, which
 // follows the metronome by default. Each has a global default and an optional value of the song's own, like the lead-in values.
 
-export type ClickSound = "click" | "sticks" | "hihat" | "kick-hat" | "ride";
+export type ClickSound =
+  | "click"
+  | "cowbell"
+  | "woodblock"
+  | "sticks"
+  | "pedal-hat"
+  | "hihat"
+  | "open-hat"
+  | "ride"
+  | "snare"
+  | "kick-hat"
+  | "rock"
+  | "toms"
+  | "crash-one"
+  | "custom";
 
 /** The count-in's sound: one of the sounds, or "same", which follows the metronome. */
 export type CountInSound = ClickSound | "same";
 
-export const CLICK_SOUNDS: readonly { id: ClickSound; label: string }[] = [
-  { id: "click", label: "Click" },
-  { id: "sticks", label: "Sticks" },
-  { id: "hihat", label: "Hi-hat" },
-  { id: "kick-hat", label: "Kick and hat" },
-  { id: "ride", label: "Ride" },
+export interface ClickSoundGroup {
+  label: string;
+  sounds: readonly { id: ClickSound; label: string }[];
+}
+
+/** The sounds as the menus group them: synthesised clicks, single drum hits, and patterns that change the drum on the beat. */
+export const CLICK_SOUND_GROUPS: readonly ClickSoundGroup[] = [
+  {
+    label: "Click",
+    sounds: [
+      { id: "click", label: "Click" },
+      { id: "cowbell", label: "Cowbell" },
+      { id: "woodblock", label: "Woodblock" },
+    ],
+  },
+  {
+    label: "Drummer",
+    sounds: [
+      { id: "sticks", label: "Sticks" },
+      { id: "pedal-hat", label: "Pedal hat" },
+      { id: "hihat", label: "Hi-hat" },
+      { id: "open-hat", label: "Open hat" },
+      { id: "ride", label: "Ride" },
+      { id: "snare", label: "Snare" },
+    ],
+  },
+  {
+    label: "Patterns",
+    sounds: [
+      { id: "kick-hat", label: "Kick and hat" },
+      { id: "rock", label: "Rock" },
+      { id: "toms", label: "Toms" },
+      { id: "crash-one", label: "Crash on one" },
+    ],
+  },
+  { label: "Your own", sounds: [{ id: "custom", label: "My samples" }] },
 ];
+
+export const CLICK_SOUNDS: readonly { id: ClickSound; label: string }[] = CLICK_SOUND_GROUPS.flatMap((group) => group.sounds);
 
 export function isClickSound(value: unknown): value is ClickSound {
   return CLICK_SOUNDS.some((sound) => sound.id === value);
@@ -40,33 +86,71 @@ export function resolveCountInSound(countIn: CountInSound, metronome: ClickSound
   return countIn === "same" ? metronome : countIn;
 }
 
-/** The drum note (GM pitch) a click plays, or null for the synthesised blip. */
-export function clickNote(sound: ClickSound, downbeat: boolean): number | null {
+const TOM_NOTES = [50, 47, 45];
+
+/**
+ * The drum note (GM pitch) a click plays on beat `beat` (0 is the downbeat) of a bar of `beats` beats, or null where the sound is not a
+ * band sample: the synthesised sounds and your own samples.
+ */
+export function clickNote(sound: ClickSound, beat: number, beats = 4): number | null {
+  const down = beat === 0;
   switch (sound) {
     case "sticks":
       return 37;
+    case "snare":
+      return 38;
+    case "pedal-hat":
+      return 44;
     case "hihat":
       return 42;
-    case "kick-hat":
-      return downbeat ? 36 : 42;
+    case "open-hat":
+      return 46;
     case "ride":
       return 51;
+    case "kick-hat":
+      return down ? 36 : 42;
+    case "rock":
+      // Kick on 1 and 3, snare on 2 and 4. Other meters have no such backbeat, so the kick marks the bar and the snare the rest.
+      return beats === 4 ? (beat % 2 === 0 ? 36 : 38) : down ? 36 : 38;
+    case "toms":
+      // High to low across the bar; a bar longer than the kit's three toms stays on the lowest.
+      return TOM_NOTES[Math.min(beat, TOM_NOTES.length - 1)];
+    case "crash-one":
+      return down ? 49 : 42;
     default:
       return null;
   }
 }
 
-/** Every drum note a sound can play, so they can be decoded before Play. */
-export function clickNotes(sound: ClickSound): number[] {
-  return [...new Set([clickNote(sound, true), clickNote(sound, false)].filter((note): note is number => note !== null))];
+/** Every drum note a sound can play in a bar of `beats` beats, so they can be decoded before Play. */
+export function clickNotes(sound: ClickSound, beats = 4): number[] {
+  const notes = new Set<number>();
+  for (let beat = 0; beat < Math.max(1, beats); beat++) {
+    const note = clickNote(sound, beat, beats);
+    if (note !== null) notes.add(note);
+  }
+  return [...notes];
 }
 
 /**
- * The gain of a click: full on the downbeat and 0.65 on the other beats, as the blip has it. Kick and hat accent by changing sample, so
- * both play at full volume.
+ * The General MIDI drum note the MIDI click sends for a beat. The sounds that are not band samples send a note of their own kind: the
+ * cowbell and woodblock their GM instruments, and the click and your own samples the side stick.
  */
-export function clickAccent(sound: ClickSound, downbeat: boolean): number {
-  return sound === "kick-hat" || downbeat ? 1 : 0.65;
+export function midiClickNote(sound: ClickSound, beat: number, beats = 4): number {
+  if (sound === "cowbell") return 56;
+  if (sound === "woodblock") return 76;
+  return clickNote(sound, beat, beats) ?? 37;
+}
+
+/** The sounds whose accent is the change of drum itself, so every beat plays at full volume. */
+const PATTERNS: readonly ClickSound[] = ["kick-hat", "rock", "toms", "crash-one"];
+
+/**
+ * The gain of a click: full on the downbeat and 0.65 on the other beats, as the blip has it. The patterns accent by changing drum, so
+ * all their beats play at full volume.
+ */
+export function clickAccent(sound: ClickSound, beat: number): number {
+  return PATTERNS.includes(sound) || beat === 0 ? 1 : 0.65;
 }
 
 export interface ClickSounds {

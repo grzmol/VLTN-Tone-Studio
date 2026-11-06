@@ -63,6 +63,9 @@ class Context {
     this.sources.push(n);
     return n;
   }
+  createBiquadFilter() {
+    return { ...this.node(), Q: { setValueAtTime: vi.fn() } };
+  }
   createOscillator() {
     const n = this.node();
     this.oscillators.push(n);
@@ -796,5 +799,78 @@ it("falls back to the blip when a sample fails to load", async () => {
   await decoded();
   await player.play({ countInBeats: 4 });
   expect(Context.instances[0].oscillators).toHaveLength(4);
+  await player.dispose();
+});
+
+it("plays rock as kick, snare, kick, snare over a bar, and the toms from high to low", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "rock", countInSound: "toms" });
+  await decoded();
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(Context.instances[0]).map(noteOf)).toEqual([50, 47, 45, 45]);
+  player.pause();
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "rock", countInSound: "same" });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(Context.instances[0]).slice(4).map(noteOf)).toEqual([36, 38, 36, 38]);
+  await player.dispose();
+});
+
+it("plays the cowbell on two oscillators and the woodblock on a noise burst, and stops them on pause", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  const ctx = Context.instances[0];
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "cowbell", countInSound: "same" });
+  await player.play({ countInBeats: 2 });
+  // Two square oscillators a click, and no drum sample was asked for.
+  expect(ctx.oscillators).toHaveLength(4);
+  expect(loadDrumSample).not.toHaveBeenCalled();
+  player.pause();
+  expect(ctx.oscillators.every((osc) => osc.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  const before = ctx.sources.length;
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "woodblock", countInSound: "same" });
+  await player.play({ countInBeats: 2 });
+  // The first new source is the song's own stem; the rest are the two noise bursts.
+  const noise = ctx.sources.slice(before + 1);
+  expect(noise).toHaveLength(2);
+  player.pause();
+  expect(noise.every((source) => source.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  await player.dispose();
+});
+
+it("Listen schedules one bar on the click bus and does not start the song", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 3, volume: 0.25, sound: "snare" });
+  await decoded();
+  const ctx = Context.instances[0];
+  const stems = ctx.sources.length;
+  await player.previewClicks();
+  const bar = clickSources(ctx);
+  expect(bar).toHaveLength(3);
+  expect(bar.map((source) => source.start.mock.calls[0][0])).toEqual([10.05, 10.55, 11.05].map((t) => expect.closeTo(t)));
+  // No stem source was started: only the three clicks were added.
+  expect(ctx.sources.length - stems).toBe(3);
+  expect(player.isPlaying).toBe(false);
+  // Listening again cuts the first bar off.
+  await player.previewClicks();
+  expect(bar.every((source) => source.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  await player.dispose();
+});
+
+it("tells the click listener about every beat and stays silent when 'also play' is off", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  const heard: [number, number, number][] = [];
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "click" });
+  player.setClickListener((click) => heard.push([click.when, click.beat, click.beats]), false);
+  await player.play({ countInBeats: 4 });
+  expect(heard.map((h) => h[1])).toEqual([0, 1, 2, 3]);
+  expect(heard[0][0]).toBeCloseTo(10.02);
+  expect(Context.instances[0].oscillators).toHaveLength(0);
   await player.dispose();
 });
