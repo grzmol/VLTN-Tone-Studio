@@ -269,6 +269,14 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
     skipped,
   };
 }
+/**
+ * Loads a saved song's mix and stems for an analysis, without opening the song. The open song, its panel and the song store are not
+ * changed, and nothing is played. The caller holds one song's audio at a time, and drops it before it loads the next.
+ */
+export async function loadSongAudio(id: string): Promise<{ source: PcmAudio; stems: Stems }> {
+  const loaded = await fetchSong(await api().index(), id);
+  return { source: loaded.source.audio, stems: loaded.stems };
+}
 /** Reads the index after moving any settings an earlier version left in localStorage into the library. */
 async function readIndex(): Promise<SongLibrary> {
   const index = await api().index();

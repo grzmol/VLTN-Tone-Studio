@@ -25,7 +25,7 @@ The play controls, tempo and metronome stay at the top. Under them, choose a vie
 
 - **Play**: the sections, the mixer and the lyrics and chords reader. This is what you need on stage.
 - **This song**: speed and pitch, trim and fades, key, loudness, imported tracks, sections, and the song's MIDI trigger. These are saved with the song.
-- **Lyrics & chords**: transpose, capo, chart import and export, and the chart editor.
+- **Lyrics & chords**: lyrics from the vocals, the chart editor and chords from the stems.
 - **MIDI**: the MIDI check, the controller setup, and the song's MIDI file and cues.
 - **Setup**: audio outputs, the audience display, band sync, remote control and loading songs from MIDI. These apply to every song.
 
@@ -36,13 +36,13 @@ Everything here works in the desktop app. The browser build can play a song and 
 ## Prepare a song
 
 1. Load the audio in **Stems** and split it if you want the stems.
-2. Set **Song BPM** to the recording's tempo while stopped. The metronome, count-in and tempo commands start from it, and [speed](#speed-and-pitch) scales that tempo during playback.  Use **Tap tempo** if you don't know it.
+2. Set **Song BPM** to the recording's tempo while stopped. The metronome, count-in and tempo commands start from it, and [speed](#speed-and-pitch) scales that tempo during playback. The app detects a tempo when a song is first analysed. **Detect** beside the BPM finds it again, and offers the half or the double when the beat was counted wrong. When the tempo was set by hand, tapped or taken from the chart, **Find the beat at N BPM** finds the beat again from the number you set, so the click lines up with the recording: the tracker refines it within 4% of your number. Tick **Keep exactly N** to keep the tempo as typed and find only where the beats fall. **Undo** puts back the tempo, the beat grid and the sections.
 3. Add lyrics, chords and MIDI cues (below).
 4. Enter a title and artist and choose **Save song to library**. Use **Save song changes** after later edits.
 
-**Key.** Choose the song's key under **This song → Song key** to spell its chords with the right sharps or flats. The key can also come from the song's details in the library or from an imported chart. It only changes how chords are displayed, never the audio or any MIDI.
+**Key.** The song analysis estimates the song's major or minor key from its harmony (the chord stem, or the guitar, piano and other stems together, or the mix), with its bass and the chords it found, after the chords. A key and its relative (the other mode on the same notes) that are close are decided by the first and last chords and the bass. The chords can also show a Mixolydian or Dorian flavour, which the readout names, such as "G major (Mixolydian)". A section that is clearly in another key is listed under the readout, such as "Last chorus: A major". The Performance panel's own estimate reads one stem (guitar first, then the other stems, then the original mix) and shows **Unknown** rather than guess. Use **Key override** to save a correction. The key only changes how chords are displayed, never the audio or any MIDI.
 
-**Sections.** Add the song's sections by hand in the section editor (see [Sections](#sections)).
+**Sections.** The analysis suggests a song's sections on its bar lines: intro, verse, chorus, bridge, solo and outro. It reads them from the chords, loudness, vocals, drums and bass. Verses and choruses that share chords and vocals are still told apart. A middle section where the bass drops out is a bridge, a loud section that does not repeat is a chorus, and a last section without drums is an outro. Bars run on to the end of the song, so an outro is found. Songs analysed before this release have the old sections, so press **Analyse again** on them to get the new ones.
 
 **Metronome.** Choose **Off**, **While stopped** (a rehearsal click on the grid), **While playing** or **Both** from the **Metronome** menu. The choice is saved for each song and starts from the last one used. To line it up with a recording that has an intro, pause on the first downbeat and choose **Metronome settings → Set first beat here**. Fine-tune with **First beat (seconds)**, or **Reset first beat**. The grid is fixed, so it cannot follow a recording that speeds up or slows down. It does not move lyrics or MIDI cues.
 
@@ -109,11 +109,13 @@ Use **Speed & pitch** in Performance.
 
 ## Lyrics and chords
 
-The reader shows the lyrics with the chords above them and follows playback. Turn **Follow playback** off to scroll freely, use **A− / A+** for text size, or **Expand performance view** for a larger reader with transport buttons.
+Lyrics from the vocals are made by the analysis after a split, with the model chosen under **After the split** on the Stems tab, and are not started when this panel opens. The buttons below make or redo them: **Generate lyrics from vocals** for a song with none, and **Transcribe again** for a chart that the performer has not written.
 
-To edit, choose **Edit chords, lyrics & MIDI**. Each row has a time, chords, lyrics, MIDI commands and an optional label. Playback pauses while you edit, and invalid MIDI is rejected when you save. You can also paste or import TXT, LRC or bracket-chord text under **Chart editor**, and export the chart.
+The reader shows the lyrics with the chords above them and follows playback. Turn **Follow playback** off to scroll freely, use **A− / A+** for text size, or **Expand performance view** for a larger reader with transport buttons. Click any chord for guitar tabs in standard tuning (`x` is muted, `0` is open); they follow the displayed transposition.
 
-The chart text box under **Chart editor** has search and undo. Cmd+F (Ctrl+F on Windows and Linux) opens search, and Cmd+H (Ctrl+H) opens the same panel with its replace field. F3 or Cmd+G finds the next match, Shift+F3 or Shift+Cmd+G the previous, and Escape closes the panel. Cmd+Z undoes; Cmd+Shift+Z redoes on a Mac, and Ctrl+Y on Windows (Ctrl+Shift+Z on Linux). Timestamps, chords, headings, `//` comments, colour tags, MIDI commands, `$CODE` macros and `{chase}`, `{nochase}` and `{label:…}` each have their own colour. The editor loads when you first open it. While the text box has focus, remote keys do not run, so typing a letter never triggers a remote action.
+To edit, choose **Edit chords, lyrics & MIDI**. Each row has a time, chords, lyrics, MIDI commands and an optional label. Playback pauses while you edit, and invalid MIDI is rejected when you save. You can also paste or import TXT, LRC or bracket-chord text under **Separate lyrics and chart editors**, and export the chart.
+
+The chart text box under **Separate lyrics and chart editors** has search and undo. Cmd+F (Ctrl+F on Windows and Linux) opens search, and Cmd+H (Ctrl+H) opens the same panel with its replace field. F3 or Cmd+G finds the next match, Shift+F3 or Shift+Cmd+G the previous, and Escape closes the panel. Cmd+Z undoes; Cmd+Shift+Z redoes on a Mac, and Ctrl+Y on Windows (Ctrl+Shift+Z on Linux). Timestamps, chords, headings, `//` comments, colour tags, MIDI commands, `$CODE` macros and `{chase}`, `{nochase}` and `{label:…}` each have their own colour. The editor loads when you first open it. While the text box has focus, remote keys do not run, so typing a letter never triggers a remote action.
 
 Give every line a timestamp so it follows playback:
 
@@ -136,6 +138,8 @@ The lyrics follow the song's position, so a speed change, a section jump or a lo
 **Importing ChordPro or chords above lyrics.** Under **Edit chords, lyrics & MIDI**, the import panel reads pasted text or a `.cho`, `.chordpro`, `.pro`, `.crd` or `.txt` file. ChordPro directives become the song's title, artist, key, tempo, capo, duration and year, and sections become headings. Chords above lyrics are merged into the lyric line below, at the column where they were typed. The summary lists the format, the song details it found, and each line it did not take as written, with its line number. Directives the app does not support are kept as `//` comments, so nothing is lost silently. Only the first song in a file is imported. **Replace chart with this import** writes the chart and applies the key and year to the song and the tempo and capo to the performance. The title and artist are shown but not changed.
 
 An import replaces the chart, so it is refused during playback, and when the chart has MIDI commands or triggers. Remove those in the editor first, so they are not dropped without you seeing it. Imported text has no timestamps, so it is read as untimed text: it has no MIDI cues and no timed lines until you add timestamps in the editor.
+
+**Automatic drafts.** After a split, Performance estimates chords from the guitar, piano and other stems together (from the mix when the song is not split), and, when the song has none, transcribes lyrics from the vocals with a local Whisper model. Choose **Lyrics language** first if you know it. The first run downloads the model; nothing is uploaded. Chord estimates name major, minor, power (5), seventh, major seventh, minor seventh, sus2, sus4, diminished and augmented chords, with a slash bass (C/G) when the bass clearly plays another chord note. They change on the beats of the song and lean towards its key. Treat both as drafts and check them before you play, because dense mixes and backing vocals cause mistakes. Anything in your own chart takes priority over a draft.
 
 ## MIDI cues
 
@@ -256,7 +260,7 @@ Before a set:
 4. Arm with **Send cues**, then play.
 5. After a disconnect or timing fault, pause, check what the pedals are actually set to, reconnect, rearm and choose where to resume.
 
-Finish backups before you start. Heavy work during playback can hurt timing.
+Finish analysis and backups before you start. Heavy work during playback can hurt timing.
 
 ## Gapless and crossfade
 
@@ -413,5 +417,6 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - Playlist joins are gapless only when the next song is ready in time. Otherwise there is a short gap, and a notice says so.
 - Audio is stretched or pitch-shifted only by [speed and pitch](#speed-and-pitch). The metronome is never stretched.
 - Audio outputs, speed and pitch, gapless joins and multitrack import are not yet tested on hardware.
+- Chord estimates cover the common chord types only: no extended chords such as ninths or altered chords. Key estimates are less certain for modal music, relative keys and key changes, and a key in a section is only listed when it is clear. Lyrics from Whisper can be wrong. The project has not yet measured chord accuracy on real recordings.
 - Pedal profiles come from manuals and are tested at byte level. Only the GP-180 and TimeLine results above come from real hardware.
 - Bluetooth editor management and RTP-MIDI are not supported.

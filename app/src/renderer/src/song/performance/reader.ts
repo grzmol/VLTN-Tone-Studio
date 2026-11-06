@@ -1,4 +1,5 @@
 import { parseChart, type Cue } from "./chart";
+import type { Chord } from "./chords";
 import type { MidiMacro } from "./midi-macros";
 
 export interface ReaderLine {
@@ -27,9 +28,9 @@ export function untimedLines(text: string): string[] {
 
 /**
  * Merge by time interval, without inventing word-level chord alignment or changing MIDI cues. A chart with no timed lines, such as an
- * imported ChordPro song, is read as it is written and the lyrics draft does not replace it.
+ * imported ChordPro song, is read as it is written, and the lyrics draft and the audio chord estimates do not replace it.
  */
-export function performanceLines(chart: string, lyrics: string, macros: readonly MidiMacro[] = []): ReaderLine[] {
+export function performanceLines(chart: string, lyrics: string, estimates: Chord[], macros: readonly MidiMacro[] = []): ReaderLine[] {
   const safeParse = (text: string): Cue[] => {
     try {
       return parseChart(text, macros);
@@ -42,7 +43,8 @@ export function performanceLines(chart: string, lyrics: string, macros: readonly
   const chartWords = cues.filter((c) => words(c.text));
   const untimedChart = !cues.length && untimedLines(chart).length > 0;
   let lines: ReaderLine[] = (chartWords.length ? chartWords : untimedChart ? [] : safeParse(lyrics)).map((c) => ({ time: c.time, text: c.text, chords: [] }));
-  const changes = cues.flatMap((c) => [...c.text.matchAll(chordPattern)].map((m) => ({ time: c.time, name: m[1] })));
+  const manual = cues.flatMap((c) => [...c.text.matchAll(chordPattern)].map((m) => ({ time: c.time, name: m[1] })));
+  const changes = manual.length ? manual : untimedChart ? [] : estimates;
   if (!lines.length) {
     const plain = untimedChart ? untimedLines(chart) : untimedLines(lyrics || chart);
     lines = plain.map((text) => ({ time: NaN, text, chords: [...text.matchAll(chordPattern)].map((match) => ({ time: NaN, name: match[1] })) }));

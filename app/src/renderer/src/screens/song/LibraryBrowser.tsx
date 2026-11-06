@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSongLibrary } from "@/song/library";
+import { isRunning, useAnalysisJob } from "@/song/analysis/analysis-job";
 import { NO_BROWSE, browseSongs, folderRows, type BrowseState } from "@/song/library-browse";
 import { formatTime } from "@/song/stems/mix";
 import { runningSeconds } from "@/song/performance/running-time";
@@ -9,6 +10,8 @@ import { overridesFor } from "@shared/entry-overrides";
 import type { LibraryFolder, LibrarySong } from "@shared/song-library";
 import { FilterBuilder } from "./FilterBuilder";
 import { SongDetails, parseKeywords } from "./SongDetails";
+import { AnalyseSongsDialog } from "./AnalyseSongsDialog";
+import type { BatchSong } from "@/song/analysis/batch";
 
 const field = "rounded border border-seam bg-transparent p-2";
 const EMPTY_FILTER: SmartRules = { match: "all", rules: [], sort: "title" };
@@ -28,6 +31,16 @@ export function LibraryBrowser() {
   const [message, setMessage] = useState("");
   // The name for a playlist made from the selected songs. Null while the name is not being asked for.
   const [newPlaylist, setNewPlaylist] = useState<string | null>(null);
+  // Which songs the analysis dialog works on: the selection, or the whole library. Null while the dialog is closed.
+  const [analysing, setAnalysing] = useState<"selected" | "all" | null>(null);
+  // The status bar asks for the dialog on a running analysis. The dialog then shows that run, whichever songs it started on.
+  const openRequested = useAnalysisJob((s) => s.openRequested);
+  const analysisRunning = isRunning(useAnalysisJob((s) => s.phase));
+  useEffect(() => {
+    if (!openRequested) return;
+    useAnalysisJob.getState().consumeOpenRequest();
+    setAnalysing("all");
+  }, [openRequested]);
   const songs = library.index.songs;
   const folders = library.index.folders;
   const result = useMemo(() => browseSongs(songs, folders, view), [songs, folders, view]);
@@ -146,6 +159,9 @@ export function LibraryBrowser() {
       <p className="text-sm text-silkscreen-3">
         {result.songs.length} shown{view.folderId ? ` in ${chosen?.name ?? "this folder"}` : ""}
       </p>
+      <Button variant="outline" disabled={library.busy || !songs.length} onClick={() => setAnalysing("all")}>
+        {analysisRunning ? "Analysis running…" : "Analyse all songs…"}
+      </Button>
       {result.letters.length > 0 && (
         <nav aria-label="Jump to letter" className="flex flex-wrap gap-1 text-sm">
           {result.letters.map(({ letter, index }) => (
@@ -281,6 +297,9 @@ export function LibraryBrowser() {
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" disabled={library.busy} onClick={() => setAnalysing("selected")}>
+              {analysisRunning ? "Analysis running…" : "Analyse selected…"}
+            </Button>
             <Button variant="outline" onClick={() => setSelected(new Set())}>
               Clear selection
             </Button>
@@ -302,8 +321,17 @@ export function LibraryBrowser() {
           </div>
         </section>
       )}
+      <AnalyseSongsDialog
+        open={analysing !== null}
+        onOpenChange={(open) => !open && setAnalysing(null)}
+        songs={batchSongs(analysing === "all" ? songs : songs.filter((song) => selected.has(song.id)))}
+      />
     </section>
   );
+}
+
+function batchSongs(list: readonly LibrarySong[]): BatchSong[] {
+  return list.map((song) => ({ id: song.id, title: song.title, settings: song.settings }));
 }
 
 function SongRow(props: {

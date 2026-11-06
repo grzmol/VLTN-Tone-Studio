@@ -12,7 +12,7 @@ const saved: LibraryPreflightSong = {
     sourceName: "song",
     duration: 10,
     audio: [{ name: "source", sampleRate: 44100, frames: 441000, channels: 1 }],
-    settings: { ":bpm": "120", ":options": '{"tempoSource":"manual"}', "": "[00:01] {midi:pc 1 2}" },
+    settings: { ":bpm": "120", ":options": '{"tempoSource":"manual","analysis":{"audioId":"x","version":1}}', "": "[00:01] {midi:pc 1 2}" },
     updated: "",
   },
 };
@@ -58,7 +58,7 @@ it("uses the first playback stem in player order, not the longest track or metad
 });
 
 it("checks the tempo the song plays at, and whether its speed render is ready", () => {
-  const song = { ...saved.song!, settings: { ":bpm": "100", ":options": '{"speed":0.7,"tempoSource":"manual"}', "": "" } };
+  const song = { ...saved.song!, settings: { ":bpm": "100", ":options": '{"speed":0.7,"tempoSource":"manual","analysis":{}}', "": "" } };
   const [slow] = playlistPreflight(["one"], [{ ...saved, song }], config);
   // 100 BPM at 70% is 70 BPM, which is inside the pedal range, so only the render warns
   expect(slow.errors).toEqual([]);
@@ -73,7 +73,7 @@ it("checks the tempo the song plays at, and whether its speed render is ready", 
   expect(checks[1].warnings.join(" ")).toContain("not rendered in advance");
   expect(checks[2].warnings).toEqual([]);
   expect(checks[2].notes.join(" ")).toContain("not rendered in advance");
-  const fast = { ...saved.song!, settings: { ":bpm": "250", ":options": '{"speed":1.5,"tempoSource":"manual"}', "": "" } };
+  const fast = { ...saved.song!, settings: { ":bpm": "250", ":options": '{"speed":1.5,"tempoSource":"manual","analysis":{}}', "": "" } };
   const [result] = playlistPreflight(["one"], [{ ...saved, song: fast }], config);
   expect(result.errors.join(" ")).toContain("375 BPM");
 });
@@ -105,14 +105,17 @@ it("warns about a playlist song whose MIDI trigger another song shares, or a rem
   expect(playlistPreflight(["one"], [saved], { ...config, songs: [{ id: "one", title: "Opening", trigger: null }] })[0].warnings).toEqual([]);
 });
 
-it("warns about a 120 BPM that may be the old default", () => {
+it("warns about a 120 BPM that may be the old default, and about a song not analysed yet", () => {
   const song = { ...saved.song!, settings: { ":bpm": "120", "": "[00:01] {midi:pc 1 2}" } };
   const [result] = playlistPreflight(["one"], [{ ...saved, song }], config);
-  expect(result.warnings).toEqual(["BPM may be the old 120 default. Confirm the tempo."]);
+  expect(result.warnings).toEqual([
+    "BPM may be the old 120 default. Open the song to detect it, or confirm the tempo.",
+    "Song not analysed yet. Open it once so its tempo, key and parts are worked out.",
+  ]);
 });
 
 it("does not warn about a 120 BPM the performer set", () => {
-  const song = { ...saved.song!, settings: { ":bpm": "120", ":options": '{"tempoSource":"tap"}', "": "[00:01] {midi:pc 1 2}" } };
+  const song = { ...saved.song!, settings: { ":bpm": "120", ":options": '{"tempoSource":"tap","analysis":{}}', "": "[00:01] {midi:pc 1 2}" } };
   const [result] = playlistPreflight(["one"], [{ ...saved, song }], config);
   expect(result.warnings).toEqual([]);
 });

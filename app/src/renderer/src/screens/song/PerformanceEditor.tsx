@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { editableEvents, eventChart, type EditableEvent } from "@/song/performance/editor";
+import type { Chord } from "@/song/performance/chords";
 import { clockPosition } from "@/song/performance/playback-clock";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import type { ChartMetadata } from "@/song/performance/import/import-result";
@@ -9,12 +10,14 @@ import { ChartImport } from "./ChartImport";
 export function PerformanceEditor({
   chart,
   lyrics,
+  chords,
   onSave,
   onCancel,
   onImportMetadata,
 }: {
   chart: string;
   lyrics: string;
+  chords: Chord[];
   onSave: (chart: string) => void;
   onCancel: () => void;
   onImportMetadata?: (metadata: ChartMetadata) => void;
@@ -22,7 +25,7 @@ export function PerformanceEditor({
   const macros = useMidiConfiguration((s) => s.macros);
   const [initial] = useState(() => {
     try {
-      return { rows: editableEvents(chart, lyrics, macros), error: "" };
+      return { rows: editableEvents(chart, lyrics, chords, macros), error: "" };
     } catch {
       return { rows: [] as EditableEvent[], error: "Correct the invalid MIDI syntax in the separate chart editor before editing this page." };
     }
@@ -41,7 +44,7 @@ export function PerformanceEditor({
         }}
       />
       <p>
-        Edit the original chord names, lyrics, times and MIDI here. Saving creates a manual chart from the displayed lyrics and chords. Transposition
+        Edit the original chord names, lyrics, times and MIDI here. Saving creates a manual chart from the displayed lyrics and chord estimates. Transposition
         stays a display setting. Audio timing is unchanged.
       </p>
       {rows.map((row, index) => (

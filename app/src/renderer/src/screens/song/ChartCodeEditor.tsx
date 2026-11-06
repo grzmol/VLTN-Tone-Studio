@@ -6,7 +6,7 @@ import { Decoration, type DecorationSet, EditorView, keymap, lineNumbers, placeh
 import { chartTokens, type ChartTokenKind } from "@/song/performance/chart-tokens";
 
 /**
- * The chart's text box, with search, undo and colours for the chart's grammar. It is loaded on demand from the lyrics and chords panel, so the
+ * The chart's text box, with search, undo and colours for the chart's grammar. It is loaded on demand from the analysis panel, so the
  * CodeMirror code is not in the app until someone opens the chart editor. Keys in the editor are CodeMirror's own, and the remote key
  * bindings ignore them because the editor's text is a text field (`isTypingTarget`).
  */
