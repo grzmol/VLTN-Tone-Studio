@@ -41,7 +41,7 @@ it("keeps a saved song's edits out of localStorage, sends one patch after typing
   clearSettingsCache();
   expect(getSetting(key, ":lyrics")).toBe("");
   seedSettings(id, { ":bpm": "100", ":lyrics": "[00:00] ab" });
-  expect(readSettings(key)).toEqual({ "": "", ":bpm": "100", ":lyrics": "[00:00] ab", ":options": "" });
+  expect(readSettings(key)).toEqual({ "": "", ":bpm": "100", ":lyrics": "[00:00] ab", ":options": "", ":chart": "" });
 });
 
 it("flushes pending edits at once and keeps them when the library write fails", async () => {

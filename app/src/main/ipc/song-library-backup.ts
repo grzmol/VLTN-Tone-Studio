@@ -7,6 +7,8 @@ import { c as createTar, Parser, type ReadEntry } from "tar";
 import {
   LIBRARY_VERSION,
   TRACK_NAMES,
+  chartFiles,
+  isChartFileName,
   isTrackFileName,
   trackFiles,
   upgradeIndex,
@@ -41,13 +43,13 @@ const SAFE_RAW = new RegExp(`^[a-f0-9-]{36}/(${TRACK_NAMES.join("|")})-[01]\\.f3
 /** A revision folder's file: the UUID, one slash, then one name with no slash in it. The name is checked against the allow-lists below. */
 const SAFE_FLAC = /^[a-f0-9-]{36}\/([^/]+)$/;
 /**
- * Raw v1 channels, a FLAC track file (a legacy track or an imported one). Anything else, including
+ * Raw v1 channels, a FLAC track file (a legacy track or an imported one), or a song's PDF chart and its annotations. Anything else, including
  * a name with a slash, a dot-dot or a different extension, is refused before any file is written.
  */
 const safePath = (path: string) => {
   if (path === INDEX || SAFE_RAW.test(path)) return true;
   const name = SAFE_FLAC.exec(path)?.[1];
-  return name !== undefined && (isTrackFileName(name));
+  return name !== undefined && (isTrackFileName(name) || isChartFileName(name));
 };
 export function validateDiskIndex(value: unknown): DiskIndex {
   const index = value as DiskIndex;
@@ -76,11 +78,12 @@ export function validateDiskIndex(value: unknown): DiskIndex {
   validateOrganisation(upgraded);
   return upgraded;
 }
-/** Every file a backup holds for the songs: their audio. */
+/** Every file a backup holds for the songs: their audio, and their PDF chart with its annotations. */
 function audioFiles(index: DiskIndex): Map<string, number> {
   const result = new Map<string, number>();
   for (const song of index.songs) {
     for (const track of song.audio) for (const { file, bytes } of trackFiles(track)) result.set(`${index.revisions[song.id]}/${file}`, bytes);
+    for (const { file, bytes } of chartFiles(song.chart)) result.set(`${index.revisions[song.id]}/${file}`, bytes);
   }
   return result;
 }
@@ -89,6 +92,7 @@ function audioHashes(index: DiskIndex): Map<string, string> {
   const result = new Map<string, string>();
   for (const song of index.songs) {
     for (const track of song.audio) for (const { file, sha256 } of trackFiles(track)) if (sha256) result.set(`${index.revisions[song.id]}/${file}`, sha256);
+    for (const { file, sha256 } of chartFiles(song.chart)) result.set(`${index.revisions[song.id]}/${file}`, sha256);
   }
   return result;
 }

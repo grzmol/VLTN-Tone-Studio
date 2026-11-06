@@ -9,6 +9,7 @@ import { webSong } from "./song";
 import { webUpdate } from "./update";
 import { webGp200Catalog } from "./gp200-catalog";
 import { webLog } from "./log";
+import { webAudience } from "./audience";
 
 export const webHost: HostApi = {
   kind: "web",
@@ -23,4 +24,5 @@ export const webHost: HostApi = {
   update: webUpdate,
   gp200Catalog: webGp200Catalog,
   log: webLog,
+  audience: webAudience,
 };

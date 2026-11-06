@@ -13,11 +13,14 @@ import { registerDeviceIpc } from "./ipc/device";
 import { registerSnapToneIpc } from "./ipc/snaptone";
 import { libraryRoot, registerSongIpc } from "./ipc/song";
 import { libraryFilePath } from "./ipc/song-library-store";
+import { CHART_ANNOTATIONS_FILE, CHART_FILE } from "@shared/song-library";
 import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
 import { installBluetoothChooser } from './bluetooth';
+import { isAudienceContents, registerDisplayIpc } from "./ipc/display";
+import { registerBandSyncIpc } from "./ipc/band-sync";
 import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { devUserDataPath } from "./user-data";
 import { isOwnRenderer } from "./permissions";
@@ -41,7 +44,7 @@ const RENDERER_URL = "app://bundle/index.html";
 const CSP =
   "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
   "img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; " +
-  "connect-src 'self' app://library https://*.tone3000.com https://tone3000.com " +
+  "connect-src 'self' app://library ws://localhost:* https://*.tone3000.com https://tone3000.com " +
   "https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com";
 // Dev server only: @vitejs/plugin-react injects an inline React Refresh preamble into index.html.
 const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
@@ -50,7 +53,14 @@ const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inli
 // TONE3000 images, which send no Cross-Origin-Resource-Policy, still load (without cookies).
 const ISOLATION = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" } as const;
 
-/** app://library/<revision>/<track>.flac → a saved song's track. Only that exact shape resolves, so no other path is reachable. */
+/** The media type of a saved file: the chart's PDF or annotation JSON, or a FLAC track. Only those names resolve (see libraryFilePath). */
+function contentType(file: string): string {
+  if (file.endsWith("/" + CHART_FILE)) return "application/pdf";
+  if (file.endsWith("/" + CHART_ANNOTATIONS_FILE)) return "application/json";
+  return "audio/flac";
+}
+
+/** app://library/<revision>/<track>.flac or <chart>.pdf → a saved song's file. Only that exact shape resolves, so no other path is reachable. */
 async function serveLibrary(req: Request): Promise<Response> {
   if (req.method !== "GET") return new Response(null, { status: 405 });
   const file = libraryFilePath(libraryRoot(), req.url);
@@ -59,7 +69,7 @@ async function serveLibrary(req: Request): Promise<Response> {
   const headers = new Headers(res.headers);
   // The dev renderer is served from http://localhost, which makes this a cross-origin fetch.
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Content-Type", "audio/flac");
+  headers.set("Content-Type", contentType(file));
   headers.set("Cache-Control", "no-store");
   return new Response(res.body, { status: res.status, headers });
 }
@@ -87,6 +97,8 @@ const MIN = { width: 1180, height: 760 };
 let win: BrowserWindow | null = null;
 // A destroyed window is treated as no window: on macOS the app keeps running after its window closes.
 const getWindow = () => (win && !win.isDestroyed() ? win : null);
+let displayIpc: ReturnType<typeof registerDisplayIpc> | null = null;
+let bandSyncIpc: ReturnType<typeof registerBandSyncIpc> | null = null;
 const boundsPath = () => join(app.getPath("userData"), "window.json");
 const OPENABLE = /\.(prst|nam|wav)$/i;
 queueOpenedFiles(process.argv.slice(1).filter((a) => OPENABLE.test(a)));
@@ -174,8 +186,12 @@ async function createWindow() {
     },
   });
   installBluetoothChooser(win);
+  // The audience window (spec 43) belongs to this window: when it closes, the audience window closes too.
+  // Band sync (spec 44) belongs to this window too: followers lose the sync when the performer closes the app.
   win.once("closed", () => {
     win = null;
+    displayIpc?.close();
+    bandSyncIpc?.stop();
   });
   win.once("ready-to-show", () => {
     if (maximized) win?.maximize();
@@ -231,7 +247,7 @@ app.whenReady().then(async () => {
   const allowed = new Set(["midi", "midiSysex"]);
   const devUrl = process.env.ELECTRON_RENDERER_URL;
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => {
-    if (!isOwnRenderer(details.requestingUrl, devUrl)) return cb(false);
+    if (isAudienceContents(wc) || !isOwnRenderer(details.requestingUrl, devUrl)) return cb(false);
     if (permission === "media") {
       const types = "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
       return cb(types.length > 0 && types.every((t) => t === "audio"));
@@ -239,7 +255,7 @@ app.whenReady().then(async () => {
     cb(allowed.has(permission));
   });
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
-    if (!isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
+    if (isAudienceContents(wc) || !isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
     return permission === "media" ? details.mediaType === "audio" : allowed.has(permission);
   });
   session.defaultSession.setBluetoothPairingHandler((details, callback) => {
@@ -276,6 +292,13 @@ app.whenReady().then(async () => {
   registerSongIpc(getWindow);
   registerUpdateIpc(getWindow);
   registerGp200CatalogIpc(getWindow);
+  displayIpc = registerDisplayIpc(getWindow);
+  // The follower page is the renderer build's second entry (follower.html), served only from RENDERER_DIR.
+  bandSyncIpc = registerBandSyncIpc(getWindow, RENDERER_DIR);
+  app.once("will-quit", () => {
+    displayIpc?.dispose();
+    bandSyncIpc?.dispose();
+  });
   buildMenu(getWindow);
   await openWindow();
 

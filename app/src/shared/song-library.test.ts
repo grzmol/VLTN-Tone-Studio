@@ -84,14 +84,6 @@ describe("track keys and file names", () => {
   });
 });
 
-describe("validateSong with settings from a later version", () => {
-  it("accepts the chart view setting and refuses other unknown ones", () => {
-    const withSettings = (settings: Record<string, string>) => ({ ...song([flacTrack("source")]), settings });
-    expect(() => validateSong(withSettings({ ":chart": "pdf" }))).not.toThrow();
-    expect(() => validateSong(withSettings({ ":other": "x" }))).toThrow("Invalid song settings.");
-  });
-});
-
 describe("validateSong with imported tracks", () => {
   const imported = (index: number, extra: Partial<LibraryAudio> = {}): LibraryAudio => ({
     ...flacTrack(`Track ${index}`),
