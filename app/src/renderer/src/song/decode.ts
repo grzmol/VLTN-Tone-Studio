@@ -18,6 +18,14 @@ export function toStereo(channels: Float32Array[]): Float32Array[] {
 
 /** Decode an audio file with the browser's decoders, resampled to 44.1 kHz stereo. */
 export async function decodeSong(file: File): Promise<PcmAudio> {
+  return decodeAudioFile(file, MAX_SONG_SECONDS);
+}
+
+/**
+ * Decodes an audio file to 44.1 kHz stereo. The browser's decoder resamples it on its own thread. A file longer than `maxSeconds` is
+ * refused, so one file cannot take the renderer's memory.
+ */
+export async function decodeAudioFile(file: File, maxSeconds: number): Promise<PcmAudio> {
   const bytes = await file.arrayBuffer();
   // decodeAudioData resamples to its context's rate.
   const ctx = new OfflineAudioContext(2, 1, SONG_RATE);
@@ -27,7 +35,7 @@ export async function decodeSong(file: File): Promise<PcmAudio> {
   } catch {
     throw new Error(`Couldn't read ${file.name}. Use a WAV, MP3, FLAC, M4A or OGG file.`);
   }
-  if (buffer.duration > MAX_SONG_SECONDS) throw new Error(`${file.name} is longer than ${MAX_SONG_SECONDS / 60} minutes. Trim it and try again.`);
+  if (buffer.duration > maxSeconds) throw new Error(`${file.name} is longer than ${Math.round(maxSeconds / 60)} minutes. Trim it and try again.`);
   if (buffer.length === 0) throw new Error(`${file.name} has no audio.`);
   const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
   return { sampleRate: SONG_RATE, channels: toStereo(channels) };
