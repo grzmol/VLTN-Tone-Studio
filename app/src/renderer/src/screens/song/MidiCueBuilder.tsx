@@ -1,6 +1,8 @@
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cueCommandText, cueTokenFor } from "@/song/performance/cue-token";
+import { CueRowButtons } from "./CueRowButtons";
 import { lrcTime, midiCommand, type Cue } from "@/song/performance/chart";
 import { clockPosition } from "@/song/performance/playback-clock";
 import { saveMacro, useMidiConfiguration } from "@/song/performance/midi-configuration";
@@ -9,14 +11,28 @@ import { MacroPanel } from "./MacroPanel";
 import { PedalMidiPicker } from "./PedalMidiPicker";
 import { HelpNote } from "@/components/ui/help-note";
 
+const CHANGED = "The chart text changed since these cues were read, so nothing was changed. Check the cue list and try again.";
+
 export function MidiCueBuilder({
   cues,
   onAdd,
+  onRemove,
+  onReplace,
+  locked = false,
+  onShowChart,
   onTest,
   canTest,
 }: {
   cues: Cue[];
   onAdd: (line: string) => void;
+  /** Takes the cue's token out of the chart. Returns a function that puts it back (false when the chart changed since), or null when the chart changed and nothing was removed. */
+  onRemove: (cue: Cue) => (() => boolean) | null;
+  /** Replaces the cue's token (and its timestamp, when `time` is given). Returns false when the chart changed and nothing was replaced. */
+  onReplace: (cue: Cue, token: string, time?: number) => boolean;
+  /** True while cues are armed and the song plays, when the chart is not changed under the performance. */
+  locked?: boolean;
+  /** Goes to the view where the chart text is edited directly. */
+  onShowChart?: () => void;
   onTest: (bytes: number[]) => void;
   canTest: boolean;
 }) {
@@ -26,6 +42,9 @@ export function MidiCueBuilder({
     [number, setNumber] = useState(0),
     [value, setValue] = useState(127),
     [error, setError] = useState("");
+  const [editing, setEditing] = useState<Cue | null>(null),
+    [editText, setEditText] = useState(""),
+    [removed, setRemoved] = useState<{ label: string; undo: () => boolean } | null>(null);
   const macros = useMidiConfiguration((s) => s.macros);
   const field = "ml-2 rounded border border-seam bg-background p-2";
   const command = () => {
@@ -49,6 +68,34 @@ export function MidiCueBuilder({
     try {
       const cue = command();
       saveMacro({ code: macroCodeFor(cue.text, macros), label: cue.text.slice(0, 60), commands: [cue.text] });
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const startEdit = (cue: Cue) => {
+    setEditing(cue);
+    setEditText(cueCommandText(cue) ?? "");
+    setSeconds(cue.time);
+    setRemoved(null);
+    setError("");
+  };
+  const remove = (cue: Cue) => {
+    const undo = onRemove(cue);
+    if (!undo) return setError(CHANGED);
+    setError("");
+    if (editing) setEditing(null);
+    setRemoved({ label: cue.trigger ? `On ${cue.trigger}` : lrcTime(cue.time), undo });
+  };
+  const update = () => {
+    if (!editing) return;
+    try {
+      const token = cueTokenFor(editing, editText, macros);
+      // The timestamp is only rewritten when it was changed, so the chart keeps its own spelling of a time that stays.
+      const moved = !editing.trigger && lrcTime(seconds) !== lrcTime(editing.time);
+      if (moved && (!Number.isFinite(seconds) || seconds < 0)) throw new Error("Cue time must be zero or more seconds.");
+      if (!onReplace(editing, token, moved ? seconds : undefined)) throw new Error(CHANGED);
+      setEditing(null);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -79,6 +126,16 @@ export function MidiCueBuilder({
           Use playback time
         </Button>
       </div>
+      {editing && (
+        <div role="group" aria-label="Edit cue" className="flex flex-wrap items-center gap-3 rounded border border-seam p-3 text-sm">
+          <span>Editing the cue {editing.trigger ? `on ${editing.trigger}` : `at ${lrcTime(editing.time)}`}. Change the time above and the command here.</span>
+          <input aria-label="Cue command text" className={field + " w-64 font-mono"} value={editText} onChange={(e) => setEditText(e.target.value)} />
+          <Button onClick={update}>Update cue</Button>
+          <Button variant="outline" onClick={() => setEditing(null)}>
+            Cancel
+          </Button>
+        </div>
+      )}
       <PedalMidiPicker time={seconds} onAdd={onAdd} onTest={onTest} canTest={canTest} />
       <details>
         <summary className="cursor-pointer text-sm">Raw MIDI command</summary>
@@ -158,6 +215,9 @@ export function MidiCueBuilder({
                 <th className="p-2">Pedal / action</th>
                 <th className="p-2">Channel</th>
                 <th className="p-2">MIDI</th>
+                <th className="p-2">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -167,14 +227,47 @@ export function MidiCueBuilder({
                   <td className="p-2">{cue.label || "Raw MIDI command"}</td>
                   <td className="p-2">{[...new Set(cue.messages.map((bytes) => (bytes[0] < 0xf0 ? (bytes[0] & 15) + 1 : "System")))].join(", ")}</td>
                   <td className="p-2 font-mono">{cue.messages.map(describe).join(" → ")}</td>
+                  <td className="p-2">
+                    <CueRowButtons cue={cue} locked={locked} onEdit={() => startEdit(cue)} onRemove={() => remove(cue)} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="text-xs text-silkscreen-3">Edit or remove cues in the chart editor below. Multi-message actions are sent in the order shown.</p>
+          <p className="text-xs text-silkscreen-3">Multi-message actions are sent in the order shown.</p>
+          {scheduled.some((cue) => !cue.source) && (
+            <p className="text-xs text-silkscreen-3">
+              Some cues share a line with other cues or timestamps, so they are changed in the chart text. To change the chart text directly, open Lyrics &
+              chords → Edit chords, lyrics & MIDI
+              {onShowChart && (
+                <>
+                  {" "}
+                  <Button variant="outline" size="xs" onClick={onShowChart}>
+                    Open Lyrics & chords
+                  </Button>
+                </>
+              )}
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-sm text-silkscreen-3">No MIDI cues in this song yet.</p>
+      )}
+      {removed && (
+        <p role="status" className="flex items-center gap-3 text-sm">
+          Removed the cue {removed.label}.
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              if (removed.undo()) setError("");
+              else setError(CHANGED);
+              setRemoved(null);
+            }}
+          >
+            Undo
+          </Button>
+        </p>
       )}
       {error && (
         <p role="alert" className="text-red-400">
