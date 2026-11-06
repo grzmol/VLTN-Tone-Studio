@@ -9,7 +9,7 @@ import { c as createTar, x as extractTar, Header } from "tar";
 import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
 import { CONVERTING_PHASE, isLegacySong } from "@shared/song-library";
 import { SongLibraryStore } from "./song-library-store";
-import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, writePlaylists, type FixtureSong } from "./song-library-fixtures";
+import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
 
 let temp: string, root: string, archive: string, store: SongLibraryStore;
 const tracks = ["source.flac", "guitar.flac"];
@@ -51,7 +51,7 @@ it("round-trips all audio/settings and repeated playlist entries as new copies w
   second.song.title = "Second demo";
   await save(store, first);
   await save(store, second);
-  await writePlaylists(root, [{ id: randomUUID(), name: "Demo set", songs: [first.song.id, second.song.id, first.song.id] }]);
+  await store.playlists([{ id: randomUUID(), name: "Demo set", songs: [first.song.id, second.song.id, first.song.id] }]);
   const progress: unknown[] = [];
   await store.exportBackup(archive, (p) => progress.push(p));
   expect(progress.length).toBeGreaterThan(1);
@@ -211,7 +211,7 @@ it("restoring twice with skip adds no songs or playlists, and playlist entries p
   second.song.title = "Second demo";
   await save(store, first);
   await save(store, second);
-  await writePlaylists(root, [{ id: randomUUID(), name: "Demo set", songs: [first.song.id, second.song.id] }]);
+  await store.playlists([{ id: randomUUID(), name: "Demo set", songs: [first.song.id, second.song.id] }]);
   await store.exportBackup(archive);
   const target = new SongLibraryStore(join(temp, "skip-target"));
   expect(await target.inspectBackup(archive)).toEqual({ songs: 2, playlists: 1, duplicates: 0 });
@@ -230,7 +230,7 @@ it("maps playlist entries to existing songs when only some songs are already in 
     second = await flacSong(2);
   await save(store, first);
   await save(store, second);
-  await writePlaylists(root, [{ id: randomUUID(), name: "Both", songs: [first.song.id, second.song.id] }]);
+  await store.playlists([{ id: randomUUID(), name: "Both", songs: [first.song.id, second.song.id] }]);
   await store.exportBackup(archive);
   const target = new SongLibraryStore(join(temp, "partial"));
   await save(target, first);
@@ -252,7 +252,7 @@ it("rejects a damaged archive when inspecting", async () => {
   await expect(store.inspectBackup(archive)).rejects.toThrow();
 });
 
-it("backs up and restores an imported track, and the settings a later version saved with it", async () => {
+it("backs up and restores a multitrack song with its imported track and that track's settings", async () => {
   const fixture = await flacSong(4),
     click = pcm(1, 9),
     bytes = await encodeFlac({ sampleRate: 44100, channels: click });
@@ -282,4 +282,36 @@ it("backs up and restores an imported track, and the settings a later version sa
   expect(song.audio.find((a) => a.file === "track0.flac")).toEqual(imported);
   expect(song.audio).toHaveLength(3);
   await expectAudio(destination, song.id, { ...fixture, audio: { track0: click } });
+});
+
+it("backs up and restores a rendered drum part with its track and the band record that names it", async () => {
+  const fixture = await flacSong(4),
+    rendered = pcm(1, 5),
+    bytes = await encodeFlac({ sampleRate: 44100, channels: rendered });
+  fixture.files["track0.flac"] = bytes;
+  fixture.song.audio.push({
+    name: "Drums (generated)",
+    sampleRate: 44100,
+    frames: FRAMES,
+    channels: 1,
+    file: "track0.flac",
+    codec: "flac" as const,
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    kind: "user" as const,
+    bus: "main" as const,
+  });
+  const options = {
+    band: { rendered: { drums: { name: "drums.wav", importedAt: "2026-10-30T10:00:00.000Z" } }, firstNote: { drums: 0.5 } },
+    generatedParts: { drums: "track0" },
+  };
+  fixture.song.settings[":options"] = JSON.stringify(options);
+  await save(store, fixture);
+  await store.exportBackup(archive);
+  const destination = join(temp, "restored");
+  expect(await new SongLibraryStore(destination).restoreBackup(archive)).toEqual({ songs: 1, playlists: 0 });
+  const [song] = (await new SongLibraryStore(destination).index()).songs;
+  expect(song.audio.find((a) => a.file === "track0.flac")).toMatchObject({ name: "Drums (generated)", kind: "user", bus: "main" });
+  expect(JSON.parse(song.settings[":options"])).toEqual(options);
+  await expectAudio(destination, song.id, { ...fixture, audio: { track0: rendered } });
 });

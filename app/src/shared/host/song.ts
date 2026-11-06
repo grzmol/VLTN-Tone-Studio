@@ -147,7 +147,9 @@ export interface SaveFile {
 }
 
 export interface SongHostApi {
-  /** Desktop managed song library: saved songs as FLAC, backups, and the kept copy of a converted library. */
+  /** Desktop-only renewable sleep prevention while stage playback is active. */
+  stagePower?(token:string, enabled:boolean):Promise<void>;
+  /** Desktop managed song library, including copied PCM audio and ordered playlists. */
   library?: import("../song-library").SongLibraryApi;
   /** Local names (ModelFile.file) of the model files downloaded and checked already */
   downloadedFiles(): Promise<string[]>;
@@ -166,6 +168,8 @@ export interface SongHostApi {
   modelFile(file: string): Promise<Uint8Array>;
   /** Delete model `id`'s files (files another model shares go too) and partial downloads, to free disk space */
   deleteModel(id: SeparationModelId): Promise<void>;
+  /** Desktop-only: fires when the system wakes from sleep, when USB MIDI ports may have been re-enumerated. Returns the unsubscribe function. */
+  onSystemResume?(cb: () => void): () => void;
   /** Download progress of downloadModel(); returns the unsubscribe function */
   onModelProgress(cb: (p: ModelProgress) => void): () => void;
   /**
