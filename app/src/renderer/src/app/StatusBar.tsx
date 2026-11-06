@@ -9,6 +9,7 @@ import { connectionView } from "@/screens/device/guidance";
 import { attachedDevice, pedalName } from "@/state/device-model";
 import { liveStatusText } from "@/screens/rig/live-edits";
 import { keyLabel } from "./keys";
+import { ConversionChip } from "./ConversionChip";
 
 const LED: Record<StatusMessage["led"], string> = { on: "bg-led-on", off: "bg-led-off", warn: "bg-led-warn", fault: "bg-led-fault" };
 
@@ -67,6 +68,7 @@ export function StatusBar() {
           <span className="shrink-0">{mode === "mock" ? `Simulated ${pedal}` : portName}</span>
         </>
       )}
+      <ConversionChip />
       <span className="flex-1" />
       {hints.map((h, i) => (
         <Fragment key={i}>
