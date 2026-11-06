@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ACTION_IDS, ACTIONS, actionLabel, isActionId, runAction, type ActionHost } from "./actions";
 
 /** A host whose every method records its call and returns no hint, so each test can see what ran. */
-function recordingHost(): ActionHost & { calls: [string, ...unknown[]][] } {
+function recordingHost(pdf = false): ActionHost & { calls: [string, ...unknown[]][] } {
   const calls: [string, ...unknown[]][] = [];
   const names: (keyof ActionHost)[] = [
     "play",
@@ -24,6 +24,7 @@ function recordingHost(): ActionHost & { calls: [string, ...unknown[]][] } {
     "arm",
     "disarm",
     "scrollLyrics",
+    "pdfOnScreen",
     "fontSize",
     "toggleStage",
     "muteGroup",
@@ -37,6 +38,11 @@ function recordingHost(): ActionHost & { calls: [string, ...unknown[]][] } {
       calls.push([name, ...args]);
     };
   }
+  // A PDF on screen answers the question; the rest of the host records the call and returns nothing.
+  host.pdfOnScreen = () => {
+    calls.push(["pdfOnScreen"]);
+    return pdf;
+  };
   return host;
 }
 
@@ -109,6 +115,24 @@ describe("runAction", () => {
     runAction({ action: "view.pageUp" }, host);
     runAction({ action: "speed.reset" }, host);
     expect(host.calls).toEqual([["play"], ["panic"], ["nextSection"], ["scrollLyrics", 1, false], ["scrollLyrics", -1, true], ["speed", "reset"]]);
+  });
+
+  it("turns a PDF page with the default section keys while a PDF is on screen, and goes to the section otherwise", () => {
+    const withPdf = recordingHost(true);
+    runAction({ action: "section.nextOrPage" }, withPdf);
+    runAction({ action: "section.previousOrPage" }, withPdf);
+    expect(withPdf.calls).toEqual([["pdfOnScreen"], ["scrollLyrics", 1, true], ["pdfOnScreen"], ["scrollLyrics", -1, true]]);
+    const without = recordingHost(false);
+    runAction({ action: "section.nextOrPage" }, without);
+    runAction({ action: "section.previousOrPage" }, without);
+    expect(without.calls).toEqual([["pdfOnScreen"], ["nextSection"], ["pdfOnScreen"], ["previousSection"]]);
+  });
+
+  it("never turns a page for a section action the performer chose, even with a PDF on screen", () => {
+    const host = recordingHost(true);
+    runAction({ action: "section.next" }, host);
+    runAction({ action: "section.previous" }, host);
+    expect(host.calls).toEqual([["nextSection"], ["previousSection"]]);
   });
 
   it("passes the number of a numbered action", () => {

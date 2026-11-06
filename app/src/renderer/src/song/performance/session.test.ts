@@ -1250,6 +1250,7 @@ describe("remote actions", () => {
     session.bind();
     const view = {
       scrollLyrics: vi.fn(),
+      pdfOnScreen: vi.fn(() => false),
       fontSize: vi.fn(),
       toggleStage: vi.fn(),
       muteGroup: vi.fn(),
@@ -1315,6 +1316,7 @@ describe("remote actions", () => {
       window.dispatchEvent(event);
       return event;
     };
+    view.pdfOnScreen.mockReturnValue(true);
     session.shown = false;
     session.keyDown(cancelable("t"));
     expect(view.tap).not.toHaveBeenCalled();
@@ -1329,7 +1331,7 @@ describe("remote actions", () => {
     expect(session.keyDown(space)).toBe(true);
     expect(space.defaultPrevented).toBe(true);
     session.shown = true;
-    withBindings(session, [{ action: "view.pageDown", source: "key", match: { key: "PageDown" } }]);
+    withBindings(session, defaultBindings());
     expect(session.keyDown(new KeyboardEvent("keydown", { key: "PageDown" }))).toBe(true);
     expect(view.scrollLyrics).toHaveBeenCalledTimes(1);
     session.dispose();

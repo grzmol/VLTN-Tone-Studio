@@ -352,10 +352,10 @@ export function defaultBindings(): Binding[] {
     { action: "transport.play", source: "midi", match: { status: 0xfb } },
     { action: "transport.stop", source: "midi", match: { status: 0xfc } },
     { action: "transport.playPause", source: "midi", match: { status: 0xb0, data1: 80, data2Min: 64, data2Max: 127, mode: "momentary" } },
-    { action: "section.next", source: "key", match: { key: "PageDown" } },
-    { action: "section.previous", source: "key", match: { key: "PageUp" } },
-    { action: "section.next", source: "key", match: { key: "ArrowRight" } },
-    { action: "section.previous", source: "key", match: { key: "ArrowLeft" } },
+    { action: "section.nextOrPage", source: "key", match: { key: "PageDown" } },
+    { action: "section.previousOrPage", source: "key", match: { key: "PageUp" } },
+    { action: "section.nextOrPage", source: "key", match: { key: "ArrowRight" } },
+    { action: "section.previousOrPage", source: "key", match: { key: "ArrowLeft" } },
     { action: "tempo.tap", source: "key", match: { key: "t" } },
   ];
 }
