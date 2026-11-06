@@ -317,6 +317,7 @@ beforeEach(() => {
   mocks.segment = null;
   mocks.schedules.length = 0;
   mocks.dropped.length = 0;
+  useMidiConfiguration.setState({ sendCues: { on: false, outputId: "" } });
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -1961,5 +1962,162 @@ describe("the play trigger through the real schedule", () => {
     expect(playsSent(out)).toBe(1);
     expect(mocks.dropped.map((m) => m.bytes)).toEqual([]);
     session.pause();
+  });
+});
+
+describe("Send cues stays on", () => {
+  const remember = (outputId = "usb") => useMidiConfiguration.setState({ sendCues: { on: true, outputId } });
+  /** A session that starts disarmed with the saved USB output and an open system access, as a remount after Enable. */
+  function freshSession(out = output(), outputId = "usb") {
+    const access = Object.assign(new EventTarget(), { outputs: new Map([[outputId, out]]), inputs: new Map() }) as unknown as MIDIAccess;
+    const session = new PerformanceSession({
+      initial: inputs({ savedOutput: { id: outputId, name: "USB", transport: "system" } }),
+      carried: { access, portId: outputId, inputId: "", armed: false, output: null },
+      initialClock: false,
+    });
+    session.loadSong(source, null);
+    session.bind();
+    return { session, out, access };
+  }
+
+  it("starts armed for the remembered, connected output", () => {
+    remember();
+    const { session } = freshSession();
+    expect(selectArmed(session.state)).toBe(true);
+    expect(session.state.armedByPreference).toBe(true);
+  });
+
+  it("starts disarmed when the preference was set for another output, or is off", () => {
+    remember("other");
+    expect(selectArmed(freshSession().session.state)).toBe(false);
+    useMidiConfiguration.setState({ sendCues: { on: false, outputId: "usb" } });
+    expect(selectArmed(freshSession().session.state)).toBe(false);
+  });
+
+  it("starts disarmed with the output disconnected, and arms when it connects", async () => {
+    remember();
+    const out = output();
+    out.state = "disconnected";
+    const { session, access } = freshSession(out);
+    expect(selectArmed(session.state)).toBe(false);
+    out.state = "connected";
+    const fresh = Object.assign(new EventTarget(), { outputs: new Map([["usb", out]]), inputs: new Map() }) as unknown as MIDIAccess;
+    vi.stubGlobal("navigator", { requestMIDIAccess: vi.fn(async () => fresh) });
+    access.dispatchEvent(new Event("statechange"));
+    await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
+  });
+
+  it("arms again when a lost output returns", async () => {
+    remember();
+    const { session, access, out } = freshSession();
+    out.state = "disconnected";
+    access.dispatchEvent(new Event("statechange"));
+    expect(selectArmed(session.state)).toBe(false);
+    expect(useMidiDiagnostics.getState().lastFailure).toBe("System MIDI output disconnected. Cues disarmed.");
+    const back = output();
+    const fresh = Object.assign(new EventTarget(), { outputs: new Map([["usb", back]]), inputs: new Map() }) as unknown as MIDIAccess;
+    vi.stubGlobal("navigator", { requestMIDIAccess: vi.fn(async () => fresh) });
+    (access.outputs as unknown as Map<string, unknown>).set("usb", back);
+    access.dispatchEvent(new Event("statechange"));
+    await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
+    expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
+    expect(session.output).toBe(back);
+  });
+
+  it("arms a re-enumerated object while armed, and does not once the preference is off", () => {
+    remember();
+    const { session, access } = freshSession();
+    const replacement = output();
+    (access.outputs as unknown as Map<string, unknown>).set("usb", replacement);
+    access.dispatchEvent(new Event("statechange"));
+    expect(selectArmed(session.state)).toBe(true);
+    expect(session.output).toBe(replacement);
+    session.disarm();
+    expect(selectArmed(session.state)).toBe(false);
+    (access.outputs as unknown as Map<string, unknown>).set("usb", output());
+    access.dispatchEvent(new Event("statechange"));
+    expect(selectArmed(session.state)).toBe(false);
+  });
+
+  it("arms a new Bluetooth connection for the remembered output", () => {
+    remember("bluetooth-midi");
+    const first = { ...output(), id: "bluetooth-midi", subscribe: vi.fn() };
+    const session = new PerformanceSession({ initial: inputs({ bluetooth: first as never }), carried: null, initialClock: false });
+    session.loadSong(source, null);
+    session.bind();
+    expect(selectArmed(session.state)).toBe(true);
+    session.update({ bluetooth: null });
+    expect(selectArmed(session.state)).toBe(false);
+    session.update({ bluetooth: { ...first } as never });
+    expect(selectArmed(session.state)).toBe(true);
+  });
+
+  it("writes the preference when Send cues is ticked and unticked, and Disarm writes false", () => {
+    const { session } = freshSession();
+    session.sendCues(true);
+    expect(useMidiConfiguration.getState().sendCues).toEqual({ on: true, outputId: "usb" });
+    expect(session.state.armedByPreference).toBe(false);
+    session.sendCues(false);
+    expect(useMidiConfiguration.getState().sendCues.on).toBe(false);
+    session.sendCues(true);
+    session.panicAndDisarm();
+    expect(selectArmed(session.state)).toBe(false);
+    expect(useMidiConfiguration.getState().sendCues.on).toBe(false);
+  });
+
+  it("choosing another output disarms without arming it, and keeps the preference", () => {
+    remember();
+    const { session, access } = freshSession();
+    const second = output();
+    (access.outputs as unknown as Map<string, unknown>).set("usb2", second);
+    session.setArmed(false);
+    session.setPortId("usb2");
+    expect(selectArmed(session.state)).toBe(false);
+    expect(useMidiConfiguration.getState().sendCues).toEqual({ on: true, outputId: "usb" });
+  });
+
+  it("a send fault disarms the session but keeps the preference, and the next session arms", () => {
+    remember();
+    const { session, out } = freshSession();
+    out.send.mockImplementation(() => {
+      throw new Error("port closed");
+    });
+    session.sendPerformance([192, 1]);
+    expect(selectArmed(session.state)).toBe(false);
+    expect(session.state.error).toBe("MIDI send failed: port closed. Cues disarmed.");
+    expect(useMidiConfiguration.getState().sendCues).toEqual({ on: true, outputId: "usb" });
+    out.send.mockReset();
+    expect(selectArmed(freshSession(out).session.state)).toBe(true);
+  });
+
+  it("a remounted session starts armed, and a song loaded by hand does too", () => {
+    remember();
+    const { session } = freshSession();
+    session.dispose();
+    const remount = new PerformanceSession({
+      initial: inputs({ savedOutput: { id: "usb", name: "USB", transport: "system" } }),
+      carried: carriedInto(
+        { access: session.state.access, portId: "usb", inputId: "", armed: true, output: session.output },
+        { queued: false, playlistPlaying: false },
+      ),
+      initialClock: false,
+    });
+    expect(selectArmed(remount.state)).toBe(true);
+  });
+
+  it("opens system MIDI by itself on bind when Send cues is remembered for the saved USB output", async () => {
+    remember();
+    const out = output();
+    const access = Object.assign(new EventTarget(), { outputs: new Map([["usb", out]]), inputs: new Map() }) as unknown as MIDIAccess;
+    vi.stubGlobal("navigator", { requestMIDIAccess: vi.fn(async () => access) });
+    const session = new PerformanceSession({
+      initial: inputs({ savedOutput: { id: "usb", name: "USB", transport: "system" } }),
+      carried: null,
+      initialClock: false,
+    });
+    session.loadSong(source, null);
+    session.bind();
+    await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
+    expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
   });
 });

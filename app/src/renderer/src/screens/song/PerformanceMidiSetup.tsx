@@ -82,6 +82,7 @@ export function PerformanceMidiSetup({
   const parseError = useSession(session, (s) => s.parseError);
   const output = useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
+  const remembered = useSession(session, (s) => s.armedByPreference);
   const playing = useSession(session, (s) => s.playing);
   const latestChart = useRef(chart);
   latestChart.current = chart;
@@ -91,7 +92,7 @@ export function PerformanceMidiSetup({
   return (
     <SettingsCard
       title="Performance MIDI controller"
-      summary={`${output?.state === "connected" ? output.name : "Output disconnected"} · ${armed ? "Cues armed" : "Cues disarmed"}`}
+      summary={`${output?.state === "connected" ? output.name : "Output disconnected"} · ${armed ? (remembered ? "Cues armed (remembered)" : "Cues armed") : "Cues disarmed"}`}
       storageKey="midi-controller"
     >
       <HelpNote>
@@ -176,9 +177,9 @@ export function PerformanceMidiSetup({
           </div>
           <HelpNote>
             <p>
-              Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Cue sending is armed per session. Bluetooth
-              still needs a manual connection. One-time GP-150 / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check
-              saved chart cues for conflicting tempo commands.
+              Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Send cues is remembered for the output it was
+              turned on for. Send cues stays on for every song until you turn it off or press Disarm. Bluetooth still needs a manual connection. One-time GP-150
+              / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check saved chart cues for conflicting tempo commands.
             </p>
           </HelpNote>
           {midiConfig.output && (
@@ -228,7 +229,7 @@ export function PerformanceMidiSetup({
             checked={armed}
             onChange={(e) => {
               session.panic();
-              session.setArmed(e.target.checked);
+              session.sendCues(e.target.checked);
               session.setMidiStatus("");
             }}
           />{" "}
@@ -257,7 +258,7 @@ export function PerformanceMidiSetup({
           variant="outline"
           onClick={() => {
             session.panic();
-            session.setArmed(false);
+            session.disarm();
           }}
         >
           Panic / disarm

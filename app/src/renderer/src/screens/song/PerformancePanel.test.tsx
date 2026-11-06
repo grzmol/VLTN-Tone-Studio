@@ -322,6 +322,33 @@ it("never sends to a replacement USB output with the same ID without explicit re
   mocks.position = 0.08;
   act(() => access.dispatchEvent(new Event("statechange")));
   act(() => vi.advanceTimersByTime(20));
+  // Send cues is remembered for this output id, so the replacement object arms by itself and receives the cues.
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
+  expect(mocks.send).toHaveBeenCalled();
+});
+it("never sends to a replacement USB output when Send cues is not remembered for it", async () => {
+  vi.useFakeTimers();
+  const replacementSend = vi.fn();
+  const access = Object.assign(new EventTarget(), {
+    outputs: new Map([["usb", { id: "usb", name: "GP-180", state: "connected", send: mocks.send, clear: mocks.clear }]]),
+    inputs: new Map(),
+  });
+  vi.stubGlobal("navigator", { requestMIDIAccess: async () => access });
+  localStorage.setItem("vltn.performance.v1:clock-test.wav:44100:44100", "[00:00.10] {midi:pc 1 2}");
+  render(<PerformancePanel />);
+  await act(async () => {
+    fireEvent.click(screen.getByText("Enable USB / system MIDI"));
+  });
+  fireEvent.change(screen.getByLabelText("MIDI output"), { target: { value: "usb" } });
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => {
+    fireEvent.click(screen.getByText("Play song"));
+  });
+  act(() => useMidiConfiguration.getState().update({ sendCues: { on: false, outputId: "" } }));
+  access.outputs.set("usb", { id: "usb", name: "GP-180", state: "connected", send: replacementSend, clear: vi.fn() });
+  mocks.position = 0.08;
+  act(() => access.dispatchEvent(new Event("statechange")));
+  act(() => vi.advanceTimersByTime(20));
   expect(replacementSend).not.toHaveBeenCalled();
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
 });
@@ -455,7 +482,7 @@ it("sends timed song cues to Bluetooth without a USB editor or Web MIDI access",
   fireEvent.click(screen.getByText("Pause"));
   expect(mocks.clear).toHaveBeenCalled();
 });
-it("disarms after a Bluetooth disconnect and does not re-arm a replacement connection", () => {
+it("disarms after a Bluetooth disconnect and arms a replacement connection while Send cues is remembered", () => {
   localStorage.clear();
   mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
   const view = render(<PerformancePanel />);
@@ -464,6 +491,21 @@ it("disarms after a Bluetooth disconnect and does not re-arm a replacement conne
   mocks.bluetooth = null;
   view.rerender(<PerformancePanel />);
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+  expect(useMidiConfiguration.getState().sendCues).toEqual({ on: true, outputId: "bluetooth-midi" });
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  view.rerender(<PerformancePanel />);
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText(/Cues armed \(remembered\)/)).toBeTruthy();
+});
+it("does not re-arm a replacement Bluetooth connection once Send cues is turned off", () => {
+  localStorage.clear();
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  const view = render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  expect(useMidiConfiguration.getState().sendCues.on).toBe(false);
+  mocks.bluetooth = null;
+  view.rerender(<PerformancePanel />);
   mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
   view.rerender(<PerformancePanel />);
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
@@ -619,7 +661,8 @@ it("keeps scheduled MIDI running while commands are hidden and remembers visibil
   view.unmount();
   render(<PerformancePanel />);
   expect((screen.getByLabelText("Show MIDI commands") as HTMLInputElement).checked).toBe(false);
-  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+  // Send cues was left on for this output, so the remounted panel starts armed.
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
 });
 
 it("remembers USB configuration and applies GP-180 one-time song tempo without arming on reopen", async () => {
