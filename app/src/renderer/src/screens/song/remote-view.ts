@@ -5,6 +5,7 @@ import type { MetronomeMode } from "@/song/performance/rhythm";
 import type { Mix } from "@/song/stems/mix";
 import { toggleMuteGroup, type TrackInfo } from "@/song/tracks";
 import { pdfOnScreen, turnVisiblePdf } from "@/song/performance/pdf/turner";
+import { partKeysOf, type PartChoices } from "@/song/band/part-choice";
 
 /** What the performance screen holds that the remote actions reach: the stage, the click, the mixer and the tap. */
 export interface ViewState {
@@ -15,6 +16,9 @@ export interface ViewState {
   mix: Mix;
   setMix(mix: Mix): void;
   tracks: Record<string, TrackInfo>;
+  /** The drums and bass choice, and how to change it. */
+  partChoices: PartChoices;
+  choosePart(patch: Partial<PartChoices>): void;
   tap(): void;
 }
 
@@ -56,6 +60,11 @@ export function buildViewHost(state: ViewState): ViewHost {
     },
     // A click that is off comes on while the song plays; a click that is on goes off.
     toggleClick: () => state.setMetronome(state.metronome === "off" ? "playing" : "off"),
+    togglePart: (kind) => {
+      // Only a part with a generated track has something to switch to; the original is always there to fall back on.
+      if (!partKeysOf(state.tracks, null)[kind]?.generated) return `Generate the ${kind} first.`;
+      state.choosePart({ [kind]: state.partChoices[kind] === "original" ? "generated" : "original" });
+    },
     tap: () => state.tap(),
   };
 }

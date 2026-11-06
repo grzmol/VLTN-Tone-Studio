@@ -20,6 +20,7 @@ import { readTempoSource, type TempoSource } from "@/song/performance/tempo-sour
 import { useSongAnalysis } from "./use-song-analysis";
 import { generatedTrackKeysIn, parseAnalysis, songAudioId } from "@/song/analysis/song-analysis";
 import type { DetectedSection } from "@/song/analysis/sections";
+import type { BassLineBeat } from "@/song/analysis/bass-line";
 import type { SilenceEnds } from "@/song/analysis/silence";
 import { SongShapeControls } from "./SongShapeControls";
 import { useSongLibrary } from "@/song/library";
@@ -30,10 +31,13 @@ import { SongKey } from "./SongKey";
 import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
 import { PerformanceMix } from "./PerformanceMix";
+import { BandPanel, BandPanelButton } from "./BandPanel";
+import { MissingPartsNotice } from "./MissingPartsNotice";
 import { TrackImport } from "./TrackImport";
 import { SongLoudnessControl } from "./SongLoudnessControl";
 import { loudnessFromOptions, normalisingGain, type SongLoudness } from "@/song/audio/loudness";
 import { busDefaults, mixDefaults, type TrackInfo } from "@/song/tracks";
+import { applyPartChoices, defaultPartChoices, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
@@ -107,7 +111,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const source = useSong((s) => s.source),
     stems = useSong((s) => s.stems),
     tracks = useSong((s) => s.tracks) ?? NO_TRACKS,
-    setTrackInfo = useSong((s) => s.setTrackInfo);
+    setTrackInfo = useSong((s) => s.setTrackInfo),
+    missingParts = useSong((s) => s.missingParts);
   const key = performanceKey(source);
   const library = useSongLibrary();
   const queued = !!source?.libraryId && library.queue[library.position] === source.libraryId;
@@ -131,6 +136,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         sections: [] as unknown[],
         timecodeOffset: "",
         beatsSource: "" as "" | "detected" | "manual",
+        partChoice: undefined as PartChoices | undefined,
       }),
     [key],
   );
@@ -138,6 +144,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const [sectionList, setSectionList] = useState<Section[]>(() => parseSections(options.sections));
   // The sections the song analysis suggested most recently. They are applied only to a song with no sections; otherwise the editor offers them.
   const [suggested, setSuggested] = useState<DetectedSection[]>(() => parseAnalysis(readOptions<Record<string, unknown>>(key, {}).analysis)?.sections ?? []);
+  // The bass note the bass stem plays on each beat. The Band panel takes its bass notes from it when the setting says Original bass.
+  const [bassLine, setBassLine] = useState<BassLineBeat[] | null>(null);
   const [selectedChord, setSelectedChord] = useState<string | null>(null);
   const [lyrics, setLyrics] = useState("");
   const [chart, setChart] = useState(() => getSetting(key, ""));
@@ -174,8 +182,24 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     }
   };
   const [shapeVersion, setShapeVersion] = useState(0);
+  // The drums and bass choice: the original, the generated track or both. A song that saved none starts from the default for its parts,
+  // and its mix is set to match. A saved choice is already in the saved mix.
+  const [partChoice, setPartChoice] = useState<PartChoices>(() =>
+    readPartChoices(options.partChoice, defaultPartChoices(missingParts, partKeysOf(tracks, stems))),
+  );
+  const partChoiceNow = useRef(partChoice);
+  const withPartChoice = (base: Mix): Mix =>
+    options.partChoice === undefined ? applyPartChoices(base, partChoiceNow.current, partKeysOf(tracks, stems)) : base;
+  /** Changes the drums or bass choice and sets the mix to match. Only mute levels change, so this also works during playback. */
+  const choosePart = (patch: Partial<PartChoices>) => {
+    const next = { ...partChoiceNow.current, ...patch };
+    partChoiceNow.current = next;
+    setPartChoice(next);
+    const now = useSong.getState();
+    setMix((current) => applyPartChoices(current, next, partKeysOf(now.tracks ?? {}, now.stems)));
+  };
   // An imported track starts on the bus, volume and pan it saved; a choice the song made since then wins.
-  const [mix, setMix] = useState<Mix>(() => ({ ...mixDefaults(tracks), ...options.mix }));
+  const [mix, setMix] = useState<Mix>(() => withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
   // The mix as last read or saved: the Stems tab saves into the same options, so only what changed here is written.
   const savedMix = useRef<Mix | null>(options.mix);
   const [trackBuses, setTrackBuses] = useState<TrackBuses>(() => ({ ...busDefaults(tracks), ...options.trackBuses }));
@@ -336,7 +360,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
 
   // The view actions of the remote bindings. The session is handed them again whenever the screen changes.
   useEffect(() => {
-    session.setView(buildViewHost({ stage, setStage, metronome, setMetronome, mix, setMix, tracks, tap }));
+    session.setView(buildViewHost({ stage, setStage, metronome, setMetronome, mix, setMix, tracks, partChoices: partChoice, choosePart, tap }));
   });
 
   /** Writes the live loop and release choices into the sections' stored modes, which are saved with the song. */
@@ -427,6 +451,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setBeatsManual(options.beatsSource === "manual");
     setSectionList(parseSections(options.sections));
     setSuggested(saved?.sections ?? []);
+    setBassLine(saved?.bassLine?.beats ?? null);
     setLoudness(loudnessFromOptions(getSetting(key, ":options")));
     setSilence(saved?.silence ? { songKey: key, ends: saved.silence } : null);
   }, [analysis.revision, key]);
@@ -458,7 +483,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     }
   }, [session, key, bpm, tempoSource]);
   useEffect(() => {
-    setMix({ ...mixDefaults(tracks), ...options.mix });
+    setMix(withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
   }, [player]);
   // A normalised song is raised or lowered as a whole: every track gets the same gain, so the balance stays as it was mixed.
   const [loudness, setLoudness] = useState<SongLoudness>(() => loudnessFromOptions(getSetting(key, ":options")));
@@ -487,6 +512,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           volume,
           mix: mergedMix,
           trackBuses,
+          partChoice,
           chordChoice,
           lyricsLanguage: readOptions(key, { lyricsLanguage: "auto" }).lyricsLanguage,
           metronomeMode: metronome,
@@ -499,7 +525,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     } catch (e) {
       session.fail(e);
     }
-  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, chordChoice, metronome, lead, sectionList]);
+  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, partChoice, chordChoice, metronome, lead, sectionList]);
   useEffect(() => {
     player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat });
   }, [player, metronome, bpm, beats, volume, firstBeat]);
@@ -532,6 +558,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             Enter stage mode
           </Button>
         </div>
+        <MissingPartsNotice songKey={key} sections={sectionList} playing={playing || library.playlistPlaying} />
         {analysis.notices.map((notice) => (
           <p key={notice.text} className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <span>{notice.text}</span>
@@ -599,6 +626,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           trackBuses={trackBuses}
           onTrackBus={(name, bus) => setTrackBuses((routes) => ({ ...routes, [name]: bus }))}
           onTrackInfo={setTrackInfo}
+          partChoices={partChoice}
         />
       </div>
       <div style={{ display: shownView("song") }}>
@@ -621,6 +649,27 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         />
         <TrackImport playing={playing || library.playlistPlaying} />
         <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
+        <BandPanelButton sections={sectionList} partChoices={partChoice} />
+        <BandPanel
+          songKey={key}
+          playing={playing || library.playlistPlaying}
+          chart={chart}
+          chords={chords}
+          sections={sectionList}
+          beats={beats}
+          bpm={bpm}
+          firstBeat={firstBeat}
+          typedTempo={typedTempo}
+          onMetronome={(tempo, first) => {
+            changeTempo(tempo, "detected");
+            setFirstBeat(first);
+          }}
+          getPosition={() => session.position}
+          partChoices={partChoice}
+          onPartChoice={choosePart}
+          bassLine={bassLine}
+          sectionHints={suggested}
+        />
         <SectionEditor
           sections={sectionList}
           onSections={setSectionList}

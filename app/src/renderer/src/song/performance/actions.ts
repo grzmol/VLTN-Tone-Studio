@@ -37,12 +37,13 @@ export interface ActionHost {
   muteGroup(n: number): Hint;
   toggleClick(): Hint;
   /** Switches a part between its original and its generated track (see song/band/part-choice.ts). */
+  togglePart(kind: "drums" | "bass"): Hint;
   tap(): Hint;
   speed(change: "up" | "down" | "reset"): Hint;
 }
 
 /** The part of `ActionHost` that the performance screen supplies. */
-export type ViewHost = Pick<ActionHost, "scrollLyrics" | "pdfOnScreen" | "fontSize" | "toggleStage" | "muteGroup" | "toggleClick" | "tap">;
+export type ViewHost = Pick<ActionHost, "scrollLyrics" | "pdfOnScreen" | "fontSize" | "toggleStage" | "muteGroup" | "toggleClick" | "togglePart" | "tap">;
 
 /** A number an action takes, such as the section in "Jump to section 3". */
 export interface ActionNumber {
@@ -100,6 +101,8 @@ const DEFINITIONS = {
   "view.stage": { label: "Toggle stage mode", group: "View", run: (h) => h.toggleStage() },
   "mix.muteGroup": { label: "Toggle mute group", group: "Mix", number: { min: 1, max: 6, noun: "Mute group" }, run: (h, n) => h.muteGroup(n) },
   "mix.click": { label: "Toggle click", group: "Mix", run: (h) => h.toggleClick() },
+  "mix.drums": { label: "Toggle drums: original or generated", group: "Mix", run: (h) => h.togglePart("drums") },
+  "mix.bass": { label: "Toggle bass: original or generated", group: "Mix", run: (h) => h.togglePart("bass") },
   "tempo.tap": { label: "Tap tempo", group: "Tempo", run: (h) => h.tap() },
   "speed.up": { label: "Speed up", group: "Tempo", run: (h) => h.speed("up") },
   "speed.down": { label: "Speed down", group: "Tempo", run: (h) => h.speed("down") },

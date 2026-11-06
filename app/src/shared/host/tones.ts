@@ -229,6 +229,11 @@ export interface TonesApi {
   readLocalIr(path: string): Promise<Uint8Array>;
   /** Text of a .nam opened from the OS by path, for a SnapTone (no TONE3000 link). Desktop only. */
   readLocalNam(path: string): Promise<string>;
+  /**
+   * Asks the user for a .nam ("nam") or a .wav ("ir") on this computer. Resolves with its path and name, or null when the dialog is
+   * cancelled. Desktop only.
+   */
+  chooseLocalFile(kind: "nam" | "ir"): Promise<{ path: string; name: string } | null>;
   /** Bytes of a downloaded IR tone's WAV (no download, no record change); not-found when nothing is on disk. */
   readIr(toneId: number): Promise<Uint8Array>;
   /** Text of a downloaded NAM model as stored (no download, no record change, not reshaped); not-found when it isn't on disk. */
