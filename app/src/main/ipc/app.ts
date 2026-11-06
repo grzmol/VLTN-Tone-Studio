@@ -105,7 +105,9 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
   });
   handle("app:setProgress", (_e, fraction: number | null) => {
     jobProgress = fraction === null ? null : Math.max(0, Math.min(1, fraction));
-    getWindow()?.setProgressBar(jobProgress === null ? -1 : jobProgress);
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    win.setProgressBar(jobProgress === null ? -1 : jobProgress);
   });
   handle("app:takeOpenedFiles", () => openedFiles.splice(0));
 }

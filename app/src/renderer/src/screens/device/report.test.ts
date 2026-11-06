@@ -26,7 +26,7 @@ describe("diagnostic report", () => {
     const report = buildReport({
       ...base,
       bluetooth: { available: true, connecting: false, name: "GP-180", state: "connected", error: null },
-      bluetoothDiagnostics: { device: "GP-180", writes: 12, notifications: 3, messages: 5, reconnects: 2 },
+      bluetoothDiagnostics: { device: "GP-180", writes: 12, notifications: 3, messages: 5, dropped: 1, reconnects: 2 },
     });
     expect(report).toContain("Bluetooth API: available");
     expect(report).toContain("Bluetooth MIDI: connected");
@@ -35,6 +35,7 @@ describe("diagnostic report", () => {
     expect(report).toContain("Bluetooth GATT writes completed: 12");
     expect(report).toContain("Bluetooth GATT notifications received: 3");
     expect(report).toContain("Bluetooth MIDI messages decoded: 5");
+    expect(report).toContain("Bluetooth late messages dropped: 1");
     expect(report).toContain("Bluetooth automatic reconnects: 2");
   });
 
