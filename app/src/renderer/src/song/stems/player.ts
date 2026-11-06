@@ -8,6 +8,7 @@ import type { EndBehaviour, SongShape } from "../performance/song-shape";
 import { createPlaybackEngine, type PlaybackEngine } from "../audio/playback-engine";
 import { stemGains, type Mix } from "./mix";
 import { type BusName, type OutputConfig } from "../audio/outputs";
+import { clickAccent, clickNote, clickNotes, resolveCountInSound, type ClickSound, type CountInSound } from "../performance/click-sound";
 
 // Plays a song's tracks in sync through WebAudio: one buffer source per track → its gain (mixer) → its pan → a fade (the song's
 // fades and any crossfade) → an analyser (level meter) → the track's bus. A track is a split's stem or an imported one (see
@@ -62,7 +63,17 @@ export interface RenderedBuffers {
   buffers: Partial<Record<string, AudioBuffer>>;
 }
 
-export interface MetronomeSettings { mode: MetronomeMode; bpm: number; beats: number; volume: number; firstBeat?: number }
+export interface MetronomeSettings {
+  mode: MetronomeMode;
+  bpm: number;
+  beats: number;
+  volume: number;
+  firstBeat?: number;
+  /** The click's sound; the plain blip when unset */
+  sound?: ClickSound;
+  /** The count-in's sound; follows `sound` when unset */
+  countInSound?: CountInSound;
+}
 
 /** Lead-in for one start. Both are in beats of `bpm`; a missing or zero value means none. */
 export interface Lead {
@@ -87,11 +98,11 @@ export interface Join {
   lead: Lead;
 }
 
-/** Stops and forgets every click in `clicks`. */
-function silence(clicks: Set<OscillatorNode>): void {
-  for (const osc of clicks) {
-    osc.stop();
-    osc.disconnect();
+/** Stops and forgets every click in `clicks`: blips and drum samples alike. */
+function silence(clicks: Set<AudioScheduledSourceNode>): void {
+  for (const source of clicks) {
+    source.stop();
+    source.disconnect();
   }
   clicks.clear();
 }
@@ -149,9 +160,12 @@ export class StemPlayer {
   private tailEnd = 0;
   private metronome: MetronomeSettings = { mode: "off", bpm: 120, beats: 4, volume: 0.25 };
   private clickTimer: ReturnType<typeof setInterval> | null = null;
-  private clicks = new Set<OscillatorNode>();
+  private clicks = new Set<AudioScheduledSourceNode>();
   /** Count-in clicks have their own set: a metronome change restarts the grid and must not cut the count-in short. */
-  private countInClicks = new Set<OscillatorNode>();
+  private countInClicks = new Set<AudioScheduledSourceNode>();
+  /** Decoded drum samples for the click sounds, by drum note. A note with no buffer yet (or one that failed to load) clicks as the blip. */
+  private clickBuffers = new Map<number, AudioBuffer>();
+  private clickLoading = new Set<number>();
   private meterBuffer = new Float32Array(2048);
   private unlisten: () => void;
   /** Called when playback reaches the end on its own */
@@ -620,6 +634,7 @@ export class StemPlayer {
   setMetronome(settings: MetronomeSettings): void {
     this.stopMetronome();
     this.metronome = settings;
+    this.prepareClickSounds();
     // A song that has handed over keeps no grid of its own: the next song takes the clicks.
     if (this.next) return;
     if (this.playing) this.startPlayingGrid();
@@ -631,31 +646,79 @@ export class StemPlayer {
     return Number.isFinite(firstBeat) && firstBeat! >= 0 ? firstBeat! : 0;
   }
 
+  /** The sounds the metronome and the count-in play now. */
+  private sounds(): { sound: ClickSound; countIn: ClickSound } {
+    const sound = this.metronome.sound ?? "click";
+    return { sound, countIn: resolveCountInSound(this.metronome.countInSound ?? "same", sound) };
+  }
+
+  /**
+   * Decodes the drum samples the chosen sounds need, once each, so no click waits for a decode. Runs when the settings change, never at
+   * Play. A sample that fails to load stays out of the cache and its clicks use the blip.
+   */
+  private prepareClickSounds(): void {
+    const { sound, countIn } = this.sounds();
+    const wanted = [...new Set([...clickNotes(sound), ...clickNotes(countIn)])].filter((note) => !this.clickBuffers.has(note) && !this.clickLoading.has(note));
+    if (!wanted.length) return;
+    for (const note of wanted) this.clickLoading.add(note);
+    // The sample module (and the codec behind it) is only loaded when a drum sound is chosen, so the plain click costs nothing.
+    void import("../band/samples")
+      .then(({ loadDrumSample }) =>
+        Promise.all(
+          wanted.map((note) =>
+            loadDrumSample(note)
+              .then((audio) => {
+                const { ctx } = this.router.clickTarget();
+                const buffer = ctx.createBuffer(audio.channels.length, audio.channels[0].length, audio.sampleRate);
+                audio.channels.forEach((channel, index) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, index));
+                this.clickBuffers.set(note, buffer);
+              })
+              // A sample that fails to decode stays out of the cache, and its clicks use the blip.
+              .catch(() => {})
+              .finally(() => this.clickLoading.delete(note)),
+          ),
+        ),
+      )
+      .catch(() => wanted.forEach((note) => this.clickLoading.delete(note)));
+  }
+
   /** One click at `when` (a main-clock time). Kept in `into`, so the set's owner can cancel it. */
-  private click(when: number, down: boolean, into: Set<OscillatorNode> = this.clicks): void {
-    const volume = this.metronome.volume;
+  private click(when: number, down: boolean, into: Set<AudioScheduledSourceNode> = this.clicks, sound: ClickSound = this.sounds().sound): void {
+    const volume = Math.max(0, Math.min(1, this.metronome.volume));
     // The click may sit on its own device, with its own clock: `localTime` maps the time onto that clock.
     const { ctx, bus, localTime } = this.router.clickTarget();
     const at = localTime(when);
-    const osc = ctx.createOscillator(),
-      gain = ctx.createGain();
-    osc.frequency.setValueAtTime(down ? 1500 : 1000, at);
-    gain.gain.setValueAtTime(Math.max(0, Math.min(1, volume)) * (down ? 1 : 0.65), at);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
-    osc.connect(gain).connect(bus);
-    into.add(osc);
-    osc.onended = () => {
-      into.delete(osc);
-      osc.disconnect();
+    const note = clickNote(sound, down);
+    const buffer = note === null ? undefined : this.clickBuffers.get(note);
+    const gain = ctx.createGain();
+    let source: AudioScheduledSourceNode;
+    if (buffer) {
+      const sample = ctx.createBufferSource();
+      sample.buffer = buffer;
+      gain.gain.setValueAtTime(volume * clickAccent(sound, down), at);
+      source = sample;
+    } else {
+      // The blip, which is also what a drum sound falls back to while its sample is not ready.
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(down ? 1500 : 1000, at);
+      gain.gain.setValueAtTime(volume * (down ? 1 : 0.65), at);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+      source = osc;
+    }
+    source.connect(gain).connect(bus);
+    into.add(source);
+    source.onended = () => {
+      into.delete(source);
+      source.disconnect();
       gain.disconnect();
     };
-    osc.start(at);
-    osc.stop(at + 0.05);
+    source.start(at);
+    if (!buffer) source.stop(at + 0.05);
   }
 
   /** The count-in is always clicked, whatever the metronome mode: it is the lead-in the player asked for. */
   private scheduleCountIn(when: number, beats: number, interval: number): void {
-    for (let beat = 0; beat < beats; beat++) this.click(when + beat * interval, beat % this.metronome.beats === 0, this.countInClicks);
+    for (let beat = 0; beat < beats; beat++) this.click(when + beat * interval, beat % this.metronome.beats === 0, this.countInClicks, this.sounds().countIn);
   }
 
   /** Clicks on the grid along the current timeline, from where the timeline is now. Re-run by the timer, so a jump is followed. */
