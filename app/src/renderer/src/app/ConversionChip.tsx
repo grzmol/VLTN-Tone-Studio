@@ -1,5 +1,5 @@
 // The v1 library conversion in the status bar. It runs in the background at start-up and sends its progress on the library's transfer
-// channel; the chip shows it like the analysis chip does, and goes when the conversion reports it is done.
+// channel; the chip shows it and goes when the conversion reports it is done.
 
 import { useEffect, useState } from "react";
 import { Progress } from "@/components/ui/progress";

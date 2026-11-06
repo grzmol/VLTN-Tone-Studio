@@ -68,8 +68,8 @@ export function StatusBar() {
           <span className="shrink-0">{mode === "mock" ? `Simulated ${pedal}` : portName}</span>
         </>
       )}
-      <ConversionChip />
       <span className="flex-1" />
+      <ConversionChip />
       {hints.map((h, i) => (
         <Fragment key={i}>
           <span className="flex shrink-0 items-center gap-1.5">
