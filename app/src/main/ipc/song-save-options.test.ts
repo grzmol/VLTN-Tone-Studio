@@ -6,3 +6,7 @@ it("exports charts with their text extension and preserves WAV audio exports", (
   expect(songSaveFilters("midi-pedal-template.json")[0].extensions).toEqual(["json"]);
   expect(songSaveFilters("guitar.wav")[0].extensions).toEqual(["wav"]);
 });
+
+it("saves a song brief as Markdown, not as audio", () => {
+  expect(songSaveFilters("Confession - song brief.md")).toEqual([{ name: "Markdown", extensions: ["md"] }]);
+});

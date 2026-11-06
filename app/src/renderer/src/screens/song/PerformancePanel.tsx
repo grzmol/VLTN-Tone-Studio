@@ -28,6 +28,7 @@ import { setSongPlaying } from "@/song/performance/playing-state";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { useBluetooth } from "@/bluetooth/connection";
 import { SongKey } from "./SongKey";
+import { SongMapImport } from "./SongMapImport";
 import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
 import { PerformanceMix } from "./PerformanceMix";
@@ -646,6 +647,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           shift={shift}
           libraryKey={savedSong?.key ?? undefined}
           onSpellingKey={setSpellingKey}
+        />
+        <SongMapImport
+          songKey={key}
+          libraryId={source?.libraryId}
+          playing={playing || library.playlistPlaying}
+          title={savedSong?.title || source?.name || ""}
+          durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
         />
         <TrackImport playing={playing || library.playlistPlaying} />
         <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />

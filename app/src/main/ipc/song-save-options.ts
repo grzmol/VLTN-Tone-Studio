@@ -4,6 +4,7 @@ export function songSaveFilters(name: string): { name: string; extensions: strin
   if (extension === "json") return [{ name: "MIDI pedal definition", extensions: ["json"] }];
   if (extension === "lrc") return [{ name: "Timed lyrics and chords", extensions: ["lrc"] }];
   if (extension === "txt") return [{ name: "Text", extensions: ["txt"] }];
+  if (extension === "md") return [{ name: "Markdown", extensions: ["md"] }];
   if (extension === "cho" || extension === "chordpro") return [{ name: "ChordPro chart", extensions: [extension] }];
   return [{ name: "WAV audio", extensions: ["wav"] }];
 }
