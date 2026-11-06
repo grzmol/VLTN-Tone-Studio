@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BleMidiConnection, connectBluetooth, reconnectDelay, stopBluetoothReconnect, type BleDevice, useBluetooth } from "./connection";
+import { BleMidiConnection, connectBluetooth, reconnectDelay, resetBluetoothTiming, stopBluetoothReconnect, type BleDevice, useBluetooth } from "./connection";
 import { BleMidiDecoder } from "./ble-midi";
 
 function fixture() {
@@ -47,7 +47,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("Bluetooth connection lifecycle", () => {
-  it("times out an unresolved write, discards writes queued behind it and never retries uncertain delivery", async () => {
+  it("times out an unresolved write, discards queued commands and never retries uncertain delivery", async () => {
     const f = fixture(),
       connection = await BleMidiConnection.open(f.device);
     useBluetooth.setState({ connection });
@@ -60,6 +60,7 @@ describe("Bluetooth connection lifecycle", () => {
     );
     connection.send([0xc0, 1]);
     connection.send([0xc0, 2]);
+    connection.send([0xc0, 3], performance.now() + 1500);
     await flush();
     await vi.advanceTimersByTimeAsync(1001);
     await settle();
@@ -72,6 +73,123 @@ describe("Bluetooth connection lifecycle", () => {
     expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
     expect(useBluetooth.getState().diagnostics?.writes).toBe(0);
   });
+  it("drops commands that waited over 250 ms behind a slow write and keeps the link open", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    f.characteristic.writeValueWithoutResponse.mockImplementationOnce(() => new Promise<void>((resolve) => setTimeout(resolve, 300)));
+    connection.send([0xc0, 1]);
+    await flush(10);
+    connection.send([0xc0, 2]);
+    connection.send([0xc0, 3]);
+    await flush(350);
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+    expect(connection.state).toBe("connected");
+    expect(useBluetooth.getState().error).toBeNull();
+    expect(useBluetooth.getState().diagnostics?.dropped).toBe(2);
+    connection.send([0xc0, 4]);
+    await flush();
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([
+      [0xc0, 1],
+      [0xc0, 4],
+    ]);
+  });
+  it("drops a message whose intended time is already over 250 ms past", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    connection.send([0xc0, 1], performance.now() - 300);
+    connection.send([0xc0, 2]);
+    await flush();
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([[0xc0, 2]]);
+    expect(connection.state).toBe("connected");
+    expect(useBluetooth.getState().diagnostics).toMatchObject({ dropped: 1, writes: 1 });
+  });
+  it("measures late clock dispatch and slow serialized GATT writes", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    f.characteristic.writeValueWithoutResponse.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    const start = performance.now();
+    connection.send([0xf8], start);
+    connection.send([0xf8], start + 20);
+    await flush(100);
+    expect(useBluetooth.getState().diagnostics?.clockTiming).toMatchObject({ pulses: 2, maxLateMs: 18, maxWriteMs: 30, minIntervalMs: 30, maxIntervalMs: 30 });
+    expect(useBluetooth.getState().diagnostics?.performanceTiming).toMatchObject({ commands: 2, maxLateMs: 18, maxWriteMs: 30 });
+    connection.close();
+  });
+  it("sends channel-specific PC and CC over Bluetooth without Web MIDI or USB", async () => {
+    vi.stubGlobal("navigator", {});
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    connection.send([0xc2, 7]);
+    connection.send([0xb3, 12, 127], performance.now() + 100);
+    await flush();
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+    await flush(100);
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([
+      [0xc2, 7],
+      [0xb3, 12, 127],
+    ]);
+    connection.close();
+  });
+  it("packs a burst into one write and carries each message's intended time", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    const start = performance.now();
+    connection.send([0xc0, 1], start);
+    connection.send([0xb0, 7, 90], start);
+    connection.send([0xf8], start);
+    await flush();
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([[0xc0, 1], [0xb0, 7, 90], [0xf8]]);
+    connection.close();
+  });
+  it("writes 48 clock pulses and 2 program changes within one second in about 100 writes or fewer, in order", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    const start = performance.now(),
+      expected: number[][] = [];
+    for (let i = 0; i < 48; i++) {
+      connection.send([0xf8], start + i * 20.8);
+      expected.push([0xf8]);
+      if (i === 5 || i === 30) {
+        connection.send([0xc0, i], start + i * 20.8);
+        expected.push([0xc0, i]);
+      }
+    }
+    await flush(1100);
+    const writes = f.characteristic.writeValueWithoutResponse.mock.calls.length;
+    expect(writes).toBeGreaterThan(0);
+    expect(writes).toBeLessThanOrEqual(100);
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual(expected);
+    expect(connection.state).toBe("connected");
+    connection.close();
+  });
+  it("batches harder when only write-with-response is offered", async () => {
+    const f = fixture();
+    f.characteristic.properties.writeWithoutResponse = false;
+    const connection = await BleMidiConnection.open(f.device);
+    const start = performance.now();
+    connection.send([0xf8], start);
+    await flush(10);
+    connection.send([0xf8], start + 10);
+    await flush(20);
+    expect(f.characteristic.writeValueWithoutResponse).not.toHaveBeenCalled();
+    expect(f.characteristic.writeValueWithResponse).toHaveBeenCalledTimes(1);
+    expect(decodeWrites(f.characteristic.writeValueWithResponse)).toEqual([[0xf8], [0xf8]]);
+    connection.close();
+  });
+  it("bounds future scheduled cues and cancels them on overflow", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    for (let i = 0; i < 256; i++) connection.send([0xc0, i % 128], performance.now() + 1000);
+    expect(() => connection.send([0xc0, 1], performance.now() + 1000)).toThrow("cannot keep up");
+    await flush(1100);
+    expect(f.characteristic.writeValueWithoutResponse).not.toHaveBeenCalled();
+    expect(connection.state).toBe("disconnected");
+  });
   it("retains completed writes and counts undecodable notifications after cleanup", async () => {
     const f = fixture(),
       connection = await BleMidiConnection.open(f.device);
@@ -82,7 +200,21 @@ describe("Bluetooth connection lifecycle", () => {
     f.characteristic.value = new DataView(Uint8Array.from([0x80, 0x80, 0xf8]).buffer);
     f.characteristic.dispatchEvent(new Event("characteristicvaluechanged"));
     connection.close();
-    expect(useBluetooth.getState().diagnostics).toMatchObject({ device: "GP-180", writes: 1, notifications: 2, messages: 1 });
+    expect(useBluetooth.getState().diagnostics).toMatchObject({ device: "GP-180", writes: 1, notifications: 2, messages: 1, clockTiming: { pulses: 1 } });
+  });
+  it("coalesces the timing counters recorded before a write into one store update", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    const updates = vi.fn();
+    const stop = useBluetooth.subscribe(updates);
+    connection.send([0xf8]);
+    connection.send([192, 1]);
+    await flush();
+    stop();
+    expect(useBluetooth.getState().diagnostics).toMatchObject({ writes: 1 });
+    // Performance and clock timing are recorded together before the write; the write count follows after it completes.
+    expect(updates.mock.calls.length).toBeLessThanOrEqual(2);
+    connection.close();
   });
   it("rejects a connection lost while enabling notifications and allows another attempt", async () => {
     const f = fixture();
@@ -127,6 +259,19 @@ describe("Bluetooth connection lifecycle", () => {
     expect(useBluetooth.getState().connection).toBe(next);
     expect(useBluetooth.getState().error).toBeNull();
   });
+  it("finishes an in-flight SysEx when clearing pending performance cues", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    const message = [0xf0, ...Array(80).fill(1), 0xf7];
+    f.characteristic.writeValueWithoutResponse.mockImplementationOnce(async () => {
+      connection.clear();
+    });
+    connection.send(message);
+    connection.send([0xc0, 3]);
+    await flush();
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([message]);
+    connection.close();
+  });
   it("serializes fragmented writes, delivers MIDI and releases listeners on disconnect", async () => {
     const f = fixture(),
       connection = await BleMidiConnection.open(f.device);
@@ -150,6 +295,17 @@ describe("Bluetooth connection lifecycle", () => {
     expect(useBluetooth.getState().connection).toBeNull();
     expect(() => connection.send([0xf8])).toThrow();
     expect(useBluetooth.getState().error).toContain("Bluetooth MIDI disconnected");
+  });
+  it("clears future performance messages without cancelling editor requests", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    connection.send([0xc0, 1], performance.now() + 1000);
+    connection.send([0xc0, 2], performance.now(), true);
+    connection.clear();
+    await flush(1100);
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+    expect([...f.characteristic.writeValueWithoutResponse.mock.calls[0][0]].slice(-2)).toEqual([0xc0, 2]);
+    connection.close();
   });
   it("reports a failed write and closes the GATT connection", async () => {
     const f = fixture(),
@@ -328,4 +484,82 @@ it("offers both GP-150 and GP-180 Bluetooth names without requiring service adve
       filters: expect.arrayContaining([{ namePrefix: "GP-150" }, { namePrefix: "GP150" }, { namePrefix: "GP-180" }, { namePrefix: "GP180" }]),
     }),
   );
+});
+
+it("resets live and disconnected timing without clearing scheduled messages", async () => {
+  const f = fixture(),
+    connection = await BleMidiConnection.open(f.device);
+  useBluetooth.setState({ connection });
+  connection.send([248]);
+  await flush();
+  connection.send([192, 1], performance.now() + 100);
+  resetBluetoothTiming();
+  expect(useBluetooth.getState().diagnostics?.clockTiming).toBeUndefined();
+  await flush(120);
+  expect(useBluetooth.getState().diagnostics?.performanceTiming?.commands).toBe(1);
+  expect(useBluetooth.getState().diagnostics?.writes).toBe(2);
+  connection.close();
+  resetBluetoothTiming();
+  expect(useBluetooth.getState().diagnostics?.performanceTiming).toBeUndefined();
+  expect(useBluetooth.getState().diagnostics?.writes).toBe(2);
+});
+it("does not restore old timing when a pending write completes after reset", async () => {
+  const f = fixture(),
+    connection = await BleMidiConnection.open(f.device);
+  useBluetooth.setState({ connection });
+  f.characteristic.writeValueWithoutResponse.mockImplementationOnce(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
+  connection.send([248]);
+  await flush(10);
+  resetBluetoothTiming();
+  await flush(60);
+  expect(useBluetooth.getState().diagnostics).toMatchObject({ writes: 1 });
+  expect(useBluetooth.getState().diagnostics?.performanceTiming).toBeUndefined();
+  expect(useBluetooth.getState().diagnostics?.clockTiming).toBeUndefined();
+});
+
+describe("same-timestamp ordering", () => {
+  it("keeps a pair in order in one packet when the second is sent just after the first is timed", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    const due = performance.now() + 1.2;
+    connection.send([0xc0, 0], due);
+    await vi.advanceTimersByTimeAsync(0.5);
+    connection.send([0xcf, 68], due);
+    await flush();
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([
+      [0xc0, 0],
+      [0xcf, 68],
+    ]);
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+  });
+  it("sends a pair with the same timestamp in one packet, in send order", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    const due = performance.now() + 60;
+    connection.send([0xc0, 0], due);
+    connection.send([0xcf, 68], due);
+    await flush(80);
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([
+      [0xc0, 0],
+      [0xcf, 68],
+    ]);
+    expect(f.characteristic.writeValueWithoutResponse).toHaveBeenCalledTimes(1);
+  });
+  it("sends a message timed earlier before a held pair, and keeps the pair's order", async () => {
+    const f = fixture(),
+      connection = await BleMidiConnection.open(f.device);
+    useBluetooth.setState({ connection });
+    const now = performance.now();
+    connection.send([0xc0, 0], now + 50);
+    connection.send([0xcf, 68], now + 50);
+    connection.send([0x90, 60, 100], now + 10);
+    await flush(80);
+    expect(decodeWrites(f.characteristic.writeValueWithoutResponse)).toEqual([
+      [0x90, 60, 100],
+      [0xc0, 0],
+      [0xcf, 68],
+    ]);
+  });
 });

@@ -17,7 +17,7 @@ export function handle<A extends unknown[], T>(channel: string, fn: (event: IpcM
 }
 
 /**
- * Send a message to the app window if it is still open. On macOS the app outlives its window, and timers or
+ * Send a message to the performance window if it is still open. On macOS the app outlives its window, and timers or
  * background jobs can fire after it closed. Those messages are dropped instead of throwing "Object has been destroyed".
  */
 export function sendTo(getWindow: () => BrowserWindow | null, channel: string, payload?: unknown): void {
