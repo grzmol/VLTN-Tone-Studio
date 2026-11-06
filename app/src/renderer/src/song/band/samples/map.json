@@ -1,0 +1,450 @@
+{
+  "sampleRate": 44100,
+  "drums": {
+    "36": {
+      "name": "kick",
+      "layers": [
+        {
+          "file": "drums/kick-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_kick_snon_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/kick-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_kick_snon_vl3_rr1.flac"
+        },
+        {
+          "file": "drums/kick-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_kick_snon_vl4_rr1.flac"
+        }
+      ]
+    },
+    "37": {
+      "name": "crossstick",
+      "layers": [
+        {
+          "file": "drums/crossstick-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_snare_crossstick_vl6.flac"
+        },
+        {
+          "file": "drums/crossstick-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_snare_crossstick_vl11.flac"
+        },
+        {
+          "file": "drums/crossstick-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_snare_crossstick_vl15.flac"
+        }
+      ]
+    },
+    "38": {
+      "name": "snare",
+      "layers": [
+        {
+          "file": "drums/snare-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_snare_center_vl12.flac"
+        },
+        {
+          "file": "drums/snare-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_snare_center_vl25.flac"
+        },
+        {
+          "file": "drums/snare-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_snare_center_vl33.flac"
+        }
+      ]
+    },
+    "42": {
+      "name": "hat-closed",
+      "layers": [
+        {
+          "file": "drums/hat-closed-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_hh_closed_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/hat-closed-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_hh_closed_vl3_rr1.flac"
+        },
+        {
+          "file": "drums/hat-closed-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_hh_closed_vl4_rr1.flac"
+        }
+      ]
+    },
+    "44": {
+      "name": "hat-pedal",
+      "layers": [
+        {
+          "file": "drums/hat-pedal-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_hh_pedal_vl1_rr1.flac"
+        },
+        {
+          "file": "drums/hat-pedal-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_hh_pedal_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/hat-pedal-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_hh_pedal_vl3_rr1.flac"
+        }
+      ]
+    },
+    "45": {
+      "name": "tom-low",
+      "layers": [
+        {
+          "file": "drums/tom-low-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_ltom_center_vl6.flac"
+        },
+        {
+          "file": "drums/tom-low-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_ltom_center_vl11.flac"
+        },
+        {
+          "file": "drums/tom-low-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_ltom_center_vl15.flac"
+        }
+      ]
+    },
+    "46": {
+      "name": "hat-open",
+      "layers": [
+        {
+          "file": "drums/hat-open-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_hh_open_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/hat-open-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_hh_open_vl3_rr1.flac"
+        },
+        {
+          "file": "drums/hat-open-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_hh_open_vl4_rr1.flac"
+        }
+      ]
+    },
+    "47": {
+      "name": "tom-mid",
+      "layers": [
+        {
+          "file": "drums/tom-low-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_ltom_center_vl6.flac",
+          "transpose": 3
+        },
+        {
+          "file": "drums/tom-low-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_ltom_center_vl11.flac",
+          "transpose": 3
+        },
+        {
+          "file": "drums/tom-low-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_ltom_center_vl15.flac",
+          "transpose": 3
+        }
+      ]
+    },
+    "49": {
+      "name": "crash",
+      "layers": [
+        {
+          "file": "drums/crash-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_crash_crash_vl1_rr1.flac"
+        },
+        {
+          "file": "drums/crash-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_crash_crash_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/crash-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_crash_crash_vl3_rr1.flac"
+        }
+      ]
+    },
+    "50": {
+      "name": "tom-high",
+      "layers": [
+        {
+          "file": "drums/tom-high-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_htom_center_vl6.flac"
+        },
+        {
+          "file": "drums/tom-high-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_htom_center_vl11.flac"
+        },
+        {
+          "file": "drums/tom-high-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_htom_center_vl15.flac"
+        }
+      ]
+    },
+    "51": {
+      "name": "ride",
+      "layers": [
+        {
+          "file": "drums/ride-soft.flac",
+          "layer": "soft",
+          "velocity": [1, 62],
+          "nominal": 40,
+          "source": "mid_ride_ride_vl1_rr1.flac"
+        },
+        {
+          "file": "drums/ride-medium.flac",
+          "layer": "medium",
+          "velocity": [63, 100],
+          "nominal": 85,
+          "source": "mid_ride_ride_vl2_rr1.flac"
+        },
+        {
+          "file": "drums/ride-hard.flac",
+          "layer": "hard",
+          "velocity": [101, 127],
+          "nominal": 115,
+          "source": "mid_ride_ride_vl3_rr1.flac"
+        }
+      ]
+    }
+  },
+  "bass": [
+    {
+      "file": "bass/bass-f1-p.flac",
+      "root": 29,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "f1_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-f1-f.flac",
+      "root": 29,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "f1_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab1-p.flac",
+      "root": 32,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "ab1_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab1-f.flac",
+      "root": 32,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "ab1_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b1-p.flac",
+      "root": 35,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "b1_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b1-f.flac",
+      "root": 35,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "b1_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-d2-p.flac",
+      "root": 38,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "d2_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-d2-f.flac",
+      "root": 38,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "d2_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-f2-p.flac",
+      "root": 41,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "f2_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-f2-f.flac",
+      "root": 41,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "f2_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab2-p.flac",
+      "root": 44,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "ab2_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab2-f.flac",
+      "root": 44,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "ab2_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b2-p.flac",
+      "root": 47,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "b2_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b2-f.flac",
+      "root": 47,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "b2_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-d3-p.flac",
+      "root": 50,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "d3_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-d3-f.flac",
+      "root": 50,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "d3_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-f3-p.flac",
+      "root": 53,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "f3_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-f3-f.flac",
+      "root": 53,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "f3_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab3-p.flac",
+      "root": 56,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "ab3_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-ab3-f.flac",
+      "root": 56,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "ab3_f_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b3-p.flac",
+      "root": 59,
+      "layer": "p",
+      "velocity": [1, 75],
+      "source": "b3_p_rr1.wav"
+    },
+    {
+      "file": "bass/bass-b3-f.flac",
+      "root": 59,
+      "layer": "f",
+      "velocity": [76, 127],
+      "source": "b3_f_rr1.wav"
+    }
+  ]
+}
