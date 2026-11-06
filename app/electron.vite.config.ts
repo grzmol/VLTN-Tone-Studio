@@ -5,18 +5,22 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   main: { plugins: [externalizeDepsPlugin()], resolve: { alias: { "@shared": resolve("src/shared") } } },
-  // The preload is CommonJS and sandboxed. A sandboxed preload can only require "electron", "events", "timers" and "url",
-  // and cannot be an ES module, so keep shared code inlined here.
+  // The preload is CommonJS and sandboxed. A sandboxed preload can only
+  // require "electron", "events", "timers" and "url", and cannot be an ES module, so keep shared code inlined here.
   preload: {
     plugins: [externalizeDepsPlugin()],
     resolve: { alias: { "@shared": resolve("src/shared") } },
-    build: { rollupOptions: { output: { format: "cjs", entryFileNames: "[name].cjs" } } },
+    build: {
+      rollupOptions: {
+        input: { index: resolve("src/preload/index.ts") },
+        output: { format: "cjs", entryFileNames: "[name].cjs" },
+      },
+    },
   },
   renderer: {
     resolve: { alias: { "@": resolve("src/renderer/src"), "@shared": resolve("src/shared") } },
     plugins: [react(), tailwindcss()],
-    // The FLAC codec worker imports the libflac module, which a worker bundle can only do as an ES module.
-    worker: { format: "es" },
+    worker: { format: 'es' },
     // onnxruntime-web (Song stem splitter worker) ships a ready ESM bundle; pre-bundling it on first use reloads the page.
     optimizeDeps: { exclude: ["onnxruntime-web"] },
   },
