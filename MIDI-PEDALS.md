@@ -15,6 +15,15 @@ Channel selection addresses the pedal; it does not change its physical receive-c
 {midi@end: pc 1 9}           sent when the song reaches its end, before the next playlist song starts
 ```
 
+**Cues on a section** fire at the start of a song section instead of at a time. The section names are the ones on the Play tab's section buttons, so moving or renaming a section moves its cues, and nothing is copied into the chart:
+
+```text
+{midi@section Chorus: pc 1 5}        every section named Chorus (Chorus 1, Chorus 2, chorus, ...)
+{midi@section "Chorus 2": pc 1 5}    that one section only, named in quotes
+```
+
+A name matches without its trailing number and ignoring case. Put each on its own line, with no timestamp and one command. In **Song MIDI cues**, set **When** to **On section** and choose "Every Chorus" or "Chorus 2 only"; the table then lists the cue as "Every Chorus (3×)" with the times as a tooltip. Jumping to a section, looping it, or starting in the middle of it sends its cues, the same as timed cues. A section at the very start of the song sends its cue before the audio, like a cue at 0:00. Preflight warns about a name that matches no section.
+
 A trigger holds one command and is sent only while **Send cues** is on. Jumping or looping back does not send a play trigger again, and a trigger is not replayed when you start in the middle of a song. Across a gapless join, the outgoing song's end and stop are sent first, then the next song's load and play.
 
 **More command forms** work in cues as well as triggers:
