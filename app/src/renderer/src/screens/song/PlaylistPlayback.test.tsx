@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { readMidiConfiguration, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "@/song/store";
 import { clearSettingsCache } from "@/song/performance/settings";
@@ -159,6 +160,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   clearSettingsCache();
+  useMidiConfiguration.setState(readMidiConfiguration());
   mock.players = [];
   mock.index.mockResolvedValue({ ...emptyLibrary(), songs: [first, second] });
   mock.audioUrls.mockResolvedValue({ source: "app://library/rev/source.flac" });
@@ -232,7 +234,25 @@ it("pauses and skips without automatically starting the next song, then resumes 
   expect(mock.players.at(-1)?.isPlaying).toBe(true);
 });
 
-it("does not carry MIDI arming onto a replacement Bluetooth connection", async () => {
+it("does not carry MIDI arming onto a replacement Bluetooth connection unless Send cues is remembered for it", async () => {
+  await useSongLibrary.getState().load(first.id, [first.id, second.id]);
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => {
+    fireEvent.click(screen.getByText("Play playlist"));
+  });
+  act(() => useMidiConfiguration.getState().update({ sendCues: { on: false, outputId: "" } }));
+  await act(async () => {
+    useBluetooth.setState({
+      connection: { id: "bluetooth-midi", name: "Replacement BLE", state: "connected", send: mock.send, clear: mock.clear } as unknown as BleMidiConnection,
+    });
+    mock.players.at(-1)!.end();
+  });
+  await waitFor(() => expect(useSong.getState().source?.libraryId).toBe(second.id));
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+});
+
+it("arms a replacement Bluetooth connection for the next song while Send cues is remembered", async () => {
   await useSongLibrary.getState().load(first.id, [first.id, second.id]);
   render(<PerformancePanel />);
   fireEvent.click(screen.getByLabelText("Send cues"));
@@ -246,7 +266,7 @@ it("does not carry MIDI arming onto a replacement Bluetooth connection", async (
     mock.players.at(-1)!.end();
   });
   await waitFor(() => expect(useSong.getState().source?.libraryId).toBe(second.id));
-  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
 });
 
 it("pauses the playlist when leaving Performance", async () => {
