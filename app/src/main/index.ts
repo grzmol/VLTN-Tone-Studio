@@ -11,7 +11,9 @@ import { registerTonesIpc } from "./ipc/tones";
 import { registerCaptureIpc } from "./ipc/capture";
 import { registerDeviceIpc } from "./ipc/device";
 import { registerSnapToneIpc } from "./ipc/snaptone";
-import { registerSongIpc } from "./ipc/song";
+import { libraryRoot, registerSongIpc } from "./ipc/song";
+import { libraryFilePath } from "./ipc/song-library-store";
+import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
@@ -24,12 +26,13 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 
 // The packaged renderer is served from app://bundle/ instead of file://, so fetch() and
 // AudioWorklet.addModule() of bundled assets (NAM engine wasm, worklet, audio clips) work and 'self' is a real origin.
-protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } }]);
+// The renderer also fetches app://library cross-origin (from http://localhost in dev), which needs corsEnabled.
+protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: APP_SCHEME_PRIVILEGES }]);
 const RENDERER_DIR = resolve(import.meta.dirname, "../renderer");
 const RENDERER_URL = "app://bundle/index.html";
 // CSP for the app's own pages. TONE3000 images and API are the only network origins; wasm for the NAM engine.
 const CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; connect-src 'self' ws://localhost:* https://*.tone3000.com https://tone3000.com";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; connect-src 'self' app://library ws://localhost:* https://*.tone3000.com https://tone3000.com";
 // Dev server only: @vitejs/plugin-react injects an inline React Refresh preamble into index.html.
 const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
 // Cross-origin isolation: the stem splitter's CPU path (onnxruntime-web wasm, song/stems/worker.ts) only gets threads
@@ -37,9 +40,24 @@ const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inli
 // TONE3000 images, which send no Cross-Origin-Resource-Policy, still load (without cookies).
 const ISOLATION = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" } as const;
 
+/** app://library/<revision>/<track>.flac → a saved song's audio. Only that exact shape resolves, so no other path is reachable. */
+async function serveLibrary(req: Request): Promise<Response> {
+  if (req.method !== "GET") return new Response(null, { status: 405 });
+  const file = libraryFilePath(libraryRoot(), req.url);
+  if (!file) return new Response(null, { status: 404 });
+  const res = await net.fetch(pathToFileURL(file).toString());
+  const headers = new Headers(res.headers);
+  // The dev renderer is served from http://localhost, which makes this a cross-origin fetch.
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Content-Type", "audio/flac");
+  headers.set("Cache-Control", "no-store");
+  return new Response(res.body, { status: res.status, headers });
+}
+
 /** app://bundle/<path> → a file inside the renderer build; nothing outside it is reachable. */
 async function serveBundle(req: Request): Promise<Response> {
   const url = new URL(req.url);
+  if (url.host === "library") return serveLibrary(req);
   if (url.host !== "bundle") return new Response(null, { status: 404 });
   const file = resolve(RENDERER_DIR, "." + decodeURIComponent(url.pathname));
   if (!file.startsWith(RENDERER_DIR + sep)) return new Response(null, { status: 403 });
