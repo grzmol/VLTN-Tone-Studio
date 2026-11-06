@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { T3kTone } from "@shared/host/tones";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
-import { BassSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceRole } from "./BassSourceDialog";
+import { PartSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceRole } from "./PartSourceDialog";
 
 const mocks = vi.hoisted(() => ({
   tones: {
@@ -104,13 +104,13 @@ function renderDialog(role: BassSourceRole, onPick = vi.fn(), onClose = vi.fn())
   presetBassSearch(role);
   render(
     <TooltipProvider>
-      <BassSourceDialog role={role} open onClose={onClose} onPick={onPick} />
+      <PartSourceDialog part="bass" role={role} open onClose={onClose} onPick={onPick} />
     </TooltipProvider>,
   );
   return { onPick, onClose };
 }
 
-describe("BassSourceDialog", () => {
+describe("PartSourceDialog", () => {
   it("starts the TONE3000 search on the bass preset, and lists only the captures for a capture", async () => {
     signIn("signed-in");
     renderDialog("amp");

@@ -91,25 +91,44 @@ function encodeSamples(samples24: Int32Array): Uint8Array {
   return out;
 }
 
-/** Parse a WAV file down to its format and channel 0 as -1..1 floats. Throws a user-facing Error. */
-function decodeWav(wav: Uint8Array): { fmt: WavFormat; samples: Float32Array } {
+/** Parse a WAV file down to its format and its first `wanted` channels as -1..1 floats. Throws a user-facing Error. */
+function decodeWavChannels(wav: Uint8Array, wanted: number): { fmt: WavFormat; channels: Float32Array[] } {
   const { fmt, data } = readChunks(wav);
   if (fmt.channels < 1 || fmt.rate < 1) throw new Error("This WAV file has an invalid format header.");
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const read = sampleReader(fmt, view);
   if (!read) throw new Error(`This WAV encoding isn't supported (format ${fmt.format}, ${fmt.bits}-bit). Use 16-, 24- or 32-bit PCM or 32-bit float.`);
-  const frameBytes = (fmt.bits / 8) * fmt.channels;
+  const sampleBytes = fmt.bits / 8;
+  const frameBytes = sampleBytes * fmt.channels;
   const frames = Math.floor(data.length / frameBytes);
   if (frames === 0) throw new Error("This WAV file contains no audio.");
-  const samples = new Float32Array(frames);
-  for (let i = 0; i < frames; i++) samples[i] = read(i * frameBytes);
-  return { fmt, samples };
+  const channels = Array.from({ length: Math.min(wanted, fmt.channels) }, (_, channel) => {
+    const samples = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) samples[i] = read(i * frameBytes + channel * sampleBytes);
+    return samples;
+  });
+  return { fmt, channels };
+}
+
+/** Parse a WAV file down to its format and channel 0 as -1..1 floats. Throws a user-facing Error. */
+function decodeWav(wav: Uint8Array): { fmt: WavFormat; samples: Float32Array } {
+  const { fmt, channels } = decodeWavChannels(wav, 1);
+  return { fmt, samples: channels[0] };
 }
 
 /** Channel 0 of a WAV file as -1..1 floats, at the file's own rate. Throws a user-facing Error. */
 export function readWavMono(wav: Uint8Array): { samples: Float32Array; rate: number } {
   const { fmt, samples } = decodeWav(wav);
   return { samples, rate: fmt.rate };
+}
+
+/**
+ * The first two channels of a WAV file as -1..1 floats, at the file's own rate. A mono file gives a null right channel, so a caller can tell
+ * a stereo IR from a mono one. Throws a user-facing Error.
+ */
+export function readWavStereo(wav: Uint8Array): { left: Float32Array; right: Float32Array | null; rate: number } {
+  const { fmt, channels } = decodeWavChannels(wav, 2);
+  return { left: channels[0], right: channels[1] ?? null, rate: fmt.rate };
 }
 
 /**

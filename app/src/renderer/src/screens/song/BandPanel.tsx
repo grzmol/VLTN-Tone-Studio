@@ -35,8 +35,8 @@ import type { ChordAtBeat } from "@/song/band/harmony";
 import type { BassOverride } from "@/song/band/bass-overrides";
 import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
-import { applyBassTone } from "@/song/band/bass-tone";
-import { renderBassChain } from "@/song/band/bass-chain";
+import { applyPartTone } from "@/song/band/part-tone";
+import { renderPartChain } from "@/song/band/bass-chain";
 import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
@@ -112,6 +112,8 @@ function replaceTitle(kinds: readonly RenderedKind[]): string {
 }
 /** The step the bass tone takes after the render, while it is read and rendered through the capture. */
 const BASS_TONE_TEXT = "Bass tone…";
+/** The step the drum tone takes after the render (spec 104), before the bass tone. */
+const DRUM_TONE_TEXT = "Applying the drum tone…";
 const PLAYING_TEXT = "Stop playback to generate parts.";
 const NO_SONG_TEXT = "Open a song to generate parts.";
 
@@ -424,10 +426,17 @@ function BandBody({
       // The bass tone is applied before the bass is saved, so the saved bass is the one Generate made. A tone that can't be used
       // leaves the clean bass and a notice.
       let bass = result.bass;
+      let drums = result.drums;
+      if (drums && using.drumTone.kind === "chain") {
+        setWork(DRUM_TONE_TEXT);
+        const toned = await applyPartTone(drums, using.drumTone, host.tones, renderPartChain, "drums");
+        drums = toned.audio;
+        if (toned.notice) notes.push(toned.notice);
+      }
       if (bass && using.bassTone.kind === "chain") {
         setWork(BASS_TONE_TEXT);
-        const toned = await applyBassTone(bass, using.bassTone, host.tones, renderBassChain);
-        bass = toned.bass;
+        const toned = await applyPartTone(bass, using.bassTone, host.tones, renderPartChain, "bass");
+        bass = toned.audio;
         if (toned.notice) notes.push(toned.notice);
       }
       if (result.follow) notes.push(followStatus(result.follow));
@@ -435,7 +444,7 @@ function BandBody({
       if (levels) notes.push(levels);
       // A part that is turned off loses its generated track in the same update as the parts that are applied.
       const turnedOff = only ? [] : (["drums", "bass"] as const).filter((kind) => !using.parts[kind]);
-      const applied = useSong.getState().applyGeneratedParts({ drums: result.drums, bass }, { playing: playingNow.current, remove: turnedOff });
+      const applied = useSong.getState().applyGeneratedParts({ drums, bass }, { playing: playingNow.current, remove: turnedOff });
       if (applied.length === 0) {
         // A part that was just generated plays at once when it was on its original, so the user hears what they made. A part turned off
         // with its generated track gone goes back to its original.
@@ -563,13 +572,22 @@ function BandBody({
       const result = await rendering.done;
       // The preview hears the bass tone too, so it matches what Generate would save.
       let bass = result.bass;
+      let drums = result.drums;
+      const toneNotices: string[] = [];
+      if (drums && settings.drumTone.kind === "chain") {
+        setWork(DRUM_TONE_TEXT);
+        const toned = await applyPartTone(drums, settings.drumTone, host.tones, renderPartChain, "drums");
+        drums = toned.audio;
+        if (toned.notice) toneNotices.push(toned.notice);
+      }
       if (bass && settings.bassTone.kind === "chain") {
         setWork(BASS_TONE_TEXT);
-        const toned = await applyBassTone(bass, settings.bassTone, host.tones, renderBassChain);
-        bass = toned.bass;
-        if (toned.notice) setNotices([toned.notice]);
+        const toned = await applyPartTone(bass, settings.bassTone, host.tones, renderPartChain, "bass");
+        bass = toned.audio;
+        if (toned.notice) toneNotices.push(toned.notice);
       }
-      const mixed = previewMix(current.audio, from, { ...result, bass });
+      if (toneNotices.length) setNotices(toneNotices);
+      const mixed = previewMix(current.audio, from, { ...result, drums, bass });
       setWork(null);
       stopPreview.current = playOnce(mixed, () => {
         stopPreview.current = null;

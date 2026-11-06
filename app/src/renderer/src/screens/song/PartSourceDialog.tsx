@@ -1,54 +1,67 @@
-// Choosing a bass tone's capture or cab IR: the TONE3000 browser's own search bar and tone grid, started on a bass preset, or a file on this
-// computer. The browser's filters are put back when the dialog closes, so the Tones screen shows what it showed before.
+// Choosing a part tone's capture or IR (bass or drums): the TONE3000 browser's own search bar and tone grid, started on the role's gear, or a file
+// on this computer. The browser's filters are put back when the dialog closes, so the Tones screen shows what it showed before.
 import { useState } from "react";
-import type { T3kTone } from "@shared/host/tones";
+import type { T3kGear, T3kTone } from "@shared/host/tones";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { host } from "@/host";
-import type { BassToneFile, ToneRole } from "@/song/band/arrangement";
+import type { PartToneFile, TonePart, ToneRole } from "@/song/band/arrangement";
 import { SearchBar } from "@/screens/tones/SearchBar";
 import { ToneGrid } from "@/screens/tones/TonesScreen";
 import { loadAccount, loadRecords, useTones, type SearchFilters } from "@/screens/tones/store";
 
-/** The gear a bass block can be: the TONE3000 search for it starts on that gear. */
-export type BassSourceRole = ToneRole;
+/** The gear a block can be: the TONE3000 search for it starts on that gear. */
+export type PartSourceRole = ToneRole;
+export type BassSourceRole = PartSourceRole;
 
 /**
  * The search a bass block starts from, per role. TONE3000's metadata has no instrument field, so "bass" in the search and the gear of the
  * role are the closest the API can get. The user can change any of it.
  */
-const ROLE_PRESET: Record<BassSourceRole, { format: "nam" | "ir"; search: SearchFilters }> = {
-  pedal: { format: "nam", search: { query: "bass", sort: "trending", gears: ["pedal"], architecture: null } },
-  preamp: { format: "nam", search: { query: "bass", sort: "trending", gears: ["outboard"], architecture: null } },
-  amp: { format: "nam", search: { query: "bass", sort: "trending", gears: ["amp", "amp-cab"], architecture: null } },
-  cab: { format: "ir", search: { query: "bass", sort: "trending", gears: ["cab"], architecture: null } },
-  space: { format: "ir", search: { query: "bass", sort: "trending", gears: ["space"], architecture: null } },
+const ROLE_GEARS: Record<PartSourceRole, { format: "nam" | "ir"; gears: T3kGear[] }> = {
+  pedal: { format: "nam", gears: ["pedal"] },
+  preamp: { format: "nam", gears: ["outboard"] },
+  amp: { format: "nam", gears: ["amp", "amp-cab"] },
+  cab: { format: "ir", gears: ["cab"] },
+  space: { format: "ir", gears: ["space"] },
+  outboard: { format: "nam", gears: ["outboard"] },
 };
-const TITLE: Record<BassSourceRole, string> = {
+
+/** The search a role starts from. The bass searches for "bass"; drums have no instrument word, so they start on the gear alone. */
+function rolePreset(part: TonePart, role: PartSourceRole): { format: "nam" | "ir"; search: SearchFilters } {
+  const { format, gears } = ROLE_GEARS[role];
+  return { format, search: { query: part === "bass" ? "bass" : "", sort: "trending", gears, architecture: null } };
+}
+const TITLE: Record<PartSourceRole, string> = {
   pedal: "Choose a bass pedal",
   preamp: "Choose a preamp",
   amp: "Choose a bass amp",
   cab: "Choose a cab IR",
   space: "Choose a space IR",
+  outboard: "Choose an outboard capture",
 };
-const KIND_NAME: Record<BassSourceRole, string> = { pedal: "pedal", preamp: "preamp", amp: "amp", cab: "cab IR", space: "space IR" };
-const KIND_PLURAL: Record<BassSourceRole, string> = { pedal: "pedals", preamp: "preamps", amp: "amps", cab: "cab IRs", space: "space IRs" };
+const KIND_NAME: Record<PartSourceRole, string> = { pedal: "pedal", preamp: "preamp", amp: "amp", cab: "cab IR", space: "space IR", outboard: "outboard capture" };
+const KIND_PLURAL: Record<PartSourceRole, string> = { pedal: "pedals", preamp: "preamps", amp: "amps", cab: "cab IRs", space: "space IRs", outboard: "outboard captures" };
 
 let savedSearch: { format: "all" | "nam" | "ir"; search: SearchFilters } | null = null;
 
 /** Starts the browser on the role's preset, keeping what it had to put back on close. Call before the dialog opens, so its search is the first. */
-export function presetBassSearch(role: BassSourceRole): void {
+export function presetPartSearch(part: TonePart, role: PartSourceRole): void {
   const before = useTones.getState();
   savedSearch ??= { format: before.format, search: before.search };
-  useTones.setState({ format: ROLE_PRESET[role].format, search: ROLE_PRESET[role].search });
+  useTones.setState(rolePreset(part, role));
   if (before.account === null) void loadAccount();
 }
 
-/** Puts back the browser's filters from before presetBassSearch. */
-export function restoreBassSearch(): void {
+/** Puts back the browser's filters from before presetPartSearch. */
+export function restorePartSearch(): void {
   if (savedSearch) useTones.setState(savedSearch);
   savedSearch = null;
 }
+
+/** The bass names of the search helpers. */
+export const presetBassSearch = (role: PartSourceRole) => presetPartSearch("bass", role);
+export const restoreBassSearch = restorePartSearch;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -58,16 +71,17 @@ function modelFor(format: "nam" | "ir", models: { id: number; architecture_versi
   return models.find((m) => m.architecture_version === "2") ?? models.find((m) => m.architecture_version === "1");
 }
 
-export interface BassSourceDialogProps {
-  role: BassSourceRole;
+export interface PartSourceDialogProps {
+  part: TonePart;
+  role: PartSourceRole;
   open: boolean;
   onClose(): void;
   /** The chosen capture or cab IR. The dialog is closed by the caller. */
-  onPick(file: BassToneFile): void;
+  onPick(file: PartToneFile): void;
 }
 
-export function BassSourceDialog({ role, open, onClose, onPick }: BassSourceDialogProps) {
-  const format = ROLE_PRESET[role].format;
+export function PartSourceDialog({ part, role, open, onClose, onPick }: PartSourceDialogProps) {
+  const format = ROLE_GEARS[role].format;
   const account = useTones((s) => s.account);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +91,7 @@ export function BassSourceDialog({ role, open, onClose, onPick }: BassSourceDial
   const pickTone = async (toneId: number, tone: T3kTone) => {
     setError(null);
     if (tone.format !== format) {
-      setError(`${tone.title} is ${tone.format === "ir" ? "an IR" : "a NAM capture"}, not a bass ${KIND_NAME[role]}.`);
+      setError(`${tone.title} is ${tone.format === "ir" ? "an IR" : "a NAM capture"}, not a${part === "bass" ? " bass" : "n"} ${KIND_NAME[role]}.`);
       return;
     }
     setBusy(`Downloading ${tone.title}…`);

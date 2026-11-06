@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/host", () => ({ host: { song: { saveFiles: mocks.saveFiles }, tones: mocks.tones }, isElectron: true }));
 // The NAM engine needs an AudioWorklet, so a bass tone's chain is a stub. The capture text passes through prepareNam as itself.
-vi.mock("@/song/band/bass-chain", () => ({ renderBassChain: mocks.chain }));
+vi.mock("@/song/band/bass-chain", () => ({ renderPartChain: mocks.chain, renderBassChain: mocks.chain }));
 vi.mock("@shared/nam", () => ({ prepareNam: (text: string) => ({ json: text, check: {} }) }));
 // A rendered file is decoded by the import's decoder; the test gives the decoded audio.
 vi.mock("@/song/decode", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/song/decode")>()), decodeAudioFile: mocks.decodeAudioFile }));
