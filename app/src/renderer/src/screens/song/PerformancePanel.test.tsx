@@ -202,6 +202,8 @@ vi.mock("@/song/stems/player", () => ({
       mocks.metronome(value);
     }
     setShape() {}
+    setCustomClickSamples() {}
+    setClickListener() {}
     async dispose() {}
     async play() {
       this.isPlaying = true;

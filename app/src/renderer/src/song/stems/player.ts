@@ -179,6 +179,8 @@ export class StemPlayer {
   private customBuffers: { down?: AudioBuffer; other?: AudioBuffer } = {};
   /** Told about every click as it is scheduled, so the MIDI click can send the same beat. See `setClickListener`. */
   private clickListener: ((click: ClickEvent) => void) | null = null;
+  /** Called when playback stops or is cut, so a MIDI click can drop the clicks it has not sent yet. */
+  onClicksStopped: (() => void) | null = null;
   /** Whether the built-in sound still plays while the MIDI click is on. */
   private clickAudible = true;
   /** One bar of Listen, kept apart so a metronome change does not cut it off. */
@@ -907,6 +909,7 @@ export class StemPlayer {
 
   private stopSources() {
     this.stopMetronome();
+    this.onClicksStopped?.();
     if (this.loopTimer) {
       clearInterval(this.loopTimer);
       this.loopTimer = null;
