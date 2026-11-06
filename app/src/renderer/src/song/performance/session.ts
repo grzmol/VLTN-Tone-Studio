@@ -9,6 +9,7 @@ import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
+import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
 import { expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
@@ -199,7 +200,7 @@ const NO_VIEW: ViewHost = {
 };
 
 /** The action groups a key may run while the performance screen is hidden by another Song tab. */
-const HIDDEN_KEY_GROUPS = new Set<string>(["Transport", "Songs"]);
+const HIDDEN_KEY_GROUPS = new Set<string>(["Transport", "Songs", "Practice"]);
 /** Whether a binding's action is a transport or song action, which still runs while the screen is hidden. */
 const runsWhileHidden = (action: string): boolean => isActionId(action) && HIDDEN_KEY_GROUPS.has(ACTIONS[action].group);
 
@@ -437,6 +438,16 @@ export class PerformanceSession {
       const next = clampRate(Math.round((rate + (change === "up" ? SPEED_STEP : -SPEED_STEP)) * 100) / 100);
       if (next === rate) return change === "up" ? "Speed is at its maximum." : "Speed is at its minimum.";
       this.setSpeed({ rate: next });
+    },
+    // The practice mute is global, so it works with no song loaded. The player ramps the gain when the screen applies it.
+    practiceToggle: (kind) => {
+      const on = usePracticeMute.getState().toggle(kind);
+      showToast({ tone: "info", title: toggleNotice(kind, on, practiceSet(usePracticeMute.getState().kinds)) });
+    },
+    practiceClear: () => {
+      if (!usePracticeMute.getState().kinds.length) return "No practice mute is on.";
+      usePracticeMute.getState().clear();
+      showToast({ tone: "info", title: "Practice mute off" });
     },
   };
 
