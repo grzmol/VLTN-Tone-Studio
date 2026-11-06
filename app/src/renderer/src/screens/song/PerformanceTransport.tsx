@@ -9,6 +9,7 @@ import { clampCrossfade } from "@/song/performance/transition";
 import { readCrossfade, writeCrossfade } from "@/song/performance/crossfade";
 import { CLICK_SOUNDS, isClickSound, isCountInSound, type ClickSounds, type ClickSoundsOwn } from "@/song/performance/click-sound";
 import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
+import { ClickSoundOptions } from "./ClickSoundOptions";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
 import { HelpNote } from "@/components/ui/help-note";
@@ -271,13 +272,12 @@ export function PerformanceTransport({
               }}
             >
               <option value="">Default ({soundLabel(metronome.soundDefaults.sound)})</option>
-              {CLICK_SOUNDS.map((sound) => (
-                <option key={sound.id} value={sound.id}>
-                  {sound.label}
-                </option>
-              ))}
+              <ClickSoundOptions />
             </select>
           </label>
+          <Button type="button" size="sm" variant="outline" aria-label="Listen to the metronome sound" disabled={playing || !player} onClick={() => void player?.previewClicks("metronome")}>
+            Listen
+          </Button>
           <span>
             Count-in{" "}
             <select
@@ -305,13 +305,12 @@ export function PerformanceTransport({
             >
               <option value="">Default ({metronome.soundDefaults.countInSound === "same" ? "same as metronome" : soundLabel(metronome.soundDefaults.countInSound)})</option>
               <option value="same">Same as metronome</option>
-              {CLICK_SOUNDS.map((sound) => (
-                <option key={sound.id} value={sound.id}>
-                  {sound.label}
-                </option>
-              ))}
+              <ClickSoundOptions />
             </select>
           </label>
+          <Button type="button" size="sm" variant="outline" aria-label="Listen to the count-in sound" disabled={playing || !player} onClick={() => void player?.previewClicks("countIn")}>
+            Listen
+          </Button>
           <details className="relative">
             <summary className="cursor-pointer">Metronome settings</summary>
             <div className="absolute right-0 z-20 mt-2 w-72 space-y-3 rounded-xl border border-seam bg-background p-4 shadow-xl">
@@ -421,11 +420,7 @@ export function PerformanceTransport({
                       if (isClickSound(e.target.value)) metronome.onSoundDefaults({ ...metronome.soundDefaults, sound: e.target.value });
                     }}
                   >
-                    {CLICK_SOUNDS.map((sound) => (
-                      <option key={sound.id} value={sound.id}>
-                        {sound.label}
-                      </option>
-                    ))}
+                    <ClickSoundOptions />
                   </select>
                 </label>
                 <label className="block">
@@ -439,11 +434,7 @@ export function PerformanceTransport({
                     }}
                   >
                     <option value="same">Same as metronome</option>
-                    {CLICK_SOUNDS.map((sound) => (
-                      <option key={sound.id} value={sound.id}>
-                        {sound.label}
-                      </option>
-                    ))}
+                    <ClickSoundOptions />
                   </select>
                 </label>
                 <label className="block">
