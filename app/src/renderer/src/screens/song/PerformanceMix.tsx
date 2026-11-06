@@ -6,6 +6,7 @@ import { useSession, type PerformanceSession } from "@/song/performance/session"
 import { followsPitch } from "@/song/performance/speed";
 import { clickStretchWarning, setSolo, silenceGroupmates, type TrackInfo } from "@/song/tracks";
 import { ORIGINAL_PARTS, partKeysOf, silencedByChoice, type PartChoices } from "@/song/band/part-choice";
+import { PRACTICE_KINDS, PRACTICE_LABEL, kindOfTrack, practiceMutedKeys, practiceSet, usePracticeMute, type CountsAs } from "@/song/performance/practice-mute";
 import { STEM_LABEL } from "./stems/StemMixer";
 import type { StemName } from "@/song/types";
 
@@ -47,6 +48,8 @@ export function PerformanceMix({
   onTrackBus,
   onTrackInfo,
   partChoices = ORIGINAL_PARTS,
+  countsAs = {},
+  onCountsAs,
 }: {
   session: PerformanceSession;
   stems: Stems | null;
@@ -58,10 +61,15 @@ export function PerformanceMix({
   onTrackInfo: (key: string, patch: Partial<Omit<TrackInfo, "kind">>) => void;
   /** What "What plays" is set to. A track it silences is marked, so a muted original or generated part does not look like a fault. */
   partChoices?: PartChoices;
+  /** What each imported track counts as for the practice mute, by key. A track without an entry goes by its name. */
+  countsAs?: Record<string, CountsAs>;
+  onCountsAs?: (key: string, value: CountsAs | undefined) => void;
 }) {
+  const practiceKinds = usePracticeMute((s) => s.kinds);
   const player = useSession(session, (s) => s.player);
   const speed = useSession(session, (s) => s.speed);
   if (!player) return null;
+  const practiceMuted = practiceMutedKeys(practiceSet(practiceKinds), { keys: player.names, info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs });
   const groups = groupsOf(tracks);
   const busOf = (name: string): BusName => trackBuses[name] ?? tracks[name]?.bus ?? "main";
   const warning = clickStretchWarning(
@@ -109,6 +117,7 @@ export function PerformanceMix({
           const entry: StemMix = mix[name] ?? defaultStemMix();
           const info = tracks[name];
           const off = silenced[name];
+          const byPractice = practiceMuted.has(name);
           return (
             <div
               key={name}
@@ -122,15 +131,38 @@ export function PerformanceMix({
                   <input
                     type="checkbox"
                     aria-label={`${label(name)} enabled`}
-                    checked={!entry.mute}
+                    checked={!entry.mute && !byPractice}
                     onChange={(e) => {
                       // Read the input now: an updater runs after React has put a controlled input back, so its value would be stale.
                       const enabled = e.target.checked;
+                      // A practice mute is not part of the song's mix, so unmuting its track turns that kind's practice mute off.
+                      if (byPractice) {
+                        const kind = kindOfTrack(name, info, countsAs[name]);
+                        if (enabled && kind) usePracticeMute.getState().set(kind, false);
+                        return;
+                      }
                       onMix((m) => withMute(m, groups, name, !enabled));
                     }}
                   />
                   <span className="truncate">{label(name)}</span>
                 </label>
+                {byPractice && <span className="shrink-0 rounded-md border border-led-warn px-1.5 py-0.5 text-xs text-led-warn">Practice</span>}
+                {info?.kind === "user" && onCountsAs && (
+                  <select
+                    aria-label={`${label(name)} counts as`}
+                    className="shrink-0 rounded-md border border-seam bg-transparent px-1 py-0.5 text-xs"
+                    value={countsAs[name] ?? "name"}
+                    onChange={(e) => onCountsAs(name, e.target.value === "name" ? undefined : (e.target.value as CountsAs))}
+                  >
+                    <option value="name">Counts as: by name</option>
+                    {PRACTICE_KINDS.map((kind) => (
+                      <option key={kind} value={kind}>
+                        Counts as: {PRACTICE_LABEL[kind]}
+                      </option>
+                    ))}
+                    <option value="none">Counts as: none</option>
+                  </select>
+                )}
                 {off && <span className="shrink-0 rounded-md border border-seam px-1.5 py-0.5 text-xs text-silkscreen-3">{off}</span>}
               </div>
               <label className="flex items-center gap-1">

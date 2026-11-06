@@ -50,6 +50,8 @@ import { applyPartChoices, defaultPartChoices, partKeysOf, readPartChoices, type
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
+import { effectiveMute, noTrackNote, practiceSet, readCountsAs, usePracticeMute, type CountsAs, type PracticeTracks } from "@/song/performance/practice-mute";
+import { PracticeMuteBanner, PracticeMuteMenu } from "./PracticeMute";
 import { StageView } from "./StageView";
 import { SectionStrip } from "./SectionStrip";
 import { SectionEditor } from "./SectionEditor";
@@ -225,6 +227,9 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const [mix, setMix] = useState<Mix>(() => withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
   // The mix as last read or saved: the Stems tab saves into the same options, so only what changed here is written.
   const savedMix = useRef<Mix | null>(options.mix);
+  // What each imported track counts as for the practice mute. It is saved with the song, since only that song's tracks have these names.
+  const [countsAs, setCountsAs] = useState<Record<string, CountsAs>>(() => readCountsAs(options));
+  const practiceKinds = usePracticeMute((s) => s.kinds);
   const [trackBuses, setTrackBuses] = useState<TrackBuses>(() => ({ ...busDefaults(tracks), ...options.trackBuses }));
   useEffect(() => {
     setMix((current) => ({ ...mixDefaults(tracks), ...current }));
@@ -507,13 +512,20 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   }, [session, key, bpm, tempoSource]);
   useEffect(() => {
     setMix(withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
+    setCountsAs(readCountsAs(options));
   }, [player]);
   // A normalised song is raised or lowered as a whole: every track gets the same gain, so the balance stays as it was mixed.
   const [loudness, setLoudness] = useState<SongLoudness>(() => loudnessFromOptions(getSetting(key, ":options")));
   const songGain = loudness.normalise && loudness.lufs !== null ? normalisingGain(loudness.lufs, loudness.peakDb) : 1;
+  // The player plays the song's mix with the practice mute on top. The practice mute is never written into `mix`, which is what is saved.
+  const practiceTracks = useMemo<PracticeTracks>(
+    () => ({ keys: player?.names ?? [], info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs }),
+    [player, tracks, stems, countsAs],
+  );
+  const playedMix = useMemo(() => effectiveMute(mix, practiceSet(practiceKinds), practiceTracks), [mix, practiceKinds, practiceTracks]);
   useEffect(() => {
-    player?.setMix(mix, songGain);
-  }, [player, mix, songGain]);
+    player?.setMix(playedMix, songGain);
+  }, [player, playedMix, songGain]);
   useEffect(() => {
     player?.setTrackBuses(trackBuses);
   }, [player, trackBuses]);
@@ -535,6 +547,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           volume,
           mix: mergedMix,
           trackBuses,
+          practiceKinds: countsAs,
           partChoice,
           chordChoice,
           lyricsLanguage: readOptions(key, { lyricsLanguage: "auto" }).lyricsLanguage,
@@ -550,7 +563,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     } catch (e) {
       session.fail(e);
     }
-  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, partChoice, chordChoice, metronome, lead, soundOwn, sectionList]);
+  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, countsAs, partChoice, chordChoice, metronome, lead, soundOwn, sectionList]);
   useEffect(() => {
     player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
   }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
@@ -583,6 +596,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             Enter stage mode
           </Button>
         </div>
+        <PracticeMuteBanner note={noTrackNote(practiceSet(practiceKinds), practiceTracks)} />
         <MissingPartsNotice songKey={key} sections={sectionList} playing={playing || library.playlistPlaying} />
         {analysis.notices.map((notice) => (
           <p key={notice.text} className="flex flex-wrap items-center gap-2 text-xs" role="status">
@@ -646,6 +660,9 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       </div>
       <div style={{ display: shownView("play") }}>
         <SectionStrip session={session} onSaveDefaults={saveSectionDefaults} />
+        <div className="flex justify-end">
+          <PracticeMuteMenu />
+        </div>
         <PerformanceMix
           session={session}
           stems={stems}
@@ -656,6 +673,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           onTrackBus={(name, bus) => setTrackBuses((routes) => ({ ...routes, [name]: bus }))}
           onTrackInfo={setTrackInfo}
           partChoices={partChoice}
+          countsAs={countsAs}
+          onCountsAs={(trackKey, value) =>
+            setCountsAs((current) => {
+              const { [trackKey]: _dropped, ...rest } = current;
+              return value === undefined ? rest : { ...rest, [trackKey]: value };
+            })
+          }
         />
       </div>
       <div style={{ display: shownView("song") }}>
