@@ -40,10 +40,17 @@ publish:
 fileAssociations:
   - ext: prst
     name: Valeton preset
-    description: Valeton GP-5 / GP-50 preset
+    description: Valeton GP-5, GP-50, GP-150, GP-180 and GP-200 preset
     mimeType: application/x-valeton-prst
     role: Editor
     rank: Owner
+  # Opens in the capture editor (src/renderer/src/app/overlays/FileDropOverlay.tsx routes .nam there).
+  - ext: nam
+    name: NAM capture
+    description: Neural Amp Modeler capture
+    mimeType: application/x-nam-capture
+    role: Viewer
+    rank: Alternate
 
 linux:
   target:
@@ -51,11 +58,12 @@ linux:
     - deb
   category: Audio
   maintainer: grzmol <grzmol@users.noreply.github.com>
-  synopsis: Editor and librarian for the Valeton GP-5 and GP-50
+  synopsis: Editor and librarian for Valeton GP-5, GP-50, GP-150, GP-180 and GP-200 pedals
   # WebMIDI goes through ALSA sequencer (/dev/snd/seq); users outside the "audio" group are told how to fix
   # it by Device › Diagnostics.
   mimeTypes:
     - application/x-valeton-prst
+    - application/x-nam-capture
 deb:
   depends:
     - libasound2

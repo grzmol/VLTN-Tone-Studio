@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { RubberBandInterface } from "rubberband-wasm";
-import { detectPitch } from "@/screens/rig/tuner";
+import { detectPitch } from "@/screens/rig/tuner-pitch";
 import { MAX_SEMITONES, pitchScale, shiftChannels } from "./transpose-core";
 
 const SR = 44100;
