@@ -10,6 +10,7 @@ import { readCrossfade, writeCrossfade } from "@/song/performance/crossfade";
 import { CLICK_SOUNDS, isClickSound, isCountInSound, type ClickSounds, type ClickSoundsOwn } from "@/song/performance/click-sound";
 import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
 import { ClickSoundOptions } from "./ClickSoundOptions";
+import { ClickSampleSettings, useClickSampleSync } from "./ClickSampleSettings";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
 import { HelpNote } from "@/components/ui/help-note";
@@ -121,6 +122,7 @@ export function PerformanceTransport({
   const [crossfade, setCrossfade] = useState(readCrossfade);
   const source = useSong((s) => s.source);
   const player = useSession(session, (s) => s.player);
+  useClickSampleSync(player);
   const timecodeOn = useSession(session, (s) => s.timecode.enabled);
   const playing = useSession(session, (s) => s.playing);
   const starting = useSession(session, (s) => s.starting);
@@ -410,6 +412,7 @@ export function PerformanceTransport({
                     <option value={2}>2 bars</option>
                   </select>
                 </label>
+                <ClickSampleSettings />
                 <label className="block">
                   Default sound{" "}
                   <select

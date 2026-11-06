@@ -15,6 +15,7 @@ import type { Gp200CatalogApi } from "./host/gp200-catalog";
 import type { SessionLogApi } from "./host/log";
 import type { AudienceHostApi } from "./host/audience";
 import type { BandSyncHostApi } from "./host/band-sync";
+import type { ClickSamplesApi } from "./host/click-samples";
 
 export interface HostApi {
   kind: "electron" | "web";
@@ -30,6 +31,8 @@ export interface HostApi {
   gp200Catalog: Gp200CatalogApi;
   log: SessionLogApi;
   audience: AudienceHostApi;
+  /** The metronome's own sample files (spec 103). */
+  clickSamples: ClickSamplesApi;
   /** Band sync (spec 44) is in the desktop app only. The browser build has no server to start. */
   bandSync?: BandSyncHostApi;
 }
