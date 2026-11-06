@@ -284,7 +284,7 @@ The NAM captures you downloaded from TONE3000 are ranked against the song's guit
 ## Perform a set.
 
 Save songs with their stems, lyrics, chords and MIDI cues, line them up in a playlist and play the whole set from one screen.<br>
-Timed program changes reach your GP-150 or GP-180 and the pedals behind it over USB or Bluetooth MIDI. Stage mode locks the screen for the gig. See the [Performance guide](PERFORMANCE.md).
+Timed program changes reach your GP-150 or GP-180 and the pedals behind it over USB or Bluetooth MIDI. Stage mode locks the screen for the gig. Generated drums and bass follow the song's beat and sections, and export as MIDI. See the [Performance guide](PERFORMANCE.md).
 
 <br>
 

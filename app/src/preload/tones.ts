@@ -20,6 +20,7 @@ export const tonesApi: TonesApi = {
   prepareSnapTone: (req) => invoke("tones:prepareSnapTone", req),
   readLocalIr: (path) => invoke("tones:readLocalIr", path),
   readLocalNam: (path) => invoke("tones:readLocalNam", path),
+  chooseLocalFile: (kind) => invoke("tones:chooseLocalFile", kind),
   readIr: (toneId) => invoke("tones:readIr", toneId),
   readNam: (toneId, modelId) => invoke("tones:readNam", toneId, modelId),
   link: (toneId, link) => invoke("tones:link", toneId, link),
