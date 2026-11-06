@@ -29,7 +29,7 @@ export function SongKey({
       setError("Could not save the song key.");
     }
   }, [storageKey, key]);
-  const spellingKey = effectiveSongKey(key, libraryKey);
+  const spellingKey = effectiveSongKey(key, libraryKey, null);
   useEffect(() => onSpellingKey?.(spellingKey), [spellingKey, onSpellingKey]);
   const root = spellingKey ? KEY_NAMES.indexOf(spellingKey.split(" ")[0]) : -1;
   const displayed = root < 0 ? "" : `${KEY_NAMES[(((root + shift) % 12) + 12) % 12]} ${spellingKey!.split(" ")[1]}`;
