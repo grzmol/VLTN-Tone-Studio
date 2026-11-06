@@ -1,4 +1,7 @@
 import type { Cue } from "./chart";
+import type { BeatGrid } from "../band/beat-grid";
+import type { NoteEvent } from "../band/note";
+import { beatSpan } from "../band/timing";
 
 /*
  * A song's MIDI file, read into timed messages. Times are song seconds at the file's own tempo map. The scheduler applies the song's rate,
@@ -194,4 +197,153 @@ export function midiFileFromOptions(options: object): MidiFileOption | null {
   const file: unknown = "midiFile" in options ? options.midiFile : undefined;
   if (!file || typeof file !== "object" || !("name" in file) || !("data" in file)) return null;
   return typeof file.name === "string" && typeof file.data === "string" ? { name: file.name, data: file.data } : null;
+}
+
+/** A track of notes to write. Times are song seconds, as the band generators produce them. */
+export interface SmfNoteTrack {
+  name: string;
+  /** 0 to 15. Channel 10 is index 9, the drum channel. */
+  channel: number;
+  notes: readonly NoteEvent[];
+}
+
+/** Ticks per quarter note in an exported file. At 120 BPM one tick is about a millisecond. */
+export const EXPORT_PPQ = 480;
+/** A slide's pitch bend rises into its note over this long, in this many steps. The bend range is the General MIDI default of 2 semitones. */
+const SLIDE_SECONDS = 0.04;
+const SLIDE_STEPS = 8;
+const BEND_CENTRE = 8192;
+const BEND_RANGE_SEMITONES = 2;
+/** A tempo that differs from the one held by no more than this share is not written again, so the held tempo carries on. */
+const TEMPO_HOLD_SHARE = 0.005;
+const MAX_MICROSECONDS = 0xffffff;
+
+/** One tempo in force from a tick on. `seconds` is the song time at that tick, from the file's start. */
+interface TempoStep {
+  tick: number;
+  microseconds: number;
+  seconds: number;
+}
+
+/**
+ * The tempo map the file writes. Each beat's interval is a tempo at the beat's tick, but it is written only when it differs from the held
+ * tempo by more than half a percent, so a steady grid writes one tempo. The beat grid's own tempo is used when there are no beats.
+ */
+function tempoSteps(grid: BeatGrid, ppq: number): TempoStep[] {
+  const beats = grid.beats;
+  const intervals = beats.length ? beats.map((_, beat) => beatSpan(beats, beat)) : [60 / (grid.bpm > 0 ? grid.bpm : 120)];
+  const written: { tick: number; microseconds: number }[] = [];
+  let held = 0;
+  intervals.forEach((seconds, beat) => {
+    const microseconds = Math.min(MAX_MICROSECONDS, Math.max(1, Math.round((seconds > 0 ? seconds : 0.5) * 1_000_000)));
+    if (held === 0 || Math.abs(microseconds - held) > held * TEMPO_HOLD_SHARE) {
+      written.push({ tick: beat * ppq, microseconds });
+      held = microseconds;
+    }
+  });
+  const steps: TempoStep[] = [];
+  let seconds = 0;
+  written.forEach((step, i) => {
+    if (i > 0) seconds += ((step.tick - written[i - 1].tick) * written[i - 1].microseconds) / (ppq * 1_000_000);
+    steps.push({ tick: step.tick, microseconds: step.microseconds, seconds });
+  });
+  return steps;
+}
+
+/**
+ * The tick of a song time, read through the tempo map the file writes. Reading through the written map, rather than through the beats, means
+ * a note lands on its time in the file even where the held tempo differs a little from a beat.
+ */
+function tickAt(steps: readonly TempoStep[], ppq: number, seconds: number): number {
+  let step = steps[0];
+  for (const next of steps) {
+    if (next.seconds > seconds) break;
+    step = next;
+  }
+  return Math.max(0, Math.round(step.tick + ((seconds - step.seconds) * ppq * 1_000_000) / step.microseconds));
+}
+
+const vlq = (value: number): number[] => {
+  const bytes = [value % 128];
+  for (let rest = Math.floor(value / 128); rest > 0; rest = Math.floor(rest / 128)) bytes.unshift((rest % 128) | 128);
+  return bytes;
+};
+const u16 = (value: number): number[] => [(value >> 8) & 255, value & 255];
+const u32 = (value: number): number[] => [(value >>> 24) & 255, (value >> 16) & 255, (value >> 8) & 255, value & 255];
+const ascii = (text: string): number[] => [...new TextEncoder().encode(text)];
+const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, Math.round(value)));
+
+/** An event in a track, before its delta time is written. `order` puts a note-off before a note-on at the same tick. */
+interface TrackEvent {
+  tick: number;
+  order: number;
+  bytes: number[];
+}
+
+/** Writes one track chunk. Its end-of-track event follows the last event, so every track ends in the same place it was written. */
+function trackChunk(events: readonly TrackEvent[]): number[] {
+  const sorted = [...events].sort((a, b) => a.tick - b.tick || a.order - b.order);
+  const data: number[] = [];
+  let last = 0;
+  for (const event of sorted) {
+    for (const byte of [...vlq(event.tick - last), ...event.bytes]) data.push(byte);
+    last = event.tick;
+  }
+  for (const byte of [...vlq(0), 0xff, 0x2f, 0]) data.push(byte);
+  return [...ascii("MTrk"), ...u32(data.length), ...data];
+}
+
+/**
+ * The pitch bend of a slide: it starts `semitones` below the note and rises to the note's pitch between `from` and `on`, in steps linear
+ * in semitones. The bend is reset to centre at the note's end, so the next note plays in tune.
+ */
+function slideEvents(channel: number, semitones: number, from: number, on: number, off: number): TrackEvent[] {
+  const bend = (value: number): number[] => [0xe0 | channel, value & 0x7f, (value >> 7) & 0x7f];
+  const events: TrackEvent[] = [];
+  for (let i = 0; i <= SLIDE_STEPS; i++) {
+    const tick = Math.round(from + ((on - from) * i) / SLIDE_STEPS);
+    const below = -semitones * (1 - i / SLIDE_STEPS);
+    const value = clamp(BEND_CENTRE + (below / BEND_RANGE_SEMITONES) * BEND_CENTRE, 0, 2 * BEND_CENTRE - 1);
+    events.push({ tick, order: 0.5, bytes: bend(value) });
+  }
+  events.push({ tick: off, order: 0, bytes: bend(BEND_CENTRE) });
+  return events;
+}
+
+/**
+ * Writes a standard MIDI file (format 1). The first track is the conductor: a time signature and the tempo map. Each track after it holds
+ * the notes of one part on its channel. A grid beat is written as a quarter note, so the time signature is the beats per bar over 4. A 6/8
+ * song is therefore written in 2/4 at the same tempo: it plays the same, but the score shows the beats, not the dotted-quarter pulse.
+ */
+export function encodeSmf(tracks: readonly SmfNoteTrack[], tempoMap: BeatGrid, ppq = EXPORT_PPQ): Uint8Array {
+  const steps = tempoSteps(tempoMap, ppq);
+  const numerator = clamp(tempoMap.beatsPerBar, 1, 255);
+  const conductor: TrackEvent[] = [
+    { tick: 0, order: -1, bytes: [0xff, 0x58, 4, numerator, 2, 24, 8] },
+    ...steps.map((step) => ({
+      tick: step.tick,
+      order: -1,
+      bytes: [0xff, 0x51, 3, (step.microseconds >> 16) & 255, (step.microseconds >> 8) & 255, step.microseconds & 255],
+    })),
+  ];
+  const chunks = [trackChunk(conductor)];
+  for (const track of tracks) {
+    const name = ascii(track.name.slice(0, 60));
+    const events: TrackEvent[] = [{ tick: 0, order: -1, bytes: [0xff, 0x03, name.length, ...name] }];
+    const channel = clamp(track.channel, 0, 15);
+    for (const note of track.notes) {
+      const pitch = clamp(note.pitch, 0, 127);
+      const velocity = clamp(note.velocity, 1, 127);
+      const on = tickAt(steps, ppq, note.time);
+      const off = Math.max(on + 1, tickAt(steps, ppq, note.time + note.duration));
+      events.push({ tick: on, order: 1, bytes: [0x90 | channel, pitch, velocity] }, { tick: off, order: 0, bytes: [0x80 | channel, pitch, 0] });
+      if (note.slideFrom !== undefined)
+        events.push(...slideEvents(channel, note.slideFrom, tickAt(steps, ppq, Math.max(0, note.time - SLIDE_SECONDS)), on, off));
+    }
+    chunks.push(trackChunk(events));
+  }
+  const header = [...ascii("MThd"), ...u32(6), ...u16(1), ...u16(chunks.length), ...u16(ppq)];
+  const file = [...header];
+  for (const chunk of chunks) for (const byte of chunk) file.push(byte);
+  return Uint8Array.from(file);
 }

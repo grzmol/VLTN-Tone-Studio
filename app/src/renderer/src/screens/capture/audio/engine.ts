@@ -8,6 +8,7 @@ import wasmUrl from "neural-amp-modeler-wasm/dist/engine/nam-engine.wasm?url";
 import type { Shaping } from "@shared/host/capture";
 import { postFilters, preFilters, type FilterSpec } from "../nam/shaping";
 import diGuitarUrl from "./di-guitar.flac?url";
+import { connectChain, tailFrames, type CaptureStage, type GraphStage } from "./chain-graph";
 import { irLevelGain } from "./ir-level";
 
 export const SAMPLE_RATE = 48000;
@@ -285,6 +286,31 @@ export async function renderOffline(
   const matched = new Float32Array(frames);
   for (let i = 0; i < frames; i++) matched[i] = wet[i] * gain;
   return matched;
+}
+
+/**
+ * Offline render of a bass tone chain (spec 89): the stages in order through one OfflineAudioContext at SAMPLE_RATE. The output runs past
+ * the input by the IRs' tails (chain-graph.ts), so the caller crops it. With `fast`, captures render at their Lite size where the file has
+ * one (a file without one plays as usual).
+ */
+export async function renderChainOffline(stages: GraphStage[], input: Float32Array, fast: boolean): Promise<Float32Array> {
+  const frames = input.length;
+  const ctx = new OfflineAudioContext(1, frames + tailFrames(stages), SAMPLE_RATE);
+  await registerWorklet(ctx);
+  const captures = new Map<GraphStage, NamNode>();
+  for (const stage of stages) {
+    if (stage.type === "capture") captures.set(stage, await createNode(ctx, stage.model, fast ? SLIM_SIZE.lite : SLIM_SIZE.full));
+  }
+  const buffer = ctx.createBuffer(1, frames, SAMPLE_RATE);
+  buffer.copyToChannel(input as Float32Array<ArrayBuffer>, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const { output } = connectChain(ctx, src, stages, SAMPLE_RATE, (stage: CaptureStage) => captures.get(stage)!);
+  output.connect(ctx.destination);
+  src.start();
+  const out = await ctx.startRendering();
+  for (const nam of captures.values()) void nam.dispose();
+  return out.getChannelData(0).slice();
 }
 
 /** Peak per bucket (absolute, full scale = 1) for the waveform. */

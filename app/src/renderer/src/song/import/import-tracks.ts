@@ -33,7 +33,7 @@ export interface ImportedTrack {
 
 export interface ImportOutcome {
   tracks: ImportedTrack[];
-  /** Set when the song has no source yet: the sum of the imported tracks, which stands in as the song */
+  /** Set when the song has no source yet: the sum of the imported tracks, which the analysis reads as the song */
   source: PcmAudio | null;
   /** What was refused, padded or cut, one line each */
   notices: string[];

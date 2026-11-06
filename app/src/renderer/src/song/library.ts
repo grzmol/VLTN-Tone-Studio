@@ -471,6 +471,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
       stems: Object.keys(next.stems).length ? next.stems : null,
       tracks: next.tracks,
       lastSplit: null,
+      missingParts: null,
       status: { kind: "idle" },
     });
     useNav.getState().go("song", "performance");
@@ -561,7 +562,8 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         stems: Object.keys(prepared.stems).length ? prepared.stems : null,
         tracks: prepared.tracks,
         lastSplit: null,
-          status: { kind: "idle" },
+        missingParts: null,
+        status: { kind: "idle" },
       });
       prefetchNext();
       return true;
