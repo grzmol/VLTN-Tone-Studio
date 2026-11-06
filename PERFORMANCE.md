@@ -144,7 +144,7 @@ An import replaces the chart, so it is refused during playback, and when the cha
 
 ## MIDI cues
 
-A cue is a MIDI message sent at a time in the song. Write them in the chart as `{midi:…}` tokens, or build them with **Song MIDI cues**.
+A cue is a MIDI message sent at a time in the song. Write them in the chart as `{midi:…}` tokens, or build them with **Song MIDI cues**. A cue can also fire at the start of a song section, such as every chorus, instead of at a time ([Cues on a section](MIDI-PEDALS.md#triggers-macros-and-song-midi-files)).
 
 | Token | Message | Notes |
 | --- | --- | --- |
