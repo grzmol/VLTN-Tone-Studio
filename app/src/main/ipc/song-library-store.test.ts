@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { decodeFlac, encodeFlac, matchesQuantized } from "@shared/flac";
 import { isLegacySong } from "@shared/song-library";
 import { SongLibraryStore, V1_BACKUP, libraryFilePath } from "./song-library-store";
-import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, writePlaylists, type FixtureSong } from "./song-library-fixtures";
+import { FRAMES, flacSong, legacySong, pcm, readSaved, saveFlacSong, writeLegacyLibrary, type FixtureSong } from "./song-library-fixtures";
 
 let root: string, store: SongLibraryStore;
 beforeEach(async () => {
@@ -23,13 +23,13 @@ async function expectAudio(fixture: FixtureSong, name: string) {
   expect(decoded.channels).toHaveLength(fixture.audio[name].length);
   expect(matchesQuantized(decoded, fixture.audio[name], 16)).toBe(true);
 }
-it("round-trips audio and duplicate playlist entries across restart", async () => {
+it("round-trips audio, charts and duplicate playlist entries across restart", async () => {
   const first = await flacSong(1),
     second = await flacSong(2);
   await saveFlacSong(store, first);
   await saveFlacSong(store, second);
   const playlist = { id: randomUUID(), name: "Gig", songs: [second.song.id, first.song.id, second.song.id] };
-  await writePlaylists(root, [playlist]);
+  await store.playlists([playlist]);
   store = new SongLibraryStore(root);
   expect((await store.index()).playlists).toEqual([playlist]);
   expect((await store.index()).songs[0]).toMatchObject(first.song);
@@ -59,7 +59,7 @@ it("keeps the last complete revision after an incomplete replacement", async () 
   expect((await store.index()).songs[0].title).toBe(original.song.title);
   await expectAudio(original, "source");
 });
-it("rejects path traversal, wrong lengths, wrong digests and raw PCM saves", async () => {
+it("rejects path traversal, wrong lengths, wrong digests, raw PCM saves and dangling playlist references", async () => {
   const { song, files } = await flacSong(),
     token = await store.begin(song);
   await expect(store.write(token, "../escape", files["source.flac"])).rejects.toThrow();
@@ -75,6 +75,7 @@ it("rejects path traversal, wrong lengths, wrong digests and raw PCM saves", asy
   await expect(store.begin({ ...song, id: "../escape" })).rejects.toThrow();
   await expect(store.begin(legacySong().song)).rejects.toThrow();
   await expect(store.begin({ ...song, audio: [{ ...song.audio[0], file: "../x.flac" }] })).rejects.toThrow();
+  await expect(store.playlists([{ id: randomUUID(), name: "Missing", songs: [song.id] }])).rejects.toThrow();
   await store.abort(token);
 });
 it("serves only exact revision/track.flac URLs", () => {
@@ -90,10 +91,13 @@ it("serves only exact revision/track.flac URLs", () => {
   ])
     expect(libraryFilePath(root, bad)).toBeNull();
 });
-it("removes a deleted song from every playlist", async () => {
+it("deletes a playlist without deleting songs and removes deleted songs from every playlist", async () => {
   const s = await flacSong();
   await saveFlacSong(store, s);
-  await writePlaylists(root, [{ id: randomUUID(), name: "Set", songs: [s.song.id, s.song.id] }]);
+  await store.playlists([{ id: randomUUID(), name: "Set", songs: [s.song.id, s.song.id] }]);
+  await store.playlists([]);
+  expect((await store.index()).songs).toHaveLength(1);
+  await store.playlists([{ id: randomUUID(), name: "Set", songs: [s.song.id, s.song.id] }]);
   await store.remove(s.song.id);
   expect((await store.index()).songs).toEqual([]);
   expect((await store.index()).playlists[0].songs).toEqual([]);
@@ -110,6 +114,28 @@ it("moves a removed song's folder into the library's .trash rather than deleting
   const [entry] = await readdir(join(root, ".trash"));
   expect(entry.endsWith(`-${revision}`)).toBe(true);
   expect((await readdir(join(root, ".trash", entry))).some((f) => f.endsWith(".flac"))).toBe(true);
+});
+
+it("preflights saved files without loading them, deduplicates IDs and reports missing or truncated audio", async () => {
+  const first = await flacSong(1),
+    second = await flacSong(2);
+  await saveFlacSong(store, first);
+  await saveFlacSong(store, second);
+  const index = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
+  await writeFile(join(root, index.revisions[first.song.id], "source.flac"), new Uint8Array(1));
+  await rm(join(root, index.revisions[second.song.id], "source.flac"));
+  const missing = randomUUID();
+  const result = await store.preflight([first.song.id, second.song.id, first.song.id, missing]);
+  expect(result).toHaveLength(3);
+  expect(result[0].errors[0]).toContain("invalid size");
+  expect(result[1].errors[0]).toContain("missing or inaccessible");
+  expect(result[2].errors).toEqual(["Song is missing from the library."]);
+  await expect(store.preflight(["../outside"])).rejects.toThrow("Invalid playlist");
+});
+it("returns a clean saved snapshot for intact audio", async () => {
+  const s = await flacSong();
+  await saveFlacSong(store, s);
+  expect(await store.preflight([s.song.id])).toMatchObject([{ id: s.song.id, song: s.song, errors: [] }]);
 });
 
 it("migrates a v1 library to FLAC with the same audio and settings, and keeps the v1 copy in v1-backup", async () => {
@@ -131,7 +157,7 @@ it("migrates a v1 library to FLAC with the same audio and settings, and keeps th
     expect(song.title).toBe(fixture.song.title);
     await expectAudio(fixture, "source");
     await expectAudio(fixture, "guitar");
-    expect(Object.keys(await store.audioUrls(song.id)).sort()).toEqual(["guitar", "source"]);
+    expect((await store.preflight([song.id]))[0].errors).toEqual([]);
   }
   const revisions = Object.values(before.revisions) as string[];
   for (const revision of revisions) expect(await readdir(root)).not.toContain(revision);
@@ -272,6 +298,47 @@ it("rejects settings patches for unknown songs, unknown keys and non-string valu
   await expect(store.updateSettings(fixture.song.id, { ":other": "x" })).rejects.toThrow("Invalid song settings.");
   await expect(store.updateSettings(fixture.song.id, { ":bpm": 90 as unknown as string })).rejects.toThrow("Invalid song settings.");
   await expect(store.updateSettings("../x", { ":bpm": "90" })).rejects.toThrow("Invalid song settings.");
+});
+
+/** A saved song with one imported track named `label`, stored as track0. */
+async function songWithTrack(seed: number, label: string, settings: Record<string, unknown>): Promise<FixtureSong> {
+  const fixture = await flacSong(seed),
+    bytes = await encodeFlac({ sampleRate: 44100, channels: pcm(1, seed + 10) });
+  fixture.files["track0.flac"] = bytes;
+  fixture.song.audio.push({
+    name: label,
+    sampleRate: 44100,
+    frames: FRAMES,
+    channels: 1,
+    file: "track0.flac",
+    codec: "flac",
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    kind: "user",
+    ...settings,
+  } as FixtureSong["song"]["audio"][number]);
+  return fixture;
+}
+
+it("applies a song's track settings to the other songs with the same imported tracks, and leaves their audio alone", async () => {
+  const source = await songWithTrack(1, "Click", { bus: "click", transpose: false, muteGroups: [1] });
+  const similar = await songWithTrack(2, "Click", { bus: "main" });
+  const different = await songWithTrack(3, "Bass", { bus: "main" });
+  for (const fixture of [source, similar, different]) await saveFlacSong(store, fixture);
+  const before = (await store.index()).songs.find((s) => s.id === similar.song.id)!;
+  expect(await store.applyTrackSettings(source.song.id)).toBe(1);
+  const index = await store.index();
+  const copied = index.songs.find((s) => s.id === similar.song.id)!;
+  expect(copied.audio.find((a) => a.name === "Click")).toMatchObject({ bus: "click", transpose: false, muteGroups: [1] });
+  expect(copied.audio.map((a) => [a.file, a.sha256])).toEqual(before.audio.map((a) => [a.file, a.sha256]));
+  expect(index.songs.find((s) => s.id === different.song.id)!.audio.find((a) => a.name === "Bass")).toMatchObject({ bus: "main" });
+  const track = await decodeFlac(await readSaved(root, similar.song.id, "track0.flac"));
+  expect(track.channels[0].length).toBe(FRAMES);
+});
+
+it("refuses to apply the settings of a song that is not saved", async () => {
+  await expect(store.applyTrackSettings(randomUUID())).rejects.toThrow("Saved song not found.");
+  await expect(store.applyTrackSettings("not-an-id")).rejects.toThrow("Saved song not found.");
 });
 
 /** The revision folder the index currently points at for a song. */

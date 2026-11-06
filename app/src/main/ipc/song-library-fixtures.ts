@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { encodeFlac } from "@shared/flac";
-import { assetName, flacName, type LibraryAudio, type LibrarySong, type Playlist } from "@shared/song-library";
+import { assetName, flacName, type LibraryAudio, type LibrarySong } from "@shared/song-library";
 import type { SongLibraryStore } from "./song-library-store";
 
 /** Test helpers: build songs in the v2 (FLAC) format and the v1 (raw float32) format. */
@@ -98,11 +98,4 @@ export async function writeLegacyLibrary(root: string, fixtures: FixtureSong[]):
 export async function readSaved(root: string, songId: string, file: string): Promise<Uint8Array> {
   const index = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
   return new Uint8Array(await readFile(join(root, index.revisions[songId], file)));
-}
-
-/** Sets the library's playlists straight on disk. Playlists are stored and restored, but this version has no screen to edit them. */
-export async function writePlaylists(root: string, playlists: Playlist[]): Promise<void> {
-  const path = join(root, "library.json");
-  const index = JSON.parse(await readFile(path, "utf8"));
-  await writeFile(path, JSON.stringify({ ...index, playlists }));
 }

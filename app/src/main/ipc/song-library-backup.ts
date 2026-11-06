@@ -11,6 +11,7 @@ import {
   trackFiles,
   upgradeIndex,
   validId,
+  validateOrganisation,
   validatePlaylists,
   validateSong,
   type LibraryTransferProgress,
@@ -30,7 +31,7 @@ interface BackupFile {
 }
 interface Manifest {
   format: "vltn-song-library";
-  /** 1: raw float32 files. 2: FLAC files. 3: FLAC files and per-track settings. 4: song details, folders and history. All are read. */
+  /** 1: raw float32 files. 2: FLAC files. 3: FLAC files and per-track settings. 4: song details, folders, history and sets. All are read. */
   version: 1 | 2 | 3 | 4;
   files: BackupFile[];
 }
@@ -40,7 +41,7 @@ const SAFE_RAW = new RegExp(`^[a-f0-9-]{36}/(${TRACK_NAMES.join("|")})-[01]\\.f3
 /** A revision folder's file: the UUID, one slash, then one name with no slash in it. The name is checked against the allow-lists below. */
 const SAFE_FLAC = /^[a-f0-9-]{36}\/([^/]+)$/;
 /**
- * Raw v1 channels, a FLAC track file (a stem, the source or an imported track). Anything else, including
+ * Raw v1 channels, a FLAC track file (a legacy track or an imported one). Anything else, including
  * a name with a slash, a dot-dot or a different extension, is refused before any file is written.
  */
 const safePath = (path: string) => {
@@ -72,6 +73,7 @@ export function validateDiskIndex(value: unknown): DiskIndex {
   validatePlaylists(index.playlists, index.songs);
   // An older backup is read in the v4 model, so its folders and history are empty and the restore needs no special case.
   const upgraded = upgradeIndex(index as StoredLibrary & { revisions: DiskIndex["revisions"] });
+  validateOrganisation(upgraded);
   return upgraded;
 }
 /** Every file a backup holds for the songs: their audio. */
