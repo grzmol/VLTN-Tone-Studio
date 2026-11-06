@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { decodeMidiFile, encodeMidiFile, MAX_SMF_BYTES, midiFileFromOptions, parseSmf, smfCues } from "./smf";
+import { decodeMidiFile, encodeMidiFile, encodeSmf, MAX_SMF_BYTES, midiFileFromOptions, parseSmf, smfCues } from "./smf";
+import { fixedBeatGrid, type BeatGrid } from "../band/beat-grid";
+import type { NoteEvent } from "../band/note";
 
 /** Builds a standard MIDI file from tracks of [delta ticks, ...message bytes] events. Each track ends with an end-of-track meta event. */
 function smf(format: number, division: number, tracks: number[][][], raw: number[][] = []): Uint8Array {
@@ -138,5 +140,111 @@ describe("MIDI file option", () => {
     expect(midiFileFromOptions({ midiFile: "x" })).toBeNull();
     expect(midiFileFromOptions({})).toBeNull();
     expect(() => decodeMidiFile({ name: "x.mid", data: "%%%" })).toThrow(/damaged/);
+  });
+});
+
+describe("exporting a standard MIDI file", () => {
+  /** A beat grid whose beats follow the given intervals, from time 0. */
+  function gridOf(intervals: number[], beatsPerBar = 4): BeatGrid {
+    const beats = [0];
+    for (const interval of intervals) beats.push(beats[beats.length - 1] + interval);
+    return { beatsPerBar, beats, downbeat: 0, bpm: 60 / intervals[0], steady: null };
+  }
+  /** Sixty beats whose interval grows by 0.2% a beat: a drift too small for one tempo change a beat, but large over the song. */
+  const drifting = gridOf(Array.from({ length: 60 }, (_, beat) => 0.5 * (1 + 0.002 * beat)));
+  const steady = fixedBeatGrid(120, 0, 4, 30);
+  const note = (time: number, pitch: number, duration = 0.2, velocity = 100): NoteEvent => ({ time, pitch, velocity, duration });
+
+  /** The file's bytes that match a pattern, counted. Tempo and time signature meta events are the only bytes that start with 0xFF there. */
+  function countOf(bytes: Uint8Array, pattern: number[]): number {
+    let count = 0;
+    for (let i = 0; i + pattern.length <= bytes.length; i++) if (pattern.every((byte, j) => bytes[i + j] === byte)) count++;
+    return count;
+  }
+
+  it("round-trips note on and off times within 1 ms on a steady grid", () => {
+    const times = [0.25, 1.1, 2.5, 7.333];
+    const file = encodeSmf([{ name: "Bass", channel: 0, notes: times.map((time, i) => note(time, 40 + i)) }], steady);
+    const messages = parseSmf(file);
+    times.forEach((time, i) => {
+      const on = messages.find((m) => m.bytes[0] === 0x90 && m.bytes[1] === 40 + i);
+      const off = messages.find((m) => m.bytes[0] === 0x80 && m.bytes[1] === 40 + i);
+      expect(on?.time).toBeGreaterThan(time - 0.001);
+      expect(on?.time).toBeLessThan(time + 0.001);
+      expect(off?.time).toBeGreaterThan(time + 0.2 - 0.001);
+      expect(off?.time).toBeLessThan(time + 0.2 + 0.001);
+    });
+  });
+
+  it("round-trips within 2 ms on a drifting grid", () => {
+    const times = [0.3, 5.1, 12.7, 25.9];
+    const file = encodeSmf([{ name: "Drums", channel: 9, notes: times.map((time, i) => note(time, 36 + i)) }], drifting);
+    const messages = parseSmf(file);
+    times.forEach((time, i) => {
+      const on = messages.find((m) => m.bytes[0] === 0x99 && m.bytes[1] === 36 + i);
+      expect(Math.abs((on?.time ?? NaN) - time)).toBeLessThan(0.002);
+    });
+  });
+
+  it("puts each track on its own channel, with notes-off on the same channel", () => {
+    const file = encodeSmf(
+      [
+        { name: "Drums", channel: 9, notes: [note(0.5, 36)] },
+        { name: "Bass", channel: 0, notes: [note(1, 40)] },
+      ],
+      steady,
+    );
+    const messages = parseSmf(file).filter((m) => m.bytes.length === 3);
+    expect(messages.map((m) => m.bytes)).toEqual([
+      [0x99, 36, 100],
+      [0x89, 36, 0],
+      [0x90, 40, 100],
+      [0x80, 40, 0],
+    ]);
+  });
+
+  it("writes a tempo only once for a steady grid, and again whenever a drifting grid moves past half a percent", () => {
+    expect(countOf(encodeSmf([], steady), [0xff, 0x51, 3])).toBe(1);
+    expect(countOf(encodeSmf([], drifting), [0xff, 0x51, 3])).toBeGreaterThan(5);
+  });
+
+  it("writes the time signature from the beats per bar", () => {
+    const fourFour = encodeSmf([], steady);
+    expect(countOf(fourFour, [0xff, 0x58, 4, 4, 2, 24, 8])).toBe(1);
+    const threeFour = encodeSmf([], fixedBeatGrid(120, 0, 3, 30));
+    expect(countOf(threeFour, [0xff, 0x58, 4, 3, 2, 24, 8])).toBe(1);
+  });
+
+  it("is format 1, with a conductor track and one track per part, each ending with end-of-track", () => {
+    const file = encodeSmf(
+      [
+        { name: "Drums", channel: 9, notes: [note(1, 36)] },
+        { name: "Bass", channel: 0, notes: [] },
+      ],
+      steady,
+    );
+    expect(Array.from(file.slice(0, 14))).toEqual([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 3, 1, 0xe0]);
+    expect(countOf(file, [0xff, 0x2f, 0])).toBe(3);
+  });
+  it("writes a pitch-bend ramp into a slide before its note, and resets the bend after the note", () => {
+    const slide: NoteEvent = { time: 1, pitch: 40, velocity: 100, duration: 0.3, slideFrom: 2 };
+    const messages = parseSmf(encodeSmf([{ name: "Bass", channel: 0, notes: [slide] }], steady));
+    const bends = messages.filter((message) => (message.bytes[0] & 0xf0) === 0xe0);
+    const values = bends.map((message) => message.bytes[1] | (message.bytes[2] << 7));
+    // Eight steps from two semitones down (0) up to centre (8192), then the reset to centre after the note.
+    expect(values).toHaveLength(10);
+    expect(values[0]).toBe(0);
+    expect(values[8]).toBe(8192);
+    expect(values.slice(0, 9)).toEqual([...values.slice(0, 9)].sort((a, b) => a - b));
+    expect(values[9]).toBe(8192);
+    const noteOn = messages.find((message) => (message.bytes[0] & 0xf0) === 0x90)!;
+    const noteOff = messages.find((message) => (message.bytes[0] & 0xf0) === 0x80)!;
+    expect(bends[0].time).toBeLessThan(noteOn.time);
+    expect(bends[9].time).toBeGreaterThanOrEqual(noteOff.time - 1e-6);
+  });
+
+  it("writes no pitch bend for a note that does not slide", () => {
+    const messages = parseSmf(encodeSmf([{ name: "Bass", channel: 0, notes: [note(1, 40)] }], steady));
+    expect(messages.filter((message) => (message.bytes[0] & 0xf0) === 0xe0)).toEqual([]);
   });
 });
