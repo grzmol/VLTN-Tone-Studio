@@ -280,16 +280,22 @@ export class Gp150Session extends EventTarget {
     const packets = packetize(msg, seq, true);
     for (let attempt = 0; ; attempt++) {
       const acked = new Promise((resolve, reject) => this.#acks.set(seq, { resolve, reject }));
-      for (let i = 0; i < packets.length; i++) {
-        if (i && this.#timing.frameGapMs) await delay(this.#timing.frameGapMs);
-        this.#log("tx", packets[i], i === packets.length - 1 ? decodeMessage(msg) : undefined);
-        this.#transport.send(packets[i]);
-      }
+      // A transport can reject a send, or close during a frame gap before we await its ACK.
+      void acked.catch(() => {});
       let timer;
-      const timeout = new Promise((r) => (timer = setTimeout(() => r(false), this.#timing.ackTimeoutMs)));
-      const ok = await Promise.race([acked.then(() => true), timeout]);
-      clearTimeout(timer);
-      this.#acks.delete(seq);
+      let ok;
+      try {
+        for (let i = 0; i < packets.length; i++) {
+          if (i && this.#timing.frameGapMs) await delay(this.#timing.frameGapMs);
+          this.#transport.send(packets[i]);
+          this.#log("tx", packets[i], i === packets.length - 1 ? decodeMessage(msg) : undefined);
+        }
+        const timeout = new Promise((r) => (timer = setTimeout(() => r(false), this.#timing.ackTimeoutMs)));
+        ok = await Promise.race([acked.then(() => true), timeout]);
+      } finally {
+        clearTimeout(timer);
+        this.#acks.delete(seq);
+      }
       if (ok) return seq;
       if (attempt >= this.#timing.resends) throw new Gp150Error("timeout", "The pedal didn't acknowledge a message");
     }

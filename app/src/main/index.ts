@@ -13,13 +13,19 @@ import { registerDeviceIpc } from "./ipc/device";
 import { registerSnapToneIpc } from "./ipc/snaptone";
 import { libraryRoot, registerSongIpc } from "./ipc/song";
 import { libraryFilePath } from "./ipc/song-library-store";
-import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
+import { installBluetoothChooser } from './bluetooth';
+import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
+import { devUserDataPath } from "./user-data";
 import { isOwnRenderer } from "./permissions";
-import { installBluetoothChooser } from "./bluetooth";
+
+// Development runs keep their own library and settings, so testing never touches the installed app's songs.
+// Before the single-instance lock, which is per data folder.
+const devData = devUserDataPath(app.getPath("userData"), app.isPackaged, app.commandLine.hasSwitch("user-data-dir"));
+if (devData) app.setPath("userData", devData);
 
 // One app instance = one MIDI session (the pedal's port is exclusive on Windows). The second copy exits here,
 // before the rest of this file registers IPC or a window; the first copy gets its files and focus via "second-instance".
@@ -27,13 +33,16 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 
 // The packaged renderer is served from app://bundle/ instead of file://, so fetch() and
 // AudioWorklet.addModule() of bundled assets (NAM engine wasm, worklet, audio clips) work and 'self' is a real origin.
-// The renderer also fetches app://library cross-origin (from http://localhost in dev), which needs corsEnabled.
+// The renderer fetches app://library cross-origin (from http://localhost in dev and app://bundle when packaged), which needs corsEnabled.
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: APP_SCHEME_PRIVILEGES }]);
 const RENDERER_DIR = resolve(import.meta.dirname, "../renderer");
 const RENDERER_URL = "app://bundle/index.html";
-// CSP for the app's own pages. TONE3000 images and API are the only network origins; wasm for the NAM engine.
+// CSP: tone service, pinned OpenMIDI data and Hugging Face model downloads for the stem splitter.
 const CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; connect-src 'self' app://library ws://localhost:* https://*.tone3000.com https://tone3000.com";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
+  "img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; " +
+  "connect-src 'self' app://library https://*.tone3000.com https://tone3000.com " +
+  "https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com";
 // Dev server only: @vitejs/plugin-react injects an inline React Refresh preamble into index.html.
 const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
 // Cross-origin isolation: the stem splitter's CPU path (onnxruntime-web wasm, song/stems/worker.ts) only gets threads
@@ -41,7 +50,7 @@ const DEV_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inli
 // TONE3000 images, which send no Cross-Origin-Resource-Policy, still load (without cookies).
 const ISOLATION = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" } as const;
 
-/** app://library/<revision>/<track>.flac → a saved song's audio. Only that exact shape resolves, so no other path is reachable. */
+/** app://library/<revision>/<track>.flac → a saved song's track. Only that exact shape resolves, so no other path is reachable. */
 async function serveLibrary(req: Request): Promise<Response> {
   if (req.method !== "GET") return new Response(null, { status: 405 });
   const file = libraryFilePath(libraryRoot(), req.url);
@@ -164,10 +173,10 @@ async function createWindow() {
       backgroundThrottling: false, // backups and writes must not be throttled
     },
   });
+  installBluetoothChooser(win);
   win.once("closed", () => {
     win = null;
   });
-  installBluetoothChooser(win);
   win.once("ready-to-show", () => {
     if (maximized) win?.maximize();
     win?.show();
@@ -221,7 +230,7 @@ app.whenReady().then(async () => {
   // Only our own pages get them (isOwnRenderer): the default session is shared with anything else that loads there.
   const allowed = new Set(["midi", "midiSysex"]);
   const devUrl = process.env.ELECTRON_RENDERER_URL;
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb, details) => {
+  session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => {
     if (!isOwnRenderer(details.requestingUrl, devUrl)) return cb(false);
     if (permission === "media") {
       const types = "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
@@ -229,34 +238,25 @@ app.whenReady().then(async () => {
     }
     cb(allowed.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+  session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
     if (!isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
     return permission === "media" ? details.mediaType === "audio" : allowed.has(permission);
   });
-  // Web Bluetooth asks the main process to confirm a pairing; a device that wants a PIN is paired in the system settings instead.
   session.defaultSession.setBluetoothPairingHandler((details, callback) => {
-    const window = win;
-    if (!window || details.frame !== window.webContents.mainFrame) return callback({ confirmed: false });
-    if (details.pairingKind === "providePin") {
-      void dialog.showMessageBox(window, {
-        type: "info",
-        message: "Pair this MIDI device in your system's Bluetooth settings first",
-        detail: "The device asks for a PIN. Enter it in the system settings, then connect Bluetooth MIDI again in Tone Studio.",
+    if (!win || details.frame !== win.webContents.mainFrame) return callback({ confirmed: false });
+    if (details.pairingKind === 'providePin') {
+      void dialog.showMessageBox(win, {
+        type: 'info',
+        message: 'Pair this MIDI device in Windows Bluetooth settings first',
+        detail: 'The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.',
       });
       return callback({ confirmed: false });
     }
-    void dialog
-      .showMessageBox(window, {
-        type: "question",
-        title: "Bluetooth pairing",
-        message: `Pair with ${details.deviceId}?`,
-        detail: details.pairingKind === "confirmPin" ? `Confirm that the device shows PIN ${details.pin}.` : "Allow this device to connect for MIDI.",
-        buttons: ["Cancel", "Pair"],
-        defaultId: 0,
-        cancelId: 0,
-      })
-      .then(({ response }) => callback({ confirmed: response === 1 }))
-      .catch(() => callback({ confirmed: false }));
+    void dialog.showMessageBox(win, {
+      type: 'question', title: 'Bluetooth pairing', message: `Pair with ${details.deviceId}?`,
+      detail: details.pairingKind === 'confirmPin' ? `Confirm that the device shows PIN ${details.pin}.` : 'Allow this device to connect for MIDI control.',
+      buttons: ['Cancel', 'Pair'], defaultId: 0, cancelId: 0,
+    }).then(({ response }) => callback({ confirmed: response === 1 })).catch(() => callback({ confirmed: false }));
   });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
