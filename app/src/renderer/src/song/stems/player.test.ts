@@ -874,3 +874,23 @@ it("tells the click listener about every beat and stays silent when 'also play' 
   expect(Context.instances[0].oscillators).toHaveLength(0);
   await player.dispose();
 });
+
+it("plays your own samples on the right beats, and the blip for an empty slot", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.5, sound: "custom" });
+  const ctx = Context.instances[0];
+  // The downbeat has a sample (a single frame holding 7); the other beats have none yet.
+  player.setCustomClickSamples({ down: sample(7), other: null });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(ctx).map(noteOf)).toEqual([7]);
+  expect(ctx.oscillators).toHaveLength(3);
+  player.pause();
+  player.setCustomClickSamples({ down: sample(7), other: sample(9) });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(ctx).slice(1).map(noteOf)).toEqual([7, 9, 9, 9]);
+  // Samples are never asked of the band's kit.
+  expect(loadDrumSample).not.toHaveBeenCalled();
+  await player.dispose();
+});

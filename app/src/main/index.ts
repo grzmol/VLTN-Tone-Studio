@@ -17,6 +17,7 @@ import { CHART_ANNOTATIONS_FILE, CHART_FILE } from "@shared/song-library";
 import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
+import { registerClickSamplesIpc } from "./ipc/click-samples";
 import type { AppEvent } from "@shared/ipc";
 import { installBluetoothChooser } from './bluetooth';
 import { isAudienceContents, registerDisplayIpc } from "./ipc/display";
@@ -297,6 +298,7 @@ app.whenReady().then(async () => {
   });
 
   registerLogIpc(getWindow);
+  registerClickSamplesIpc();
   registerAppIpc(getWindow);
   registerFilesIpc(getWindow);
   registerTonesIpc(getWindow);
