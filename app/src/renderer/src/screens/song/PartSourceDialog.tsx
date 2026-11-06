@@ -40,8 +40,22 @@ const TITLE: Record<PartSourceRole, string> = {
   space: "Choose a space IR",
   outboard: "Choose an outboard capture",
 };
-const KIND_NAME: Record<PartSourceRole, string> = { pedal: "pedal", preamp: "preamp", amp: "amp", cab: "cab IR", space: "space IR", outboard: "outboard capture" };
-const KIND_PLURAL: Record<PartSourceRole, string> = { pedal: "pedals", preamp: "preamps", amp: "amps", cab: "cab IRs", space: "space IRs", outboard: "outboard captures" };
+const KIND_NAME: Record<PartSourceRole, string> = {
+  pedal: "pedal",
+  preamp: "preamp",
+  amp: "amp",
+  cab: "cab IR",
+  space: "space IR",
+  outboard: "outboard capture",
+};
+const KIND_PLURAL: Record<PartSourceRole, string> = {
+  pedal: "pedals",
+  preamp: "preamps",
+  amp: "amps",
+  cab: "cab IRs",
+  space: "space IRs",
+  outboard: "outboard captures",
+};
 
 let savedSearch: { format: "all" | "nam" | "ir"; search: SearchFilters } | null = null;
 

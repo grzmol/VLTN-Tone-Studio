@@ -3,12 +3,17 @@ import type { PcmAudio } from "../types";
 import type { BassTone, BassToneFile, ToneBlock } from "./arrangement";
 import {
   applyBassTone,
+  applyPartTone,
   BASS_TONE_PRESETS,
+  DRUM_TONE_PRESETS,
+  loadPartTone,
+  renderPartTone,
   CHAIN_RATE,
   captureRenderSeconds,
   presetBlocks,
   renderBassTone,
   type BassChain,
+  type PartChain,
   type BassToneFiles,
   type LoadedBassTone,
   type LoadedBlock,
@@ -336,5 +341,183 @@ describe("applyBassTone", () => {
     );
     expect(result.bass).toBe(bass);
     expect(result.notice).toContain("incomplete");
+  });
+});
+
+// ---- Drums (spec 104): stereo, outboard and space roles ----
+
+/** A 16-bit stereo WAV of two channels at `rate`. */
+function stereoWav(left: Float32Array, right: Float32Array, rate: number): Uint8Array {
+  const frames = left.length;
+  const bytes = new Uint8Array(44 + frames * 4);
+  const view = new DataView(bytes.buffer);
+  const text = (offset: number, s: string) => [...s].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + frames * 4, true);
+  text(8, "WAVE");
+  text(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 2, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 4, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, frames * 4, true);
+  for (let i = 0; i < frames; i++) {
+    view.setInt16(44 + i * 4, Math.round(left[i] * 0x7fff), true);
+    view.setInt16(46 + i * 4, Math.round(right[i] * 0x7fff), true);
+  }
+  return bytes;
+}
+
+/** A kit that is not mono: the left and right channels differ. */
+function kit(frames: number): PcmAudio {
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    left[i] = 0.4 * Math.sin((2 * Math.PI * 200 * i) / RATE);
+    right[i] = 0.2 * Math.sin((2 * Math.PI * 330 * i) / RATE);
+  }
+  return { sampleRate: RATE, channels: [left, right] };
+}
+
+const outboardBlock = (): LoadedBlock => ({ type: "capture", role: "outboard", model: "comp", on: true, inputDb: 0, outputDb: 0, mix: 1 });
+const roomBlock = (ir: Float32Array, irRight?: Float32Array): LoadedBlock => ({
+  type: "ir",
+  role: "space",
+  ir,
+  ...(irRight ? { irRight } : {}),
+  on: true,
+  inputDb: 0,
+  outputDb: 0,
+  mix: 1,
+});
+
+describe("renderPartTone for stereo drums", () => {
+  it("gives the chain the mid signal, and a chain that changes nothing returns the input", async () => {
+    const drums = kit(6000);
+    const chain = vi.fn<PartChain>(async (_blocks, input) => input.slice());
+    const out = await renderPartTone(drums, loaded({ blocks: [outboardBlock()] }), chain, true);
+    const sent = chain.mock.calls[0][1];
+    expect(sent.length).toBeGreaterThan(6000);
+    // The mid at the chain rate is (L+R)/2, resampled; the 44.1 kHz sample at 100 is close to what was sent near 100 * 48000/44100.
+    const mid = (drums.channels[0][3000] + drums.channels[1][3000]) / 2;
+    expect(Math.abs(sent[Math.round((3000 * CHAIN_RATE) / RATE)] - mid)).toBeLessThan(0.02);
+    for (let c = 0; c < 2; c++) for (const i of [100, 3000, 5900]) expect(out.channels[c][i]).toBeCloseTo(drums.channels[c][i], 2);
+  });
+
+  it("keeps the stereo image through a mono capture, adding the side back at the mid's level change", async () => {
+    const drums = kit(6000);
+    const halve: PartChain = async (_blocks, input) => input.map((v) => v * 0.5);
+    const out = await renderPartTone(drums, loaded({ blocks: [outboardBlock()] }), halve, true);
+    // The whole result is level-matched to the clean kit afterwards, so compare the channels' balance, which the side keeps.
+    const rmsOf = (samples: Float32Array) => Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    const cleanBalance = rmsOf(drums.channels[0]) / rmsOf(drums.channels[1]);
+    expect(rmsOf(out.channels[0]) / rmsOf(out.channels[1])).toBeCloseTo(cleanBalance, 1);
+    expect(rmsOf(out.channels[0]) + rmsOf(out.channels[1])).toBeCloseTo(rmsOf(drums.channels[0]) + rmsOf(drums.channels[1]), 1);
+  });
+
+  it("plays a stereo IR's channels on their own sides, and a mono IR on both", async () => {
+    const drums = kit(3000);
+    const calls: { ir: Float32Array; length: number }[] = [];
+    const record: PartChain = async (blocks, input) => {
+      calls.push({ ir: (blocks[0] as { ir: Float32Array }).ir, length: input.length });
+      return input.slice();
+    };
+    const left = Float32Array.of(1, 0.5);
+    const right = Float32Array.of(0.25, 0.1);
+    await renderPartTone(drums, loaded({ blocks: [roomBlock(left, right)] }), record, true);
+    expect(calls.map((call) => call.ir)).toEqual([left, right]);
+    calls.length = 0;
+    await renderPartTone(drums, loaded({ blocks: [roomBlock(left)] }), record, true);
+    expect(calls.map((call) => call.ir)).toEqual([left, left]);
+  });
+
+  it("applies dry/wet and the output of the blend as it does for the bass", async () => {
+    const drums = kit(6000);
+    const dryOnly = await renderPartTone(drums, loaded({ blocks: [outboardBlock()], dryWet: 0 }), silent, true);
+    expect(dryOnly.channels[0]).toEqual(drums.channels[0]);
+    expect(dryOnly.channels[1]).toEqual(drums.channels[1]);
+    const out = await renderPartTone(drums, loaded({ blocks: [outboardBlock()], dryWet: 1 }), async (_b, input) => input.map((v) => v * 4), true);
+    expect(out.channels).toHaveLength(2);
+    expect(out.channels[0]).toHaveLength(6000);
+    let peak = 0;
+    for (const channel of out.channels) for (const v of channel) peak = Math.max(peak, Math.abs(v));
+    expect(peak).toBeLessThanOrEqual(PEAK_LIMIT + 1e-6);
+  });
+
+  it("leaves a mono part as it was: one chain call with every block", async () => {
+    const chain = vi.fn<PartChain>(async (_blocks, input) => input.slice());
+    await renderPartTone(sine(2000, 110, 0.4), loaded({ blocks: [outboardBlock(), roomBlock(Float32Array.of(1))] }), chain);
+    expect(chain).toHaveBeenCalledTimes(1);
+    expect(chain.mock.calls[0][0]).toHaveLength(2);
+  });
+});
+
+describe("the drum tone's files, presets and estimate", () => {
+  const outboardFile = { source: "tone3000" as const, toneId: 5, modelId: 9, name: "Bus comp" };
+  const roomFile = { source: "file" as const, path: "/music/room.wav", name: "Room" };
+  const drumChain = (blocks: ToneBlock[]): Extract<BassTone, { kind: "chain" }> => ({ kind: "chain", blocks, dryWet: 1, fast: false });
+  const block = (role: ToneBlock["role"], file: BassToneFile | null, mix = 1): ToneBlock => ({
+    type: role === "space" ? "ir" : "capture",
+    role,
+    file,
+    inputDb: 0,
+    outputDb: 0,
+    mix,
+    on: true,
+  });
+
+  it("has the three drum presets, filling the outboard and space roles", () => {
+    expect(DRUM_TONE_PRESETS.map((preset) => preset.name)).toEqual(["Glued kit", "Room kit", "Recorded kit"]);
+    expect(presetBlocks(DRUM_TONE_PRESETS[0].blocks).map((b) => [b.role, b.type, b.mix])).toEqual([["outboard", "capture", 1]]);
+    expect(presetBlocks(DRUM_TONE_PRESETS[1].blocks).map((b) => [b.role, b.type, b.mix])).toEqual([["space", "ir", 0.3]]);
+    expect(presetBlocks(DRUM_TONE_PRESETS[2].blocks).map((b) => [b.role, b.mix])).toEqual([
+      ["outboard", 1],
+      ["space", 0.25],
+    ]);
+  });
+
+  it("doubles the capture estimate for stereo drums", () => {
+    const blocks = [block("outboard", outboardFile), block("space", roomFile)];
+    expect(captureRenderSeconds(blocks, 100, false, true)).toBeCloseTo(2 * captureRenderSeconds(blocks, 100, false), 6);
+  });
+
+  it("reads a stereo IR's two channels for the drums, and only the left for a mono part", async () => {
+    const right = Float32Array.of(0.5, 0.25);
+    const files = { ...noFiles(), readLocalIr: vi.fn(async () => stereoWav(Float32Array.of(1, 0), right, CHAIN_RATE)) };
+    const tone = drumChain([block("space", roomFile)]);
+    const stereo = await loadPartTone(tone, files, true);
+    const [space] = stereo.blocks as Extract<LoadedBlock, { type: "ir" }>[];
+    expect(space.ir[0]).toBeCloseTo(1, 3);
+    expect(space.irRight?.[0]).toBeCloseTo(0.5, 3);
+    const mono = await loadPartTone(tone, files);
+    expect((mono.blocks[0] as { irRight?: Float32Array }).irRight).toBeUndefined();
+  });
+
+  it("renders the drums through the chain, and says which part is clean when a file is missing", async () => {
+    const drums = kit(3000);
+    const files = {
+      ...noFiles(),
+      readNam: vi.fn(async () => "comp-text"),
+      readLocalIr: vi.fn(async () => Promise.reject(new Error("room.wav is gone"))),
+    };
+    const chain = vi.fn<PartChain>(async (_blocks, input) => input.slice());
+    const missing = await applyPartTone(drums, drumChain([block("outboard", outboardFile), block("space", roomFile)]), files, chain, "drums");
+    expect(missing.audio).toBe(drums);
+    expect(missing.notice).toMatch(/^The drums play clean, because Room couldn't be loaded/);
+    expect(chain).not.toHaveBeenCalled();
+    const ok = await applyPartTone(drums, drumChain([block("outboard", outboardFile)]), files, chain, "drums");
+    expect(ok.notice).toBeNull();
+    expect(ok.audio).not.toBe(drums);
+    expect((chain.mock.calls[0][0][0] as { model: string }).model).toBe("prepared:comp-text");
+  });
+
+  it("leaves clean drums alone and reads no files", async () => {
+    const drums = kit(100);
+    const result = await applyPartTone(drums, { kind: "clean" }, noFiles(), identity, "drums");
+    expect(result).toEqual({ audio: drums, notice: null });
   });
 });
