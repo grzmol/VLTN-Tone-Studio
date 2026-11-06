@@ -43,20 +43,23 @@ export interface HumaniseSettings {
   feel: HumaniseChoice;
 }
 
-/** Where a bass tone's capture or cab IR comes from: a TONE3000 download, or a file on this computer. */
-export const BASS_TONE_SOURCES = ["tone3000", "file"] as const;
-export type BassToneSource = (typeof BASS_TONE_SOURCES)[number];
+/** Where a part tone's capture or IR comes from: a TONE3000 download, or a file on this computer. */
+export const PART_TONE_SOURCES = ["tone3000", "file"] as const;
+export type PartToneSource = (typeof PART_TONE_SOURCES)[number];
+/** The bass names of the part tone's types, kept so the bass code reads as it did (spec 83). */
+export const BASS_TONE_SOURCES = PART_TONE_SOURCES;
+export type BassToneSource = PartToneSource;
 
-/** Input drive and output level of the bass tone, in dB. */
+/** Input drive and output level of a part tone's block, in dB. */
 export const BASS_TONE_INPUT_DB: readonly [number, number] = [-12, 12];
 export const BASS_TONE_OUTPUT_DB: readonly [number, number] = [-24, 12];
 
 /**
- * A capture or cab IR the bass tone uses. A TONE3000 file is named by its tone and model, so it can be downloaded again; a file from
+ * A capture or IR a part tone uses. A TONE3000 file is named by its tone and model, so it can be downloaded again; a file from
  * this computer is named by its absolute path.
  */
-export interface BassToneFile {
-  source: BassToneSource;
+export interface PartToneFile {
+  source: PartToneSource;
   /** The TONE3000 tone the file was downloaded from. */
   toneId?: number;
   /** The model of that tone to download. */
@@ -68,6 +71,7 @@ export interface BassToneFile {
   /** The name the Band panel shows. */
   name: string;
 }
+export type BassToneFile = PartToneFile;
 
 /** The parts a performer can bring back rendered audio for. */
 export type RenderedKind = "drums" | "bass";
@@ -81,22 +85,36 @@ export interface RenderedPart {
   importedAt: string;
 }
 
-/** The roles a block of the bass tone chain can play. Pedals, a preamp and an amp are captures; a cab and a space are IRs. */
-export const TONE_ROLES = ["pedal", "preamp", "amp", "cab", "space"] as const;
+/** The roles a block of a part tone chain can play. Pedals, outboard gear, a preamp and an amp are captures; a cab and a space are IRs. */
+export const TONE_ROLES = ["pedal", "preamp", "amp", "cab", "space", "outboard"] as const;
 export type ToneRole = (typeof TONE_ROLES)[number];
 /** What a block's file is: a NAM capture (pedal, preamp, amp) or an impulse response (cab, space). */
 export const TONE_BLOCK_TYPES = ["capture", "ir"] as const;
 export type ToneBlockType = (typeof TONE_BLOCK_TYPES)[number];
-export const TONE_BLOCK_TYPE: Record<ToneRole, ToneBlockType> = { pedal: "capture", preamp: "capture", amp: "capture", cab: "ir", space: "ir" };
-/** The most blocks a bass tone chain holds. */
+export const TONE_BLOCK_TYPE: Record<ToneRole, ToneBlockType> = {
+  pedal: "capture",
+  preamp: "capture",
+  amp: "capture",
+  cab: "ir",
+  space: "ir",
+  outboard: "capture",
+};
+/** The generated parts that can have a tone chain. */
+export type TonePart = "bass" | "drums";
+/** The roles each part's chain offers, in the order the panel lists them. */
+export const PART_ROLES: Record<TonePart, readonly ToneRole[]> = {
+  bass: ["pedal", "preamp", "amp", "cab", "space"],
+  drums: ["outboard", "preamp", "space"],
+};
+/** The most blocks a part tone chain holds. */
 export const MAX_TONE_BLOCKS = 6;
 
-/** One block of the bass tone chain: a capture or an IR, with its drive and output level, its wet mix, and whether it is on. */
+/** One block of a part tone chain: a capture or an IR, with its drive and output level, its wet mix, and whether it is on. */
 export interface ToneBlock {
   type: ToneBlockType;
   role: ToneRole;
   /** The chosen file. Null is an empty slot (a preset's): it plays nothing until a file is chosen. */
-  file: BassToneFile | null;
+  file: PartToneFile | null;
   /** Input drive, in dB (BASS_TONE_INPUT_DB). */
   inputDb: number;
   /** Output level, in dB (BASS_TONE_OUTPUT_DB). */
@@ -108,10 +126,11 @@ export interface ToneBlock {
 }
 
 /**
- * The bass tone. "clean" is the generated DI sample as it is. "chain" plays it through its blocks in order, then mixes the result with the
+ * A part's tone. "clean" is the generated sample as it is. "chain" plays it through its blocks in order, then mixes the result with the
  * dry sample by `dryWet` (0 dry, 1 all chain). `fast` renders captures at their Lite size where the file has one.
  */
-export type BassTone = { kind: "clean" } | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean };
+export type PartTone = { kind: "clean" } | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean };
+export type BassTone = PartTone;
 
 /** The key the overrides of a song without sections are kept under. Section ids are UUIDs, so this cannot clash with one. */
 export const WHOLE_SONG_ID = "song";
@@ -206,8 +225,10 @@ export interface BandSettings {
   humanise: HumaniseSettings;
   /** How long each bass note rings, from 0 (tight) to 1 (ring). Scales the lengths the bass part gives (bass.ts). */
   bassFeel: number;
-  /** The bass tone the generated bass is rendered through (bass-tone.ts). Only Generate uses it. */
-  bassTone: BassTone;
+  /** The bass tone the generated bass is rendered through (part-tone.ts). Only Generate uses it. */
+  bassTone: PartTone;
+  /** The tone the generated drums are rendered through (part-tone.ts, spec 104). Only Generate uses it. */
+  drumTone: PartTone;
   /** Parts brought back as rendered audio (spec 84). A kind is here while its track is the rendered audio, not a generated part. */
   rendered: Partial<Record<RenderedKind, RenderedPart>>;
   /** The time of each generated part's first note at the last Generate, so a rendered file can be lined up with it. */
@@ -238,6 +259,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   followSource: "auto",
   humanise: { amount: 0.5, feel: "style" },
   bassTone: { kind: "clean" },
+  drumTone: { kind: "clean" },
   rendered: {},
   firstNote: {},
   seed: 1,
@@ -468,7 +490,7 @@ const isPositiveId = (value: unknown): value is number => typeof value === "numb
 const isInDbRange = (value: unknown, [min, max]: readonly [number, number]): value is number => isInRange(value, min, max);
 
 /** A capture or IR file, if every field it needs is valid. A TONE3000 file needs its tone and model; a local file needs its path. */
-function parseBassToneFile(value: unknown): BassToneFile | null {
+function parsePartToneFile(value: unknown): PartToneFile | null {
   if (!isRecord(value) || typeof value.name !== "string" || value.name.trim() === "" || value.name.length > MAX_NAME) return null;
   if (value.source === "tone3000") {
     if (!isPositiveId(value.toneId) || !isPositiveId(value.modelId)) return null;
@@ -483,10 +505,10 @@ function parseBassToneFile(value: unknown): BassToneFile | null {
 }
 
 /** A chain block, if every field it needs is valid. The file's kind must match the role (a cab is an IR, an amp a capture). */
-function parseToneBlock(value: unknown): ToneBlock | null {
-  if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return null;
+function parseToneBlock(value: unknown, part: TonePart): ToneBlock | null {
+  if (!isRecord(value) || !PART_ROLES[part].includes(value.role as ToneRole)) return null;
   const role = value.role as ToneRole;
-  const file = value.file === null ? null : parseBassToneFile(value.file);
+  const file = value.file === null ? null : parsePartToneFile(value.file);
   if ((value.file !== null && !file) || value.type !== TONE_BLOCK_TYPE[role]) return null;
   return {
     type: TONE_BLOCK_TYPE[role],
@@ -500,11 +522,11 @@ function parseToneBlock(value: unknown): ToneBlock | null {
 }
 
 /** True when every field of a chain block is present and valid. */
-function isToneBlock(value: unknown): boolean {
-  if (!isRecord(value) || !TONE_ROLES.includes(value.role as ToneRole)) return false;
+function isToneBlock(value: unknown, part: TonePart): boolean {
+  if (!isRecord(value) || !PART_ROLES[part].includes(value.role as ToneRole)) return false;
   return (
     value.type === TONE_BLOCK_TYPE[value.role as ToneRole] &&
-    (value.file === null || parseBassToneFile(value.file) !== null) &&
+    (value.file === null || parsePartToneFile(value.file) !== null) &&
     isInDbRange(value.inputDb, BASS_TONE_INPUT_DB) &&
     isInDbRange(value.outputDb, BASS_TONE_OUTPUT_DB) &&
     isUnit(value.mix) &&
@@ -512,29 +534,29 @@ function isToneBlock(value: unknown): boolean {
   );
 }
 
-/** True when the value is a complete, valid bass tone. A chain holds at most MAX_TONE_BLOCKS blocks, each one valid. */
-function isBassTone(value: unknown): value is BassTone {
+/** True when the value is a complete, valid tone for the part. A chain holds at most MAX_TONE_BLOCKS blocks, each one valid. */
+function isPartTone(value: unknown, part: TonePart): value is PartTone {
   if (!isRecord(value)) return false;
   if (value.kind === "clean") return true;
   return (
     value.kind === "chain" &&
     Array.isArray(value.blocks) &&
     value.blocks.length <= MAX_TONE_BLOCKS &&
-    value.blocks.every(isToneBlock) &&
+    value.blocks.every((block) => isToneBlock(block, part)) &&
     isUnit(value.dryWet) &&
     isBool(value.fast)
   );
 }
 
 /**
- * Reads a saved bass tone. A spec 83 "nam" tone (one capture, an optional cab IR, a drive, an output and a blend) becomes a chain of an amp
+ * Reads a saved tone for a part. For the bass, a spec 83 "nam" tone (one capture, an optional cab IR, a drive, an output and a blend) becomes a chain of an amp
  * and a cab. A chain keeps its valid blocks, in order, up to MAX_TONE_BLOCKS; an invalid block is dropped. Anything else gives the clean
  * bass.
  */
-export function parseBassTone(value: unknown): BassTone {
+export function parsePartTone(value: unknown, part: TonePart): PartTone {
   if (!isRecord(value)) return { kind: "clean" };
-  if (value.kind === "nam") {
-    const capture = parseBassToneFile(value.capture);
+  if (value.kind === "nam" && part === "bass") {
+    const capture = parsePartToneFile(value.capture);
     if (!capture) return { kind: "clean" };
     const amp: ToneBlock = {
       type: "capture",
@@ -546,19 +568,24 @@ export function parseBassTone(value: unknown): BassTone {
       on: true,
     };
     const blocks = [amp];
-    const cab = parseBassToneFile(value.ir);
+    const cab = parsePartToneFile(value.ir);
     if (cab) blocks.push({ type: "ir", role: "cab", file: cab, inputDb: 0, outputDb: 0, mix: 1, on: true });
     return { kind: "chain", blocks, dryWet: isUnit(value.blend) ? value.blend : 1, fast: false };
   }
   if (value.kind !== "chain") return { kind: "clean" };
   const blocks = Array.isArray(value.blocks)
     ? value.blocks
-        .map(parseToneBlock)
+        .map((block) => parseToneBlock(block, part))
         .filter((block): block is ToneBlock => block !== null)
         .slice(0, MAX_TONE_BLOCKS)
     : [];
   return { kind: "chain", blocks, dryWet: isUnit(value.dryWet) ? value.dryWet : 1, fast: isBool(value.fast) ? value.fast : false };
 }
+
+/** Reads a saved bass tone (see parsePartTone). */
+export const parseBassTone = (value: unknown): PartTone => parsePartTone(value, "bass");
+/** Reads a saved drum tone. Songs saved before spec 104 have none and read as clean drums. */
+export const parseDrumTone = (value: unknown): PartTone => parsePartTone(value, "drums");
 
 /** True when the value is a complete, valid set of band settings. Use parseBandSettings for saved data that may be partial or old. */
 export function isBandSettings(value: unknown): value is BandSettings {
@@ -582,7 +609,8 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isFollowSource(value.followSource) &&
     isHumanise(value.humanise) &&
     isUnit(value.bassFeel) &&
-    isBassTone(value.bassTone) &&
+    isPartTone(value.bassTone, "bass") &&
+    isPartTone(value.drumTone, "drums") &&
     isRendered(value.rendered) &&
     isFirstNote(value.firstNote) &&
     isSeed(value.seed) &&
@@ -661,6 +689,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,
     humanise: parseHumanise(source.humanise),
     bassTone: parseBassTone(source.bassTone),
+    drumTone: parseDrumTone(source.drumTone),
     rendered: parseRendered(source.rendered),
     firstNote: parseFirstNote(source.firstNote),
     seed: isSeed(source.seed) ? source.seed : defaults.seed,

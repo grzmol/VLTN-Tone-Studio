@@ -4,7 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { BASS_FROM, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type BassFrom, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
 import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
 import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
-import { BassToneChain } from "./BassToneChain";
+import { PartToneChain } from "./PartToneChain";
 import { BASS_PART_LABELS } from "./band-labels";
 /**
  * The track of a band slider. The theme's muted track is nearly the colour of the glass dialog, so at a value of 0 only the thumb showed.
@@ -29,7 +29,7 @@ export interface BandSettingsFormProps {
   onChange(patch: Partial<BandSettings>): void;
   /** Changes the style, which also sets its swing default. */
   onStyle(id: StyleId): void;
-  /** The song's length in seconds, for the bass tone's render-time estimate. */
+  /** The song's length in seconds, for the tone chains' render-time estimates. */
   songSeconds?: number;
 }
 
@@ -217,7 +217,8 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, s
           </SelectContent>
         </Select>
       </label>
-      <BassToneChain tone={settings.bassTone} songSeconds={songSeconds} onChange={(bassTone) => onChange({ bassTone })} />
+      <PartToneChain part="drums" tone={settings.drumTone} songSeconds={songSeconds} onChange={(drumTone) => onChange({ drumTone })} />
+      <PartToneChain part="bass" tone={settings.bassTone} songSeconds={songSeconds} onChange={(bassTone) => onChange({ bassTone })} />
     </section>
   );
 }

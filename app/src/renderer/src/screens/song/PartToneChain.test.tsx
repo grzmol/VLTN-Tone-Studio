@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
 import type { BassTone, ToneBlock } from "@/song/band/arrangement";
-import { BassToneChain } from "./BassToneChain";
+import { PartToneChain } from "./PartToneChain";
 
 const mocks = vi.hoisted(() => ({
   electron: { value: true },
@@ -44,7 +44,7 @@ function renderChain(tone: BassTone, songSeconds = 0) {
   const onChange = vi.fn();
   render(
     <TooltipProvider>
-      <BassToneChain tone={tone} songSeconds={songSeconds} onChange={onChange} />
+      <PartToneChain part="bass" tone={tone} songSeconds={songSeconds} onChange={onChange} />
     </TooltipProvider>,
   );
   return onChange;
@@ -83,7 +83,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("BassToneChain", () => {
+describe("PartToneChain", () => {
   it("is clean by default, offers the presets, and has no blocks to edit", () => {
     renderChain(clean);
     expect(screen.getByText("Clean, as generated")).toBeTruthy();
@@ -233,7 +233,7 @@ describe("BassToneChain", () => {
 function renderTone(tone: BassTone, songSeconds: number) {
   return render(
     <TooltipProvider>
-      <BassToneChain tone={tone} songSeconds={songSeconds} onChange={vi.fn()} />
+      <PartToneChain part="bass" tone={tone} songSeconds={songSeconds} onChange={vi.fn()} />
     </TooltipProvider>,
   );
 }

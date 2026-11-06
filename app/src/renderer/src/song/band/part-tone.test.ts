@@ -12,7 +12,7 @@ import {
   type BassToneFiles,
   type LoadedBassTone,
   type LoadedBlock,
-} from "./bass-tone";
+} from "./part-tone";
 import { PEAK_LIMIT } from "./render";
 
 // The NAM engine itself needs an AudioWorklet, so the capture is passed through as its text, marked so the test can see it was prepared.
