@@ -11,7 +11,7 @@ import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
-import type { Cue, MidiTrigger } from "@/song/performance/chart";
+import { expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
 import { setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
 import { beatSeconds, countInBeats, preRollStart } from "@/song/performance/rhythm";
 import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/performance/transition";
@@ -341,6 +341,7 @@ export class PerformanceSession {
   /** Whether the playing song has been counted as played. Counted once per song, at its halfway point. */
   private playedRecorded = false;
   private playedTimer: ReturnType<typeof setInterval> | null = null;
+  private expandedCues: { cues: Cue[]; sections: Section[]; value: Cue[] } | null = null;
   private clampedSections: { source: Section[]; start: number; end: number; value: Section[] } | null = null;
   /** The id of the song being handed over to, from the moment the library moves on until the session that takes it over is set up */
   private handingOver: string | null = null;
@@ -690,6 +691,19 @@ export class PerformanceSession {
 
   // ---- triggers ------------------------------------------------------------------------------------------------
 
+  /**
+   * The cues the scheduler and the state chase use: the chart's cues, with each section cue turned into timed cues at the start of the sections
+   * it names. The same array while neither the cues nor the sections change, and the chart's own array when it has no section cues, so a chart
+   * without them behaves exactly as before.
+   */
+  private playCues(s: Pick<SessionState, "cues" | "sections">): Cue[] {
+    const cached = this.expandedCues;
+    if (cached && cached.cues === s.cues && cached.sections === s.sections) return cached.value;
+    const value = expandSectionCues(s.cues, s.sections);
+    this.expandedCues = { cues: s.cues, sections: s.sections, value };
+    return value;
+  }
+
   /** The messages of the song's triggers of one kind, in chart order. */
   private triggerBytes(kind: MidiTrigger): number[][] {
     return this.state.cues.filter((cue) => cue.trigger === kind).flatMap((cue) => cue.messages);
@@ -1008,7 +1022,7 @@ export class PerformanceSession {
       // A chase that the pedals need before the song begins holds the audio back by CHASE_LEAD_MS, so it goes out first. Nothing is held
       // when the output is not armed, or when there is no state to chase (a start from the beginning, or no cues before the position).
       const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
-      const chaseLead = armed && computeChaseState(this.state.cues, chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
+      const chaseLead = armed && computeChaseState(this.playCues(this.state), chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
       // Clock without a count-in has no lead-in to cover the scheduler's start, so the hold is CLOCK_LEAD_MS.
       const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 ? CLOCK_LEAD_MS : 0;
       const lead = Math.max(chaseLead, clockLead) / 1000;
@@ -1920,7 +1934,7 @@ export class PerformanceSession {
       },
       // The MIDI scheduler itself.
       {
-        deps: (s) => [s.playing, s.player, armedOf(s), selectOutput(s), s.clock, s.bpm, s.cues, s.timecode],
+        deps: (s) => [s.playing, s.player, armedOf(s), selectOutput(s), s.clock, s.bpm, this.playCues(s), s.timecode],
         run: (s) => this.runScheduler(s),
       },
       // A USB output that goes away disarms the session. The same port id re-enumerated as a new object is the same device:
@@ -2055,7 +2069,7 @@ export class PerformanceSession {
       this.incomingTail = null;
       const handle = startMidiScheduler(
         {
-          cues: s.cues,
+          cues: this.playCues(s),
           position: cuePosition,
           duration: player.duration,
           origin,

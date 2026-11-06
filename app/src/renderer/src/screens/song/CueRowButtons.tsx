@@ -1,11 +1,25 @@
 import { Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { lrcTime, type Cue } from "@/song/performance/chart";
+import { describeSectionCue } from "@/song/performance/section-cues";
 
 /** The Edit and Remove buttons of one row in the cue table. A cue the parser can't place has neither: its text is changed in the chart. */
-export function CueRowButtons({ cue, locked, onEdit, onRemove }: { cue: Cue; locked: boolean; onEdit: () => void; onRemove: () => void }) {
+export function CueRowButtons({
+  cue,
+  locked,
+  sections = [],
+  onEdit,
+  onRemove,
+}: {
+  cue: Cue;
+  locked: boolean;
+  sections?: { name: string; start: number }[];
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
   if (!cue.source) return null;
-  const name = `${cue.trigger ? `On ${cue.trigger}` : lrcTime(cue.time)}: ${cue.label || "Raw MIDI command"}`;
+  const when = cue.trigger === "section" ? describeSectionCue(cue, sections).text : cue.trigger ? `On ${cue.trigger}` : lrcTime(cue.time);
+  const name = `${when}: ${cue.label || "Raw MIDI command"}`;
   const title = locked ? "Stop playback to change cues" : undefined;
   return (
     <div className="flex gap-1" title={title}>
