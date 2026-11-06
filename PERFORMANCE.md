@@ -32,7 +32,7 @@ The play controls, tempo and metronome stay at the top. Under them, choose a vie
 
 The view you used last opens next time. Longer explanations sit behind **How this works**, and the cards in **Setup** and **MIDI** fold away with the arrow beside their title.
 
-Everything here works in the desktop app. The browser build can play a song and send USB MIDI, but has no song library and no sleep prevention. Saved songs, backups and playlists are covered in the [song library guide](SONG-LIBRARY.md).
+Everything here works in the desktop app. The browser build can play a song and send USB MIDI, but has no song library and no sleep prevention. Saved songs, backups and playlists are covered in the [song library guide](SONG-LIBRARY.md). To have an assistant map a song's sections, drums, bass and timing, export a song brief and import the reply: see the [song map guide](SONG-MAP.md).
 
 ## Prepare a song
 
