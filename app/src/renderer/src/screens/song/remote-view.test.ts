@@ -11,6 +11,8 @@ const state = (): ViewState => ({
   mix: { gains: {}, pans: {}, muted: [], soloed: [] } as unknown as ViewState["mix"],
   setMix: vi.fn(),
   tracks: {},
+  partChoices: { drums: "original", bass: "original" },
+  choosePart: vi.fn(),
   tap: vi.fn(),
 });
 
@@ -77,5 +79,19 @@ describe("page actions with lyrics on screen", () => {
 
   it("says the lyrics are not on screen when neither a PDF nor the reader is", () => {
     expect(buildViewHost(state()).scrollLyrics(1, true)).toBe("Lyrics are not on screen.");
+  });
+});
+
+describe("the drums and bass switch", () => {
+  it("switches a part with a generated track between its original and its generated track", () => {
+    const view = { ...state(), tracks: { track1: { kind: "user" as const, name: "Drums (generated)" } } };
+    buildViewHost(view).togglePart("drums");
+    expect(view.choosePart).toHaveBeenCalledWith({ drums: "generated" });
+  });
+
+  it("says to generate the part first when it has no generated track, and changes nothing", () => {
+    const view = state();
+    expect(buildViewHost(view).togglePart("bass")).toBe("Generate the bass first.");
+    expect(view.choosePart).not.toHaveBeenCalled();
   });
 });

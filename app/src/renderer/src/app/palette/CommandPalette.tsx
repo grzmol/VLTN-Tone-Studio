@@ -5,6 +5,7 @@ import {
   AudioLines,
   AudioWaveform,
   Cable,
+  Drum,
   ExternalLink,
   FileUp,
   FolderOpen,
@@ -29,6 +30,7 @@ import {
 import { modelsFor } from "@/gp5/lib/catalog.mjs";
 import { parsePrst } from "@/gp5/lib/prst.mjs";
 import { useLibrary } from "@/screens/library/store";
+import { useBandPanel } from "@/screens/song/band-panel-state";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
@@ -218,6 +220,17 @@ function useGroups(close: () => void): Group[] {
         run: go("song", "tone"),
       }),
       actionEntry({ id: "split-song", label: "Split a song into stems", icon: AudioLines, words: ["stems", "song", "separate", "guitar", "vocals", "drums"], run: go("song", "stems") }),
+      actionEntry({
+        id: "generate-band",
+        label: "Generate drums and bass…",
+        icon: Drum,
+        words: ["band", "drums", "bass", "parts", "backing", "generate"],
+        run: () => {
+          close();
+          useNav.getState().go("song", "performance");
+          useBandPanel.getState().show(true);
+        },
+      }),
       actionEntry({ id: "backups-folder", label: "Open backups folder", icon: FolderOpen, run: cmd("open-backups-folder") }),
       actionEntry({
         id: "reconnect",

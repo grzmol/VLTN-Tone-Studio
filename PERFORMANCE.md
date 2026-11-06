@@ -13,6 +13,7 @@ Play a song or a whole set from one screen: stems, a metronome, lyrics and chord
 - [Sections](#sections)
 - [Playlists](#playlists)
 - [Gapless and crossfade](#gapless-and-crossfade)
+- [Generated drums and bass](#generated-drums-and-bass)
 - [Stage mode](#stage-mode)
 - [Troubleshooting](#troubleshooting)
 - [Limits](#limits)
@@ -24,7 +25,7 @@ Open **Song → Performance**. It needs audio loaded in **Stems**; splitting int
 The play controls, tempo and metronome stay at the top. Under them, choose a view:
 
 - **Play**: the sections, the mixer and the lyrics and chords reader. This is what you need on stage.
-- **This song**: speed and pitch, trim and fades, key, loudness, imported tracks, sections, and the song's MIDI trigger. These are saved with the song.
+- **This song**: speed and pitch, trim and fades, key, loudness, imported tracks, generated drums and bass, sections, and the song's MIDI trigger. These are saved with the song.
 - **Lyrics & chords**: lyrics from the vocals, the chart editor and chords from the stems.
 - **MIDI**: the MIDI check, the controller setup, and the song's MIDI file and cues.
 - **Setup**: audio outputs, the audience display, band sync, remote control and loading songs from MIDI. These apply to every song.
@@ -36,7 +37,7 @@ Everything here works in the desktop app. The browser build can play a song and 
 ## Prepare a song
 
 1. Load the audio in **Stems** and split it if you want the stems.
-2. Set **Song BPM** to the recording's tempo while stopped. The metronome, count-in and tempo commands start from it, and [speed](#speed-and-pitch) scales that tempo during playback. The app detects a tempo when a song is first analysed. **Detect** beside the BPM finds it again, and offers the half or the double when the beat was counted wrong. When the tempo was set by hand, tapped or taken from the chart, **Find the beat at N BPM** finds the beat again from the number you set, so the click lines up with the recording: the tracker refines it within 4% of your number. Tick **Keep exactly N** to keep the tempo as typed and find only where the beats fall. **Undo** puts back the tempo, the beat grid and the sections.
+2. Set **Song BPM** to the recording's tempo while stopped. The metronome, count-in and tempo commands start from it, and [speed](#speed-and-pitch) scales that tempo during playback. The app detects a tempo when a song is first analysed. **Detect** beside the BPM finds it again, and offers the half or the double when the beat was counted wrong. When the tempo was set by hand, tapped or taken from the chart, **Find the beat at N BPM** finds the beat again from the number you set, so the click lines up with the recording: the tracker refines it within 4% of your number. Tick **Keep exactly N** to keep the tempo as typed and find only where the beats fall. **Undo** puts back the tempo, the beat grid and the sections. The Band panel's **Find the beat** starts from your tempo too, with **Use my tempo** on by default.
 3. Add lyrics, chords and MIDI cues (below).
 4. Enter a title and artist and choose **Save song to library**. Use **Save song changes** after later edits.
 
@@ -352,6 +353,65 @@ The app can send MIDI Time Code (quarter frames and full frames) so that a DAW, 
 - Late quarter frames are dropped rather than sent in a burst. A late full frame is still sent, because it sets the position.
 
 Check the receiving device on the rig before relying on it, and see the timecode rows in the hardware test plan.
+
+## Generated drums and bass
+
+The Band panel can generate drums and bass to play along, for a song that is missing them and for one that already has them. The split notice names a part that is missing. On the Performance screen, press **Generate drums & bass…** to open the panel and make them. Its help line says what the panel does, and the line under the button shows the state: "No drums found" or "No bass found" for a part the split missed, then the generated parts and what plays, such as "Generated: drums, bass. Playing generated drums, original bass." Once the song has generated parts the button reads **Drums & bass…**. The command palette (Ctrl/Cmd K) also has **Generate drums and bass…**, which opens the panel from the Performance screen.
+
+**Find the beat.** Press **Find the beat** first. It listens to the drums stem if there is one, then the pitched stems, then the whole mix. The panel shows what it found, for example "120.0 BPM, steady, 16 beats, 4 per bar". The parts follow this beat grid, so check it before you generate. The bar lines follow the chord changes, and they can move partway through a song where the chords move to another beat of the bar, so a short or long bar is kept. Press **Find the beat** again on a song found before this release to get those bar lines.
+
+If the grid is wrong, correct it:
+
+- **Half tempo** and **Double tempo** halve or double the beats, for a song the tracker heard at the wrong speed.
+- **Downbeat ←** and **Downbeat →** move the bar line by one beat.
+- **Nudge −10 ms** and **Nudge +10 ms** shift the whole grid a little.
+- **Use fixed BPM** builds a grid from the Song BPM and first beat, for a song with no click that the tracker cannot find. Set those first (see [Prepare a song](#prepare-a-song)).
+- **Set metronome to this tempo** copies a steady grid's tempo and first beat to the metronome.
+
+**Styles and settings.** Choose a style: Rock, Pop, Ballad, Country, Funk, Half-time, Reggae, Shuffle, Metal or 6/8. Then tune it:
+
+- **Complexity** sets how busy the patterns are.
+- **Swing** pushes the off-beats. Each style has its own default, which you can change.
+- **Ghost notes** adds soft snare hits between the backbeats. **Crash on section starts** puts a crash at the start of each section.
+- **Bass range** is low, normal or high.
+- **Default bass part** is the part a section plays when it is on Auto and Auto has no rule of its own. See [The bass part](#the-bass-part).
+- **Bass notes from** is **Original bass** by default, or **Chords**. Original bass plays the note the song's own bass stem plays on each beat, where the analysis could hear one; the chord still sets the quality of the notes around it. A beat with no clear bass note keeps the chord's own bass, and a song with no bass stem always does. Chords plays each chord's own bass, which is the one a slash chord names. Under each chord change in the grid, the strip shows the bass note when it is not the chord's root, so you can see where the bass differs.
+- **Lock bass to kick** makes the bass land on the kick.
+- **Humanise** adds small timing and velocity variation. **Feel** is the style default, Tight, Natural, Laid back or Pushed.
+- **Follow my playing** takes the parts' accents from your playing. **Follow source** picks the stem to listen to: Auto, or a stem that the split made. In Auto, a song whose sections show no clear accents is not followed. When a part cannot follow, the panel says why after Generate, and the part keeps its normal feel.
+
+**Fix a bass note yourself.** When the generated bass plays a wrong note, click its beat or its chord in the beat strip. The editor shows the beat's time and bar, the chord, and the note the bass plays now with where it comes from: your own note, the original bass, or the chords. Choose a note and an octave nudge, then choose where it applies: **This beat**, **This bar**, **Until the next chord change**, or **This chord everywhere in this section**. The last one sets the chord in every section with the same name, so each chorus can be fixed at once. **Apply** saves the note, **Reset** removes the note on that beat, and **Listen** plays about two bars around the beat with the choice in place, without saving it. A beat with a note of your own is marked in the strip. **Your bass notes** under the strip lists each one with its time range, and **Remove** or **Remove all** takes them out. Your notes win over the original bass and the chords. They stay through **Generate** and **Try another**, and a change marks the parts out of date, so Generate again to hear it.
+
+**Use your own render.** Export the parts as MIDI, render them in your own DAW with your own instruments, and bring the audio back. In the Band panel, **Use my rendered drums…** or **Use my rendered bass…** picks a WAV, FLAC, MP3, M4A or OGG file. The file takes the place of that part's generated track, which keeps its name, so the mixer and **What plays** work as they do for a generated part. A file of up to 0.5 s different from the song's length is used as it is, one 0.5 to 5 s different is padded or cut with a notice, and one more than 5 s away is not used. If the file's first hit is more than 20 ms away from the part's first generated note, the panel says how far, and offers **Line up with the first note**, which moves the file that far; **Use as it is** keeps it where it is. Nothing is moved without that choice. The line-up needs a generated part to line up with, so generate the part once, or the file is used as it is. **Back to generated** renders the part again with the current settings, since the generated audio is not kept, so the generated part can differ from the one you first made if the settings have changed. **Generate** asks before it replaces a rendered part. Remove generated parts takes the rendered audio out too. The file on your disk is never changed. These actions are off during playback, like Generate.
+
+**Bass tone.** The generated bass can play through a chain of up to six blocks, in the order you set: a pedal (a compressor or drive), a preamp, an amp, a cab IR and a space IR for room or reverb. **Add pedal…**, **Add preamp…**, **Add amp…**, **Add cab IR…** and **Add space IR…** pick a NAM capture from TONE3000 (the search starts on "bass" with that gear, and you can change it) or open a `.nam` or `.wav` file on this computer. A capture that is an older A1 model is labelled "older capture". Each block has **On**, its **In** drive, its **Out** level and its **Mix** (100% is all processed, 0% passes the block through), and **Up**, **Down** and **Remove** change the order. **Start from a preset** sets up an empty chain with the roles set, for you to fill: Bass DI + amp, Driven bass, or Studio bass (a pedal, an amp, a cab and a room IR at 20%). The chain has a **Chain wet** mix with the clean bass, and **Fast render** renders captures at their Lite size where the file has one. A full-size capture takes about 5 s to render per minute of song (less with Fast render), and the panel shows the estimate for the song. **Clean bass** goes back to the clean sample. The chain renders when you press Generate, and the preview hears it too. The whole chain is matched to the clean bass's loudness, so it changes the tone and not the level. It never renders during playback. TONE3000 has no bass tag, so the search matches on the word "bass" and can list a capture that is not for bass, so listen before you use one. If a capture or IR is no longer on the computer, the bass plays clean and the panel says which file is missing. Empty slots and off blocks play nothing. The web build can't use bass tones, so the chain is disabled there.
+
+**Sections.** The table has one row per section, or one row for a song without sections. Each row sets the section's style, **Energy** (1 to 5), whether it has a **Fill** at its end, and whether drums and bass play in it. Energy starts from the section's name: choruses and solos are higher, intros, verses and outros lower. The defaults also follow the original band. The generated bass rests in a section where the original bass stops, the generated drums stop where the original drums stop, and a section that is clearly louder or quieter than the rest of the song plays one energy level up or down. Your own settings for a section always win. Click a row to select it. Preview then starts from that section. Energy shapes the drums. **Bass part**, **Busy** and **Loud** shape the bass, and Loud also softens or hardens the drums. **More** opens the rest of the bass options for the row. The table scrolls sideways inside its own box when the window is narrow.
+
+**The bass part.** Each section plays one bass part: **Ring out** (held notes, one or two a bar), **Root pulse** (quarters or eighths on the root), **Groove** (the style's rhythms), **Melodic** (groove with approach notes), **Walking**, **Pedal** (one held note that ignores the chords) or **Rest**. **Auto** picks one from the section's name, and the row shows what it picked, for example "Auto · Ring out". Intros start on a pedal for two bars, verses ring when quiet and pulse when busier, pre-chorus pulses and gets louder over its last two bars, choruses groove or go melodic at busy 4 and up, bridges go melodic an octave up (or ring when the chorus grooves), solos groove and outros ring. A section with another name plays the default part. **Busy** (1 to 5, from the energy) sets how many notes a part plays, and **Loud** (1 to 5) how hard they play. **Feel** sets how long the notes ring: Tight shortens them and Ring lets them sound on. **Octave** moves a section up or down an octave when the range allows it. **Fills** (0 to 3) set how often the bass varies the last bar of a four-bar phrase, with a pickup, an octave pop, a run into the next root or an empty last beat. A section that leads into a section with a different name plays a short run into its first note. **Hit the one** holds a chorus's first note and plays it harder. **Slides**, **Dead notes** and **Pickups** are playing techniques. Each style sets its own defaults, shown in More: funk plays dead notes, ballad slides, and the others pickups. After Generate, the panel says how far under the song each part sits, for example "Drums set 4.0 dB under the song, bass 7.2 dB under." A part that the peak limit held back says so.
+
+**Generate, Try another, Remove, Preview and Export MIDI.**
+
+- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Changing a setting does not regenerate anything. The panel says "Parts out of date" until you press Generate again.
+- **Try another** keeps your settings and makes a different take.
+- **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
+- **Preview 4 bars** plays four bars of the parts over the song, from the selected section or from the playhead. **Stop preview** ends it early.
+- **Export MIDI…** saves the notes of the last Generate as `<song title> - band.mid`. Drums go on channel 10 and bass on channel 1, with the song's tempo. It is available after Generate until you close the panel. Open the file in a sequencer or a notation app to use the parts elsewhere.
+
+Everything here works offline, and the samples ship with the app. Generating, removing, previewing and exporting are all off during playback, so press Stop first.
+
+The parts are normal tracks in the mixer, so you can mute, solo or set their volume. The bass follows the song's pitch shift, as set by **Follows pitch** on its track. The drums do not, since a drum hit has no pitch to shift.
+
+**What plays.** Under the Band panel's status, each part has its own choice: **Original** plays the drums or bass the split found, **Generated** plays the band's part, and **Both** plays the two together. Generated and Both need a generated part, so generate the part first. Generate switches a part that was on Original to Generated, so you hear what you made, and says so. Remove generated parts puts both parts back on Original. The choice is saved with the song, and works on a song that already has the part. Switching only changes the mute levels of the two tracks, so a switch during playback is click-free and playback keeps going. Your volume and pan on each track stay as they were. Apply to similar songs copies the choice when both songs have generated parts. Remote and MIDI bindings can toggle a part between Original and Generated with **Toggle drums: original or generated** and **Toggle bass: original or generated**.
+
+**Limits.**
+
+- The chords come from the chart, or from chord detection when the chart has none. Detection names the common chord types and slash basses (see [Lyrics and chords](#lyrics-and-chords)). If neither gives chords, the bass rests, and the panel says so.
+- The bass notes come from the bass stem when the song has one, and from the chords otherwise. The bass stem is read once per beat, so a beat with two different notes gets the one that sounds for most of it. Check the strip where the bass differs from the chord.
+- A song with no click may need beat corrections before its parts line up. Check the first and last bars of each section.
+- Listen before a show. Preview a few sections, then check the whole song.
+
+The drum and bass samples are CC0, so they need no attribution. The [sample notice](app/src/renderer/src/song/band/NOTICE.md) lists the libraries and the files used.
 
 ## Stage mode
 

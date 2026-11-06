@@ -192,6 +192,7 @@ const NO_VIEW: ViewHost = {
   toggleStage: NOT_ON_SCREEN,
   muteGroup: NOT_ON_SCREEN,
   toggleClick: NOT_ON_SCREEN,
+  togglePart: NOT_ON_SCREEN,
   tap: NOT_ON_SCREEN,
 };
 
