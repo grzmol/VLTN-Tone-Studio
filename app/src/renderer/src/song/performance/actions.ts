@@ -28,8 +28,10 @@ export interface ActionHost {
   cancelSectionJump(): Hint;
   arm(): Hint;
   disarm(): Hint;
-  /** Scrolls the lyrics by a line, or by a page. */
+  /** Scrolls the lyrics, or turns the page of a PDF chart on screen (a page action turns a page). */
   scrollLyrics(direction: -1 | 1, pages: boolean): Hint;
+  /** Whether a PDF chart is on screen. The default section keys turn its pages while it is. */
+  pdfOnScreen(): boolean;
   fontSize(direction: -1 | 1): Hint;
   toggleStage(): Hint;
   muteGroup(n: number): Hint;
@@ -40,7 +42,7 @@ export interface ActionHost {
 }
 
 /** The part of `ActionHost` that the performance screen supplies. */
-export type ViewHost = Pick<ActionHost, "scrollLyrics" | "fontSize" | "toggleStage" | "muteGroup" | "toggleClick" | "tap">;
+export type ViewHost = Pick<ActionHost, "scrollLyrics" | "pdfOnScreen" | "fontSize" | "toggleStage" | "muteGroup" | "toggleClick" | "tap">;
 
 /** A number an action takes, such as the section in "Jump to section 3". */
 export interface ActionNumber {
@@ -75,6 +77,18 @@ const DEFINITIONS = {
   "section.toggleLoop": { label: "Loop current section", group: "Sections", run: (h) => h.toggleSectionLoop() },
   "section.exitLoop": { label: "Exit loop", group: "Sections", run: (h) => h.exitSectionLoop() },
   "section.cancelJump": { label: "Cancel jump", group: "Sections", run: (h) => h.cancelSectionJump() },
+  // The default keys for the next and previous section (PageDown, PageUp and the arrows). While a PDF chart is on screen they turn its
+  // pages instead. A key the performer learned to a section action is never changed: it still runs `section.next`.
+  "section.nextOrPage": {
+    label: "Next section, or next PDF page",
+    group: "Sections",
+    run: (h) => (h.pdfOnScreen() ? h.scrollLyrics(1, true) : h.nextSection()),
+  },
+  "section.previousOrPage": {
+    label: "Previous section, or previous PDF page",
+    group: "Sections",
+    run: (h) => (h.pdfOnScreen() ? h.scrollLyrics(-1, true) : h.previousSection()),
+  },
   "view.scrollUp": { label: "Scroll lyrics up", group: "View", run: (h) => h.scrollLyrics(-1, false) },
   "view.scrollDown": { label: "Scroll lyrics down", group: "View", run: (h) => h.scrollLyrics(1, false) },
   "view.pageUp": { label: "Page up", group: "View", run: (h) => h.scrollLyrics(-1, true) },

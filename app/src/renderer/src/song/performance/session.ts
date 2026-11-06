@@ -46,6 +46,8 @@ import { rememberedPort, useMidiConfiguration, type PortChoice } from "@/song/pe
 import type { BleMidiConnection } from "@/bluetooth/connection";
 import { countsAsPlayed } from "@shared/library-history";
 import { ACTIONS, actionLabel, isActionId, runAction, type ActionHost, type Hint, type ViewHost } from "./actions";
+import { FollowerGate } from "./band-control";
+import { isFollowerAction, type FollowerAction } from "@shared/band-sync";
 import {
   RemoteRouter,
   defaultBindings,
@@ -185,6 +187,7 @@ const NOT_ON_SCREEN = (): Hint => "This control is not on screen.";
 /** The view actions before the performance screen has supplied its own. */
 const NO_VIEW: ViewHost = {
   scrollLyrics: NOT_ON_SCREEN,
+  pdfOnScreen: () => false,
   fontSize: NOT_ON_SCREEN,
   toggleStage: NOT_ON_SCREEN,
   muteGroup: NOT_ON_SCREEN,
@@ -364,6 +367,7 @@ export class PerformanceSession {
   private autoplayPending = false;
   /** Decides what each incoming MIDI message and key press runs, and recognises our own output coming back */
   private readonly remote = new RemoteRouter();
+  private readonly followerGate = new FollowerGate();
   /** The view actions, which the performance screen supplies (see `setView`) */
   private view: ViewHost = NO_VIEW;
   /** What the session does for the remote actions. Each returns a hint when the action does not apply now. */
@@ -1613,6 +1617,22 @@ export class PerformanceSession {
     } catch (e) {
       stopLearn(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /**
+   * A transport action a band follower asked for (spec 44). Anything that is not one of the follower actions is ignored. A stop needs a
+   * second press, as a double-press binding does, so the performer sees "press again" before the song stops.
+   */
+  runFollowerAction(action: string): void {
+    if (!isFollowerAction(action)) return;
+    const step = this.followerGate.take(action as FollowerAction);
+    if (step.kind === "armed") {
+      showToast({ tone: "info", title: "A bandmate asked to stop", body: "Press stop again within 0.6 s to stop the song." });
+      return;
+    }
+    showToast({ tone: "info", title: `A bandmate asked: ${actionLabel(step.action)}` });
+    const hint = runAction({ action: step.action }, this.actionHost());
+    if (hint) showToast({ tone: "info", title: hint });
   }
 
   /** Runs what the bindings matched. A first press of a double press says so, so the performer knows it is waiting for the second. */

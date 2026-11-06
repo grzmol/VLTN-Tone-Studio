@@ -17,8 +17,17 @@ export const HISTORY_MAX = 500;
 export const KEYWORDS_MAX = 20;
 export const FOLDERS_MAX = 500;
 export const NOTES_MAX = 2000;
-/** The settings a saved song keeps, by suffix. */
-export const SETTING_SUFFIXES = ["", ":bpm", ":lyrics", ":options"] as const;
+/** A saved song's PDF chart and its annotations live in the song's revision folder. The app never changes the PDF itself. */
+export const CHART_FILE = "chart.pdf";
+export const CHART_ANNOTATIONS_FILE = "chart-annotations.json";
+/** A PDF over this size is refused, so a backup keeps a sensible size. The limit is counted in the backup's byte total. */
+export const CHART_PDF_MAX_BYTES = 50 * 1024 * 1024;
+export const CHART_ANNOTATIONS_MAX_BYTES = 4 * 1024 * 1024;
+/** The two views of a song's chart: its text chart, or its PDF. A song with no PDF always shows the text chart. */
+export const CHART_VIEWS = ["pdf", "text"] as const;
+export type ChartView = (typeof CHART_VIEWS)[number];
+/** The settings a saved song keeps, by suffix. `:chart` is the view the performer chose (see `ChartView`). */
+export const SETTING_SUFFIXES = ["", ":bpm", ":lyrics", ":options", ":chart"] as const;
 
 /** Tracks a v1 library stored as raw float32 files, one per channel. They have no `file`; the store converts them to FLAC in the background. */
 export interface LibraryAudio {
@@ -77,6 +86,19 @@ export interface LibrarySong {
   lastPlayed?: string;
   /** v4: when the song was first saved, ISO 8601. Older songs take their `updated` time. */
   created?: string;
+  /** v4: the song's PDF chart, stored as `chart.pdf` in its revision folder. Missing when the song has no PDF. */
+  chart?: LibraryChart;
+}
+/** v4: a PDF chart attached to a saved song. Its annotation file is optional and is replaced whenever the annotations are saved. */
+export interface LibraryChart {
+  bytes: number;
+  sha256: string;
+  annotations?: { bytes: number; sha256: string };
+}
+/** The protocol URLs of a song's PDF chart and its annotation file. */
+export interface ChartUrls {
+  pdf: string;
+  annotations?: string;
 }
 /** v4: a folder in the library. Folders nest without a limit; only an empty folder can be deleted. */
 export interface LibraryFolder {
@@ -193,6 +215,14 @@ export interface SongLibraryApi {
   applyTrackSettings(id: string): Promise<number>;
   /** Applies one change to the library's organisation: song metadata, folders, a play, or the history. */
   organise(change: LibraryChange): Promise<void>;
+  /** Attaches a PDF chart to a saved song, replacing an earlier one and its annotations. Refused when the bytes are not a PDF or are too large. */
+  attachChart(id: string, bytes: Uint8Array): Promise<void>;
+  /** Removes a song's PDF chart and its annotations. The song's audio and text chart are kept. */
+  removeChart(id: string): Promise<void>;
+  /** Saves the annotations of a song's PDF as JSON text. A song without a PDF refuses them. */
+  saveAnnotations(id: string, json: string): Promise<void>;
+  /** The `app://library` URLs of a song's PDF and annotations, or null when the song has no PDF. */
+  chartUrls(id: string): Promise<ChartUrls | null>;
 }
 export const emptyLibrary = (): SongLibrary => ({ version: LIBRARY_VERSION, songs: [], playlists: [], folders: [], history: [] });
 export const validId = (id: string): boolean => /^[a-f0-9-]{36}$/.test(id);
@@ -317,6 +347,22 @@ export function trackFiles(track: LibraryAudio): { file: string; bytes: number; 
   if (isFlacTrack(track)) return [{ file: track.file!, bytes: track.bytes!, sha256: track.sha256 }];
   return Array.from({ length: track.channels }, (_, c) => ({ file: assetName(track.name, c), bytes: track.frames * 4 }));
 }
+/** The chart files of a song, with the sizes and digests the index promises for them. */
+export function chartFiles(chart: LibraryChart | undefined): { file: string; bytes: number; sha256: string }[] {
+  if (!chart) return [];
+  const files = [{ file: CHART_FILE, bytes: chart.bytes, sha256: chart.sha256 }];
+  if (chart.annotations) files.push({ file: CHART_ANNOTATIONS_FILE, ...chart.annotations });
+  return files;
+}
+/** Whether a file name is one a song's chart may hold: the PDF or its annotation file. */
+export const isChartFileName = (file: string): boolean => file === CHART_FILE || file === CHART_ANNOTATIONS_FILE;
+/** Whether the bytes start with a PDF header. The header is searched for in the first kilobyte, as readers do. */
+export function isPdfBytes(bytes: Uint8Array): boolean {
+  const header = [0x25, 0x50, 0x44, 0x46, 0x2d];
+  const end = Math.min(bytes.length, 1024) - header.length;
+  for (let i = 0; i <= end; i++) if (header.every((b, k) => bytes[i + k] === b)) return true;
+  return false;
+}
 
 /** Whether a song still has raw float32 tracks waiting to be converted. */
 export const isLegacySong = (song: LibrarySong): boolean => song.audio.some((a) => !isFlacTrack(a));
@@ -377,6 +423,13 @@ export function isIsoTime(value: unknown): boolean {
   return typeof value === "string" && value.length <= 40 && !Number.isNaN(Date.parse(value));
 }
 
+/** A PDF chart checked before it is saved or read from a backup: sizes in range and digests well formed. */
+export function validateChart(chart: LibraryChart): void {
+  const sized = (f: { bytes: number; sha256: string }, max: number) => Number.isSafeInteger(f.bytes) && f.bytes >= 1 && f.bytes <= max && /^[a-f0-9]{64}$/.test(f.sha256);
+  if (!sized(chart, CHART_PDF_MAX_BYTES)) throw new Error("Invalid chart PDF.");
+  if (chart.annotations !== undefined && !sized(chart.annotations, CHART_ANNOTATIONS_MAX_BYTES)) throw new Error("Invalid chart annotations.");
+}
+
 export function validateSong(song: LibrarySong): void {
   if (!validId(song.id) || !song.title.trim() || song.title.length > 300 || !Number.isFinite(song.duration) || song.duration <= 0)
     throw new Error("Invalid saved song.");
@@ -409,9 +462,10 @@ export function validateSong(song: LibrarySong): void {
     } else if (kind === "user") throw new Error("Invalid song audio file.");
     validateTrackSettings(a);
   }
-  // ":chart" was written by a later version (the view of its PDF chart). It is accepted and ignored.
-  if (Object.entries(song.settings).some(([k, v]) => !(k === ":chart" || (SETTING_SUFFIXES as readonly string[]).includes(k)) || typeof v !== "string"))
+  if (Object.entries(song.settings).some(([k, v]) => !(SETTING_SUFFIXES as readonly string[]).includes(k) || typeof v !== "string"))
     throw new Error("Invalid song settings.");
+  if (song.settings[":chart"] !== undefined && !["", ...CHART_VIEWS].includes(song.settings[":chart"])) throw new Error("Invalid song settings.");
+  if (song.chart !== undefined) validateChart(song.chart);
   validateSongMeta(song);
 }
 

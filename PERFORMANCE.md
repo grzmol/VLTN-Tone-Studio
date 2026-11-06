@@ -27,7 +27,7 @@ The play controls, tempo and metronome stay at the top. Under them, choose a vie
 - **This song**: speed and pitch, trim and fades, key, loudness, imported tracks, sections, and the song's MIDI trigger. These are saved with the song.
 - **Lyrics & chords**: transpose, capo, chart import and export, and the chart editor.
 - **MIDI**: the MIDI check, the controller setup, and the song's MIDI file and cues.
-- **Setup**: audio outputs, remote control and loading songs from MIDI. These apply to every song.
+- **Setup**: audio outputs, the audience display, band sync, remote control and loading songs from MIDI. These apply to every song.
 
 The view you used last opens next time. Longer explanations sit behind **How this works**, and the cards in **Setup** and **MIDI** fold away with the arrow beside their title.
 
@@ -275,6 +275,16 @@ For each song, the **Song shape** controls in the Performance setup set how it s
 
 Trim changes while a song plays move its stop at once. Looping jumps back to the trimmed start a second before the end, so the loop has no gap. Sections are cut to the trimmed range, and preflight warns about cues or sections outside it, which will not play.
 
+## PDF charts
+
+A saved song can show a PDF (a lead sheet, chord chart or score) instead of its text chart. Choose **Attach PDF chart** in the reader, or **Replace** or **Remove** to change it. **Show PDF chart** and **Show text chart** switch between the two for that song. The PDF is stored in the song's library entry and goes into backups. The app never changes the PDF itself. A PDF over 50 MB is refused with a notice.
+
+- **Scroll** shows the pages one under another at the width of the reader. **Page** shows one page at a time, or two side by side on a wide screen. **Previous** and **Next** turn pages.
+- **Annotations** are a pen, a highlighter and text notes, in four colours. **Undo mark** removes the last mark on the page, and **Clear page marks** removes them all. They are saved with the song, and they survive a restart and a backup. Marks are kept as positions on the page, so they fit any zoom.
+- **Page turns**: while the song plays, a page turn at a song time moves the PDF to the next page. Press **Turn page at this time** at each turn while you rehearse, and **Clear page turns** to start again. Follow playback switches this on and off.
+- A PDF that cannot be read shows an error with a **Show text chart** button. The lyrics view stays available.
+- A remote page action turns the PDF page when a PDF is on screen, and scrolls the lyrics otherwise. In stage mode a page action turns half a page in a scrolling PDF.
+
 ## Remote control
 
 Every live action can run from a MIDI message on the selected input, from a key, or from a Bluetooth page-turner, which sends keys. Choose **Edit remote control** in Performance to see each action with its bindings.
@@ -282,9 +292,9 @@ Every live action can run from a MIDI message on the selected input, from a key,
 The defaults:
 
 - **Start** and **Continue** play, and **Stop** pauses. **CC 80** with a value of 64–127 on any channel plays or pauses. A footswitch that sends 127 on each press works, and repeats within 150 ms count as one press.
-- **Page Down** and the right arrow go to the next section; **Page Up** and the left arrow go to the previous one. **T** taps the tempo.
-- Learn a key to **Next page** or **Previous page** to scroll the lyrics by a screenful with a page-turner.
-- **Page up**, **Page down**, **Previous page** and **Next page** scroll the lyrics by a screenful. They work in stage mode too.
+- **Page Down** and the right arrow go to the next section; **Page Up** and the left arrow go to the previous one. While a [PDF chart](#pdf-charts) is on screen, those same keys turn its pages instead. **T** taps the tempo.
+- A key you learn to an action is never changed by this. Learn a key to **Next page** or **Previous page** to turn pages with a page-turner while the lyrics are on screen too.
+- **Page up**, **Page down**, **Previous page** and **Next page** scroll the lyrics, or turn the page of a [PDF chart](#pdf-charts) when one is on screen. They work in stage mode too, so a page-turner can turn the chart.
 
 **Learn MIDI** or **Learn key** on an action, then press the pedal, controller or key. The next message is bound. Learn shows the channel and the message it heard, such as "Ch 3 · CC 80 = 127". A message that already runs another action is not bound: Learn names that action, and you remove it first. A program change learned after a bank select (CC 0 and CC 32) is bound to that bank only.
 
@@ -296,7 +306,7 @@ A controller binding has three modes:
 
 Tick **Double press** on a binding that must not run by accident, such as Stop or Panic. The first press shows a hint, and the action runs when the second press comes within 0.6 s.
 
-The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, and arm or disarm MIDI cues. Lyrics pages scroll the reader by a screenful.
+The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, and arm or disarm MIDI cues. Lyrics pages scroll the reader by a screenful, because the app has no PDF view.
 
 Things to know:
 
@@ -349,6 +359,38 @@ Choose **Enter stage mode** in Performance. The window fills with large lyrics a
 - Stage mode does not arm MIDI or change the BPM, and it stays on across playlist songs.
 
 On the desktop, playback in stage mode keeps the computer and display awake. It lets go on pause, at the end of the set, on exit or if the app closes. It does not override a closed lid or a deliberate sleep.
+
+## Audience display
+
+The audience display is a second window for the lyrics, chords or PDF page, on a projector or a second screen. The performer keeps the controls on the main screen. Find **Audience display** under the performance controls.
+
+- **Open audience display** opens the window. Choose **Show on** first: the window fills that display with no title bar, and the app remembers the choice. If the display is not connected, the window opens on the main screen instead, and it moves to the display when the display is plugged back in. Unplugging the display mid-show moves the window to the main screen and does not stop playback.
+- **Close audience display** closes it. Closing the audience window, or the performance window, never stops or changes playback.
+- It shows the line on screen in large text, with its chords above and the next line below. It also shows the song title and **Next:** the next song of the playlist. A PDF chart on screen shows the same page. Lyrics follow playback with their own clock, so they stay in step after a seek, a loop, a speed change or a gapless join, without the performer's screen sending updates every frame.
+- **Show chords** hides or shows the chord row. **Text size** and **Rotation** (0, 90, 180 or 270 degrees, for a screen mounted sideways) are kept on this computer. **Black between songs** blanks the screen while the song is stopped at its start, which covers the time between songs of a set and before a song is played. **Blackout** hides everything. Blackout is not kept after a restart; the other choices are.
+- With no song on screen the window shows the app's name. Until the performance screen has sent it anything, and while blackout is on, the window is black.
+- An untimed chart (a plain text or a ChordPro song with no timestamps) is shown as its text from the top and does not follow the song. PDF annotations (pen, highlighter and text) stay on the performer's screen.
+
+In the browser build there is no second window or display list. **Open audience display** opens a pop-up with the same view. The browser cannot place a pop-up on a chosen display, so move the pop-up to the audience screen and press F11 to fill it. Allow pop-ups for the site. PDF charts need the desktop app.
+
+## Band sync
+
+Band sync lets bandmates follow the song on their own phones or tablets over the same Wi-Fi or Ethernet network. It is off until you start it.
+
+- **Start:** in Song → Performance, open **Band sync on this network**. Choose the network address and a port (8787 by default), then **Start band sync**. Only private network addresses are listed.
+- **Join:** the panel shows the address (for example `http://192.168.1.20:8787/`), a QR code and a six-digit PIN. A bandmate opens the address or scans the code, types the PIN, and sees the song, lyrics and chords following your playback. Each bandmate can change the text size and transpose on their own device; that changes nothing for anyone else.
+- **New PIN** disconnects every bandmate and asks for the PIN again. **Stop band sync** disconnects everyone. The sync is off the next time the app opens.
+- **Allow followers to play, pause and stop** is off by default. When it is on, a bandmate's play or pause runs as if you pressed the same action on a pedal. A stop needs a second press within 0.6 s, as a double-press binding does, so a stray tap cannot end a song.
+- Bandmates never load songs, read your library or touch files, and they hear no audio. The sync sends the song's text and the playback clock only.
+- A phone that drops off the network (a locked screen, a Wi-Fi gap) reconnects by itself, without the PIN, while the sync is still on.
+
+### Security
+
+- The sync listens on the one address you choose, and only private network addresses are offered. It is never open on the internet, and it is not a relay.
+- The traffic is **not encrypted**. The six-digit PIN is the only protection. Use band sync on a network you trust, not a shared café, hotel or venue network, and stop it when the set is over.
+- Five wrong PINs from one device lock that device out for a minute. Each later lock-out is longer, up to 15 minutes. A bandmate's session lasts 12 hours and ends when the PIN changes or the sync stops.
+- The app refuses any frame over a few kilobytes, anything it does not expect, and any action other than play, play or pause, and stop.
+- Your firewall may ask whether to let the app accept incoming connections. Allow it only on a private network.
 
 ## Troubleshooting
 

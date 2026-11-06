@@ -30,19 +30,19 @@ it("toggles its body from the title button", () => {
 
 it("remembers the open state per storage key", () => {
   const first = render(
-    <SettingsCard title="Example card" storageKey="test-remember" defaultOpen={true}>
+    <SettingsCard title="Band sync" storageKey="test-remember" defaultOpen={true}>
       <p>Band body</p>
     </SettingsCard>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Example card" }));
+  fireEvent.click(screen.getByRole("button", { name: "Band sync" }));
   expect(localStorage.getItem("vltn.card.test-remember")).toBe("closed");
   first.unmount();
   render(
-    <SettingsCard title="Example card" storageKey="test-remember" defaultOpen={true}>
+    <SettingsCard title="Band sync" storageKey="test-remember" defaultOpen={true}>
       <p>Band body</p>
     </SettingsCard>,
   );
-  expect(screen.getByRole("button", { name: "Example card" }).getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByRole("button", { name: "Band sync" }).getAttribute("aria-expanded")).toBe("false");
 });
 
 it("still opens and closes when storage throws", () => {
@@ -64,21 +64,21 @@ it("still opens and closes when storage throws", () => {
 });
 
 it("keeps its actions usable while closed", () => {
-  const onReset = vi.fn();
+  const onBlackout = vi.fn();
   render(
     <SettingsCard
-      title="Example"
+      title="Audience display"
       storageKey="test-actions"
       defaultOpen={false}
-      summary="Example is off"
-      actions={<button onClick={onReset}>Reset</button>}
+      summary="Audience display is off"
+      actions={<button onClick={onBlackout}>Blackout</button>}
     >
       <p>Hidden detail</p>
     </SettingsCard>,
   );
-  expect(screen.getByText("Example is off")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-  expect(onReset).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("Audience display is off")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Blackout" }));
+  expect(onBlackout).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the body mounted when closed", () => {

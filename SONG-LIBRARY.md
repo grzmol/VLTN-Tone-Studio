@@ -25,7 +25,7 @@ A save writes every audio asset before atomically replacing the index. Incomplet
 
 ## Portable backup and restore
 
-In **Song → Songs & playlists**, use **Export library backup…**. Choose where to save the `.tar.gz` archive. It includes every saved song's copied source audio, available stems, every imported track, chord/MIDI chart, separate lyrics, BPM, key estimate/manual correction, mixer/performance options, and all playlists with their order and repeated entries intact. Original audio/NAS files are not needed to restore it.
+In **Song → Songs & playlists**, use **Export library backup…**. Choose where to save the `.tar.gz` archive. It includes every saved song's copied source audio, available stems, every imported track, any PDF chart with its annotations, chord/MIDI chart, separate lyrics, BPM, key estimate/manual correction, mixer/performance options, and all playlists with their order and repeated entries intact. Original audio/NAS files are not needed to restore it.
 
 Save a newly imported song or new stem split before exporting. Current local text/settings edits to an already-saved song are flushed before the backup begins. Audio and metadata are then exported as one consistent snapshot. Later edits belong to a subsequent backup. The UI shows file-based progress while the main process streams the audio; the whole library is not copied into renderer memory.
 
@@ -35,11 +35,15 @@ The archive includes `backup-manifest.json`, `library.json`, and referenced UUID
 
 MIDI device/port preferences, cue arming, custom/OpenMIDI pedal definitions, account credentials, downloaded models and application-wide preferences are not included. Song MIDI cues retain their actual commands, channels and labels and do not require the original pedal profiles for playback. This exports the song library, not a backup of physical pedal presets.
 
+## PDF charts
+
+A saved song can have one PDF chart. It is stored as `chart.pdf` in the song's revision folder, next to its audio, and its annotations are stored as `chart-annotations.json` beside it. Both are checked by size and digest in the backup manifest, like the audio. A PDF over 50 MB is refused. Annotation files are kept as JSON, and a file that cannot be read is shown without its marks rather than stopping the PDF. Removing the PDF removes its annotations; replacing it also removes the annotations, since they belong to the old pages. Re-saving the song keeps its PDF. The library index is version 4, with the PDF's size and digest on each song. See [Performance](PERFORMANCE.md#pdf-charts).
+
 ## Where a saved song's settings live
 
-A saved song's chart, BPM, lyrics and options are kept in the library only, and are written back a moment after you stop editing. Songs you have not saved keep theirs in the browser's local storage. Settings that an earlier version left in local storage for saved songs are moved into the library the first time the library opens, and the old entries are removed. A song's MIDI trigger, if it has one, is one of these options.
+A saved song's chart, BPM, lyrics, options and chart view (PDF or text) are kept in the library only, and are written back a moment after you stop editing. Songs you have not saved keep theirs in the browser's local storage. Settings that an earlier version left in local storage for saved songs are moved into the library the first time the library opens, and the old entries are removed. A song's MIDI trigger, if it has one, is one of these options.
 
-The first archive format supports up to 50,000 declared files, 512 GiB of uncompressed content, and 8 MiB each for metadata/manifest. Backups can still be large because they include the full lossless audio. Allow free space for the compressed archive when exporting, and for all restored audio when importing. Keep the app open until completion. An interrupted save, restore or conversion can leave an unreferenced folder in the library. The app removes such folders, and abandoned save sessions, once they are more than an hour old, at start and every 10 minutes after. An interrupted export can still leave a temporary archive beside the destination.
+The first archive format supports up to 50,000 declared files, 512 GiB of uncompressed content, and 8 MiB each for metadata/manifest. PDF charts and their annotations count toward the file and size limits. Backups can still be large because they include the full lossless audio. Allow free space for the compressed archive when exporting, and for all restored audio when importing. Keep the app open until completion. An interrupted save, restore or conversion can leave an unreferenced folder in the library. The app removes such folders, and abandoned save sessions, once they are more than an hour old, at start and every 10 minutes after. An interrupted export can still leave a temporary archive beside the destination.
 
 ## Organising songs
 
@@ -70,7 +74,7 @@ A song is counted as played once it reaches its halfway point. Each play records
 
 ## Format versions
 
-This release saves the library as version 4, adding the details, folders, history, sets and smart playlists above. Earlier libraries open and are upgraded in memory, with no saved value changed; the upgrade is written on the next save. Once a library is version 4, apps built before this release refuse to open it, so keep a backup from before the upgrade if you may need to go back. Backups from earlier versions restore into this one; their songs start with no folder, a play count of zero and no history.
+This release saves the library as version 4, adding the details, folders, history, sets, smart playlists and PDF charts above. Earlier libraries open and are upgraded in memory, with no saved value changed; the upgrade is written on the next save. Once a library is version 4, apps built before this release refuse to open it, so keep a backup from before the upgrade if you may need to go back. Backups from earlier versions restore into this one; their songs start with no folder, a play count of zero and no history.
 
 ## Whole-playlist preflight
 

@@ -4,6 +4,7 @@ import { useReaderText } from "@/song/performance/reader-text";
 import type { MetronomeMode } from "@/song/performance/rhythm";
 import type { Mix } from "@/song/stems/mix";
 import { toggleMuteGroup, type TrackInfo } from "@/song/tracks";
+import { pdfOnScreen, turnVisiblePdf } from "@/song/performance/pdf/turner";
 
 /** What the performance screen holds that the remote actions reach: the stage, the click, the mixer and the tap. */
 export interface ViewState {
@@ -30,18 +31,22 @@ function visibleReader(): HTMLElement | undefined {
 
 /**
  * The view actions for the current render of the performance screen. The session is given them again whenever they change.
- * `scrollLyrics` moves the visible reader by a line, or by a page for a page action, in stage mode too.
+ * `scrollLyrics` also turns the pages of a PDF chart when one is on screen: a page action turns a page, a line action scrolls. Stage mode
+ * turns half a page at a time in a scrolling PDF, so a page-turner works in both.
  */
 export function buildViewHost(state: ViewState): ViewHost {
   return {
     scrollLyrics: (direction, pages) => {
       // A remote turn is a manual one: autoscroll waits for it, and then returns to the song position.
       holdAutoscroll();
+      const pdf = turnVisiblePdf(direction, pages, state.stage);
+      if (pdf) return pdf.hint;
       const reader = visibleReader();
       if (!reader) return "Lyrics are not on screen.";
       const step = pages ? reader.clientHeight * 0.9 : SCROLL_STEP_PX;
       reader.scrollBy({ top: direction * step, behavior: "smooth" });
     },
+    pdfOnScreen,
     fontSize: (direction) => useReaderText.getState().step(direction),
     toggleStage: () => state.setStage(!state.stage),
     muteGroup: (group) => {

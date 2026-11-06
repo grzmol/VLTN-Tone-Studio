@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /**
- * Lyrics, as the reader draws them.
+ * Lyrics, as the reader and the audience display draw them. Shared so the two show the same emphasis and colour.
  */
 /** The colour spans' palette, by the name written in `{color:…}`. */
 const COLOUR_CLASSES = new Map<string, string>([
