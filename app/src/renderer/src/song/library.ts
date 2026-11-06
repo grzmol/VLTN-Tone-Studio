@@ -43,6 +43,8 @@ import { armAsNext, type SongTrigger } from "./performance/song-triggers";
 import type { PcmAudio, SongSource, Stems } from "./types";
 import { mergeTrackDefaults, savedSettingsOf, trackInfoOf, type TrackInfo } from "./tracks";
 import { mixDown } from "./import/align";
+import { isSongPlaying, onSongPlayingChange } from "./performance/playing-state";
+import { askLeave, leaveGuardShown } from "./leave-guard";
 
 /**
  * A playlist song loaded ahead of time: its audio, and a player whose buffers are already built on the shared engine. The library
@@ -144,7 +146,17 @@ interface LibraryState {
   pausePlaylist(): void;
   rememberMidi(session: LibraryState["midiSession"]): void;
   refresh(): Promise<void>;
+  /** Saves the open song, including its audio. Saves run one at a time, in order. Resolves when this save has finished (or failed: see `error`). */
   save(title: string, artist: string): Promise<void>;
+  /**
+   * Saves the open library song's new audio in the background. Does nothing when the song has no unsaved audio or is not in the library.
+   * It waits while a song or playlist plays, and runs one save at a time: a call while one is already queued adds nothing.
+   */
+  autosave(): void;
+  /** The step a save is on ("Encoding Drums (generated)…", "Writing files…"), or an empty string when none is running. */
+  saveStep: string;
+  /** Why the last save failed, or an empty string. Cleared by the next save that works. */
+  saveError: string;
   load(id: string, queue?: string[], position?: number, overrides?: (EntryOverride | null)[]): Promise<void>;
   playlists(value: Playlist[]): Promise<boolean>;
   remove(id: string): Promise<void>;
@@ -180,6 +192,54 @@ const renderedAhead = new Set<string>();
 /** Whether the song's speed or pitch render was built in advance. */
 export function isRenderedAhead(id: string): boolean {
   return renderedAhead.has(id);
+}
+
+/**
+ * Whether a song's audio is not in the library as it is now. For a library song that means a track whose audio was not loaded from or
+ * saved to this song, or a different set of tracks than the saved song has. A song that is not in the library has unsaved audio when it
+ * has anything beyond its source: imported or generated tracks, or a stem split.
+ */
+export function audioUnsaved(source: SongSource | null, stems: Stems | null, saved: LibrarySong | undefined): boolean {
+  if (!source) return false;
+  const held = Object.entries(stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source");
+  if (!source.libraryId) return held.length > 0;
+  const unread = unreadTracks.get(source.libraryId) ?? [];
+  const unreadSource = unread.some((track) => trackKindOf(track) === "source");
+  const current: [string, PcmAudio][] = [...(unreadSource ? [] : [["source", source.audio] as [string, PcmAudio]]), ...held];
+  if (current.some(([, audio]) => storedTrack.get(audio)?.songId !== source.libraryId)) return true;
+  if (!saved) return false;
+  const wanted = new Set([...current.map(([key]) => key), ...unread.map(trackKey)]);
+  const stored = saved.audio.map(trackKey);
+  return wanted.size !== stored.length || stored.some((key) => !wanted.has(key));
+}
+
+/** `audioUnsaved` for the open song and the library as they are now. */
+function libraryAudioUnsaved(): boolean {
+  const { source, stems } = useSong.getState();
+  return audioUnsaved(source, stems, useSongLibrary.getState().index.songs.find((song) => song.id === source?.libraryId));
+}
+
+/**
+ * Asks before the open song is replaced while it has unsaved audio. Resolves true when the caller may go on: nothing was unsaved, the user
+ * chose Don't save, or Save and continue worked. A playlist that is playing never asks: it saves in the background (see `autosave`).
+ */
+export async function confirmLeave(): Promise<boolean> {
+  const library = useSongLibrary.getState();
+  if (library.playlistPlaying || !libraryAudioUnsaved() || !leaveGuardShown()) return true;
+  const { source } = useSong.getState();
+  const saved = library.index.songs.find((song) => song.id === source?.libraryId);
+  const title = saved?.title ?? source?.name.replace(/\.[^.]+$/, "") ?? "this song";
+  const choice = await askLeave(`Save ${title} first?`, "The audio changes for this song, such as generated drums and bass or imported tracks, aren't saved yet.");
+  if (choice === "cancel") return false;
+  if (choice === "discard") return true;
+  await library.save(title, saved?.artist ?? "");
+  return useSongLibrary.getState().saveError === "";
+}
+
+/** The result line after a save the user asked for: what was written, and what was already saved and kept. */
+export function savedNotice(title: string, written: number, kept: number): string {
+  const plural = (n: number) => `${n} track${n === 1 ? "" : "s"}`;
+  return `Saved ${title} (${plural(written)} written, ${kept} kept).`;
 }
 
 const hex = (digest: ArrayBuffer) => Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -485,6 +545,124 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
     useNav.getState().go("song", "performance");
     prefetchNext();
   };
+  /**
+   * Saves the open song. `manual` is a save the user asked for: it reports its result as a notice. Both kinds report the step they are on,
+   * and a failure is kept in `saveError` for the Song header.
+   */
+  /**
+   * Saves wait in line, so two never run at once: they would encode the same tracks twice and write the same song at the same time.
+   * A failed save does not stop the ones behind it.
+   */
+  let saveLine: Promise<unknown> = Promise.resolve();
+  const enqueueSave = (task: () => Promise<void>): Promise<void> => {
+    const result = saveLine.then(task);
+    saveLine = result.catch(() => undefined);
+    return result;
+  };
+  /** Whether an autosave is queued and has not started. */
+  let autosaveQueued = false;
+  /** Resolves once no song or playlist is playing. Encoding stalls the audio, so a save never starts over the music. */
+  const untilStopped = (): Promise<void> =>
+    new Promise((resolve) => {
+      const playing = () => isSongPlaying() || get().playlistPlaying;
+      if (!playing()) return resolve();
+      const stops: (() => void)[] = [];
+      const check = () => {
+        if (playing()) return;
+        for (const stop of stops) stop();
+        resolve();
+      };
+      stops.push(onSongPlayingChange(check), useSongLibrary.subscribe(check));
+    });
+  const writeSong = async (title: string, artist: string, manual: boolean): Promise<void> => {
+    set({ saveStep: "Preparing…", saveError: "" });
+    try {
+      const state = useSong.getState(),
+        source = state.source;
+      if (!source || ["decoding", "model", "splitting"].includes(state.status.kind)) throw new Error("Wait for the song to finish loading or splitting.");
+      const id = source.libraryId ?? crypto.randomUUID();
+      // Tracks the session never read are kept as saved. A source that could not be read is only a mix made for playing, never saved.
+      const unread = unreadTracks.get(id) ?? [];
+      const unreadSource = unread.find((track) => trackKindOf(track) === "source");
+      const tracks: [string, PcmAudio][] = [
+        ...(unreadSource ? [] : [["source", source.audio] as [string, PcmAudio]]),
+        ...Object.entries(state.stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
+      ];
+      // One track at a time keeps the encoder's copy of the audio to a single track.
+      // A track still holding the audio it was loaded with keeps its saved file: nothing is sent, and the store carries the file over.
+      const assets: { name: string; bytes: Uint8Array }[] = [],
+        audioInfo: LibraryAudio[] = [],
+        audioObjects: [PcmAudio, LibraryAudio][] = [];
+      for (const [key, audio] of tracks) {
+        const info = key === "source" ? undefined : state.tracks[key],
+          kind = key === "source" ? "source" : (info?.kind ?? "stem");
+        const kept = storedTrack.get(audio);
+        let file: string, bytes: number, sha256: string;
+        if (kept && kept.songId === id && kept.track.file && kept.track.bytes !== undefined && kept.track.sha256) {
+          ({ file, bytes, sha256 } = { file: kept.track.file, bytes: kept.track.bytes, sha256: kept.track.sha256 });
+        } else {
+          set({ saveStep: `Encoding ${info?.name ?? (key === "source" ? "the song" : key)}…` });
+          // Stems and imports are 16-bit; the source keeps 24 bits only when its original file was deeper (see `storedBits`).
+          const encoded = await encodeTrack(audio, storedBits(kind, source.bits));
+          file = flacName(key);
+          bytes = encoded.length;
+          sha256 = hex(await crypto.subtle.digest("SHA-256", encoded as Uint8Array<ArrayBuffer>));
+          assets.push({ name: file, bytes: encoded });
+        }
+        const entry: LibraryAudio = {
+          name: info?.name ?? key,
+          sampleRate: audio.sampleRate,
+          frames: audio.channels[0].length,
+          channels: audio.channels.length,
+          file,
+          codec: "flac",
+          bytes,
+          sha256,
+          kind,
+          ...savedSettingsOf(info),
+        };
+        audioInfo.push(entry);
+        audioObjects.push([audio, entry]);
+      }
+      const heldKeys = new Set(audioInfo.map(trackKey));
+      const carried = unread.filter((track) => !heldKeys.has(trackKey(track)));
+      audioInfo.unshift(...carried.filter((track) => trackKindOf(track) === "source"));
+      audioInfo.push(...carried.filter((track) => trackKindOf(track) !== "source"));
+      const song: LibrarySong = {
+        id,
+        title: title.trim() || source.name,
+        artist: artist.trim(),
+        sourceName: source.name,
+        duration: unreadSource ? unreadSource.frames / unreadSource.sampleRate : source.audio.channels[0].length / source.audio.sampleRate,
+        audio: audioInfo,
+        settings: readSettings(performanceKey(source)),
+        updated: new Date().toISOString(),
+      };
+      set({ saveStep: "Writing files…" });
+      await api().save(song, assets);
+      // The saved files are now this song's stored files, so the next save keeps them too.
+      for (const [audio, entry] of audioObjects) storedTrack.set(audio, { songId: id, track: entry });
+      if (useSong.getState().source === source) {
+        const saved = { ...source, libraryId: id };
+        // Background transcription/key analysis can finish while audio is being copied.
+        // Promote the latest settings, not the snapshot taken before the async save.
+        const latest = readSettings(performanceKey(source));
+        seedSettings(id, song.settings);
+        writeSettings(performanceKey(saved), latest);
+        migrateLyricsJob(performanceKey(source), performanceKey(saved));
+        if (!source.libraryId) useSong.setState({ source: saved });
+        await flushSettings();
+      }
+      const index = await api().index();
+      if (manual) set({ index, notice: savedNotice(song.title, assets.length, tracks.length - assets.length) });
+      else set({ index });
+    } catch (e) {
+      set({ saveError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    } finally {
+      set({ saveStep: "" });
+    }
+  };
   return {
     index: emptyLibrary(),
     busy: false,
@@ -699,12 +877,14 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
       if (!get().busy && get().queue.length) set({ playlistPlaying: true, error: "", notice: "" });
       prefetchNext();
     },
-    playPlaylist: (queue, position = 0, setId, overrides) =>
-      run(async () => {
+    playPlaylist: async (queue, position = 0, setId, overrides) => {
+      if (!(await confirmLeave())) return;
+      await run(async () => {
         if (!queue.length || !queue[position]) throw new Error("This playlist is empty.");
         set({ playlistPlaying: true, midiSession: null });
         await load(queue[position], queue, position, true, overrides, false, setId ?? null);
-      }),
+      });
+    },
     advancePlaylist: () =>
       run(async () => {
         const { queue, position, playlistPlaying } = get();
@@ -719,96 +899,49 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         await load(nextId, queue, position + 1, true, get().queueOverrides, true);
         if (loading) set({ notice: "The next song was still loading, so it started after a gap." });
       }),
-    skipPlaylist: (offset) =>
-      run(async () => {
+    skipPlaylist: async (offset) => {
+      // Walking a set by hand asks first. Next and Previous in a set that is playing never do.
+      const { queue, position } = get();
+      if (position + offset < 0 || position + offset >= queue.length) return;
+      if (!(await confirmLeave())) return;
+      await run(async () => {
         const { queue, position, playlistPlaying } = get(),
           next = position + offset;
         if (next < 0 || next >= queue.length) return;
         await load(queue[next], queue, next, playlistPlaying, get().queueOverrides, true);
-      }),
+      });
+    },
     refresh: () =>
       run(async () => {
         set({ index: await readIndex() });
       }),
-    save: (title, artist) =>
-      run(async () => {
-        const state = useSong.getState(),
-          source = state.source;
-        if (!source || ["decoding", "model", "splitting"].includes(state.status.kind)) throw new Error("Wait for the song to finish loading or splitting.");
-        const id = source.libraryId ?? crypto.randomUUID();
-        // Tracks the session never read are kept as saved. A source that could not be read is only a mix made for playing, never saved.
-        const unread = unreadTracks.get(id) ?? [];
-        const unreadSource = unread.find((track) => trackKindOf(track) === "source");
-        const tracks: [string, PcmAudio][] = [
-          ...(unreadSource ? [] : [["source", source.audio] as [string, PcmAudio]]),
-          ...Object.entries(state.stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
-        ];
-        // One track at a time keeps the encoder's copy of the audio to a single track.
-        // A track still holding the audio it was loaded with keeps its saved file: nothing is sent, and the store carries the file over.
-        const assets: { name: string; bytes: Uint8Array }[] = [],
-          audioInfo: LibraryAudio[] = [],
-          audioObjects: [PcmAudio, LibraryAudio][] = [];
-        for (const [key, audio] of tracks) {
-          const info = key === "source" ? undefined : state.tracks[key],
-            kind = key === "source" ? "source" : (info?.kind ?? "stem");
-          const kept = storedTrack.get(audio);
-          let file: string, bytes: number, sha256: string;
-          if (kept && kept.songId === id && kept.track.file && kept.track.bytes !== undefined && kept.track.sha256) {
-            ({ file, bytes, sha256 } = { file: kept.track.file, bytes: kept.track.bytes, sha256: kept.track.sha256 });
-          } else {
-            // Stems and imports are 16-bit; the source keeps 24 bits only when its original file was deeper (see `storedBits`).
-            const encoded = await encodeTrack(audio, storedBits(kind, source.bits));
-            file = flacName(key);
-            bytes = encoded.length;
-            sha256 = hex(await crypto.subtle.digest("SHA-256", encoded as Uint8Array<ArrayBuffer>));
-            assets.push({ name: file, bytes: encoded });
-          }
-          const entry: LibraryAudio = {
-            name: info?.name ?? key,
-            sampleRate: audio.sampleRate,
-            frames: audio.channels[0].length,
-            channels: audio.channels.length,
-            file,
-            codec: "flac",
-            bytes,
-            sha256,
-            kind,
-            ...savedSettingsOf(info),
-          };
-          audioInfo.push(entry);
-          audioObjects.push([audio, entry]);
-        }
-        const heldKeys = new Set(audioInfo.map(trackKey));
-        const carried = unread.filter((track) => !heldKeys.has(trackKey(track)));
-        audioInfo.unshift(...carried.filter((track) => trackKindOf(track) === "source"));
-        audioInfo.push(...carried.filter((track) => trackKindOf(track) !== "source"));
-        const song: LibrarySong = {
-          id,
-          title: title.trim() || source.name,
-          artist: artist.trim(),
-          sourceName: source.name,
-          duration: unreadSource ? unreadSource.frames / unreadSource.sampleRate : source.audio.channels[0].length / source.audio.sampleRate,
-          audio: audioInfo,
-          settings: readSettings(performanceKey(source)),
-          updated: new Date().toISOString(),
-        };
-        await api().save(song, assets);
-        // The saved files are now this song's stored files, so the next save keeps them too.
-        for (const [audio, entry] of audioObjects) storedTrack.set(audio, { songId: id, track: entry });
-        if (useSong.getState().source === source) {
-          const saved = { ...source, libraryId: id };
-          // Background transcription/key analysis can finish while audio is being copied.
-          // Promote the latest settings, not the snapshot taken before the async save.
-          const latest = readSettings(performanceKey(source));
-          seedSettings(id, song.settings);
-          writeSettings(performanceKey(saved), latest);
-          migrateLyricsJob(performanceKey(source), performanceKey(saved));
-          if (!source.libraryId) useSong.setState({ source: saved });
-          await flushSettings();
-        }
-        set({ index: await api().index(), notice: `Saved ${song.title}, including audio, stems and performance settings.` });
-      }),
-    load: (id, queue = [id], position = 0, overrides) => run(() => load(id, queue, position, false, overrides, false)),
+    save: (title, artist) => run(() => enqueueSave(() => writeSong(title, artist, true))),
+    autosave: () => {
+      // One queued autosave covers every change made before it starts, so a burst of changes makes one save.
+      if (autosaveQueued || !libraryAudioUnsaved()) return;
+      autosaveQueued = true;
+      void untilStopped()
+        .then(() =>
+          enqueueSave(async () => {
+            autosaveQueued = false;
+            // The song may have been saved, replaced or left since this was queued.
+            const { source } = useSong.getState();
+            const saved = get().index.songs.find((song) => song.id === source?.libraryId);
+            if (!saved || !libraryAudioUnsaved()) return;
+            await writeSong(saved.title, saved.artist, false);
+          }),
+        )
+        .catch(() => undefined)
+        .finally(() => {
+          autosaveQueued = false;
+        });
+    },
+    saveStep: "",
+    saveError: "",
+    load: async (id, queue = [id], position = 0, overrides) => {
+      if (!(await confirmLeave())) return;
+      await run(() => load(id, queue, position, false, overrides, false));
+    },
     playlists: (playlists) => writePlaylists(() => playlists),
     applyTrackSettings: () =>
       run(async () => {
@@ -858,4 +991,11 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         prefetchNext();
       }),
   };
+});
+
+// Audio that changes in a library song saves itself. Loading a song sets audio that is already saved, so it never starts a save.
+useSong.subscribe((state, previous) => {
+  if (state.stems === previous.stems && state.source === previous.source) return;
+  if (!state.source?.libraryId || ["decoding", "model", "splitting"].includes(state.status.kind)) return;
+  useSongLibrary.getState().autosave();
 });

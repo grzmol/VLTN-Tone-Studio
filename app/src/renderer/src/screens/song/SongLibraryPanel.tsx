@@ -95,7 +95,7 @@ export function SongLibraryPanel({ onPick }: { onPick(): void }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {library.busy && <p role="status">{library.transfer || "Working with saved songs…"}</p>}
+      {library.busy && <p role="status">{library.saveStep ? `Saving… ${library.saveStep}` : library.transfer || "Working with saved songs…"}</p>}
       {isRunning(job.phase) && (
         <div className="flex flex-wrap items-center gap-3">
           <p role="status">{jobLine(job, jobNow)}</p>
