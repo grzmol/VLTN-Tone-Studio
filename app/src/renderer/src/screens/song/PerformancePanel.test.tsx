@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { usePracticeMute } from "@/song/performance/practice-mute";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { clearSettingsCache, setSetting } from "@/song/performance/settings";
 import { PerformancePanel } from "./PerformancePanel";
@@ -923,4 +924,16 @@ it("opens on the view chosen last time and remembers a new choice", () => {
   fireEvent.click(screen.getByRole("tab", { name: "MIDI" }));
   expect(screen.getByRole("tab", { name: "MIDI" }).getAttribute("aria-selected")).toBe("true");
   expect(localStorage.getItem("vltn.performance.view")).toBe("midi");
+});
+
+it("shows the practice mute banner and never mutes a song that has no split", () => {
+  localStorage.clear();
+  usePracticeMute.getState().clear();
+  render(<PerformancePanel />);
+  act(() => usePracticeMute.getState().set("guitar", true));
+  // The song plays its whole source as one track, so a muted instrument has nothing to silence.
+  expect(mocks.mix.mock.lastCall?.[0].other?.mute ?? false).toBe(false);
+  expect(screen.getByRole("status", { name: "Practice mute" }).textContent).toContain("Guitar muted in every song. This song has no guitar track to mute");
+  fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+  expect(screen.queryByRole("status", { name: "Practice mute" })).toBeNull();
 });
