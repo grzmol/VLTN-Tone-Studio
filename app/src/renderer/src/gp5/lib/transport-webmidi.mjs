@@ -68,7 +68,7 @@ export async function connectWebMidi({ access, port = PEDAL_PORT_RE, onDisconnec
     const seen = listPorts(access).outputs.map((p) => p.name);
     throw new Gp5ConnectError(
       "not-found",
-      `No GP-5 or GP-50 MIDI port found (visible: ${seen.join(", ") || "none"}). Connect the pedal by USB, power it on, close Valeton Suite.` +
+      `No matching pedal MIDI input/output pair found (visible outputs: ${seen.join(", ") || "none"}). Connect the pedal by USB, power it on, close Valeton Suite.` +
         " Windows 11: if the pedal shows as 'USB MIDI 2.0 Device', switch it to the \"USB Audio Device\" driver (Device Manager: Update driver, then Browse my computer, then Let me pick from a list).",
       { visiblePorts: seen }
     );
