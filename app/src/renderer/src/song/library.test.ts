@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "./store";
-import { loadSongAudio, useSongLibrary } from "./library";
+import { applyPracticeMute, loadSongAudio, useSongLibrary } from "./library";
+import { usePracticeMute } from "./performance/practice-mute";
 import { clearSettingsCache, flushSettings, getSetting, performanceKey, setSetting } from "./performance/settings";
 import { useNav } from "@/state/nav";
 
@@ -842,4 +843,49 @@ it("a re-save keeps an unread stem but drops one the user removed", async () => 
   useSong.setState({ stems: Object.keys(rest).length ? rest : null });
   await useSongLibrary.getState().save("Saved song", "");
   expect(api.save.mock.calls[1][0].audio.map((a: { name: string }) => a.name)).toEqual(["source", "bass"]);
+});
+
+describe("the practice mute on a prepared song", () => {
+  const prepared = (settings: Record<string, string> = {}) => {
+    const player = { names: ["vocals", "guitar", "drums"], setMix: vi.fn(), dispose: vi.fn(() => Promise.resolve()) };
+    return { id: "two", title: "Two", stems: { vocals: audio, guitar: audio, drums: audio }, tracks: {}, settings, skipped: [], player } as never as Parameters<typeof applyPracticeMute>[0] & {
+      player: typeof player;
+    };
+  };
+  const guitarOf = (song: ReturnType<typeof prepared>) => song.player.setMix.mock.calls.at(-1)?.[0].guitar;
+
+  beforeEach(() => usePracticeMute.getState().clear());
+
+  it("mutes the guitar before the join, and leaves the other tracks alone", () => {
+    usePracticeMute.getState().set("guitar", true);
+    const song = prepared();
+    applyPracticeMute(song);
+    expect(guitarOf(song)?.mute).toBe(true);
+    expect(song.player.setMix.mock.calls.at(-1)?.[0].vocals).toBeUndefined();
+  });
+
+  it("makes no call when nothing is muted", () => {
+    const song = prepared();
+    applyPracticeMute(song);
+    expect(song.player.setMix).not.toHaveBeenCalled();
+  });
+
+  it("follows a change made while the song waits, and brings the track back when the mute is turned off", () => {
+    const song = prepared();
+    useSongLibrary.setState({ prepared: song });
+    usePracticeMute.getState().set("guitar", true);
+    expect(guitarOf(song)?.mute).toBe(true);
+    usePracticeMute.getState().clear();
+    expect(guitarOf(song)).toBeUndefined();
+    useSongLibrary.setState({ prepared: null });
+  });
+
+  it("uses what the song saved for an imported track", () => {
+    usePracticeMute.getState().set("guitar", true);
+    const song = prepared({ ":options": JSON.stringify({ practiceKinds: { t1: "guitar" } }) });
+    song.player.names.push("t1");
+    (song as { tracks: Record<string, unknown> }).tracks = { t1: { kind: "user", name: "Click" } };
+    applyPracticeMute(song);
+    expect(song.player.setMix.mock.calls.at(-1)?.[0].t1?.mute).toBe(true);
+  });
 });

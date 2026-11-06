@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
 import { useSong } from "./store";
 import { useNav } from "@/state/nav";
@@ -344,6 +345,24 @@ async function readIndex(): Promise<SongLibrary> {
   await migrateLocalSettings(index.songs).catch((e) => console.error("Could not move song settings into the library", e));
   return index;
 }
+/**
+ * Silences the practice-muted tracks of a song that is prepared ahead. The player of a playlist join starts before its screen exists, so
+ * it must have the mute before the hand-over, or the muted instrument would be heard for a moment. The screen then applies the whole mix.
+ */
+export function applyPracticeMute(song: PreparedSong, changed = false): void {
+  const kinds = usePracticeMute.getState().kinds;
+  // With nothing muted a new song needs no call. A change must still reach the song, so that turning a mute off brings the track back.
+  if (!kinds.length && !changed) return;
+  const options = song.settings[":options"] ?? "";
+  let saved: unknown = null;
+  try {
+    saved = JSON.parse(options || "null");
+  } catch {
+    /* unreadable options: the tracks go by their names */
+  }
+  const tracks = { keys: song.player.names, info: song.tracks, split: Object.keys(song.stems).length > 0, countsAs: readCountsAs(saved) };
+  song.player.setMix(effectiveMute({}, practiceSet(kinds), tracks));
+}
 const api = () => {
   if (!host.song.library) throw new Error("Saved songs are available in the desktop app.");
   return host.song.library;
@@ -468,6 +487,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         }
         if (import.meta.env.DEV) console.debug(`[prefetch] ${id} ready`);
         if (preloadWarned?.id === id) clearPreloadWarning();
+        applyPracticeMute({ ...next, player });
         set({ prepared: { ...next, player } });
       })
       .catch((e) => {
@@ -991,6 +1011,13 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         prefetchNext();
       }),
   };
+});
+
+// The song prepared for the next join follows the practice mute while it waits, so a change made during the current song is in place at the join.
+usePracticeMute.subscribe((state, previous) => {
+  if (state.kinds === previous.kinds) return;
+  const prepared = useSongLibrary.getState().prepared;
+  if (prepared) applyPracticeMute(prepared, true);
 });
 
 // Audio that changes in a library song saves itself. Loading a song sets audio that is already saved, so it never starts a save.
