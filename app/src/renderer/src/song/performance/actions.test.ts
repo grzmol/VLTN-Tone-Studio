@@ -81,6 +81,8 @@ describe("the action registry", () => {
       "view.stage",
       "mix.muteGroup",
       "mix.click",
+      "mix.drums",
+      "mix.bass",
       "tempo.tap",
       "speed.up",
       "speed.down",

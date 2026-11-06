@@ -5,6 +5,7 @@ import { BUS_LABELS, BUS_NAMES, type BusName } from "@/song/audio/outputs";
 import { useSession, type PerformanceSession } from "@/song/performance/session";
 import { followsPitch } from "@/song/performance/speed";
 import { clickStretchWarning, setSolo, silenceGroupmates, type TrackInfo } from "@/song/tracks";
+import { ORIGINAL_PARTS, partKeysOf, silencedByChoice, type PartChoices } from "@/song/band/part-choice";
 import { STEM_LABEL } from "./stems/StemMixer";
 import type { StemName } from "@/song/types";
 
@@ -45,6 +46,7 @@ export function PerformanceMix({
   trackBuses,
   onTrackBus,
   onTrackInfo,
+  partChoices = ORIGINAL_PARTS,
 }: {
   session: PerformanceSession;
   stems: Stems | null;
@@ -54,6 +56,8 @@ export function PerformanceMix({
   trackBuses: TrackBuses;
   onTrackBus: (name: string, bus: BusName) => void;
   onTrackInfo: (key: string, patch: Partial<Omit<TrackInfo, "kind">>) => void;
+  /** What "What plays" is set to. A track it silences is marked, so a muted original or generated part does not look like a fault. */
+  partChoices?: PartChoices;
 }) {
   const player = useSession(session, (s) => s.player);
   const speed = useSession(session, (s) => s.speed);
@@ -65,6 +69,7 @@ export function PerformanceMix({
     player.names.map((name) => ({ key: name, name: tracks[name]?.name ?? name, bus: busOf(name) })),
   );
   const label = (name: string) => rowName(name, stems, tracks[name]);
+  const silenced = silencedByChoice(partChoices, partKeysOf(tracks, stems));
   const usedGroups = [...new Set(Object.values(groups).flat())].sort((a, b) => a - b);
   return (
     <div aria-label="Performance mixer" className="flex flex-col gap-3">
@@ -103,6 +108,7 @@ export function PerformanceMix({
         {player.names.map((name) => {
           const entry: StemMix = mix[name] ?? defaultStemMix();
           const info = tracks[name];
+          const off = silenced[name];
           return (
             <div
               key={name}
@@ -110,7 +116,7 @@ export function PerformanceMix({
               aria-label={label(name)}
               className="col-span-full grid grid-cols-subgrid items-center rounded-lg border border-seam px-3 py-2 text-sm"
             >
-              <div className="flex min-w-0 items-center gap-2">
+              <div className={`flex min-w-0 items-center gap-2 ${off ? "opacity-60" : ""}`}>
                 <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: info?.color ?? "#94a3b8" }} />
                 <label className="flex min-w-0 items-center gap-1.5">
                   <input
@@ -125,6 +131,7 @@ export function PerformanceMix({
                   />
                   <span className="truncate">{label(name)}</span>
                 </label>
+                {off && <span className="shrink-0 rounded-md border border-seam px-1.5 py-0.5 text-xs text-silkscreen-3">{off}</span>}
               </div>
               <label className="flex items-center gap-1">
                 <input

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Heart, LogOut, RefreshCw, Search, UserRound } from "lucide-react";
-import type { ToneListKind } from "@shared/host/tones";
+import type { T3kTone, ToneListKind } from "@shared/host/tones";
 import { toneVerdict } from "@shared/tone3000";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -313,8 +313,11 @@ function SkeletonGrid() {
   );
 }
 
-/** The tone cards of a list or the search results, with infinite scroll. */
-function ToneGrid({ kind }: { kind: TonesTab }) {
+/**
+ * The tone cards of a list or the search results, with infinite scroll. `onOpen` takes a tone's card instead of the tone sheet, so the
+ * Band panel's picker can reuse the grid.
+ */
+export function ToneGrid({ kind, onOpen = openSheet }: { kind: TonesTab; onOpen?: (toneId: number, tone: T3kTone) => void }) {
   const list = useTones((s) => (kind === "search" ? s.found : s.lists[kind]));
   const records = useTones((s) => s.records);
   const format = useTones((s) => s.format);
@@ -393,7 +396,7 @@ function ToneGrid({ kind }: { kind: TonesTab }) {
               record={records[t.id]}
               tabIndex={i === Math.min(focusIndex, tones.length - 1) ? 0 : -1}
               onFocus={() => setFocusIndex(i)}
-              onOpen={() => openSheet(t.id)}
+              onOpen={() => onOpen(t.id, t)}
             />
           ))}
           {list?.loaded && tones.length === 0 && (list?.tones.length ?? 0) === 0 && (
