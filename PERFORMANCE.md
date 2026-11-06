@@ -156,7 +156,7 @@ A cue is a MIDI message sent at a time in the song. Write them in the chart as `
 
 Empty or incomplete tokens are rejected instead of being dropped silently.
 
-To send cues, pick an output, then switch on **Send cues**. This is called arming, and it is never saved with a song. Reopening a song starts disarmed.
+To send cues, pick an output, then switch on **Send cues**. This is called arming. Send cues is remembered on this computer for the output you switched it on for, not with a song: it stays on for every song, tab and restart until you switch it off or press **Disarm**, and the Performance MIDI summary says "(remembered)" when the app armed itself. Only that output is armed. Choosing another output disarms, and you switch Send cues on again for the new one.
 
 - Pause, seek, leaving the Song screen or changing the output clears anything queued. Switching to another Song tab does not.
 - Seeking pauses; pressing Play starts cues from the new position. Earlier cues are not played as cues, but the pedals are brought to the state they would be in: just before the song starts, the app sends the latest bank select and program change for each channel, then the latest value of each controller. It does the same if a stall drops a patch or controller change.
@@ -251,7 +251,7 @@ The set loads and starts each next song, then stops after the last one. Performa
 
 Switching to another Song tab keeps the set playing and its queue editable. While Performance is hidden, only transport and song keys work; other keys, such as Page Down and the arrows, are left to the page. Leaving the Song screen pauses the set.
 
-An armed MIDI output stays armed across songs while the same device stays connected. For cues from the first second, choose **Load set paused**, connect and switch on **Send cues**, then press **Play playlist** in Performance. Starting a playlist again from the library starts a new disarmed session.
+An armed MIDI output stays armed across songs while the same device stays connected, and Send cues re-arms itself when that output reconnects. For cues from the first second, choose **Load set paused**, connect and switch on **Send cues**, then press **Play playlist** in Performance. Starting a playlist again from the library arms the same remembered output.
 
 Before a set:
 
@@ -418,7 +418,7 @@ The drum and bass samples are CC0, so they need no attribution. The [sample noti
 Choose **Enter stage mode** in Performance. The window fills with large lyrics and transport buttons, and MIDI status and faults stay visible. Setup, the mixer, editors, seeking, rewind and chord popups are locked, and Escape or clicking outside does not exit.
 
 - **Play/Pause** and **Stop playback** stay available.
-- **Panic / stop MIDI** pauses playback, clears queued MIDI and disarms. It cannot undo commands a pedal already received.
+- **Panic / stop MIDI** pauses playback, clears queued MIDI, disarms and turns Send cues off. It cannot undo commands a pedal already received.
 - **Exit stage mode** unlocks everything. Leaving the Performance screen also exits.
 - Stage mode does not arm MIDI or change the BPM, and it stays on across playlist songs.
 
@@ -466,7 +466,7 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - **Tempo jumps.** Turn **Send MIDI Clock** off and use the one-time tempo command.
 - **A pedal answers the wrong command.** Two pedals share a channel, or the pedal is on OMNI. Give each its own channel.
 - **A looper stops by itself.** Pause and panic only release channels that sent notes, because blanket CC 64 is the GP-180 looper Stop.
-- **USB output silent after the Mac sleeps.** The app requests the system's MIDI ports again on wake, and if the pedal came back as a new device the cues stay disarmed until you arm them again.
+- **USB output silent after the Mac sleeps.** The app requests the system's MIDI ports again on wake, and if the pedal came back as the same output, Send cues arms it again by itself. A fault (a failed send, timing that cannot recover) disarms at once and shows the fault, but Send cues stays on, so the next song or a reconnect arms again.
 - **USB editor does not connect.** Connect the powered pedal by USB and use **Look for the pedal**. Make sure its MIDI input allows USB and close other MIDI apps.
 - **Bug reports.** **Copy diagnostic report** and **Save log** in Diagnostics include Bluetooth state, write and notification counts and MIDI traffic. The **Bluetooth clock timing** and **Reset timing counters** controls show queue lateness.
 
