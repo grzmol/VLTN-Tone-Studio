@@ -280,6 +280,18 @@ For each song, the **Song shape** controls in the Performance setup set how it s
 
 Trim changes while a song plays move its stop at once. Looping jumps back to the trimmed start a second before the end, so the loop has no gap. Sections are cut to the trimmed range, and preflight warns about cues or sections outside it, which will not play.
 
+## Practice mute
+
+To play along with a playlist, mute your own instrument once and every song comes up without it. Open **Practice mute** on the Play tab (next to the mixer) and tick **Guitar**, **Vocals**, **Bass**, **Drums**, **Piano** or **Other**. It applies to every song that loads: by hand, in a playlist, from a song trigger, and the next song across a gapless join, which is muted before it starts, so the instrument is not heard for a moment at the join.
+
+- **What a kind covers.** A split stem counts as its own kind. The generated drums and bass count as drums and bass. An imported track counts by its name: "guitar" or "gtr", "vocal" or "vox", "bass", "drum", "piano" or "keys". If a name is wrong, choose **Counts as** on the track's mixer row (a kind, or none).
+- **Songs keep their mix.** The practice mute is never saved into a song. Each muted row shows a **Practice** badge, and each song's own mute, solo, volume and pan are exactly as you left them when you turn the practice mute off. Unticking the muted row's checkbox turns that kind's practice mute off.
+- **A song with no split** has nothing to mute by instrument (it plays as one track), so it plays whole and the banner says so.
+- **The banner.** While any kind is muted, the Performance tab and stage mode say "Guitar muted in every song" with an **Unmute** button.
+- **Hands free.** In **Edit remote control**, the **Practice** group has **Practice mute: guitar** (and the other kinds) and **Practice mute: all off**. Bind them to a footswitch, a key or a page-turner. A short notice says "Guitar muted in every song" or "Guitar back on". These keys also work while another Song tab is showing.
+- Changing it during a song fades the track out or in with the normal mute ramp. The song does not stop.
+- It is kept on this computer and comes back after a restart.
+
 ## PDF charts
 
 A saved song can show a PDF (a lead sheet, chord chart or score) instead of its text chart. Choose **Attach PDF chart** in the reader, or **Replace** or **Remove** to change it. **Show PDF chart** and **Show text chart** switch between the two for that song. The PDF is stored in the song's library entry and goes into backups. The app never changes the PDF itself. A PDF over 50 MB is refused with a notice.
@@ -311,7 +323,7 @@ A controller binding has three modes:
 
 Tick **Double press** on a binding that must not run by accident, such as Stop or Panic. The first press shows a hint, and the action runs when the second press comes within 0.6 s.
 
-The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, and arm or disarm MIDI cues. Lyrics pages scroll the reader by a screenful, because the app has no PDF view.
+The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, arm or disarm MIDI cues, and the [practice mute](#practice-mute) of each instrument. Lyrics pages scroll the reader by a screenful, because the app has no PDF view.
 
 Things to know:
 
