@@ -16,6 +16,11 @@ files:
   - out/**/*
   - package.json
   - "!**/*.map"
+  # Lyrics transcription runs in the renderer, which Vite bundles into out/. transformers also lists the Node-only sharp and
+  # onnxruntime-node (hundreds of MB of native binaries) as dependencies; nothing ever loads them, so keep them out of the package.
+  - "!node_modules/sharp/**"
+  - "!node_modules/@img/**"
+  - "!node_modules/onnxruntime-node/**"
   # pdf.js is bundled into the renderer by Vite. It also lists an optional native canvas (about 30 MB of Skia) for Node rendering,
   # which the app never uses: charts are drawn in the renderer with the browser's own canvas.
   - "!node_modules/@napi-rs/**"

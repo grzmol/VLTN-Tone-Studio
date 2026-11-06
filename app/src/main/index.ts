@@ -40,7 +40,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: APP_SCHEME_PRIVILEGES }]);
 const RENDERER_DIR = resolve(import.meta.dirname, "../renderer");
 const RENDERER_URL = "app://bundle/index.html";
-// CSP: tone service, pinned OpenMIDI data and Hugging Face model downloads for the stem splitter.
+// CSP: tone service, pinned OpenMIDI data and Hugging Face model downloads; transcription audio stays local.
 const CSP =
   "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
   "img-src 'self' data: blob: https://*.tone3000.com https://tone3000.com; " +
