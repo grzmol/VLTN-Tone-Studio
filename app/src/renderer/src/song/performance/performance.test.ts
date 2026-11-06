@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { midiCommand, parseChart, scheduleCues, transpose } from "./chart";
+import { detectChords } from "./chords";
 
 describe("performance charts", () => {
   it("schedules future cues once and skips cues preceding a seek", () => {
@@ -34,6 +35,16 @@ describe("performance charts", () => {
     expect(transpose("[C]", -1)).toBe("[B]");
   });
 });
+describe("harmonic chord estimates", () => {
+  it("marks silence unknown and estimates a synthetic C major triad", () => {
+    const sampleRate = 44100;
+    expect(detectChords({ harmony: { sampleRate, channels: [new Float32Array(sampleRate)] }, bass: null, beats: null })[0].name).toBe("N");
+    const audio = new Float32Array(sampleRate);
+    for (let i = 0; i < audio.length; i++) for (const hz of [261.6256, 329.6276, 391.9954]) audio[i] += 0.2 * Math.sin((2 * Math.PI * hz * i) / sampleRate);
+    expect(detectChords({ harmony: { sampleRate, channels: [audio] }, bass: null, beats: null })[0].name).toBe("C");
+  });
+});
+
 it("rejects incomplete or empty MIDI tokens instead of silently ignoring them", () => {
   for (const token of ["{midi:pc 1 2", "{midi:}"]) expect(() => parseChart("[00:00] " + token)).toThrow(/MIDI commands/);
 });

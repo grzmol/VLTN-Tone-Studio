@@ -28,6 +28,8 @@ export interface Section {
   color?: string;
   /** What happens at the end of the section when nobody has asked for a jump */
   mode: SectionMode;
+  /** Set on a section the song analysis suggested. Sections saved before this field existed count as made by hand. */
+  source?: "detected";
 }
 
 /** Up to this many sections per song. */
@@ -85,7 +87,7 @@ export function parseSections(raw: unknown): Section[] {
   const sections: Section[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
-    const { id, name, start, end, color, mode } = item as Record<string, unknown>;
+    const { id, name, start, end, color, mode, source } = item as Record<string, unknown>;
     if (typeof id !== "string" || !id || seen.has(id)) continue;
     if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) continue;
     if (start < 0 || end - start < MIN_SECTION_S || !isSectionMode(mode)) continue;
@@ -97,6 +99,7 @@ export function parseSections(raw: unknown): Section[] {
       end,
       mode,
       ...(typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? { color } : {}),
+      ...(source === "detected" ? { source } : {}),
     });
   }
   return sortedSections(sections).slice(0, MAX_SECTIONS);

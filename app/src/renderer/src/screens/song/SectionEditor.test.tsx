@@ -27,3 +27,38 @@ it("renames a section and changes its stored mode", () => {
   fireEvent.change(screen.getByLabelText("Section name"), { target: { value: "Verse" } });
   expect(onSections).toHaveBeenLastCalledWith([{ ...sections[0], name: "Verse" }]);
 });
+
+it("offers the detected sections in place of the performer's own, and Undo puts them back", () => {
+  const onSections = vi.fn();
+  const suggested = [{ name: "Intro", start: 0, end: 8 }, { name: "Verse 1", start: 8, end: 24 }];
+  const { rerender } = render(<SectionEditor sections={sections} onSections={onSections} suggested={suggested} duration={60} bpm={0} firstBeat={0} channels={null} />);
+  fireEvent.click(screen.getByText("Replace with detected sections"));
+  const replaced = onSections.mock.calls[0][0] as Section[];
+  expect(replaced.map((s) => [s.name, s.start, s.end, s.source])).toEqual([
+    ["Intro", 0, 8, "detected"],
+    ["Verse 1", 8, 24, "detected"],
+  ]);
+  // The editor is shown the replaced list, so the Undo button is there with the old sections kept for it.
+  rerender(<SectionEditor sections={replaced} onSections={onSections} suggested={suggested} duration={60} bpm={0} firstBeat={0} channels={null} />);
+  fireEvent.click(screen.getByText("Undo"));
+  expect(onSections).toHaveBeenLastCalledWith(sections);
+});
+
+it("does not offer the replace when the song's sections are all detected, or nothing was suggested", () => {
+  const detected: Section[] = [{ id: "d", name: "Intro", start: 0, end: 8, mode: "continue", source: "detected" }];
+  const { unmount } = render(
+    <SectionEditor
+      sections={detected}
+      onSections={vi.fn()}
+      suggested={[{ name: "Intro", start: 0, end: 8 }]}
+      duration={60}
+      bpm={0}
+      firstBeat={0}
+      channels={null}
+    />,
+  );
+  expect(screen.queryByText("Replace with detected sections")).toBeNull();
+  unmount();
+  render(<SectionEditor sections={sections} onSections={vi.fn()} duration={60} bpm={0} firstBeat={0} channels={null} />);
+  expect(screen.queryByText("Replace with detected sections")).toBeNull();
+});

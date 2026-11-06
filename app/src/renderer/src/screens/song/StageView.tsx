@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { host } from "@/host";
 import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
+import type { Chord } from "@/song/performance/chords";
 import { selectArmed, selectOutput, useSession, type PerformanceSession } from "@/song/performance/session";
 import { useState } from "react";
 import { useStagePower } from "./use-stage-power";
@@ -18,6 +19,7 @@ export function StageView({
   onExitStage,
   chart,
   lyrics,
+  chords,
   shift,
   songKey,
   onSaveChart,
@@ -31,6 +33,7 @@ export function StageView({
   onExitStage: () => void;
   chart: string;
   lyrics: string;
+  chords: Chord[];
   shift: number;
   songKey?: string;
   onSaveChart: (chart: string) => void;
@@ -66,6 +69,7 @@ export function StageView({
         pdf={pdf}
         chart={chart}
         lyrics={lyrics}
+        chords={chords}
         shift={shift}
         songKey={songKey}
         title={source?.name ?? "Performance"}

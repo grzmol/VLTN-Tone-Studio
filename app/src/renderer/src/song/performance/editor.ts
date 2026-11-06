@@ -1,4 +1,5 @@
 import { COLOUR_TAG, parseChart } from "./chart";
+import type { Chord } from "./chords";
 import { checkCommandText, type MidiMacro } from "./midi-macros";
 import { performanceLines } from "./reader";
 
@@ -26,7 +27,7 @@ function command(bytes: number[]): string {
  * Promote the displayed draft into an editable chart without losing separate MIDI timestamps. Macro references and triggers keep their
  * text. A trigger has no time, so its row is left without one; it is written back as `@load pc 1 5` (or play, stop, end).
  */
-export function editableEvents(chart: string, lyrics: string, macros: readonly MidiMacro[] = []): EditableEvent[] {
+export function editableEvents(chart: string, lyrics: string, estimates: Chord[], macros: readonly MidiMacro[] = []): EditableEvent[] {
   const cues = parseChart(chart, macros),
     rows: EditableEvent[] = [];
   const add = (seconds: number | null) => {
@@ -35,13 +36,13 @@ export function editableEvents(chart: string, lyrics: string, macros: readonly M
     return created;
   };
   const row = (seconds: number) => rows.find((r) => r.seconds !== "" && Number(r.seconds) === seconds) ?? add(seconds);
-  for (const line of performanceLines(chart, lyrics, macros)) {
+  for (const line of performanceLines(chart, lyrics, estimates, macros)) {
     const target = row(line.time);
     target.lyrics = [target.lyrics, line.text.replace(chordPattern, "").trim()].filter(Boolean).join(" ");
     if (!Number.isFinite(line.time)) target.chords = [...line.text.matchAll(chordPattern)].map((m) => m[1]).join(" ");
   }
   const manual = cues.flatMap((c) => [...c.text.matchAll(chordPattern)].map((m) => ({ time: c.time, name: m[1] })));
-  for (const chord of manual) {
+  for (const chord of manual.length ? manual : estimates) {
     const target = row(chord.time);
     target.chords = [target.chords, chord.name].filter(Boolean).join(" ");
   }

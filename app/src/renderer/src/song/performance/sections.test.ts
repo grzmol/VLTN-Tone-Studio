@@ -244,3 +244,14 @@ describe("clampSections", () => {
     expect(clampSections(sections, { start: 0, end: 20 })).toBe(sections);
   });
 });
+
+describe("the detected marker", () => {
+  it("is kept when it says detected, and dropped otherwise, so old sections read as made by hand", () => {
+    const [detected, made] = parseSections([
+      { id: "a", name: "Intro", start: 0, end: 8, mode: "continue", source: "detected" },
+      { id: "b", name: "Verse", start: 8, end: 16, mode: "continue", source: "hand" },
+    ]);
+    expect(detected.source).toBe("detected");
+    expect(made).not.toHaveProperty("source");
+  });
+});
