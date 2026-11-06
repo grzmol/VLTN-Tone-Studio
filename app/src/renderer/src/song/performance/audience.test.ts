@@ -22,6 +22,7 @@ const song = (patch: Partial<AudienceSongInput> = {}): AudienceSongInput => ({
   nextTitle: "Kitchen Table",
   chart,
   lyrics: "",
+  chords: [],
   macros: [],
   shift: 0,
   pdf: null,

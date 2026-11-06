@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alignChannels, mixDown, stereoOf } from "./align";
+import { alignChannels, alignPcm, mixDown, stereoOf } from "./align";
 
 const ramp = (length: number, value = 0.5) => Float32Array.from({ length }, () => value);
 
@@ -31,6 +31,12 @@ describe("aligning imported tracks", () => {
     const [left, right] = stereoOf([a, b, ramp(2, 3)]);
     expect(left).toBe(a);
     expect(right).toBe(b);
+  });
+
+  it("aligns a stereo PCM to a frame count", () => {
+    const pcm = alignPcm({ sampleRate: 44100, channels: [ramp(2)] }, 3);
+    expect(pcm.sampleRate).toBe(44100);
+    expect(pcm.channels.map((c) => c.length)).toEqual([3, 3]);
   });
 });
 

@@ -4,6 +4,7 @@
 // change (including a gapless hand-over), a play or pause, a speed change, a seek, a jump or a loop, or once a second while playing.
 import { AUDIENCE_LIMITS, type AudienceClock, type AudienceLine, type AudienceModel, type AudienceRotation, type AudienceUpdate } from "@shared/audience";
 import { headingLabel, stageText, transpose } from "./chart";
+import type { Chord } from "./chords";
 import type { MidiMacro } from "./midi-macros";
 import { performanceLines } from "./reader";
 
@@ -19,6 +20,7 @@ export interface AudienceSongInput {
   nextTitle: string | null;
   chart: string;
   lyrics: string;
+  chords: Chord[];
   macros: readonly MidiMacro[];
   /** Semitones the chart is shown at (the chart transpose plus any pitch the chords follow). */
   shift: number;
@@ -69,7 +71,7 @@ export function audienceModel(song: AudienceSongInput | null, settings: Audience
     rotation: settings.rotation,
   };
   if (!song) return { ...base, songKey: null, screen: "logo", title: "", nextTitle: null, timed: false, lines: [], pdf: null };
-  const lines = audienceLines(performanceLines(song.chart, song.lyrics, song.macros), song.shift, song.flats);
+  const lines = audienceLines(performanceLines(song.chart, song.lyrics, song.chords, song.macros), song.shift, song.flats);
   return {
     ...base,
     songKey: clip(song.songKey, AUDIENCE_LIMITS.songKey),

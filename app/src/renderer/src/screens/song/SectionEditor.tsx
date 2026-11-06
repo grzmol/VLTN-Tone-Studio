@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePlaybackClock } from "@/song/performance/playback-clock";
 import { MAX_SECTIONS, MAX_SECTION_NAME, SECTION_MODES, SECTION_MODE_LABELS, isSectionMode, snapToBeat, sortedSections, type Section } from "@/song/performance/sections";
+import { sectionsFromDetected, type DetectedSection } from "@/song/analysis/sections";
 import { SectionWaveform } from "./SectionWaveform";
 
 /** Default length of a section added at the playhead, in seconds. */
@@ -11,11 +12,13 @@ const NEW_SECTION_S = 8;
 
 /**
  * Edits the song's sections: names, boundaries, stored modes. Edits are saved with the song; the live changes made while playing are
- * not (see "Save as default" in the strip). Boundaries snap to the beat grid when a tempo is set.
+ * not (see "Save as default" in the strip). Boundaries snap to the beat grid when a tempo is set. `suggested` holds the sections the song
+ * analysis found: they can replace the song's own sections, and Undo puts those back.
  */
 export function SectionEditor({
   sections,
   onSections,
+  suggested = [],
   duration,
   bpm,
   firstBeat,
@@ -23,6 +26,7 @@ export function SectionEditor({
 }: {
   sections: Section[];
   onSections: (sections: Section[]) => void;
+  suggested?: DetectedSection[];
   duration: number;
   bpm: number;
   firstBeat: number;
@@ -30,6 +34,10 @@ export function SectionEditor({
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [edge, setEdge] = useState<"start" | "end">("start");
+  // The sections a replace took out, so Undo can put them back. Cleared once they are restored.
+  const [replaced, setReplaced] = useState<Section[] | null>(null);
+  // Offered only when the song has sections the performer made: a song whose sections are all detected has nothing to replace.
+  const offerReplace = suggested.length > 0 && sections.some((s) => s.source !== "detected");
   const ordered = sortedSections(sections);
   const snap = (seconds: number) => (bpm > 0 ? snapToBeat(seconds, bpm, firstBeat) : seconds);
   const update = (id: string, patch: Partial<Section>) => onSections(sections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -43,6 +51,16 @@ export function SectionEditor({
     const section: Section = { id: crypto.randomUUID(), name: `Section ${sections.length + 1}`, start, end, mode: "continue" };
     onSections([...sections, section]);
     setSelected(section.id);
+  };
+
+  const replace = () => {
+    setReplaced(sections);
+    onSections(sectionsFromDetected(suggested));
+  };
+
+  const undoReplace = () => {
+    if (replaced) onSections(replaced);
+    setReplaced(null);
   };
 
   const pick = (seconds: number) => {
@@ -61,6 +79,16 @@ export function SectionEditor({
           Add section at playhead
         </Button>
         <span className="text-muted-foreground">Click the waveform to place</span>
+        {offerReplace && (
+          <Button variant="outline" size="sm" onClick={replace}>
+            Replace with detected sections
+          </Button>
+        )}
+        {replaced && (
+          <Button variant="outline" size="sm" onClick={undoReplace}>
+            Undo
+          </Button>
+        )}
         <Button variant={edge === "start" ? "default" : "outline"} size="sm" aria-pressed={edge === "start"} onClick={() => setEdge("start")}>
           Start
         </Button>

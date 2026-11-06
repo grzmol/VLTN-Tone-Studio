@@ -4,6 +4,7 @@ import type { PcmAudio } from "@/song/types";
 import { getSetting, readOptions, setSetting } from "@/song/performance/settings";
 import { audibleRange, CROSSFADE_MAX_S } from "@/song/performance/transition";
 import { END_BEHAVIOUR_LABELS, END_BEHAVIOURS, isEndBehaviour, shapeFromOptions, type StoredShape } from "@/song/performance/song-shape";
+import type { SilenceEnds } from "@/song/analysis/silence";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
@@ -17,10 +18,13 @@ const parse = (text: string): number | undefined => (text.trim() === "" ? undefi
 export function SongShapeControls({
   songKey,
   audio,
+  silence,
   onChange,
 }: {
   songKey: string;
   audio: PcmAudio | null;
+  /** The silence the analysis found at the ends of the song. Offered as a trim while no trim is set. */
+  silence?: SilenceEnds | null;
   onChange: () => void;
 }) {
   const [shape, setShape] = useState<StoredShape>(() => shapeFromOptions(getSetting(songKey, ":options")));
@@ -44,9 +48,21 @@ export function SongShapeControls({
     setNote("");
     save({ trimStart: range.start, trimEnd: range.end });
   };
+  const duration = audio ? (audio.channels[0]?.length ?? 0) / audio.sampleRate : 0;
+  const trailing = silence ? duration - silence.end : 0;
+  const offer = silence && (silence.start > 0 || trailing > 0) && shape.trimStart === undefined && shape.trimEnd === undefined ? silence : null;
   const fade = (text: string) => Math.max(0, Math.min(CROSSFADE_MAX_S, Number(text) || 0));
   return (
     <div aria-label="Song shape" className="flex flex-wrap items-end gap-3 rounded border border-seam p-3">
+      {offer && (
+        <Button
+          variant="outline"
+          onClick={() => save({ trimStart: offer.start > 0 ? offer.start : undefined, trimEnd: trailing > 0 ? offer.end : undefined })}
+        >
+          Trim the silence ({offer.start > 0 ? `${offer.start.toFixed(1)} s at the start` : "none at the start"}
+          {trailing > 0 ? `, ${trailing.toFixed(1)} s at the end` : ", none at the end"})
+        </Button>
+      )}
       <label className="flex flex-col gap-1">
         Trim start (s)
         <input

@@ -1,7 +1,8 @@
+import type { PcmAudio } from "../types";
 
 // Lengths and mixes for imported tracks (pure). Every track of a song must have the same number of frames, so a track is padded with
-// silence or cut to the song's length. A song made of imported tracks alone gets a source: the sum of its tracks, which stands in for
-// the song. The import worker runs these, so a long song is not copied and summed on the renderer's thread.
+// silence or cut to the song's length. A song made of imported tracks alone gets a source: the sum of its tracks, which the analysis
+// reads as the song. The import worker runs these, so a long song is not copied and summed on the renderer's thread.
 
 /** `channels` at exactly `frames` frames: padded with silence at the end, or cut. The same arrays come back when nothing changes. */
 export function alignChannels(channels: Float32Array[], frames: number): Float32Array[] {
@@ -20,8 +21,8 @@ export function stereoOf(channels: Float32Array[]): Float32Array[] {
 }
 
 /**
- * The sum of stereo tracks, all of `frames` frames. The sum is not scaled: a mix of loud tracks may clip, which only this sum
- * shows, since the song itself plays each track on its own.
+ * The sum of stereo tracks, all of `frames` frames. The sum is not scaled: a mix of loud tracks may clip, which only the analysis
+ * sees, since the song itself plays each track on its own.
  */
 export function mixDown(tracks: Float32Array[][], frames: number): Float32Array[] {
   const left = new Float32Array(frames);
@@ -34,4 +35,9 @@ export function mixDown(tracks: Float32Array[][], frames: number): Float32Array[
     }
   }
   return [left, right];
+}
+
+/** The PCM of a track, stereo, at `frames` frames. */
+export function alignPcm(pcm: PcmAudio, frames: number): PcmAudio {
+  return { sampleRate: pcm.sampleRate, channels: stereoOf(alignChannels(pcm.channels, frames)) };
 }

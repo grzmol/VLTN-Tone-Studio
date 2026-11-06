@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { headingLabel, lrcTime, parseChart, stageText, transpose, type Cue } from "@/song/performance/chart";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
+import type { Chord } from "@/song/performance/chords";
+import { ChordVoicings } from "./ChordVoicings";
 import { formatted } from "./lyric-format";
 import { PerformanceEditor } from "./PerformanceEditor";
 import { performanceLines } from "@/song/performance/reader";
@@ -48,6 +50,7 @@ export interface PdfReaderState {
 export function PerformanceReader({
   chart,
   lyrics,
+  chords,
   shift,
   songKey,
   title,
@@ -66,6 +69,7 @@ export function PerformanceReader({
   pdf?: PdfReaderState;
   chart: string;
   lyrics: string;
+  chords: Chord[];
   shift: number;
   /** The song's key, which the chord names are spelled by (see SongKey) */
   songKey?: string;
@@ -78,15 +82,17 @@ export function PerformanceReader({
   onImportMetadata?: (metadata: ChartMetadata) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [selectedChord, setSelectedChord] = useState<string | null>(null);
   useEffect(() => {
     if (stage) {
       setEditing(false);
+      setSelectedChord(null);
     }
   }, [stage]);
   const showCommands = useMidiConfiguration((s) => s.showCommands);
   const macros = useMidiConfiguration((s) => s.macros);
   const lines = useMemo(() => {
-    const result = performanceLines(chart, lyrics, macros).map((line) => ({ ...line, midi: [] as Cue[] }));
+    const result = performanceLines(chart, lyrics, chords, macros).map((line) => ({ ...line, midi: [] as Cue[] }));
     if (showCommands) {
       let cues: Cue[] = [];
       try {
@@ -103,7 +109,7 @@ export function PerformanceReader({
       result.sort((a, b) => (Number.isFinite(a.time) ? a.time : Infinity) - (Number.isFinite(b.time) ? b.time : Infinity));
     }
     return result;
-  }, [chart, lyrics, showCommands, macros]);
+  }, [chart, lyrics, chords, showCommands, macros]);
   const pdfShown = !!pdf?.chart && pdf.view === "pdf";
   const [expanded, setExpanded] = useState(false),
     [follow, setFollow] = useState(true),
@@ -119,6 +125,7 @@ export function PerformanceReader({
     lyricsBody = useRef<HTMLDivElement>(null),
     rowRefs = useRef<(HTMLDivElement | null)[]>([]),
     expandButton = useRef<HTMLButtonElement>(null);
+  const chordButton = useRef<HTMLButtonElement | null>(null);
   const active = useActiveIndex(useMemo(() => lines.map((line) => line.time), [lines]));
   const changes = useMemo(() => lines.flatMap((line) => line.chords), [lines]);
   const activeChord = useActiveIndex(useMemo(() => changes.map((chord) => chord.time), [changes]));
@@ -165,7 +172,7 @@ export function PerformanceReader({
     };
   }, [follow, editing, expanded, stage, size, lines, autoscrollMode, linesPerMinute, pdfShown]);
   useEffect(() => {
-    if (stage || !expanded) return;
+    if (stage || !expanded || selectedChord) return;
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setExpanded(false);
@@ -174,7 +181,7 @@ export function PerformanceReader({
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [expanded, stage]);
+  }, [expanded, selectedChord, stage]);
   const content = (
     <section
       aria-label="Combined performance view"
@@ -280,6 +287,7 @@ export function PerformanceReader({
         <PerformanceEditor
           chart={chart}
           lyrics={lyrics}
+          chords={chords}
           onCancel={() => setEditing(false)}
           onSave={(next) => {
             onSaveChart(next);
@@ -333,15 +341,29 @@ export function PerformanceReader({
                   >
                     {!!line.chords.length && (
                       <div aria-label="Chords" className="flex flex-wrap gap-x-6 font-semibold text-sky-400">
-                        {line.chords.map((chord, i) => (
-                          <span
-                            key={i}
-                            title={Number.isFinite(chord.time) ? lrcTime(chord.time) : undefined}
-                            className={"rounded px-1 " + (changes[activeChord] === chord ? "bg-sky-400/20 text-sky-300 ring-1 ring-sky-400" : "")}
-                          >
-                            {chord.name === "N" ? "—" : transpose(`[${chord.name}]`, shift, spelling).slice(1, -1)}
-                          </span>
-                        ))}
+                        {line.chords.map((chord, i) =>
+                          chord.name === "N" ? (
+                            <span key={i}>—</span>
+                          ) : (
+                            <button
+                              disabled={stage}
+                              key={i}
+                              type="button"
+                              aria-label={`Show ${transpose(`[${chord.name}]`, shift, spelling).slice(1, -1)} guitar voicings`}
+                              title={(Number.isFinite(chord.time) ? lrcTime(chord.time) + " · " : "") + "Show guitar tabs"}
+                              onClick={(event) => {
+                                chordButton.current = event.currentTarget;
+                                setSelectedChord(transpose(`[${chord.name}]`, shift, spelling).slice(1, -1));
+                              }}
+                              className={
+                                "cursor-pointer rounded px-1 text-left hover:bg-sky-400/15 focus-visible:outline-2 focus-visible:outline-sky-400 " +
+                                (changes[activeChord] === chord ? "bg-sky-400/20 text-sky-300 ring-1 ring-sky-400" : "")
+                              }
+                            >
+                              {transpose(`[${chord.name}]`, shift, spelling).slice(1, -1)}
+                            </button>
+                          ),
+                        )}
                       </div>
                     )}
                     {label !== null ? (
@@ -373,13 +395,14 @@ export function PerformanceReader({
             </div>
           ) : (
             <p className="text-base text-silkscreen-3">
-              Type or import a chart in the editors below. Lyrics and chords will appear together here and follow song playback.
+              Generate lyrics from vocals or import a timed chart in the editors below. Lyrics and chords will appear together here and follow song playback.
             </p>
           )}
         </div>
       )}
+      <ChordVoicings chord={selectedChord} onClose={() => setSelectedChord(null)} returnFocus={() => chordButton.current?.focus({ preventScroll: true })} />
       <p className="mt-2 text-xs text-silkscreen-3">
-        Chords follow their timestamps above the corresponding lyric line. Untimed text stays available for manual
+        Chords follow their timestamps above the corresponding lyric line. Chart chords take priority over estimates. Untimed text stays available for manual
         reading.
       </p>
     </section>

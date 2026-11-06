@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
+import { isRunning, jobLine, useAnalysisJob, useJobClock } from "@/song/analysis/analysis-job";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { host } from "@/host";
 import { LibraryBrowser } from "./LibraryBrowser";
@@ -17,6 +18,9 @@ export function SongLibraryPanel({ onPick }: { onPick(): void }) {
   const saved = library.index.songs.find((s) => s.id === source?.libraryId);
   const [title, setTitle] = useState(saved?.title ?? source?.name.replace(/\.[^.]+$/, "") ?? "");
   const [artist, setArtist] = useState(saved?.artist ?? "");
+  // A batch analysis (spec 77) keeps going on any screen; this line shows it here too, with a way back to its dialog.
+  const job = useAnalysisJob();
+  const jobNow = useJobClock(isRunning(job.phase));
   useEffect(() => {
     if (host.song.library) void library.refresh();
   }, []);
@@ -92,6 +96,14 @@ export function SongLibraryPanel({ onPick }: { onPick(): void }) {
         </DialogContent>
       </Dialog>
       {library.busy && <p role="status">{library.transfer || "Working with saved songs…"}</p>}
+      {isRunning(job.phase) && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="status">{jobLine(job, jobNow)}</p>
+          <Button variant="outline" size="sm" onClick={() => job.requestOpen()}>
+            Show
+          </Button>
+        </div>
+      )}
       {library.busy && library.playlistPlaying && (
         <Button variant="outline" onClick={() => library.pausePlaylist()}>
           Stop playlist
