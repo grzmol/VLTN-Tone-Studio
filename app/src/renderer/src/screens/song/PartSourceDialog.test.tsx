@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { T3kTone } from "@shared/host/tones";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
-import { PartSourceDialog, presetBassSearch, restoreBassSearch, type BassSourceRole } from "./PartSourceDialog";
+import { PartSourceDialog, presetBassSearch, presetPartSearch, restoreBassSearch, type BassSourceRole } from "./PartSourceDialog";
 
 const mocks = vi.hoisted(() => ({
   tones: {
@@ -100,11 +100,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderDialog(role: BassSourceRole, onPick = vi.fn(), onClose = vi.fn()) {
-  presetBassSearch(role);
+function renderDialog(role: BassSourceRole, onPick = vi.fn(), onClose = vi.fn(), part: "bass" | "drums" = "bass") {
+  presetPartSearch(part, role);
   render(
     <TooltipProvider>
-      <PartSourceDialog part="bass" role={role} open onClose={onClose} onPick={onPick} />
+      <PartSourceDialog part={part} role={role} open onClose={onClose} onPick={onPick} />
     </TooltipProvider>,
   );
   return { onPick, onClose };
@@ -192,5 +192,32 @@ describe("presetBassSearch and restoreBassSearch", () => {
     restoreBassSearch();
     expect(useTones.getState().format).toBe("all");
     expect(useTones.getState().search).toEqual({ query: "marshall", sort: "newest", gears: ["pedal"], architecture: "2" });
+  });
+});
+
+describe("PartSourceDialog for the drums", () => {
+  it("searches the outboard gear for an outboard capture, with no bass word", async () => {
+    signIn("signed-in");
+    renderDialog("outboard", vi.fn(), vi.fn(), "drums");
+    expect(await screen.findByText("Choose an outboard capture")).toBeTruthy();
+    expect(await screen.findByText("Bass amp")).toBeTruthy();
+    expect(mocks.tones.search).toHaveBeenCalledWith(expect.objectContaining({ query: "", gears: ["outboard"] }), 1, undefined);
+  });
+
+  it("searches the space IRs for a space IR, and lists only IRs", async () => {
+    signIn("signed-in");
+    renderDialog("space", vi.fn(), vi.fn(), "drums");
+    expect(await screen.findByText("Bass cab")).toBeTruthy();
+    expect(screen.queryByText("Bass amp")).toBeNull();
+    expect(mocks.tones.search).toHaveBeenCalledWith(expect.objectContaining({ query: "", gears: ["space"] }), 1, undefined);
+  });
+
+  it("offers a .wav file on this computer for a space IR", async () => {
+    signIn("signed-out");
+    const { onPick } = renderDialog("space", vi.fn(), vi.fn(), "drums");
+    mocks.tones.chooseLocalFile.mockResolvedValueOnce({ path: "/music/room.wav", name: "room.wav" });
+    fireEvent.click(screen.getByRole("button", { name: "Open a .wav file…" }));
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith({ source: "file", path: "/music/room.wav", name: "room.wav" }));
+    expect(mocks.tones.chooseLocalFile).toHaveBeenCalledWith("ir");
   });
 });

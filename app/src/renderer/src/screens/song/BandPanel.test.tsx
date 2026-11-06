@@ -401,6 +401,76 @@ describe("Band panel", () => {
     expect(saved.bass.channels[0][20000]).toBeCloseTo(0.5, 2);
   });
 
+  it("renders the drums through the drum chain before they reach the mixer, and the bass chain still works with it", async () => {
+    const outboard = {
+      type: "capture",
+      role: "outboard",
+      file: { source: "tone3000", toneId: 5, modelId: 9, name: "Bus comp" },
+      inputDb: 0,
+      outputDb: 0,
+      mix: 1,
+      on: true,
+    };
+    const amp = {
+      type: "capture",
+      role: "amp",
+      file: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" },
+      inputDb: 0,
+      outputDb: 0,
+      mix: 1,
+      on: true,
+    };
+    const drumTone = { kind: "chain", blocks: [outboard], dryWet: 1, fast: false };
+    const bassTone = { kind: "chain", blocks: [amp], dryWet: 1, fast: false };
+    stored({ beatGrid: grid, bandOutOfDate: true, band: { ...DEFAULT_BAND_SETTINGS, drumTone, bassTone } });
+    mocks.tones.readNam.mockImplementation(async (toneId: number) => `capture-${toneId}`);
+    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS).fill(0.5), new Float32Array(44100 * SECONDS).fill(0.5)] };
+    const bass = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS).fill(0.5)] };
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, bass, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    let finishDrums: (audio: Float32Array) => void = () => {};
+    mocks.chain.mockImplementationOnce(() => new Promise<Float32Array>((resolve) => (finishDrums = resolve)));
+    mocks.chain.mockImplementation(async (_blocks, input) => input.map((v) => v * 0.5));
+    renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    expect(await screen.findByText("Applying the drum tone…")).toBeTruthy();
+    expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
+    const [blocks, sent] = mocks.chain.mock.calls[0] as unknown as [{ role: string; model: string }[], Float32Array];
+    expect(blocks[0]).toMatchObject({ role: "outboard", model: "capture-5" });
+    finishDrums(new Float32Array(sent.length).fill(0.25));
+    await waitFor(() => expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1));
+    const [saved] = (useSong.getState().applyGeneratedParts as unknown as { mock: { calls: [[{ drums: PcmAudio; bass: PcmAudio }]] } }).mock.calls[0];
+    expect(saved.drums.channels).toHaveLength(2);
+    expect(saved.drums.channels[0][20000]).toBeCloseTo(0.5, 2);
+    expect(saved.drums.channels[1][20000]).toBeCloseTo(0.5, 2);
+    expect(mocks.chain).toHaveBeenCalledTimes(2);
+    expect(mocks.tones.readNam).toHaveBeenCalledWith(42, 7);
+  });
+
+  it("keeps the clean drums and says why when the drum tone's capture is not on this computer", async () => {
+    const outboard = {
+      type: "capture",
+      role: "outboard",
+      file: { source: "tone3000", toneId: 5, modelId: 9, name: "Bus comp" },
+      inputDb: 0,
+      outputDb: 0,
+      mix: 1,
+      on: true,
+    };
+    stored({
+      beatGrid: grid,
+      bandOutOfDate: true,
+      band: { ...DEFAULT_BAND_SETTINGS, drumTone: { kind: "chain", blocks: [outboard], dryWet: 1, fast: false } },
+    });
+    mocks.tones.readNam.mockRejectedValueOnce(new Error("Bus comp isn't there anymore"));
+    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS), new Float32Array(44100 * SECONDS)] };
+    const bass = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, bass, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledWith({ drums, bass }, { playing: false, remove: [] }));
+    expect(screen.getByText(/The drums play clean, because Bus comp couldn't be loaded/)).toBeTruthy();
+  });
+
   it("asks before removing the generated parts, and removes them only on confirm", async () => {
     useSong.setState({ tracks: { track1: { kind: "user", name: "Drums (generated)", bus: "main", transpose: false } } });
     stored({ beatGrid: grid });
