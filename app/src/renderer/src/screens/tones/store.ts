@@ -157,7 +157,7 @@ export async function loadAccount(): Promise<void> {
     if (account.status !== "signed-in") searchSeq++; // drop a search still in flight
     set({ lists: {}, found: empty() });
   } catch (e) {
-    set({ account: { status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true } });
+    set({ account: { status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true, insecureStorage: false } });
     console.warn("TONE3000 account", e);
   }
 }

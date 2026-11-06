@@ -52,6 +52,10 @@ export function BackupsPanel({ offline }: { offline: boolean }) {
   const blocked = offline || !!busy;
 
   const openBackup = async (c: CollectionInfo) => {
+    if (c.incomplete) {
+      notifyError("This backup can't be restored", new Error("It stopped before every preset was copied. Make a new backup instead."));
+      return;
+    }
     setLoading(c.id);
     try {
       const presets = await host.files.listPresets(c.id);

@@ -111,7 +111,7 @@ const toPreset = (r: PresetRow): LocalPreset => ({
 async function info(row: CollectionRow): Promise<CollectionInfo> {
   const count = await done((await db()).transaction("presets").objectStore("presets").index("collection").count(row.id));
   const device = row.kind === "backup" ? (row.device ?? parseBackupDirName(parseCollectionId(row.id)?.dir ?? "")?.device ?? null) : null;
-  return { ...row, device, count, path: null };
+  return { ...row, device, count, path: null, incomplete: false };
 }
 
 async function requireLibrary(id: string): Promise<CollectionRow> {

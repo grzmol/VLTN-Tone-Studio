@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { profileFor } from "@shared/devices";
-import { useDevice } from "./device";
+import { sha256Hex } from "@shared/host/song";
+import { DeviceError, getDriver, useDevice } from "./device";
 import { globalSpecsFor } from "./device-model";
 import { SUPPORTED_DEVICE_KEYS } from "./driver/types";
 
@@ -46,4 +47,87 @@ describe.each(SUPPORTED_DEVICE_KEYS)("%s on a real pedal", (key) => {
 
     expect(await store().uploadUserIr(0, "Real IR", new Uint8Array(profile.userIr.samples * 4))).toBe("Real IR");
   }, 60_000);
+});
+
+describe("unsaved edits and other slots (mock gp5)", () => {
+  const slotA = 2;
+  const slotB = 3;
+  beforeAll(async () => {
+    await store().connect("mock", { mockDevice: "gp5" });
+  }, 30_000);
+  afterAll(async () => {
+    await store().disconnect();
+  });
+
+  /** A live edit that leaves the preset different from its saved copy. */
+  const editVolume = () => store().setVolume(store().preset!.volume === 50 ? 49 : 50);
+
+  it("refuses a write to another slot while edits are unsaved, and sends nothing", async () => {
+    await store().selectSlot(slotA);
+    editVolume();
+    expect(store().unsavedChanges).toBeGreaterThan(0);
+    const spy = vi.spyOn(getDriver()!, "writePreset");
+    const prst = store().preset!.prst;
+    await expect(store().writePreset(slotB, prst)).rejects.toMatchObject({ code: "unsaved" });
+    await expect(store().writePreset(slotB, prst)).rejects.toBeInstanceOf(DeviceError);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    await store().discard();
+  });
+
+  it("writes to the active slot with unsaved edits (the save path)", async () => {
+    await store().selectSlot(slotA);
+    editVolume();
+    const spy = vi.spyOn(getDriver()!, "writePreset");
+    await store().writePreset(slotA, store().preset!.prst);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("saveToSlot to another slot carries the unsaved edits to that slot", async () => {
+    await store().selectSlot(slotA);
+    editVolume();
+    const edited = store().preset!.volume;
+    await store().saveToSlot(slotB);
+    expect(store().slot).toBe(slotB);
+    expect(store().preset!.volume).toBe(edited);
+    expect(store().unsavedChanges).toBe(0);
+  });
+
+  it("remembers the bytes a write put in the slot, for the backup check", async () => {
+    const prst = store().preset!.prst;
+    await store().writePreset(slotB, prst, { discardUnsaved: true });
+    expect(store().slotHashes.get(slotB)).toBe(await sha256Hex(prst));
+  });
+
+  it("writePreset with discardUnsaved writes to another slot with edits pending", async () => {
+    await store().selectSlot(slotA);
+    editVolume();
+    await store().writePreset(slotB, store().preset!.prst, { discardUnsaved: true });
+    expect(store().slot).toBe(slotB);
+  });
+});
+
+describe("busy labels name slots the pedal's way (mock gp200)", () => {
+  beforeAll(async () => {
+    await store().connect("mock", { mockDevice: "gp200" });
+  }, 30_000);
+  afterAll(async () => {
+    await store().disconnect();
+  });
+
+  it("writes and restores label the slot with its pedal label, not its number", async () => {
+    const slot = 46;
+    const label = profileFor("gp200").slotLabel(slot);
+    expect(label).not.toBe(String(slot));
+    const seen: string[] = [];
+    const spy = vi.spyOn(getDriver()!, "writePreset").mockImplementation(async () => {
+      seen.push(store().busy!.label);
+    });
+    const prst = store().preset!.prst;
+    await store().writePreset(slot, prst);
+    await store().restoreAll([{ slot, name: "Restored", prst }]);
+    spy.mockRestore();
+    expect(seen).toEqual([`Writing slot ${label}`, `Restoring slot ${label} (1 of 1)`]);
+  });
 });

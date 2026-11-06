@@ -1,5 +1,6 @@
 // Shared write helpers: the "Back up slot first" snapshot and user-facing error copy.
 import { host } from "@/host";
+import { sha256Hex } from "@shared/host/song";
 import { DeviceError, useDevice } from "@/state/device";
 import { pedalName, slotLabel } from "@/state/device-model";
 import { emptyName } from "@/screens/library/store";
@@ -9,13 +10,15 @@ import { REPLACED_ID, type LocalPreset } from "@shared/host/files";
 export type BackupSource =
   | { kind: "saved"; prst: Uint8Array }
   | { kind: "pedal" }
-  | { kind: "backup"; prst: Uint8Array; at: string }
+  /** `stale`: the copy's bytes aren't what the store last saw in the slot (or it saw none), so the pedal may hold newer ones */
+  | { kind: "backup"; prst: Uint8Array; at: string; stale: boolean }
   | { kind: "none"; reason: string };
 
 /**
  * The active slot uses its saved body (not the live edits). Other slots are read from the pedal: the export read
  * (GP-50) leaves the active preset alone; otherwise reading switches presets, which would drop unsaved edits, so
- * the newest backup's copy is used when its name still matches.
+ * the newest backup's copy is used when its name still matches, flagged `stale` unless its bytes are the ones the store
+ * last saw in that slot (a preset saved under the same name since the backup would otherwise look current).
  */
 export async function resolveBackupSource(slot: number): Promise<BackupSource> {
   const d = useDevice.getState();
@@ -25,7 +28,10 @@ export async function resolveBackupSource(slot: number): Promise<BackupSource> {
   // Only a backup of this pedal's model can stand in for its slot.
   const newest = (await host.files.listCollections().catch(() => [])).find((c) => c.kind === "backup" && c.device === d.device);
   const copy = newest ? (await host.files.listPresets(newest.id).catch(() => [])).find((p) => p.slot === slot) : undefined;
-  if (newest && copy && copy.name === name) return { kind: "backup", prst: copy.prst, at: newest.createdAt };
+  if (newest && copy && copy.name === name) {
+    const stale = (await sha256Hex(copy.prst)) !== d.slotHashes.get(slot);
+    return { kind: "backup", prst: copy.prst, at: newest.createdAt, stale };
+  }
   return { kind: "none", reason: `Reading slot ${slotLabel(d.device, slot)} would drop your unsaved changes, and no backup has its current preset.` };
 }
 

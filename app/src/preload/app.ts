@@ -10,6 +10,7 @@ export const appApi: AppApi = {
   openExternal: (url) => invoke("app:openExternal", url),
   showItemInFolder: (path) => invoke("app:showItemInFolder", path),
   openPath: (path) => invoke("app:openPath", path),
+  launchSuite: () => invoke("app:launchSuite"),
   setProgress: (fraction) => invoke("app:setProgress", fraction),
   takeOpenedFiles: () => invoke("app:takeOpenedFiles"),
   pathForFile: (file) => webUtils.getPathForFile(file) || null,

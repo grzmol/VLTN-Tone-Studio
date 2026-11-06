@@ -23,6 +23,8 @@ export interface CollectionInfo {
   count: number;
   /** Absolute folder on disk (desktop only) */
   path: string | null;
+  /** Backups only: the copy was cut short (backup.json lists presets that are missing). Restore refuses it. Always false otherwise. */
+  incomplete: boolean;
 }
 
 export interface LocalPreset {

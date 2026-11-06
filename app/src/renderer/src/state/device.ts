@@ -5,10 +5,11 @@ import { useGp200Catalog } from "@/gp200/app/catalog-store";
 import { host } from "@/host";
 import { profileFor, type DeviceProfile } from "@shared/devices";
 import { pedalOnUsb } from "@shared/host/device";
+import { sha256Hex } from "@shared/host/song";
 import { refineConnectionError, toConnectionError } from "./connection-error";
 import { DIR_LABEL, MidiLogDecoder, hex, midiLog, pushMidiLog } from "./midi-log";
 import { deviceLogEntries, sessionLog } from "./session-log";
-import { DEFAULT_DEVICE, gateFeatures, isGp5Family, pedalName, pedalNameOrBoth, profileOrDefault } from "./device-model";
+import { DEFAULT_DEVICE, gateFeatures, isGp5Family, pedalName, pedalNameOrBoth, profileOrDefault, slotLabel } from "./device-model";
 import { cacheNames, loadCachedNames, loadDevice, loadLastConnected, saveDevice, saveLastConnected } from "./device-storage";
 import { openPort, simulate } from "./driver";
 import { clampGp200Eq } from "./driver/gp200-globals";
@@ -102,6 +103,13 @@ export const useDevice = create<DeviceState>((set, get) => {
 
   /** The preset in `prst` as read from (or written to) the connected pedal, which names the model of a GP-200 family file. */
   const stateOf = (slot: number, prst: Uint8Array) => toPresetState(slot, prst, driver?.device ?? get().device);
+
+  /** Remember what the pedal holds in each slot (full bytes, hashed) for resolveBackupSource. */
+  const rememberSlots = async (entries: { slot: number; prst: Uint8Array }[]) => {
+    const hashes = new Map(get().slotHashes);
+    for (const { slot, prst } of entries) hashes.set(slot, await sha256Hex(prst));
+    set({ slotHashes: hashes });
+  };
 
   /** Apply edits to the live preset (the codec validates: RangeError on an illegal order or switch set, nothing changes). */
   const editLocal = (edits: PresetEdits) => {
@@ -200,6 +208,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     const { slot, prst } = await d.readActive(names);
     const state = stateOf(slot, prst);
     const saved = checkModified ? await storedCopy(d, state, null, true) : state;
+    await rememberSlots([{ slot, prst }]);
     set({ slot });
     setPreset(state, saved);
   };
@@ -266,6 +275,8 @@ export const useDevice = create<DeviceState>((set, get) => {
     const rxBefore = rxFrames;
     d.subscribe(onDriverEvent);
     driver = d;
+    // A new connection may be another pedal: the fingerprints of the last one don't apply.
+    set({ slotHashes: new Map() });
     try {
       const snap = await d.sync();
       setFeatures(d, mode);
@@ -276,6 +287,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (profileFor(snap.device).family === "gp200" && !useGp200Catalog.getState().loaded) await useGp200Catalog.getState().load();
       const state = stateOf(snap.slot, snap.prst);
       const saved = await storedCopy(d, state, snap.modified ?? null, false);
+      await rememberSlots([{ slot: snap.slot, prst: snap.prst }]);
       reconnects = 0;
       const now = Date.now();
       saveLastConnected(now);
@@ -314,7 +326,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     driver = null;
     sends.clear();
     void d?.close().catch(() => {});
-    set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "lost", features: [], lockedFeatures: [] });
+    set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "lost", features: [], lockedFeatures: [], slotHashes: new Map() });
     if (!userDisconnected && get().mode === "webmidi" && reconnects < MAX_RECONNECTS) {
       reconnects++;
       setTimeout(() => void get().connect("webmidi").catch(() => {}), 1000 * reconnects);
@@ -402,6 +414,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     slot: null,
     preset: null,
     saved: null,
+    slotHashes: new Map(),
     unsavedChanges: 0,
     globals: null,
     globalEq: null,
@@ -511,7 +524,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       driver = null;
       sends.clear();
       await d?.close().catch(() => {});
-      set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "user", features: [], lockedFeatures: [] });
+      set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "user", features: [], lockedFeatures: [], slotHashes: new Map() });
     },
 
     async sync() {
@@ -631,7 +644,8 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (!p) throw new DeviceError("not-connected", "No preset loaded");
       const prst = name !== undefined && name !== p.name ? editPrst(p.prst, { name }) : p.prst;
       // A full write keeps everything (order, footswitches, tempo and EXP may have been edited without a live command).
-      await get().writePreset(slot, prst);
+      // Saving to another slot carries the unsaved edits along, so the store's guard is told to let it through.
+      await get().writePreset(slot, prst, { discardUnsaved: slot !== p.slot });
     },
 
     async rename(slot, name) {
@@ -653,7 +667,10 @@ export const useDevice = create<DeviceState>((set, get) => {
     async writePreset(slot, prst, opts) {
       const d = requireDriver();
       requireIdle();
-      const label = `Writing slot ${slot}`;
+      // Writing over the active slot is the save path. Any other slot switches presets on the pedal, so it needs a
+      // decision about the unsaved edits first (the screens ask; this keeps a caller that forgets from dropping them).
+      if (slot !== get().slot && !opts?.discardUnsaved) guardUnsaved("Writing to another slot");
+      const label = `Writing slot ${slotLabel(get().device, slot)}`;
       set({ busy: { kind: "write", progress: 0, label } });
       try {
         await d.writePreset(slot, prst, {
@@ -664,6 +681,7 @@ export const useDevice = create<DeviceState>((set, get) => {
           },
         });
         const written = stateOf(slot, prst);
+        await rememberSlots([{ slot, prst }]);
         setNames(get().names.map((n) => (n.slot === slot ? { ...n, name: written.name } : n)));
         // writePreset verifies by selecting `slot`, so it is now the active preset.
         set({ slot });
@@ -679,10 +697,15 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (p && p.slot === slot) return p.prst;
       requireIdle();
       // The export read leaves the active preset (and its unsaved edits) alone.
-      if (get().features.includes("exportPreset") && d.exportPreset) return d.exportPreset(slot);
+      if (get().features.includes("exportPreset") && d.exportPreset) {
+        const stored = await d.exportPreset(slot);
+        await rememberSlots([{ slot, prst: stored }]);
+        return stored;
+      }
       guardUnsaved("Reading another slot");
       const original = get().slot;
       const prst = await d.readPreset(slot, get().names);
+      await rememberSlots([{ slot, prst }]);
       if (original !== null) {
         await d.select(original);
         await readActive(d);
@@ -703,6 +726,7 @@ export const useDevice = create<DeviceState>((set, get) => {
             opts?.onProgress?.(f);
           },
         });
+        await rememberSlots(entries);
         await readActive(d);
         return entries;
       } finally {
@@ -712,7 +736,7 @@ export const useDevice = create<DeviceState>((set, get) => {
 
     async deletePresets(slots) {
       const d = requireFeature("deletePreset");
-      const label = slots.length === 1 ? `Clearing slot ${slots[0]}` : `Clearing ${slots.length} slots`;
+      const label = slots.length === 1 ? `Clearing slot ${slotLabel(get().device, slots[0])}` : `Clearing ${slots.length} slots`;
       await manage(d, label, slots, async (progress) => {
         for (const [i, slot] of slots.entries()) {
           await d.deletePreset!(slot);
@@ -723,13 +747,15 @@ export const useDevice = create<DeviceState>((set, get) => {
 
     async copyPreset(from, to) {
       const d = requireFeature("copyPreset");
-      await manage(d, `Copying slot ${from} to slot ${to}`, [to], () => d.copyPreset!(from, to));
+      const { device } = get();
+      await manage(d, `Copying slot ${slotLabel(device, from)} to slot ${slotLabel(device, to)}`, [to], () => d.copyPreset!(from, to));
     },
 
     async movePreset(from, to) {
       const d = requireFeature("movePreset");
       const affected = Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => Math.min(from, to) + i);
-      await manage(d, `Moving slot ${from} to slot ${to}`, affected, () => d.movePreset!(from, to));
+      const { device } = get();
+      await manage(d, `Moving slot ${slotLabel(device, from)} to slot ${slotLabel(device, to)}`, affected, () => d.movePreset!(from, to));
     },
 
     setGlobal(name, value) {
@@ -782,7 +808,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       const slots = entries.map((e) => e.slot);
       const done: number[] = [];
       const total = entries.length;
-      const label = (i: number) => `Restoring slot ${entries[i].slot} (${i + 1} of ${total})`;
+      const label = (i: number) => `Restoring slot ${slotLabel(get().device, entries[i].slot)} (${i + 1} of ${total})`;
       set({ busy: { kind: "restore", progress: 0, label: total ? label(0) : "Restoring" } });
       try {
         for (let i = 0; i < total; i++) {
@@ -798,6 +824,7 @@ export const useDevice = create<DeviceState>((set, get) => {
             noteError(e);
             throw new RestoreError(`Slot ${slot} failed: ${(e as Error)?.message ?? e}`, done, slot, slots.slice(i + 1), e);
           }
+          await rememberSlots([{ slot, prst }]);
           done.push(slot);
           opts?.onProgress?.(done.length, total, slot);
         }
