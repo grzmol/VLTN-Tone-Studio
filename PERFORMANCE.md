@@ -395,7 +395,7 @@ If the grid is wrong, correct it:
 - **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Changing a setting does not regenerate anything. The panel says "Parts out of date" until you press Generate again.
 - **Try another** keeps your settings and makes a different take.
 - **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
-- **Preview 4 bars** plays four bars of the parts over the song, from the selected section or from the playhead. **Stop preview** ends it early.
+- **Preview** plays the parts over the song, from the section you pick in the menu next to it (or from the playhead), for the whole section, 4 bars or 8 bars. **Stop preview** ends it early. The buttons stay at the bottom of the dialog, and after **Generate** the bar offers **Close** and **Play from** the selected section.
 - **Export MIDI…** saves the notes of the last Generate as `<song title> - band.mid`. Drums go on channel 10 and bass on channel 1, with the song's tempo. It is available after Generate until you close the panel. Open the file in a sequencer or a notation app to use the parts elsewhere.
 
 Everything here works offline, and the samples ship with the app. Generating, removing, previewing and exporting are all off during playback, so press Stop first.

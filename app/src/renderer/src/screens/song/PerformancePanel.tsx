@@ -673,6 +673,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             setFirstBeat(first);
           }}
           getPosition={() => session.position}
+          onPlayFrom={(seconds) => void session.seek(seconds).then(() => session.startPlayback())}
           partChoices={partChoice}
           onPartChoice={choosePart}
           bassLine={bassLine}

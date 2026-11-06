@@ -205,7 +205,7 @@ describe("Band panel", () => {
       "Generate",
       "Try another",
       "Remove generated parts",
-      "Preview 4 bars",
+      "Preview",
     ];
     for (const name of actions) expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled, name).toBe(true);
     expect(mocks.startBeatGrid).not.toHaveBeenCalled();
@@ -599,7 +599,7 @@ describe("Band panel", () => {
       "Set metronome to this tempo",
       "Generate",
       "Try another",
-      "Preview 4 bars",
+      "Preview",
     ]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled, name).toBe(true);
     }
@@ -755,7 +755,7 @@ describe("Band panel layout", () => {
       expect(el.className).not.toContain("overflow-x-auto");
     }
     expect(dialog.className).not.toContain("overflow-x-auto");
-    expect(dialog.className).toContain("grid-cols-[minmax(0,1fr)]");
+    expect(dialog.className).toContain("flex-col");
     expect(dialog.className).toContain("min-w-0");
     // The panel's own body and the grid section can shrink to the dialog's width, so the settings and the table keep to it.
     const body = dialog.querySelector('[aria-label="Band status"]')?.parentElement;
@@ -769,6 +769,75 @@ describe("Band panel layout", () => {
     const dialog = screen.getByRole("dialog");
     const fixedWide = [...dialog.querySelectorAll<HTMLElement>("*")].filter((el) => /(^|\s)w-\[\d{4,}/.test(el.className) || el.style.width);
     expect(fixedWide).toEqual([]);
+  });
+});
+
+describe("Band footer and preview", () => {
+  it("shows progress in the footer outside the scrolling body, then Done with Close and Play from", async () => {
+    stored({ beatGrid: grid });
+    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    let finish!: (value: unknown) => void;
+    let stage!: (stage: string) => void;
+    mocks.startBandRender.mockReturnValue({
+      done: new Promise((resolve) => (finish = resolve)),
+      onProgress: (callback: (stage: string) => void) => (stage = callback),
+      cancel: vi.fn(),
+    });
+    const onPlayFrom = vi.fn();
+    renderPanel({ sections: SECTIONS, onPlayFrom });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const footer = screen.getByRole("contentinfo", { name: "Band actions" });
+    await within(footer).findByText("Loading the drum and bass samples…");
+    stage("rendering");
+    await within(footer).findByText("Rendering the parts…");
+    expect(within(footer).getByRole("button", { name: "Cancel" })).toBeTruthy();
+    // The footer is not inside the scrolling body, and the beat grid section does not repeat the progress.
+    const body = screen.getByRole("region", { name: "Band status" }).parentElement as HTMLElement;
+    expect(body.className).toContain("overflow-y-auto");
+    expect(body.contains(footer)).toBe(false);
+    expect(within(screen.getByRole("region", { name: "Beat grid" })).queryByText("Rendering the parts…")).toBeNull();
+    finish({ drums, notes: { drums: [], bass: [] } });
+    await within(footer).findByText("Done. Drums and bass are in the mixer.");
+    fireEvent.click(screen.getByRole("button", { name: "Chorus" }));
+    fireEvent.click(within(footer).getByRole("button", { name: "Play from Chorus" }));
+    expect(onPlayFrom).toHaveBeenCalledWith(4);
+    expect(useBandPanel.getState().open).toBe(false);
+  });
+
+  it("closes from Done without playing", async () => {
+    stored({ beatGrid: grid });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel({ sections: SECTIONS, onPlayFrom: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    expect(useBandPanel.getState().open).toBe(false);
+  });
+
+  it("lists the sections in the preview menu and previews the chosen one from its start", async () => {
+    stored({ beatGrid: grid });
+    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * 4)] };
+    mocks.renderPreview.mockReturnValue({ done: new Promise(() => undefined), cancel: vi.fn() });
+    renderPanel({ sections: SECTIONS });
+    const trigger = screen.getByRole("combobox", { name: "Preview section" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Verse", "Chorus", "From the playhead"]);
+    fireEvent.click(screen.getByRole("option", { name: "Chorus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    // The chorus starts at 4 s and runs to the song's end: 4 s at 120 BPM is 2 bars.
+    await waitFor(() => expect(mocks.renderPreview).toHaveBeenCalledTimes(1));
+    expect(mocks.renderPreview.mock.calls[0].slice(1)).toEqual([4, 2]);
+    expect(drums).toBeTruthy();
+  });
+
+  it("previews 4 bars from the playhead", async () => {
+    stored({ beatGrid: grid });
+    mocks.renderPreview.mockReturnValue({ done: new Promise(() => undefined), cancel: vi.fn() });
+    renderPanel({ sections: SECTIONS, getPosition: () => 1.5 });
+    pick(screen.getByRole("combobox", { name: "Preview section" }), "From the playhead");
+    pick(screen.getByRole("combobox", { name: "Preview length" }), "4 bars");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(mocks.renderPreview).toHaveBeenCalledTimes(1));
+    expect(mocks.renderPreview.mock.calls[0].slice(1)).toEqual([1.5, 4]);
   });
 });
 
