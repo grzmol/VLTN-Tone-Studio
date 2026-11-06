@@ -17,6 +17,8 @@ files:
   - package.json
   - "!**/*.map"
 asarUnpack: []
+# Unsigned Mac builds get a valid ad-hoc signature (scripts/adhoc-sign.cjs); a real signing identity skips it.
+afterPack: scripts/adhoc-sign.cjs
 # Valeton's SnapTone test signal, only when it is in the git-ignored fixtures folder: local `npm run dist`
 # builds carry it, CI releases don't (the file isn't ours to publish).
 extraResources:
@@ -86,6 +88,8 @@ mac:
   hardenedRuntime: true
   # Notarization runs when APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are set (CI release builds).
   extendInfo:
+    NSBluetoothAlwaysUsageDescription: Tone Studio connects to your pedal for Bluetooth MIDI performance control.
+    NSBluetoothPeripheralUsageDescription: Tone Studio connects to your pedal for Bluetooth MIDI performance control.
     # The capture editor auditions NAM captures through the audio interface input (audio only).
     NSMicrophoneUsageDescription: Tone Studio plays your guitar through NAM captures in the capture editor.
 dmg:
