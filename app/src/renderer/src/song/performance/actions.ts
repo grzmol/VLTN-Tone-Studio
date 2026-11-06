@@ -6,6 +6,8 @@
  * hint for the performer instead of throwing, and a binding that is malformed or names an unknown action does nothing at all.
  */
 
+import type { PracticeKind } from "./practice-mute";
+
 /** A hint shown to the performer when an action did not do what it asked. Nothing returned means it did. */
 export type Hint = string | void;
 
@@ -40,6 +42,10 @@ export interface ActionHost {
   togglePart(kind: "drums" | "bass"): Hint;
   tap(): Hint;
   speed(change: "up" | "down" | "reset"): Hint;
+  /** Turns the practice mute of one instrument kind on or off for every song (see practice-mute.ts). */
+  practiceToggle(kind: PracticeKind): Hint;
+  /** Turns every practice mute off. */
+  practiceClear(): Hint;
 }
 
 /** The part of `ActionHost` that the performance screen supplies. */
@@ -107,6 +113,13 @@ const DEFINITIONS = {
   "speed.up": { label: "Speed up", group: "Tempo", run: (h) => h.speed("up") },
   "speed.down": { label: "Speed down", group: "Tempo", run: (h) => h.speed("down") },
   "speed.reset": { label: "Reset speed", group: "Tempo", run: (h) => h.speed("reset") },
+  "practice.toggle.guitar": { label: "Practice mute: guitar", group: "Practice", run: (h) => h.practiceToggle("guitar") },
+  "practice.toggle.vocals": { label: "Practice mute: vocals", group: "Practice", run: (h) => h.practiceToggle("vocals") },
+  "practice.toggle.bass": { label: "Practice mute: bass", group: "Practice", run: (h) => h.practiceToggle("bass") },
+  "practice.toggle.drums": { label: "Practice mute: drums", group: "Practice", run: (h) => h.practiceToggle("drums") },
+  "practice.toggle.piano": { label: "Practice mute: piano", group: "Practice", run: (h) => h.practiceToggle("piano") },
+  "practice.toggle.other": { label: "Practice mute: other", group: "Practice", run: (h) => h.practiceToggle("other") },
+  "practice.clear": { label: "Practice mute: all off", group: "Practice", run: (h) => h.practiceClear() },
   "midi.arm": { label: "Arm MIDI cues", group: "MIDI", run: (h) => h.arm() },
   "midi.disarm": { label: "Disarm MIDI cues", group: "MIDI", run: (h) => h.disarm() },
 } satisfies Record<string, ActionDef>;

@@ -4,6 +4,7 @@ import type { Stems } from "@/song/types";
 import type { MidiSchedule } from "./midi-scheduler";
 import { PerformanceSession, carriedInto, selectArmed, type SessionInputs } from "./session";
 import { SONG_TRIGGER_DEFAULTS, type SongTriggerSettings } from "./song-triggers";
+import { usePracticeMute } from "./practice-mute";
 import { defaultBindings, startLearn, stopLearn, useRemoteLearn, type Binding } from "./bindings";
 import { useMidiConfiguration } from "./midi-configuration";
 import { parseChart } from "./chart";
@@ -1273,6 +1274,24 @@ describe("remote actions", () => {
   beforeEach(() => {
     stopLearn();
     useMidiConfiguration.getState().update({ bindings: defaultBindings() });
+  });
+
+  it("toggles a practice mute from a bound key, even while the performance screen is hidden, and clears it", () => {
+    usePracticeMute.getState().clear();
+    const { session } = remoteSession();
+    withBindings(session, [
+      { action: "practice.toggle.guitar", source: "key", match: { key: "g" } },
+      { action: "practice.clear", source: "key", match: { key: "h" } },
+    ]);
+    session.shown = false;
+    session.keyDown(press("g"));
+    expect(usePracticeMute.getState().kinds).toEqual(["guitar"]);
+    session.keyDown(press("g"));
+    expect(usePracticeMute.getState().kinds).toEqual([]);
+    session.keyDown(press("g"));
+    session.keyDown(press("h"));
+    expect(usePracticeMute.getState().kinds).toEqual([]);
+    session.dispose();
   });
 
   it("runs the tempo tap from the T key, and the key is ignored while typing in a field", () => {
