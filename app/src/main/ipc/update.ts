@@ -2,7 +2,7 @@ import { app, net, type BrowserWindow } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { HostError } from "@shared/ipc";
 import { isNewer, latestReleaseVersion, RELEASE_REPO, type UpdateMode, type UpdateSnapshot, type UpdateState } from "@shared/host/update";
-import { handle } from "./handle";
+import { handle, sendTo } from "./handle";
 import { isJobRunning, loadSettings } from "./app";
 import { logMain } from "./log";
 
@@ -29,7 +29,7 @@ const snapshot = (): UpdateSnapshot => ({ mode, current: app.getVersion(), state
 
 function setState(next: UpdateState): void {
   state = next;
-  getWindow()?.webContents.send("update:state", snapshot());
+  sendTo(getWindow, "update:state", snapshot());
 }
 
 /** Builds electron-updater can replace in place. macOS needs a signed app (Squirrel.Mac) and the .deb a package manager. */
@@ -101,9 +101,11 @@ async function check(): Promise<UpdateSnapshot> {
 
 async function download(): Promise<void> {
   if (mode !== "install") throw new HostError("unsupported", "Download this version from its release page");
+  // A second click while the first download runs does nothing: the state says so before any await below.
+  if (state.status === "downloading") return;
   if (state.status !== "available") throw new HostError("invalid", "There is no update to download");
   const { version } = state;
-  const u = await updater();
+  setState({ status: "downloading", version, percent: 0 });
   let shown = -1;
   const onProgress = ({ percent }: { percent: number }) => {
     const p = Math.floor(percent);
@@ -111,9 +113,10 @@ async function download(): Promise<void> {
     shown = p;
     setState({ status: "downloading", version, percent: p });
   };
-  u.on("download-progress", onProgress);
-  setState({ status: "downloading", version, percent: 0 });
+  let u: AppUpdater | null = null;
   try {
+    u = await updater();
+    u.on("download-progress", onProgress);
     await u.downloadUpdate();
     setState({ status: "ready", version });
   } catch (e) {
@@ -122,7 +125,7 @@ async function download(): Promise<void> {
     logMain("Error", `Update download failed: ${describeFailure(e)}`);
     setState({ status: "error", message: describeFailure(e) });
   } finally {
-    u.off("download-progress", onProgress);
+    u?.off("download-progress", onProgress);
   }
 }
 

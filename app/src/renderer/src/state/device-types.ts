@@ -240,6 +240,11 @@ export interface WriteOptions {
   onProgress?: (fraction: number) => void;
 }
 
+/** A full write to a slot; `discardUnsaved` lets it replace a different slot's edits (the edits go with the write) */
+export interface WritePresetOptions extends WriteOptions {
+  discardUnsaved?: boolean;
+}
+
 export interface BackupEntry {
   slot: number;
   name: string;
@@ -286,6 +291,11 @@ export interface DeviceState {
   preset: PresetState | null;
   /** The preset as last read/saved, for "Compare with saved" and the unsaved-changes count */
   saved: PresetState | null;
+  /**
+   * SHA-256 (hex) of the full preset bytes each slot had when the store last read or wrote it on this connection.
+   * Cleared on disconnect and on a new connection. A backup copy is trusted only when its bytes hash the same.
+   */
+  slotHashes: ReadonlyMap<number, string>;
   /** Number of differing params/blocks between preset and saved */
   unsavedChanges: number;
   globals: Globals | null;
@@ -367,7 +377,7 @@ export interface DeviceState {
   // memory writes (callers MUST confirm with the user first)
   saveToSlot(slot: number, name?: string): Promise<void>;
   rename(slot: number, name: string): Promise<void>;
-  writePreset(slot: number, prst: Uint8Array, opts?: WriteOptions): Promise<void>;
+  writePreset(slot: number, prst: Uint8Array, opts?: WritePresetOptions): Promise<void>;
   readPreset(slot: number): Promise<Uint8Array>;
   backupAll(opts?: WriteOptions): Promise<BackupEntry[]>;
   /** Reset `slots` to the empty preset (deletePreset feature), then re-read the names */

@@ -8,7 +8,7 @@ const desktopOnly = (what: string) => async (): Promise<never> => {
 };
 
 export const webTones: TonesApi = {
-  account: async () => ({ status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true }),
+  account: async () => ({ status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true, insecureStorage: false }),
   markSplashSeen: async () => {},
   beginFlow: desktopOnly("Signing in to TONE3000"),
   setFlowBounds: async () => {},

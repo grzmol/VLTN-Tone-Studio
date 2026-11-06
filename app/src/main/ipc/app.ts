@@ -1,29 +1,56 @@
 import { app, BrowserWindow, shell } from "electron";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { DEFAULT_SETTINGS, type AppSettings } from "@shared/host/app";
+import { readFile, rename, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings } from "@shared/host/app";
 import { HostError } from "@shared/ipc";
-import { handle } from "./handle";
+import { handle, shellPaths } from "./handle";
+import { serial, writeJsonAtomic } from "./fs-atomic";
+import { logMain } from "./log";
+import { suiteToLaunch } from "./shell-paths";
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
 let cache: AppSettings | null = null;
 
-export async function loadSettings(): Promise<AppSettings> {
-  if (cache) return cache;
+/** Reads settings.json. A missing file gives defaults; one that doesn't parse is moved aside, never overwritten. */
+async function readSettings(): Promise<AppSettings> {
+  let text: string;
   try {
-    cache = { ...DEFAULT_SETTINGS, ...JSON.parse(await readFile(settingsPath(), "utf8")) };
+    text = await readFile(settingsPath(), "utf8");
   } catch {
-    cache = { ...DEFAULT_SETTINGS };
+    // No file yet (a first run) or none readable: defaults. The next save writes a fresh file.
+    return { ...DEFAULT_SETTINGS };
   }
-  return cache!;
+  try {
+    return { ...DEFAULT_SETTINGS, ...readSettingsFile(JSON.parse(text)) };
+  } catch {
+    // Keep the damaged file for the user to look at; saving defaults over it would lose every setting.
+    const aside = join(app.getPath("userData"), `settings.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    await rename(settingsPath(), aside).catch(() => {});
+    logMain("Settings", `settings.json could not be read and was moved to ${aside}`);
+    return { ...DEFAULT_SETTINGS };
+  }
 }
 
-async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
-  const next = { ...(await loadSettings()), ...patch };
-  await mkdir(dirname(settingsPath()), { recursive: true });
-  await writeFile(settingsPath(), JSON.stringify(next, null, 2));
-  cache = next;
-  return next;
+export async function loadSettings(): Promise<AppSettings> {
+  if (cache) return cache;
+  const settings = await readSettings();
+  cache = settings;
+  return settings;
+}
+
+/** Saves one patch. Saves run one at a time, so two in a row (say the Suite path and a toggle) both land. */
+function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  return serial(settingsPath(), async () => {
+    const next = { ...(await loadSettings()), ...patch };
+    await writeJsonAtomic(settingsPath(), next);
+    cache = next;
+    return next;
+  });
+}
+
+/** Store the Valeton Suite path the user chose in the file dialog (device:pickSuitePath). The only writer of it. */
+export function chooseSuitePath(path: string): Promise<AppSettings> {
+  return saveSettings({ valetonSuitePath: path, suitePathPicked: true });
 }
 
 /** A backup or write is running (the renderer reports its progress); window close asks first. */
@@ -36,19 +63,44 @@ export function queueOpenedFiles(paths: string[]): void {
   openedFiles.push(...paths);
 }
 
+/** Where an OS-opened file goes: to a window that has loaded, or to the queue the renderer takes on mount (app:takeOpenedFiles). */
+export function routeOpenedFile(win: { isDestroyed(): boolean; webContents: { isLoading(): boolean } } | null): "send" | "queue" {
+  return win && !win.isDestroyed() && !win.webContents.isLoading() ? "send" : "queue";
+}
+
 const isHttp = (url: string) => /^https?:\/\//i.test(url);
+
+/** Checks a renderer-supplied path against what main handed out; returns the absolute path to pass to shell. */
+async function allowedShellPath(path: unknown): Promise<string> {
+  if (typeof path !== "string" || !(await shellPaths.isAllowed(path))) throw new HostError("invalid", "Tone Studio only opens its own folders and files you chose");
+  return resolve(path);
+}
 
 export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
   handle("app:version", () => app.getVersion());
   handle("app:getSettings", () => loadSettings());
-  handle("app:setSettings", (_e, patch: Partial<AppSettings>) => saveSettings(patch));
+  // The sanitiser drops unknown keys, wrong types and the Suite path: only device:pickSuitePath sets that.
+  handle("app:setSettings", (_e, patch: unknown) => saveSettings(sanitizeSettingsPatch(patch)));
   handle("app:openExternal", async (_e, url: string) => {
     if (!isHttp(url)) throw new HostError("invalid", "Only http(s) links can be opened");
     await shell.openExternal(url);
   });
-  handle("app:showItemInFolder", (_e, path: string) => shell.showItemInFolder(path));
+  handle("app:showItemInFolder", async (_e, path: string) => {
+    shell.showItemInFolder(await allowedShellPath(path));
+  });
   handle("app:openPath", async (_e, path: string) => {
-    const err = await shell.openPath(path);
+    const full = await allowedShellPath(path);
+    const info = await stat(full).catch(() => null);
+    // openPath is only for folders (logs, the library). Files are never opened, so nothing can be launched through it.
+    if (!info?.isDirectory()) throw new HostError("invalid", "Tone Studio only opens folders");
+    const err = await shell.openPath(full);
+    if (err) throw new HostError("io", err);
+  });
+  handle("app:launchSuite", async () => {
+    const suite = suiteToLaunch(await loadSettings(), process.platform);
+    if (!suite) throw new HostError("invalid", "Choose Valeton Suite in Settings first");
+    // Launching a program is this channel's job, so it is not limited to folders the way openPath is.
+    const err = await shell.openPath(suite);
     if (err) throw new HostError("io", err);
   });
   handle("app:setProgress", (_e, fraction: number | null) => {

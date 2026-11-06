@@ -5,7 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   main: { plugins: [externalizeDepsPlugin()], resolve: { alias: { "@shared": resolve("src/shared") } } },
-  preload: { plugins: [externalizeDepsPlugin()], resolve: { alias: { "@shared": resolve("src/shared") } } },
+  // The preload is CommonJS and sandboxed. A sandboxed preload can only require "electron", "events", "timers" and "url",
+  // and cannot be an ES module, so keep shared code inlined here.
+  preload: {
+    plugins: [externalizeDepsPlugin()],
+    resolve: { alias: { "@shared": resolve("src/shared") } },
+    build: { rollupOptions: { output: { format: "cjs", entryFileNames: "[name].cjs" } } },
+  },
   renderer: {
     resolve: { alias: { "@": resolve("src/renderer/src"), "@shared": resolve("src/shared") } },
     plugins: [react(), tailwindcss()],

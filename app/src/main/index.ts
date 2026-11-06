@@ -2,10 +2,11 @@ import { app, BrowserWindow, dialog, net, protocol, screen, session } from "elec
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { buildMenu } from "./menu";
-import { isJobRunning, queueOpenedFiles, registerAppIpc } from "./ipc/app";
+import { isJobRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
+import { sendTo } from "./ipc/handle";
 import { registerFilesIpc } from "./ipc/files";
+import { writeJsonAtomicSync } from "./ipc/fs-atomic";
 import { registerTonesIpc } from "./ipc/tones";
 import { registerCaptureIpc } from "./ipc/capture";
 import { registerDeviceIpc } from "./ipc/device";
@@ -15,9 +16,11 @@ import { registerUpdateIpc } from "./ipc/update";
 import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
+import { isOwnRenderer } from "./permissions";
 
-// One app instance = one MIDI session (the pedal's port is exclusive on Windows).
-if (!app.requestSingleInstanceLock()) app.quit();
+// One app instance = one MIDI session (the pedal's port is exclusive on Windows). The second copy exits here,
+// before the rest of this file registers IPC or a window; the first copy gets its files and focus via "second-instance".
+if (!app.requestSingleInstanceLock()) app.exit(0);
 
 // The packaged renderer is served from app://bundle/ instead of file://, so fetch() and
 // AudioWorklet.addModule() of bundled assets (NAM engine wasm, worklet, audio clips) work and 'self' is a real origin.
@@ -54,7 +57,8 @@ async function serveBundle(req: Request): Promise<Response> {
 const ENCLOSURE = "#08080a";
 const MIN = { width: 1180, height: 760 };
 let win: BrowserWindow | null = null;
-const getWindow = () => win;
+// A destroyed window is treated as no window: on macOS the app keeps running after its window closes.
+const getWindow = () => (win && !win.isDestroyed() ? win : null);
 const boundsPath = () => join(app.getPath("userData"), "window.json");
 const OPENABLE = /\.(prst|nam|wav)$/i;
 queueOpenedFiles(process.argv.slice(1).filter((a) => OPENABLE.test(a)));
@@ -85,16 +89,37 @@ async function loadBounds(): Promise<SavedBounds> {
 
 function saveBounds(w: BrowserWindow): void {
   try {
-    mkdirSync(app.getPath("userData"), { recursive: true });
     // Sync: the app may quit right after the window closes.
-    writeFileSync(boundsPath(), JSON.stringify({ ...w.getNormalBounds(), maximized: w.isMaximized() } satisfies SavedBounds));
+    writeJsonAtomicSync(boundsPath(), { ...w.getNormalBounds(), maximized: w.isMaximized() } satisfies SavedBounds);
   } catch {
     // bounds are a convenience
   }
 }
 
 function sendEvent(event: AppEvent) {
-  win?.webContents.send("app:event", event);
+  sendTo(getWindow, "app:event", event);
+}
+
+let opening: Promise<void> | null = null;
+/** Creates the window unless one is open. A call made while it is still being built waits for that window. */
+function openWindow(): Promise<void> {
+  if (win) return Promise.resolve();
+  opening ??= createWindow().finally(() => {
+    opening = null;
+  });
+  return opening;
+}
+
+/** Re-creates the window after the user closed it. Before ready there is nothing to do: whenReady creates it. */
+function reopenWindow(): void {
+  if (!getWindow() && app.isReady()) void openWindow();
+}
+
+/** Files the OS hands us (Finder double-click, second launch): to the window if it has loaded, else queued and the window reopened. */
+function openFiles(paths: string[]): void {
+  if (routeOpenedFile(getWindow()) === "send") return sendEvent({ type: "open-files", paths });
+  queueOpenedFiles(paths);
+  reopenWindow();
 }
 
 async function createWindow() {
@@ -112,12 +137,16 @@ async function createWindow() {
       : { titleBarOverlay: { color: ENCLOSURE, symbolColor: "#c2c2c2", height: 52 } }),
     ...(process.platform === "win32" ? { backgroundMaterial: "acrylic" as const } : {}),
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.mjs"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
-      sandbox: false, // ESM preload needs sandbox: false; nodeIntegration stays off and only the typed bridge is exposed
+      // The preload bundle only imports electron, so the sandbox holds. Keep it that way (see electron.vite.config.ts).
+      sandbox: true,
       nodeIntegration: false,
       backgroundThrottling: false, // backups and writes must not be throttled
     },
+  });
+  win.once("closed", () => {
+    win = null;
   });
   win.once("ready-to-show", () => {
     if (maximized) win?.maximize();
@@ -152,33 +181,38 @@ async function createWindow() {
 
 app.on("second-instance", (_e, argv) => {
   const files = argv.slice(1).filter((a) => OPENABLE.test(a));
-  if (files.length) sendEvent({ type: "open-files", paths: files });
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
+  if (files.length) openFiles(files);
+  else reopenWindow();
+  const live = getWindow();
+  if (live) {
+    if (live.isMinimized()) live.restore();
+    live.focus();
   }
 });
 app.on("open-file", (e, path) => {
   e.preventDefault();
   // Before the renderer is up, the path waits for `app.takeOpenedFiles()`.
-  if (win && !win.webContents.isLoading()) sendEvent({ type: "open-files", paths: [path] });
-  else queueOpenedFiles([path]);
+  openFiles([path]);
 });
 
 app.whenReady().then(async () => {
   // WebMIDI with SysEx in the renderer (src/renderer/src/gp5/), plus audio-only capture for the capture editor's
   // NAM audition (audio interface input). Nothing else is granted; video is always denied.
+  // Only our own pages get them (isOwnRenderer): the default session is shared with anything else that loads there.
   const allowed = new Set(["midi", "midiSysex"]);
+  const devUrl = process.env.ELECTRON_RENDERER_URL;
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb, details) => {
+    if (!isOwnRenderer(details.requestingUrl, devUrl)) return cb(false);
     if (permission === "media") {
       const types = "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
       return cb(types.length > 0 && types.every((t) => t === "audio"));
     }
     cb(allowed.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
-    permission === "media" ? details.mediaType === "audio" : allowed.has(permission),
-  );
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+    if (!isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
+    return permission === "media" ? details.mediaType === "audio" : allowed.has(permission);
+  });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
@@ -198,11 +232,9 @@ app.whenReady().then(async () => {
   registerUpdateIpc(getWindow);
   registerGp200CatalogIpc(getWindow);
   buildMenu(getWindow);
-  await createWindow();
+  await openWindow();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
-  });
+  app.on("activate", reopenWindow);
 });
 
 app.on("window-all-closed", () => {

@@ -6,6 +6,8 @@ import type { CaptureDraft, CaptureKey, CaptureRecipe, CaptureState, CaptureVers
 import type { ToneRecord } from "@shared/host/tones";
 import { HostError } from "@shared/ipc";
 import { handle, showSaveDialog } from "./handle";
+import { writeJsonAtomic } from "./fs-atomic";
+import { createTrash, type TrashFn } from "./trash";
 
 // Layout: see src/shared/host/capture.ts. Tones' files (meta.json, <model_id>.nam) are only read here.
 const userData = () => app.getPath("userData");
@@ -55,7 +57,7 @@ async function importText(fileName: string, text: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   const original = join(dir, "original.nam");
   if (!(await exists(original))) await writeFile(original, text, "utf8");
-  await writeFile(join(dir, "source.json"), JSON.stringify({ fileName: basename(String(fileName)), importedAt: new Date().toISOString() }));
+  await writeJsonAtomic(join(dir, "source.json"), { fileName: basename(String(fileName)), importedAt: new Date().toISOString() });
   return ref;
 }
 
@@ -126,23 +128,23 @@ async function saveVersion(key: CaptureKey, input: { recipe: CaptureRecipe; summ
     ...(input.restoredFrom ? { restoredFrom: input.restoredFrom } : {}),
   };
   await writeFile(join(vdir, `v${n}.nam`), input.file, "utf8");
-  await writeFile(join(vdir, `v${n}.json`), JSON.stringify(version, null, 2));
+  await writeJsonAtomic(join(vdir, `v${n}.json`), version);
   await rm(join(vdir, "draft.json"), { force: true });
   return version;
 }
 
-async function deleteVersion(key: CaptureKey, n: number): Promise<void> {
+async function deleteVersion(key: CaptureKey, n: number, trash: TrashFn): Promise<void> {
   if (!Number.isInteger(n) || n < 1) throw new HostError("invalid", "The original can't be deleted");
   const vdir = versionsDir(key);
-  await rm(join(vdir, `v${n}.json`), { force: true });
-  await rm(join(vdir, `v${n}.nam`), { force: true });
+  await trash(join(vdir, `v${n}.json`));
+  await trash(join(vdir, `v${n}.nam`));
 }
 
 async function saveDraft(key: CaptureKey, draft: CaptureDraft | null): Promise<void> {
   const vdir = versionsDir(key);
   if (draft === null) return rm(join(vdir, "draft.json"), { force: true });
   await mkdir(vdir, { recursive: true });
-  await writeFile(join(vdir, "draft.json"), JSON.stringify(draft));
+  await writeJsonAtomic(join(vdir, "draft.json"), draft);
 }
 
 /** File names we write: no path separators, `.nam` extension. */
@@ -163,7 +165,9 @@ export function registerCaptureIpc(getWindow: () => BrowserWindow | null): void 
   handle("capture:importText", (_e, fileName: string, text: string) => importText(fileName, text));
   handle("capture:open", (_e, ref: string, modelId?: number | null) => open(ref, modelId));
   handle("capture:saveVersion", (_e, key: CaptureKey, input: Parameters<typeof saveVersion>[1]) => saveVersion(key, input));
-  handle("capture:deleteVersion", (_e, key: CaptureKey, n: number) => deleteVersion(key, n));
+  // A deleted version goes to the OS Trash; the userData .trash folder only when the OS refuses.
+  const trash = createTrash(userData(), (path) => shell.trashItem(path));
+  handle("capture:deleteVersion", (_e, key: CaptureKey, n: number) => deleteVersion(key, n, trash));
   handle("capture:saveDraft", (_e, key: CaptureKey, draft: CaptureDraft | null) => saveDraft(key, draft));
   handle("capture:showFiles", async (_e, key: CaptureKey) => {
     const vdir = versionsDir(key);

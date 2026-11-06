@@ -5,13 +5,13 @@ import { readSignalWav } from "@shared/host/snaptone";
 import { HostError } from "@shared/ipc";
 import { loadSettings } from "./app";
 import { handle, showOpenDialog } from "./handle";
+import { MAC_SUITE } from "./shell-paths";
 
 // Valeton's test signal for the SnapTone conversion (see src/shared/host/snaptone.ts). A checked copy is kept in
 // userData/snaptone; until then it comes from the build (local builds with the git-ignored fixture) or the
 // Valeton Suite install.
 const SIGNAL_NAME = "nam_input_wav.wav";
 const storedPath = () => join(app.getPath("userData"), "snaptone", SIGNAL_NAME);
-const MAC_SUITE = "/Applications/Valeton Suite.app";
 
 /** Where Suite keeps the file for a given Suite path (the .exe on Windows, the .app on macOS). */
 function inSuite(suitePath: string): string | null {

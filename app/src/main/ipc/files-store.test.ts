@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LibraryStore, readPrstPaths } from "./files-store";
@@ -172,6 +172,71 @@ describe("collections", () => {
   });
 });
 
+describe("deleting goes to the Trash", () => {
+  it("moves a deleted collection into .trash, and it no longer lists", async () => {
+    const c = await store.createCollection("Gig");
+    await store.addPresets(c.id, [{ name: "Zed", prst: fakePrst("Zed") }]);
+
+    await store.deleteCollection(c.id);
+
+    expect(await store.listCollections()).toEqual([]);
+    const trashed = await readdir(join(root, ".trash"));
+    expect(trashed).toHaveLength(1);
+    expect(await readFile(join(root, ".trash", trashed[0], "Zed.prst"))).toHaveLength(fakePrst("Zed").length);
+  });
+
+  it("moves a removed preset into .trash and updates collection.json as before", async () => {
+    const c = await store.createCollection("Set");
+    await store.addPresets(c.id, [
+      { name: "Zed", prst: fakePrst("Zed") },
+      { name: "Alpha", prst: fakePrst("Alpha") },
+    ]);
+
+    await store.removePreset(c.id, "Zed.prst");
+
+    expect((await store.listPresets(c.id)).map((p) => p.name)).toEqual(["Alpha"]);
+    expect(await readdir(join(root, ".trash"))).toHaveLength(1);
+    const meta = JSON.parse(await readFile(join(root, "library", "Set", "collection.json"), "utf8"));
+    expect(meta.order).toEqual(["Alpha.prst"]);
+    expect(meta.items["Zed.prst"]).toBeUndefined();
+  });
+
+  it("keeps the collection and its presets when the Trash refuses, and reports the error", async () => {
+    const refusing = new LibraryStore(root, undefined, async () => {
+      throw new Error("Trash refused");
+    });
+    const c = await refusing.createCollection("Gig");
+    await refusing.addPresets(c.id, [{ name: "Zed", prst: fakePrst("Zed") }]);
+
+    await expect(refusing.deleteCollection(c.id)).rejects.toThrow("Trash refused");
+    await expect(refusing.removePreset(c.id, "Zed.prst")).rejects.toThrow("Trash refused");
+
+    expect(await refusing.listCollections()).toMatchObject([{ id: c.id, count: 1 }]);
+    expect((await refusing.listPresets(c.id)).map((p) => p.name)).toEqual(["Zed"]);
+  });
+
+  it("hands the Trash the collection folder it is deleting", async () => {
+    const seen: string[] = [];
+    const recording = new LibraryStore(root, undefined, async (path) => {
+      seen.push(path);
+    });
+    const c = await recording.createCollection("Gig");
+
+    await recording.deleteCollection(c.id);
+
+    expect(seen).toEqual([join(root, "library", "Gig")]);
+  });
+
+  it("never lists the .trash folder, even when it holds a collection-shaped folder", async () => {
+    const c = await store.createCollection("Gig");
+    await store.deleteCollection(c.id);
+    await mkdir(join(root, ".trash", "Hidden"), { recursive: true });
+    await writeFile(join(root, ".trash", "Hidden", "collection.json"), JSON.stringify({ title: "Hidden", kind: "collection" }));
+
+    expect(await store.listCollections()).toEqual([]);
+  });
+});
+
 describe("readPrstPaths", () => {
   it("reads .prst files and explains what it rejects", async () => {
     const ok = join(root, "65-Puppy.prst");
@@ -186,5 +251,60 @@ describe("readPrstPaths", () => {
     expect(b.error).toBe(`Not a ${PRST_MODELS} preset.`);
     expect(c.error).toBe("Not a .prst preset file.");
     expect(d.error).toMatch(/Couldn't read/);
+  });
+});
+
+describe("interrupted backups", () => {
+  const day = new Date(2026, 9, 7, 14, 32);
+  const slots = (n: number) => Array.from({ length: n }, (_, i) => ({ slot: i, name: `P${i}`, prst: fakePrst(`P${i}`) }));
+
+  it("leaves no backup listed when a write fails partway, and no temp folder either", async () => {
+    let writes = 0;
+    const flaky = new LibraryStore(root, async (path, bytes) => {
+      if (++writes === 5) throw new Error("disk full");
+      await writeFile(path, bytes);
+    });
+    await expect(flaky.saveBackup(slots(6), day)).rejects.toThrow("disk full");
+    expect(await flaky.listCollections()).toEqual([]);
+    expect(await readdir(join(root, "backups"))).toEqual([]);
+  });
+
+  it("never lists a temp folder, even one with a complete-looking backup.json", async () => {
+    const temp = join(root, "backups", ".tmp-abc");
+    await mkdir(temp, { recursive: true });
+    await writeFile(join(temp, "00-A.prst"), fakePrst("A"));
+    expect(await store.listCollections()).toEqual([]);
+  });
+
+  it("sweeps temp folders older than an hour and keeps recent ones", async () => {
+    const old = join(root, "backups", ".tmp-old");
+    const fresh = join(root, "backups", ".tmp-fresh");
+    await mkdir(old, { recursive: true });
+    await mkdir(fresh, { recursive: true });
+    const hourAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    await utimes(old, hourAgo, hourAgo);
+    expect(await store.sweepTempBackups()).toBe(1);
+    expect(await readdir(join(root, "backups"))).toEqual([".tmp-fresh"]);
+  });
+
+  it("flags a backup whose backup.json lists a file that is now missing", async () => {
+    const info = await store.saveBackup(slots(3), day);
+    await rm(join(root, info.id, "01-P1.prst"));
+    const [listed] = await store.listCollections();
+    expect(listed).toMatchObject({ id: info.id, incomplete: true, count: 2 });
+  });
+
+  it("does not flag a complete backup or a hand-made folder with no backup.json", async () => {
+    await store.saveBackup(slots(2), day);
+    await mkdir(join(root, "backups", "gp5-2026-01-02"), { recursive: true });
+    await writeFile(join(root, "backups", "gp5-2026-01-02", "05-Pure Clean.prst"), fakePrst("Pure Clean"));
+    expect((await store.listCollections()).map((c) => c.incomplete)).toEqual([false, false]);
+  });
+
+  it("names a second backup of the day with a suffix once the first is renamed into place", async () => {
+    const first = await store.saveBackup(slots(1), day);
+    const second = await store.saveBackup(slots(1), day);
+    expect([first.id, second.id]).toEqual(["backups/gp5-2026-10-07", "backups/gp5-2026-10-07-2"]);
+    expect(await readdir(join(root, "backups"))).toEqual(["gp5-2026-10-07", "gp5-2026-10-07-2"]);
   });
 });

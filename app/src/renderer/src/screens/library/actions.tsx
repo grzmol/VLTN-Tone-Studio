@@ -6,7 +6,7 @@ import { describeSummary, summarize } from "@/components/write/preset-summary";
 import { describeError } from "@/components/write/write-helpers";
 import { notifyError, notifySuccess, notifyWriteDone } from "@/app/notify";
 import { requestPresetSwitch } from "@/app/preset-switch";
-import { host } from "@/host";
+import { host, isElectron } from "@/host";
 import { useDevice } from "@/state/device";
 import type { DeviceFeature } from "@/state/device-types";
 import { pedalName, prepareForDevice, presetDevice, profileOrDefault, slotLabel } from "@/state/device-model";
@@ -375,6 +375,7 @@ export function LibraryActionsProvider({ children }: { children: ReactNode }) {
           await lib.refreshCollections();
           await lib.reloadPresets();
           if (lib.localSelected === preset.id) lib.selectLocal(null);
+          notifySuccess(isElectron ? `Moved ${preset.name} to the Trash` : `Removed ${preset.name}`);
         } catch (e) {
           notifyError(`Couldn't remove ${preset.name}`, e);
         }

@@ -6,8 +6,9 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { host } from "@/host";
 import { useSong } from "@/song/store";
-import { findModel, missingBytes, type SeparationModel } from "@shared/host/song";
+import { findModel, missingBytes, type SeparationModel, type SeparationModelId } from "@shared/host/song";
 import { PartPicker } from "./PartPicker";
 import { StemMixer } from "./StemMixer";
 import { megabytes, SplitOptions, useDownloadedFiles } from "./SplitOptions";
@@ -23,6 +24,15 @@ const SPLIT_DETAIL = {
 function stemList(model: SeparationModel | undefined): string {
   const named = (model?.stems ?? []).filter((s) => s !== "other");
   return named.length ? `${named.join(", ")} and everything else` : "stems";
+}
+
+/**
+ * Stops a model download. The split waiting on it stops too; the files already downloaded stay, and the partial one
+ * resumes the next time the model is used.
+ */
+function cancelModelDownload(id: SeparationModelId | undefined) {
+  if (id) host.song.cancelDownload(id).catch((e) => console.error("Couldn't cancel the model download", e));
+  useSong.getState().cancel();
 }
 
 /** The Stems tab: pick a song, choose the model and quality, follow the split, then play and export the stems. */
@@ -58,6 +68,7 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
         title={`Downloading the ${model?.label ?? "separation"} model`}
         detail={`First split with it only: ${Math.round(status.fraction * mb)} of ${mb} MB. It is kept for next time.`}
         fraction={status.fraction}
+        onCancel={() => cancelModelDownload(model?.id)}
       />
     );
   }
@@ -143,7 +154,17 @@ export function StemsPanel({ onPick }: { onPick: () => void }) {
   );
 }
 
-function Working({ title, detail, fraction }: { title: string; detail?: string; fraction?: number }) {
+function Working({
+  title,
+  detail,
+  fraction,
+  onCancel = () => useSong.getState().cancel(),
+}: {
+  title: string;
+  detail?: string;
+  fraction?: number;
+  onCancel?: () => void;
+}) {
   const percent = fraction === undefined ? null : Math.round(fraction * 100);
   return (
     <div className="grid flex-1 place-items-center p-6">
@@ -156,7 +177,7 @@ function Working({ title, detail, fraction }: { title: string; detail?: string; 
         {percent !== null && <Progress value={percent} aria-label={title} />}
         <div className="flex items-center gap-3">
           {detail && <p className="text-[12px] text-pretty text-silkscreen-3">{detail}</p>}
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => useSong.getState().cancel()}>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={onCancel}>
             <X data-icon="inline-start" />
             Cancel
           </Button>

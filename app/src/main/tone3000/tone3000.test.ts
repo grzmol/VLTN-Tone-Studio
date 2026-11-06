@@ -7,6 +7,7 @@ import { HostError } from "@shared/ipc";
 import type { T3kModel, T3kTone } from "@shared/host/tones";
 import { base64url, codeChallenge, createPkce } from "./pkce";
 import { InvalidGrantError, TokenManager, type TokenSet, type TokenStore } from "./tokens";
+import { isT3kUrl, T3kClient, withoutForeignAuthorization } from "./api";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "./records";
 
 describe("PKCE", () => {
@@ -115,6 +116,128 @@ describe("TokenManager", () => {
     await tm.set({ access_token: "a", refresh_token: "r", expires_in: 3600 });
     expect(tm.expired).toBe(false);
     expect(await tm.accessToken()).toBe("a");
+  });
+});
+
+describe("TONE3000 host scoping", () => {
+  const T0 = 1_000_000;
+  const API = "https://www.tone3000.com/api/v1/tones/4711";
+  const CDN = "https://cdn.example.com/x.nam";
+
+  /** Fake fetch: records the Authorization header per URL and answers with `reply`. */
+  function fakeFetch(reply: (url: string) => Response) {
+    const seen: { url: string; authorization: string | null }[] = [];
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, authorization: new Headers(init?.headers).get("authorization") });
+      return reply(url);
+    });
+    return { fetchFn, seen };
+  }
+
+  function clientWith(
+    fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+    refresh = vi.fn(async () => ({ access_token: "a2", refresh_token: "r2", expires_in: 3600 })),
+  ) {
+    const store = memoryStore({ access_token: "a1", refresh_token: "r1", expires_at: T0 + 3_600_000 });
+    return { client: new T3kClient(new TokenManager(store, refresh, () => T0), fetchFn), refresh };
+  }
+
+  it("classifies only https URLs on tone3000.com and its subdomains as TONE3000", () => {
+    expect(isT3kUrl("https://www.tone3000.com/api/v1/tones/4711")).toBe(true);
+    expect(isT3kUrl("https://tone3000.com/")).toBe(true);
+    expect(isT3kUrl("https://files.tone3000.com/model.nam")).toBe(true);
+    expect(isT3kUrl("https://tone3000.com.evil.net/x")).toBe(false);
+    expect(isT3kUrl("https://evil-tone3000.com/x")).toBe(false);
+    expect(isT3kUrl("http://www.tone3000.com/api/v1/tones/4711")).toBe(false);
+    expect(isT3kUrl("file:///tone3000.com/x")).toBe(false);
+    expect(isT3kUrl("not a url")).toBe(false);
+  });
+
+  it("sends the bearer token on a TONE3000 request", async () => {
+    const { fetchFn, seen } = fakeFetch(() => new Response("{}", { status: 200 }));
+    const { client } = clientWith(fetchFn);
+    await client.request(API);
+    expect(seen).toEqual([{ url: API, authorization: "Bearer a1" }]);
+  });
+
+  it("gives a neutral network error for a 401 or 403 from another host, without refreshing or sending a token", async () => {
+    for (const status of [401, 403]) {
+      const { fetchFn, seen } = fakeFetch(() => new Response(null, { status }));
+      const { client, refresh } = clientWith(fetchFn);
+      await expect(client.download(CDN)).rejects.toMatchObject({ code: "network", message: expect.stringContaining("download link from TONE3000") });
+      expect(seen).toEqual([{ url: CDN, authorization: null }]);
+      expect(refresh).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not refresh on a 401 whose response ended on another host, even for a TONE3000 request", async () => {
+    const { fetchFn, seen } = fakeFetch(() => Object.defineProperty(new Response(null, { status: 401 }), "url", { value: CDN }));
+    const { client, refresh } = clientWith(fetchFn);
+    await expect(client.request(API)).rejects.toMatchObject({ code: "network" });
+    expect(seen).toHaveLength(1);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("downloads a model from another host with no token and returns the body", async () => {
+    const { fetchFn, seen } = fakeFetch(() => new Response("nam", { status: 200 }));
+    const { client } = clientWith(fetchFn);
+    expect(await (await client.download(CDN)).text()).toBe("nam");
+    expect(seen).toEqual([{ url: CDN, authorization: null }]);
+  });
+
+  it("refuses a download over http or file before any fetch", async () => {
+    const { fetchFn } = fakeFetch(() => new Response("x", { status: 200 }));
+    const { client } = clientWith(fetchFn);
+    await expect(client.download("http://cdn.example.com/x.nam")).rejects.toMatchObject({ code: "invalid" });
+    await expect(client.download("file:///etc/passwd")).rejects.toMatchObject({ code: "invalid" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a response that ended on a non-https URL, after the body was fetched", async () => {
+    const { fetchFn } = fakeFetch(() => Object.defineProperty(new Response("nam", { status: 200 }), "url", { value: "http://cdn.example.com/x.nam" }));
+    const { client } = clientWith(fetchFn);
+    await expect(client.download(CDN)).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("returns a TONE3000 response that ended on a TONE3000 URL", async () => {
+    const { fetchFn } = fakeFetch(() => Object.defineProperty(new Response("{}", { status: 200 }), "url", { value: "https://files.tone3000.com/x.json" }));
+    const { client } = clientWith(fetchFn);
+    expect(await (await client.request(API)).text()).toBe("{}");
+  });
+
+  it("refreshes once on a 401 from TONE3000 and retries with the new token", async () => {
+    let calls = 0;
+    const { fetchFn, seen } = fakeFetch(() => (++calls === 1 ? new Response(null, { status: 401 }) : new Response("{}", { status: 200 })));
+    const { client, refresh } = clientWith(fetchFn);
+    await client.request(API);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(seen.map((s) => s.authorization)).toEqual(["Bearer a1", "Bearer a2"]);
+  });
+
+  it("refuses a model link that is not https before any fetch", async () => {
+    const { fetchFn } = fakeFetch(() => new Response("x", { status: 200 }));
+    const { client } = clientWith(fetchFn);
+    await expect(client.request("http://www.tone3000.com/api/v1/tones/4711")).rejects.toMatchObject({ code: "invalid" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("strips Authorization from any header set on a non-TONE3000 URL, whatever its case", () => {
+    const headers = { Accept: "*/*", authorization: "Bearer a1", AUTHORIZATION: "Bearer a1" };
+    expect(withoutForeignAuthorization(CDN, headers)).toEqual({ Accept: "*/*" });
+  });
+
+  it("keeps Authorization on a TONE3000 URL", () => {
+    const headers = { Accept: "*/*", authorization: "Bearer a1" };
+    expect(withoutForeignAuthorization(API, headers)).toEqual(headers);
+  });
+
+  it("returns a copy and leaves the input headers unchanged", () => {
+    const headers = { authorization: "Bearer a1", Accept: "*/*" };
+    const outCdn = withoutForeignAuthorization(CDN, headers);
+    const outApi = withoutForeignAuthorization(API, headers);
+    expect(outCdn).not.toBe(headers);
+    expect(outApi).not.toBe(headers);
+    expect(headers).toEqual({ authorization: "Bearer a1", Accept: "*/*" });
   });
 });
 

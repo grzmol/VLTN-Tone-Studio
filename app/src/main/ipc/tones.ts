@@ -1,4 +1,5 @@
-import { app, BrowserWindow, nativeImage, net, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, net, safeStorage, session, type Session } from "electron";
+import { tokenEncryptionAvailable, type SafeStorageState } from "./token-storage";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -6,12 +7,15 @@ import { basename, extname, join } from "node:path";
 import { HostError } from "@shared/ipc";
 import type { AccountState, FlowRequest, FlowResult, SendRequest, SlotLink, SnapToneSource, T3kModel, T3kTone, T3kUser, TonePage, ToneRecord, ToneSearchParams, TonesEvent, ToneListKind, UserIrSource, ViewBounds } from "@shared/host/tones";
 import { assertWav, NamCheckError, prepareNam } from "@shared/nam";
-import { handle } from "./handle";
-import { normalizeSearch, postToken, T3kClient } from "../tone3000/api";
+import { handle, sendTo } from "./handle";
+import { normalizeSearch, postToken, T3kClient, withoutForeignAuthorization } from "../tone3000/api";
+import { isImageResponse, readImageBody, throttledTrim } from "../tone3000/image-cache";
 import { TokenManager, type TokenSet, type TokenStore } from "../tone3000/tokens";
 import { cancelFlow, runFlow, setFlowBounds } from "../tone3000/oauth";
 import { buildRecord, linkRecord, listRecords, readRecord, writeRecord } from "../tone3000/records";
-import { streamToFile } from "../tone3000/files";
+import { streamToFile, TONE_DOWNLOAD_ERROR } from "../tone3000/files";
+import { mergeJson } from "./fs-atomic";
+import { DOWNLOAD_TIMEOUTS, idleAbort, raceAbort, transferError } from "@shared/idle-abort";
 
 declare global {
   interface ImportMetaEnv {
@@ -35,6 +39,8 @@ const MAX_LOCAL_NAM = 64 * 1024 * 1024;
 const userData = () => app.getPath("userData");
 const tonesDir = () => join(userData(), "tones");
 const cacheDir = () => join(userData(), "tone-cache");
+/** Caps tone-cache at 50 MB, checked at most once a minute (tone3000/image-cache.ts). */
+const trimImageCache = throttledTrim(cacheDir);
 const statePath = () => join(userData(), "tone3000.json");
 const tokenPath = () => join(userData(), "t3k-tokens.enc");
 
@@ -54,8 +60,9 @@ async function readState(): Promise<T3kState> {
   }
 }
 
-async function patchState(patch: Partial<T3kState>): Promise<void> {
-  await writeFile(statePath(), JSON.stringify({ ...(await readState()), ...patch }, null, 2));
+/** Merges into the state file one update at a time, so concurrent calls can't drop each other's keys. */
+function patchState(patch: Partial<T3kState>): Promise<void> {
+  return mergeJson(statePath(), patch);
 }
 
 async function config(): Promise<{ clientId: string | null; redirectUri: string }> {
@@ -67,10 +74,25 @@ async function config(): Promise<{ clientId: string | null; redirectUri: string 
   };
 }
 
+/** What safeStorage can do here. The Linux backend tells a real keyring from the basic_text fallback (see token-storage.ts). */
+function safeStorageState(): SafeStorageState {
+  return {
+    platform: process.platform,
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    backend: process.platform === "linux" ? safeStorage.getSelectedStorageBackend() : null,
+  };
+}
+
 /** Tokens are encrypted with the OS keychain (safeStorage). Without one they live in memory for this run only. */
 const tokenStore: TokenStore = {
   async load() {
-    if (!safeStorage.isEncryptionAvailable() || !existsSync(tokenPath())) return null;
+    const state = safeStorageState();
+    if (!existsSync(tokenPath())) return null;
+    if (!tokenEncryptionAvailable(state)) {
+      // The basic_text fallback wrote this file with a constant key, so nothing can read it safely: drop it.
+      if (state.backend === "basic_text") await rm(tokenPath(), { force: true });
+      return null;
+    }
     try {
       return JSON.parse(safeStorage.decryptString(await readFile(tokenPath()))) as TokenSet;
     } catch {
@@ -78,7 +100,7 @@ const tokenStore: TokenStore = {
     }
   },
   async save(tokens) {
-    if (!safeStorage.isEncryptionAvailable()) return;
+    if (!tokenEncryptionAvailable(safeStorageState())) return;
     await writeFile(tokenPath(), safeStorage.encryptString(JSON.stringify(tokens)));
   },
   async clear() {
@@ -86,7 +108,21 @@ const tokenStore: TokenStore = {
   },
 };
 
-const fetchFn = (url: string, init?: RequestInit) => net.fetch(url, init);
+let apiSessionCache: Session | null = null;
+
+/**
+ * In-memory session for the TONE3000 API and model downloads. Its webRequest hook runs for every hop,
+ * so a redirect to another host goes without the Authorization header. Created on first use, after app ready.
+ */
+function apiSession(): Session {
+  if (!apiSessionCache) {
+    apiSessionCache = session.fromPartition("tone3000-api");
+    apiSessionCache.webRequest.onBeforeSendHeaders((details, cb) => cb({ requestHeaders: withoutForeignAuthorization(details.url, details.requestHeaders) }));
+  }
+  return apiSessionCache;
+}
+
+const fetchFn = (url: string, init?: RequestInit) => apiSession().fetch(url, init);
 
 const tokens = new TokenManager(tokenStore, async (refreshToken) => {
   const { clientId } = await config();
@@ -125,6 +161,8 @@ async function account(): Promise<AccountState> {
     configured: Boolean(clientId),
     appKey: s.clientId || null,
     splashSeen: Boolean(s.splashSeen),
+    // Linux without a real keyring: tokens are kept for this run only, so the settings say so.
+    insecureStorage: process.platform === "linux" && !tokenEncryptionAvailable(safeStorageState()),
   };
 }
 
@@ -187,6 +225,7 @@ async function search(raw: unknown, page: number, refresh = false): Promise<Tone
 
 /** Fetch an image once, store a downscaled JPEG in tone-cache, hand it to the renderer as a data: URL. */
 async function image(url: string): Promise<string | null> {
+  // The renderer names the URL, so only https is fetched. The host isn't checked: avatars and images come from more than one place.
   if (!/^https:\/\//i.test(url)) return null;
   const file = join(cacheDir(), `${createHash("sha1").update(url).digest("hex")}.jpg`);
   try {
@@ -194,10 +233,13 @@ async function image(url: string): Promise<string | null> {
   } catch {
     /* not cached */
   }
+  const watch = idleAbort(DOWNLOAD_TIMEOUTS);
   try {
-    const res = await net.fetch(url);
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+    const res = await raceAbort(net.fetch(url, { signal: watch.signal }), watch.signal);
+    if (!res.ok || !isImageResponse(res)) return null;
+    watch.touch();
+    const buf = await readImageBody(res, watch);
+    if (!buf) return null;
     let img = nativeImage.createFromBuffer(buf);
     if (img.isEmpty()) {
       const type = res.headers.get("content-type") ?? "image/png";
@@ -207,14 +249,17 @@ async function image(url: string): Promise<string | null> {
     const jpeg = img.toJPEG(82);
     await mkdir(cacheDir(), { recursive: true });
     await writeFile(file, jpeg);
+    void trimImageCache().catch((e) => console.error("[tones] image cache trim failed", e));
     return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
   } catch {
     return null;
+  } finally {
+    watch.finish();
   }
 }
 
 function emit(getWindow: () => BrowserWindow | null, event: TonesEvent): void {
-  getWindow()?.webContents.send("tones:event", event);
+  sendTo(getWindow, "tones:event", event);
 }
 
 interface DownloadedModel {
@@ -235,8 +280,16 @@ async function downloadModel(getWindow: () => BrowserWindow | null, toneId: numb
   const path = join(tonesDir(), String(toneId), fileName);
   let bytes = (await stat(path).catch(() => null))?.size ?? 0;
   if (!bytes) {
-    const res = await client.request(model.model_url);
-    bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }));
+    const watch = idleAbort(DOWNLOAD_TIMEOUTS);
+    try {
+      // Only an abort or a transport failure becomes the generic message; a HostError from the client keeps its own.
+      const res = await raceAbort(client.download(model.model_url, { signal: watch.signal }), watch.signal).catch((e) => {
+        throw transferError(e, watch, TONE_DOWNLOAD_ERROR);
+      });
+      bytes = await streamToFile(res, path, (received, total) => emit(getWindow, { type: "progress", toneId, modelId, step: "download", received, total }), watch);
+    } finally {
+      watch.finish();
+    }
   }
   const record = await writeRecord(tonesDir(), buildRecord(await readRecord(tonesDir(), toneId), tone, models, { model, file: fileName, bytes }, new Date()));
   return { path, bytes, record, tone, model, models };
