@@ -115,3 +115,43 @@ it("disables the buttons while cues are armed and playing", () => {
   expect(screen.getAllByTitle("Stop playback to change cues").length).toBeGreaterThan(0);
   expect(screen.queryByText(/chart editor below/)).toBeNull();
 });
+
+const SECTIONS = [
+  { name: "Verse 1", start: 10 },
+  { name: "Chorus 1", start: 30 },
+  { name: "Chorus 2", start: 70 },
+];
+
+it("adds a cue on every chorus from the On section choice", () => {
+  const add = vi.fn();
+  render(<MidiCueBuilder cues={[]} sections={SECTIONS} onAdd={add} onRemove={() => null} onReplace={() => false} onTest={() => {}} canTest />);
+  fireEvent.change(screen.getByLabelText("Cue when"), { target: { value: "section" } });
+  fireEvent.change(screen.getByLabelText("Cue section"), { target: { value: "every:chorus" } });
+  fireEvent.click(screen.getByText("Add MIDI cue"));
+  expect(add).toHaveBeenLastCalledWith("{midi@section Chorus: pc 1 0}");
+  fireEvent.change(screen.getByLabelText("Cue section"), { target: { value: "one:chorus 2" } });
+  fireEvent.click(screen.getByText("Add MIDI cue"));
+  expect(add).toHaveBeenLastCalledWith('{midi@section "Chorus 2": pc 1 0}');
+});
+
+it("offers On section only when the song has sections", () => {
+  render(<MidiCueBuilder cues={[]} onAdd={() => {}} onRemove={() => null} onReplace={() => false} onTest={() => {}} canTest />);
+  expect((screen.getByRole("option", { name: "On section" }) as HTMLOptionElement).disabled).toBe(true);
+});
+
+it("lists a section cue as Every Chorus (2×) with its times in a tooltip", () => {
+  render(
+    <MidiCueBuilder
+      cues={parseChart("{midi@section Chorus: pc 1 5}")}
+      sections={SECTIONS}
+      onAdd={() => {}}
+      onRemove={() => null}
+      onReplace={() => false}
+      onTest={() => {}}
+      canTest
+    />,
+  );
+  const cell = screen.getByText("Every Chorus (2×)");
+  expect(cell.getAttribute("title")).toBe("[00:30.00], [01:10.00]");
+  expect(screen.getByLabelText("Remove cue at Every Chorus (2×): Raw MIDI command")).toBeTruthy();
+});

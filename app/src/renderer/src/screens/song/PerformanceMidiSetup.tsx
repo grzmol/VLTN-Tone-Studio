@@ -18,6 +18,7 @@ const field = "rounded border border-seam bg-transparent p-2";
 export function SessionMidiHealth({ session }: { session: PerformanceSession }) {
   const cues = useSession(session, (s) => s.cues);
   const parseError = useSession(session, (s) => s.parseError);
+  const sections = useSession(session, (s) => s.sections);
   const player = useSession(session, (s) => s.player);
   const clock = useSession(session, (s) => s.clock);
   const tempoOnStart = useSession(session, (s) => s.tempoOnStart);
@@ -40,6 +41,7 @@ export function SessionMidiHealth({ session }: { session: PerformanceSession }) 
   return (
     <MidiHealth
       cues={cues}
+      sections={sections}
       duration={player?.duration ?? 0}
       range={range}
       clock={clock}
@@ -79,8 +81,9 @@ export function PerformanceMidiSetup({
   const inputId = useSession(session, (s) => s.inputId);
   const midiStatus = useSession(session, (s) => s.midiStatus);
   const cues = useSession(session, (s) => s.cues);
+  const sections = useSession(session, (s) => s.sections);
   const parseError = useSession(session, (s) => s.parseError);
-  const output = useSession(session, selectOutput);
+  const output =useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
   const remembered = useSession(session, (s) => s.armedByPreference);
   const playing = useSession(session, (s) => s.playing);
@@ -286,6 +289,7 @@ export function PerformanceMidiSetup({
       {midiConfig.showCommands && (
         <MidiCueBuilder
           cues={cues}
+          sections={sections}
           canTest={output?.state === "connected" && armed}
           onAdd={(line) => onSaveChart([chart.trimEnd(), line].filter(Boolean).join("\n"))}
           locked={armed && playing}

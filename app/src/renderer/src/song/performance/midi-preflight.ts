@@ -1,4 +1,4 @@
-import { timedCues, type Cue } from "./chart";
+import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./chart";
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
@@ -26,13 +26,17 @@ export interface PreflightIssue {
   code: string;
   text: string;
 }
-export function midiPreflight(cues: Cue[], options: PreflightOptions) {
+export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
+  // Section cues are checked where they fall in the song, like the timed cues they become.
+  const cues = expandSectionCues(chartCues, options.sections ?? []);
   const issues: PreflightIssue[] = [],
     channels = new Map<number, number>(),
     notes = new Map<string, number>();
   const add = (code: string, text: string) => {
     if (issues.length < 100) issues.push({ code, text });
   };
+  for (const cue of unmatchedSectionCues(chartCues, options.sections ?? []))
+    add("section-cue", `On section ${cue.section!.name}: there is no section called ${cue.section!.name}. The cue never fires.`);
   // Triggers have no time, so they are checked below rather than on the timeline.
   // The chase replays a controller unless it is an assigned trigger here or a fixed one (see midi-chase.ts).
   const triggers = chaseTriggerSet(options.pedals.flatMap((pedal) => pedal.triggers ?? []));
@@ -43,7 +47,10 @@ export function midiPreflight(cues: Cue[], options: PreflightOptions) {
   // Start, Continue and Stop are sent by the app's own clock; a cue that sends them as well gives the pedal a second one.
   const transportCue = cues.some((c) => c.messages.some((bytes) => [250, 251, 252].includes(bytes[0])));
   if (options.clock && transportCue)
-    add("transport-conflict", "A Start, Continue or Stop cue conflicts with app MIDI clock, which already sends Start and Stop. Turn clock off or remove the cue.");
+    add(
+      "transport-conflict",
+      "A Start, Continue or Stop cue conflicts with app MIDI clock, which already sends Start and Stop. Turn clock off or remove the cue.",
+    );
   if (events.length && !options.outputName)
     add("output", "No MIDI output selected. Connect the intended output and explicitly enable Send cues before performing.");
   const referenced = options.pedals.filter((p) => events.some((c) => c.label?.startsWith(p.name + ":")));

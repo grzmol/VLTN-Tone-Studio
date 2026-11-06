@@ -6,6 +6,15 @@ export { midiCommand } from "./midi-command";
 /** When a trigger cue is sent: on load (armed), when playback starts or resumes, on pause or stop, or when the song reaches its end. */
 export type MidiTrigger = "load" | "play" | "stop" | "end";
 
+/**
+ * A cue on song sections, `{midi@section Chorus: …}`. It is kept apart from the four triggers above because it has a time of its own once
+ * the song's sections are known: `expandSectionCues` turns it into timed cues. `exact` is the quoted form, `"Chorus 2"`, which names one section.
+ */
+export interface SectionTarget {
+  name: string;
+  exact: boolean;
+}
+
 /** Where a cue's `{midi…}` token sits in the chart text: the line index and the character range on that line, plus the token as it was read. */
 export interface CueSource {
   line: number;
@@ -24,8 +33,10 @@ export interface Cue {
   label?: string;
   /** `{chase}` forces this cue's PC/CC/SysEx to be replayed when starting mid-song; `{nochase}` never replays them. Unset uses the defaults. */
   chase?: boolean;
-  /** Set on a `{midi@…}` trigger, which has no song time. `time` is 0 and is never used for scheduling. */
-  trigger?: MidiTrigger;
+  /** Set on a `{midi@…}` trigger, which has no song time. `time` is 0 and is never used for scheduling. A section cue has `"section"`. */
+  trigger?: MidiTrigger | "section";
+  /** Set with `trigger: "section"`: the section or sections the cue fires on. The cue has no time until `expandSectionCues` gives it one. */
+  section?: SectionTarget;
   /**
    * The command text of each token, as the editor shows it: `pc 1 5 bank 0 2`, `$GP_LEAD`, or `@load pc 1 5` for a trigger. Only set when a
    * token is more than the original grammar or is a trigger, so charts that used only that grammar parse exactly as before.
@@ -40,6 +51,49 @@ export interface Cue {
   fromFile?: true;
 }
 
+/** The editor's text for a section cue: `@section Chorus: pc 1 5`, with the name quoted when it names one section. */
+export function sectionTokenText(target: SectionTarget, command: string): string {
+  return `@section ${target.exact ? `"${target.name}"` : target.name}: ${command}`;
+}
+
+/** A section name without its trailing number, in lower case: "Chorus 2" and "chorus" are both "chorus". */
+export function sectionBase(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+\d+$/, "")
+    .toLowerCase();
+}
+
+/** Whether a section cue fires on a section of this name. The quoted form wants the whole name; the other form ignores the trailing number. */
+export function sectionMatches(target: SectionTarget, sectionName: string): boolean {
+  return target.exact ? target.name.trim().toLowerCase() === sectionName.trim().toLowerCase() : sectionBase(target.name) === sectionBase(sectionName);
+}
+
+/** The sections a section cue fires on, in song order. */
+export function matchingSections<S extends { name: string; start: number }>(target: SectionTarget, sections: readonly S[]): S[] {
+  return sections.filter((section) => sectionMatches(target, section.name)).sort((a, b) => a.start - b.start);
+}
+
+/**
+ * Gives every section cue its times: one timed cue at the start of each section it matches. Moving or renaming a section moves its cues, and
+ * nothing is copied into the chart. Other cues are returned as they were, and a chart without section cues comes back as the same array.
+ * A section cue that matches no section gives no cues (preflight warns about it).
+ */
+export function expandSectionCues(cues: Cue[], sections: readonly { name: string; start: number }[]): Cue[] {
+  if (!cues.some((cue) => cue.trigger === "section")) return cues;
+  const expanded = cues.flatMap((cue): Cue[] => {
+    if (cue.trigger !== "section" || !cue.section) return [cue];
+    const { time: _time, trigger: _trigger, section: _section, tokens: _tokens, source: _source, ...rest } = cue;
+    return matchingSections(cue.section, sections).map((section) => ({ ...rest, time: section.start }));
+  });
+  return expanded.sort((a, b) => a.time - b.time);
+}
+
+/** The section cues that match no section of the song, for the preflight warning. */
+export function unmatchedSectionCues(cues: readonly Cue[], sections: readonly { name: string; start: number }[]): Cue[] {
+  return cues.filter((cue) => cue.trigger === "section" && cue.section && !matchingSections(cue.section, sections).length);
+}
+
 /** The cues that have a song time. Triggers are kept in the chart and sent by the session, so they are left out of any timeline. */
 export function timedCues(cues: readonly Cue[]): Cue[] {
   return cues.filter((cue) => !cue.trigger);
@@ -47,6 +101,8 @@ export function timedCues(cues: readonly Cue[]): Cue[] {
 
 const TIMESTAMP = /\[(\d+):([0-5]\d(?:\.\d+)?)\]/g;
 const TRIGGER = /\{midi@(load|play|stop|end):([^}]*)\}/g;
+/** `{midi@section Chorus: pc 1 5}` or, for one section, `{midi@section "Chorus 2": pc 1 5}`. */
+const SECTION_TRIGGER = /\{midi@section\s+(?:"([^"}]*)"|([^":}]*?))\s*:([^}]*)\}/g;
 const MIDI_TOKEN = /\{midi:([^}]+)\}/g;
 
 /**
@@ -98,8 +154,10 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
         hasNoChase = /\{nochase\}/.test(content);
       if (hasChase && hasNoChase) throw new Error(`Line ${index + 1}: use either {chase} or {nochase}, not both.`);
       const labelled = label ? { label } : {};
-      if (/\{midi@/.test(content.replace(TRIGGER, "")))
-        throw new Error(`Line ${index + 1}: a MIDI trigger is {midi@load: …}, {midi@play: …}, {midi@stop: …} or {midi@end: …} with one command.`);
+      if (/\{midi@/.test(content.replace(TRIGGER, "").replace(SECTION_TRIGGER, "")))
+        throw new Error(
+          `Line ${index + 1}: a MIDI trigger is {midi@load: …}, {midi@play: …}, {midi@stop: …}, {midi@end: …} or {midi@section Name: …} with one command.`,
+        );
       // Positions are read from the code part of the original line, since the label is cut out of `content`.
       const triggerCues: Cue[] = [...code.matchAll(TRIGGER)].map((t) => {
         const command = t[2].trim();
@@ -115,6 +173,25 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
           source,
         };
       });
+      const sectionCues: Cue[] = [...code.matchAll(SECTION_TRIGGER)].map((t): Cue => {
+        const exact = t[1] !== undefined,
+          name = (t[1] ?? t[2]).trim(),
+          command = t[3].trim();
+        if (!name) throw new Error(`Line ${index + 1}: a section cue needs a section name, as in {midi@section Chorus: pc 1 5}.`);
+        if (!command) throw new Error(`Line ${index + 1}: MIDI triggers need contents.`);
+        return {
+          time: 0,
+          text: "",
+          messages: expandCommand(command, macros),
+          trigger: "section",
+          section: { name, exact },
+          tokens: [sectionTokenText({ name, exact }, command)],
+          ...labelled,
+          ...(hasChase || hasNoChase ? { chase: hasChase } : {}),
+          source: { line: index, start: t.index, end: t.index + t[0].length, text: t[0] },
+        };
+      });
+      triggerCues.push(...sectionCues);
       const timestamps = [...content.matchAll(TIMESTAMP)];
       if (triggerCues.length && timestamps.length) throw new Error(`Line ${index + 1}: a MIDI trigger has no timestamp. Put it on its own line.`);
       if (!timestamps.length) {
