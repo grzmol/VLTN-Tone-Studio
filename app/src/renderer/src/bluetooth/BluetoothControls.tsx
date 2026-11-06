@@ -36,12 +36,23 @@ export function BluetoothControls({ editor = false, onConnected }: { editor?: bo
       </div>
       {editor && (
         <p className="text-silkscreen-3">
-          Connect by USB to read, edit and write the pedal. The GP-180 did not answer the editor handshake over Bluetooth, so editing over Bluetooth is off.
+          Bluetooth MIDI is available for performance controls. Connect by USB to manage and edit the pedal; Bluetooth editor management is disabled.
         </p>
       )}
-      {diagnostics && diagnostics.reconnects > 0 && (
+      {diagnostics?.clockTiming && (
+        <details className="text-silkscreen-3">
+          <summary>Bluetooth clock timing</summary>
+          <p>
+            {diagnostics.clockTiming.pulses} pulses · maximum dispatch delay {diagnostics.clockTiming.maxLateMs.toFixed(1)} ms · maximum write{" "}
+            {diagnostics.clockTiming.maxWriteMs.toFixed(1)} ms · write intervals {diagnostics.clockTiming.minIntervalMs.toFixed(1)}–
+            {diagnostics.clockTiming.maxIntervalMs.toFixed(1)} ms
+          </p>
+        </details>
+      )}
+      {diagnostics && (diagnostics.dropped > 0 || diagnostics.reconnects > 0) && (
         <p className="text-silkscreen-3">
-          {diagnostics.reconnects} automatic reconnect{diagnostics.reconnects === 1 ? "" : "s"}
+          {diagnostics.dropped} late message{diagnostics.dropped === 1 ? "" : "s"} dropped · {diagnostics.reconnects} automatic reconnect
+          {diagnostics.reconnects === 1 ? "" : "s"}
         </p>
       )}
       {error && (

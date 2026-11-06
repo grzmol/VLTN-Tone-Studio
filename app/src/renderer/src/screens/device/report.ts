@@ -60,6 +60,7 @@ export function buildReport(r: ReportInput): string {
           `Bluetooth GATT writes completed: ${r.bluetoothDiagnostics.writes}`,
           `Bluetooth GATT notifications received: ${r.bluetoothDiagnostics.notifications}`,
           `Bluetooth MIDI messages decoded: ${r.bluetoothDiagnostics.messages}`,
+          `Bluetooth late messages dropped: ${r.bluetoothDiagnostics.dropped}`,
           `Bluetooth automatic reconnects: ${r.bluetoothDiagnostics.reconnects}`,
         ]
       : []),

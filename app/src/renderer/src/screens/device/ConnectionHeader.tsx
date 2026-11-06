@@ -37,7 +37,7 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
     })),
   );
   const connected = d.status === "connected";
-  const onUsb = d.mode !== "mock" ? pedalOnUsb(d.hostStatus) : null;
+  const onUsb = d.mode === "webmidi" ? pedalOnUsb(d.hostStatus) : null;
   const errorLine = connected ? requestErrorLine(d.lastError) : null;
 
   const lookForPedal = () => void d.connect("webmidi").catch(() => {});

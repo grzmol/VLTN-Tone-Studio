@@ -40,7 +40,7 @@ export async function flushSessionLog(): Promise<void> {
 export function deviceLogEntries(p: DeviceState, s: DeviceState): [string, string][] {
   const out: [string, string][] = [];
   if (s.status !== p.status) {
-    if (s.status === "connecting") out.push(["Event", `Connecting (${s.mode === "mock" ? "simulator" : "USB MIDI"})`]);
+    if (s.status === "connecting") out.push(["Event", `Connecting (${s.mode === "mock" ? "simulator" : s.mode === 'bluetooth' ? 'Bluetooth MIDI' : "USB MIDI"})`]);
     else if (s.status === "connected") out.push(["Event", `Connected to the ${pedalName(s.device)}${s.portName ? ` on "${s.portName}"` : ""}`]);
     else if (s.status === "disconnected") out.push(["Event", `Disconnected (${s.disconnectReason === "lost" ? "the pedal went away" : "by the user"})`]);
   }

@@ -1,6 +1,6 @@
 // Deleted user content goes to the OS Trash, so a mis-click can be undone. Where the OS Trash refuses (some Linux setups have
 // none), or in tests, the item moves into `<root>/.trash/<timestamp>-<name>` instead. Entries there older than 30 days are
-// dropped at start-up. Nothing else reads that folder, so it never shows up as a collection.
+// dropped at start-up. Nothing else reads that folder, so it never shows up as a collection or a song.
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 
