@@ -16,6 +16,7 @@ import { connectionView } from "./guidance";
 import { PedalSettings, RawRecords } from "./PedalSettings";
 import { SettingsView } from "./SettingsView";
 import { useAppSettings } from "./settings-store";
+import { Gp180Inspection } from './Gp180Inspection';
 
 const HINTS = [
   { keys: ["Mod", "Shift", "B"], label: "back up now" },
@@ -75,6 +76,7 @@ function DevicePage() {
       <ConnectionHeader view={view} onShowFix={showFix} />
       <div className="flex flex-col gap-4 px-7 pt-[26px] pb-7">
         <PedalSettings offline={view.offline} />
+        <Gp180Inspection />
         <GlobalEqPanel offline={view.offline} />
         <RawRecords />
         <div className="grid grid-cols-2 items-start gap-4">

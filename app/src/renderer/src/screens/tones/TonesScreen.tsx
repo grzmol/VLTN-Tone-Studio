@@ -313,6 +313,7 @@ function SkeletonGrid() {
   );
 }
 
+/** The tone cards of a list or the search results, with infinite scroll. */
 function ToneGrid({ kind }: { kind: TonesTab }) {
   const list = useTones((s) => (kind === "search" ? s.found : s.lists[kind]));
   const records = useTones((s) => s.records);
@@ -386,7 +387,14 @@ function ToneGrid({ kind }: { kind: TonesTab }) {
           className="-m-0.5 grid min-h-0 auto-rows-max grid-cols-[repeat(auto-fill,minmax(176px,1fr))] content-start gap-3 overflow-auto p-0.5"
         >
           {tones.map((t, i) => (
-            <ToneCard key={t.id} tone={t} record={records[t.id]} tabIndex={i === Math.min(focusIndex, tones.length - 1) ? 0 : -1} onFocus={() => setFocusIndex(i)} onOpen={() => openSheet(t.id, t)} />
+            <ToneCard
+              key={t.id}
+              tone={t}
+              record={records[t.id]}
+              tabIndex={i === Math.min(focusIndex, tones.length - 1) ? 0 : -1}
+              onFocus={() => setFocusIndex(i)}
+              onOpen={() => openSheet(t.id)}
+            />
           ))}
           {list?.loaded && tones.length === 0 && (list?.tones.length ?? 0) === 0 && (
             <div className="col-span-full flex items-center gap-3 py-2 text-[13px] text-silkscreen-2">
