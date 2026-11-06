@@ -87,7 +87,7 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
   app.once('will-quit', () => stagePower.close());
   // After sleep the USB MIDI ports are re-enumerated. The renderer asks the browser for them again rather than trusting the old ones.
   powerMonitor.on('resume', () => sendTo(getWindow, 'song:systemResume'));
-  // Deleted songs go to the OS Trash; the library's own .trash folder only when the OS refuses.
+  // Deleted songs and PDFs go to the OS Trash; the library's own .trash folder only when the OS refuses.
   const library = new SongLibraryStore(libraryRoot(), Date.now, createTrash(libraryRoot(), (path) => shell.trashItem(path)));
   handle('song:library:preflight', (_e, ids: string[]) => library.preflight(ids));
   handle('song:library:index', () => library.index());
@@ -103,6 +103,10 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
   handle('song:library:updateSettings', (_e, id: string, patch: Record<string, string>) => library.updateSettings(id, patch));
   handle('song:library:applyTrackSettings', (_e, id: string) => library.applyTrackSettings(id));
   handle('song:library:remove', (_e, id: string) => library.remove(id));
+  handle('song:library:attachChart', (_e, id: string, bytes: Uint8Array) => library.attachChart(id, bytes));
+  handle('song:library:removeChart', (_e, id: string) => library.removeChart(id));
+  handle('song:library:saveAnnotations', (_e, id: string, json: string) => library.saveAnnotations(id, json));
+  handle('song:library:chartUrls', (_e, id: string) => library.chartUrls(id));
   const transferProgress = (value: LibraryTransferProgress) => sendTo(getWindow, 'song:library:progress', value);
   handle('song:library:exportBackup', async () => {
     const stamp = new Date().toISOString().slice(0, 10);

@@ -23,6 +23,10 @@ export const songApi: SongHostApi = {
     updateSettings: (id, patch) => invoke('song:library:updateSettings', id, patch),
     applyTrackSettings: id => invoke('song:library:applyTrackSettings', id),
     remove: id => invoke('song:library:remove', id),
+    attachChart: (id, bytes) => invoke('song:library:attachChart', id, bytes),
+    removeChart: id => invoke('song:library:removeChart', id),
+    saveAnnotations: (id, json) => invoke('song:library:saveAnnotations', id, json),
+    chartUrls: id => invoke('song:library:chartUrls', id),
     async save(song, assets) {
       const token = await invoke<string>('song:library:begin', song);
       try {

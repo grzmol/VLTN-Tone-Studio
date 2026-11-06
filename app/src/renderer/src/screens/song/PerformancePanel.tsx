@@ -5,7 +5,7 @@ import { defaultMix, mergeMix, type Mix } from "@/song/stems/mix";
 import type { TrackBuses } from "@/song/stems/player";
 import { songCues } from "@/song/performance/song-cues";
 import { midiFileFromOptions, type MidiFileOption } from "@/song/performance/smf";
-import { chordDisplayTranspose, clampCapo, effectiveBpm } from "@/song/performance/speed";
+import { chordDisplayTranspose, clampCapo, effectiveBpm, keySpelling } from "@/song/performance/speed";
 import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { SpeedControls } from "./SpeedControls";
 import { PerformanceSession, carriedInto, leftPerformance, useSession, type Timing } from "@/song/performance/session";
@@ -32,10 +32,19 @@ import { LyricsAndChords } from "./LyricsAndChords";
 import { StageView } from "./StageView";
 import { SectionStrip } from "./SectionStrip";
 import { SectionEditor } from "./SectionEditor";
+import type { ChartView } from "@shared/song-library";
 import { RemoteControlSettings } from "./RemoteControlSettings";
 import { SongTriggerField } from "./SongTriggerField";
 import { SongTriggerSettings } from "./SongTriggerSettings";
 import { buildViewHost } from "./remote-view";
+import { AudienceSettings } from "./AudienceSettings";
+import { useAudienceFeed } from "./use-audience-feed";
+import { useBandSyncControl } from "./use-band-sync";
+import { BandSyncSettings } from "./BandSyncSettings";
+import { useChartUrl } from "./use-chart-url";
+import { audienceModel, type AudienceSongInput } from "@/song/performance/audience";
+import { useAudienceSettings } from "@/song/performance/audience-settings";
+import { useChartPage } from "@/song/performance/pdf/current-page";
 import { PerformanceViewSwitcher, readPerformanceView, savePerformanceView, type PerformanceView as ViewName } from "./PerformanceViews";
 
 function readNumber(raw: string, fallback: number, min: number, max: number): number {
@@ -119,6 +128,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   // The lyrics text track saved with the song, shown when its chart has no lyrics of its own.
   const [lyrics] = useState(() => getSetting(key, ":lyrics"));
   const [chart, setChart] = useState(() => getSetting(key, ""));
+  // A saved song with a PDF shows the PDF unless the performer chose the text chart for it.
+  const [chartView, setChartView] = useState<ChartView>(() => (getSetting(key, ":chart") === "text" ? "text" : "pdf"));
   const [bpm, setBpm] = useState(() => readNumber(getSetting(key, ":bpm"), 120, 30, 300)),
     [tempoSource, setTempoSource] = useState<TempoSource | null>(() => readTempoSource(options)),
     [beats, setBeats] = useState(options.beats),
@@ -309,7 +320,63 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     if (id && Object.keys(patch).length) void useSongLibrary.getState().organiseSongs([id], patch);
   };
 
+  const saveChartView = (view: ChartView) => {
+    setChartView(view);
+    try {
+      setSetting(key, ":chart", view);
+    } catch (e) {
+      session.fail(e);
+    }
+  };
+
   const savedSong = library.index.songs.find((s) => s.id === source?.libraryId);
+  const pdfState = source?.libraryId
+    ? { songId: source.libraryId, chart: !!savedSong?.chart, revision: savedSong?.chart?.sha256 ?? "", view: chartView, onView: saveChartView }
+    : undefined;
+
+  // The audience display (spec 43) shows what this screen shows: the song's lyrics and chords, or its PDF page, with the performer's settings.
+  const audienceSettings = useAudienceSettings();
+  const pdfUrl = useChartUrl(source?.libraryId, pdfState?.chart ? pdfState.revision : "");
+  const audiencePage = useChartPage((s) => (s.songId === source?.libraryId ? s.page : 1));
+  const nextAudienceTitle = queued ? (library.index.songs.find((s) => s.id === library.queue[library.position + 1])?.title ?? null) : null;
+  const audienceSong = useMemo<AudienceSongInput | null>(
+    () =>
+      source
+        ? {
+            songKey: key,
+            title: source.name,
+            nextTitle: nextAudienceTitle,
+            chart,
+            lyrics,
+            macros: midiConfig.macros,
+            shift: shapeShift,
+            flats: keySpelling(spellingKey, shapeShift),
+            pdf: pdfUrl && source.libraryId && pdfState?.chart && chartView === "pdf" ? { url: pdfUrl, page: audiencePage } : null,
+          }
+        : null,
+    // The song's chart and lyrics are the inputs; the rest is read when they change.
+    [key, source, nextAudienceTitle, chart, lyrics, midiConfig.macros, shapeShift, spellingKey, pdfUrl, pdfState?.chart, chartView, audiencePage],
+  );
+  const audienceModelValue = useMemo(
+    () =>
+      audienceModel(audienceSong, {
+        showChords: audienceSettings.showChords,
+        fontScale: audienceSettings.fontScale,
+        rotation: audienceSettings.rotation,
+        blackout: audienceSettings.blackout,
+        blackBetweenSongs: audienceSettings.blackBetweenSongs,
+      }),
+    [
+      audienceSong,
+      audienceSettings.showChords,
+      audienceSettings.fontScale,
+      audienceSettings.rotation,
+      audienceSettings.blackout,
+      audienceSettings.blackBetweenSongs,
+    ],
+  );
+  useAudienceFeed(session, key, audienceModelValue);
+  useBandSyncControl(session);
 
   const saveChart = (value: string) => {
     session.pause();
@@ -472,6 +539,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           onImportMetadata={applyImportedMetadata}
           beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
           speedNote={speedNote(speed)}
+          pdf={pdfState}
         />
       </div>
       <div style={{ display: shownView("midi") }}>
@@ -489,6 +557,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       <div style={{ display: shownView("setup") }}>
         <p className="text-xs text-silkscreen-3">These settings apply to every song.</p>
         <PerformanceOutputs player={player} />
+        <AudienceSettings />
+        <BandSyncSettings />
         <RemoteControlSettings inputReady={inputReady} />
         <SongTriggerSettings songs={library.index.songs} inputReady={inputReady} />
       </div>

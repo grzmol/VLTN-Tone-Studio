@@ -6,6 +6,9 @@ import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
 import { PerformanceReader } from "./PerformanceReader";
 
+// jsdom cannot render a PDF, so the PDF chart and its controls are stand-ins here.
+vi.mock("./PdfChart", () => ({ PdfChart: () => <div>PDF chart</div> }));
+vi.mock("./PdfControls", () => ({ PdfControls: () => null }));
 
 const at = (seconds: number) => act(() => setClockPosition(seconds));
 
@@ -90,6 +93,24 @@ describe("autoscroll styles", () => {
     scroll.mockClear();
     at(0.5);
     expect(scroll).toHaveBeenLastCalledWith({ top: 50, behavior: "instant" });
+    at(4);
+    expect(scroll).toHaveBeenLastCalledWith({ top: 100, behavior: "instant" });
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetTop;
+  });
+  it("follows playback once the text chart replaces the PDF chart", () => {
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() {
+        return this.textContent?.startsWith("Second") ? 100 : 0;
+      },
+    });
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollTo = scroll;
+    const props = { title: "Song", chart: "[00:01] First\n[00:03] Second", lyrics: "", shift: 0 };
+    const pdf = { songId: "s1", chart: true, revision: "r1", view: "pdf" as const, onView: vi.fn() };
+    const { rerender } = render(<PerformanceReader {...props} pdf={pdf} />);
+    rerender(<PerformanceReader {...props} pdf={{ ...pdf, view: "text" }} />);
+    scroll.mockClear();
     at(4);
     expect(scroll).toHaveBeenLastCalledWith({ top: 100, behavior: "instant" });
     delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetTop;
