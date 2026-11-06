@@ -743,3 +743,31 @@ describe("worker clock", () => {
     ]);
   });
 });
+
+it("sends timed click messages at their own clock time, ahead by the lookahead, once, and not before they are near", () => {
+  const f = fixture({ cues: [], lookahead: SYSTEM_LOOKAHEAD });
+  f.schedule.addTimed([
+    { bytes: [153, 37, 100], due: 1500 },
+    { bytes: [137, 37, 0], due: 1550 },
+  ]);
+  f.schedule.tick(1000);
+  expect(f.messages()).toEqual([]);
+  f.schedule.sync(0.3, 1300, 1300);
+  f.schedule.tick(1310);
+  expect(f.messages().map((m) => [m.bytes, m.due, m.label])).toEqual([[[153, 37, 100], 1500, "Click"]]);
+  f.schedule.sync(0.35, 1350, 1350);
+  f.schedule.tick(1360);
+  f.schedule.tick(1380);
+  expect(f.messages().map((m) => m.bytes)).toEqual([
+    [153, 37, 100],
+    [137, 37, 0],
+  ]);
+});
+
+it("takes no timed click messages once stopped", () => {
+  const f = fixture({ cues: [], lookahead: SYSTEM_LOOKAHEAD });
+  f.schedule.stop();
+  f.schedule.addTimed([{ bytes: [153, 37, 100], due: 1010 }]);
+  f.schedule.tick(1005);
+  expect(f.messages()).toEqual([]);
+});

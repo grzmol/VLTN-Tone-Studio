@@ -132,6 +132,8 @@ vi.mock("@/song/stems/player", () => ({
     }
     setMix() {}
     setMetronome() {}
+    setCustomClickSamples() {}
+    setClickListener() {}
     async dispose() {
       this.isPlaying = false;
       this.stopped = true;
