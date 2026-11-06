@@ -22,6 +22,7 @@ import { playNext, addToQueue as queueAdd, removeFromQueue as queueRemove, moveI
 import { overridesFor, type EntryOverride } from "@shared/entry-overrides";
 import { decodeTrack, encodeTrack } from "./codec/flac-client";
 import { storedBits } from "@shared/flac";
+import { migrateLyricsJob } from "./performance/lyrics-jobs";
 import { playerShape, shapeFromOptions } from "./performance/song-shape";
 import { sharedPlaybackEngine } from "./audio/playback-engine";
 import { StemPlayer, yieldToMain } from "./stems/player";
@@ -786,11 +787,12 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         for (const [audio, entry] of audioObjects) storedTrack.set(audio, { songId: id, track: entry });
         if (useSong.getState().source === source) {
           const saved = { ...source, libraryId: id };
-          // Settings can change while audio is being copied.
+          // Background transcription/key analysis can finish while audio is being copied.
           // Promote the latest settings, not the snapshot taken before the async save.
           const latest = readSettings(performanceKey(source));
           seedSettings(id, song.settings);
           writeSettings(performanceKey(saved), latest);
+          migrateLyricsJob(performanceKey(source), performanceKey(saved));
           if (!source.libraryId) useSong.setState({ source: saved });
           await flushSettings();
         }

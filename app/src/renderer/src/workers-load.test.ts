@@ -7,8 +7,8 @@ import { runInContext, createContext } from "node:vm";
 import { build, type Plugin } from "esbuild";
 
 // Every worker must load where there is no `window`, `document` or `localStorage`. A worker that imports the song settings or the host
-// (both reach for `window`) fails at load, before it reads its first message, so every job sent to it fails. This test
-// bundles each worker the app starts and runs the bundle's top level in a worker-like scope.
+// (both reach for `window`) fails at load, before it reads its first message, so every job sent to it fails. The lyrics worker did
+// exactly that. This test bundles each worker the app starts and runs the bundle's top level in a worker-like scope.
 
 const root = dirname(fileURLToPath(import.meta.url));
 const shared = resolve(root, "../../shared");
@@ -79,7 +79,7 @@ function workerScope() {
 describe("workers", () => {
   it("finds the workers the app starts", async () => {
     const entries = await workerEntries();
-    expect(entries.some((path) => path.endsWith("performance/midi-scheduler-worker.ts"))).toBe(true);
+    expect(entries.some((path) => path.endsWith("performance/lyrics-worker.ts"))).toBe(true);
     expect(entries.length).toBeGreaterThan(10);
   });
 

@@ -61,6 +61,7 @@
     "@fontsource/russo-one": "^5.3.0",
     "@fontsource/rye": "^5.3.0",
     "@fontsource/yellowtail": "^5.3.0",
+    "@huggingface/transformers": "3.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -84,6 +85,9 @@
     "zustand": "^5.0.15"
   },
   "overrides": {
+    "@huggingface/transformers": {
+      "onnxruntime-web": "$onnxruntime-web"
+    },
     "neural-amp-modeler-wasm": {
       "react": "$react",
       "react-dom": "$react-dom"
