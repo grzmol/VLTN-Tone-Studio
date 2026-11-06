@@ -98,7 +98,6 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
         hasNoChase = /\{nochase\}/.test(content);
       if (hasChase && hasNoChase) throw new Error(`Line ${index + 1}: use either {chase} or {nochase}, not both.`);
       const labelled = label ? { label } : {};
-      const triggers = [...content.matchAll(TRIGGER)];
       if (/\{midi@/.test(content.replace(TRIGGER, "")))
         throw new Error(`Line ${index + 1}: a MIDI trigger is {midi@load: …}, {midi@play: …}, {midi@stop: …} or {midi@end: …} with one command.`);
       // Positions are read from the code part of the original line, since the label is cut out of `content`.

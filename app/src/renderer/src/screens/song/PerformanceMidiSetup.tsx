@@ -1,9 +1,10 @@
 import { SettingsCard } from "@/components/ui/settings-card";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { BluetoothControls } from "@/bluetooth/BluetoothControls";
 import { useMidiConfiguration, MIDI_SETUP_PRESETS, rememberedPort } from "@/song/performance/midi-configuration";
 import { BLUETOOTH_PORT_ID, selectArmed, selectOutput, useSession, type PerformanceSession } from "@/song/performance/session";
+import { removeCueToken, replaceCueToken } from "@/song/performance/chart";
 import { MidiCueBuilder } from "./MidiCueBuilder";
 import { MidiFileField } from "./MidiFileField";
 import type { MidiFileOption } from "@/song/performance/smf";
@@ -55,6 +56,7 @@ export function PerformanceMidiSetup({
   session,
   chart,
   onSaveChart,
+  onShowChart,
   midiFile,
   onMidiFile,
   timecodeOffset,
@@ -63,6 +65,8 @@ export function PerformanceMidiSetup({
   session: PerformanceSession;
   chart: string;
   onSaveChart: (chart: string) => void;
+  /** Goes to the Lyrics & chords view. */
+  onShowChart?: () => void;
   midiFile: MidiFileOption | null;
   onMidiFile: (file: MidiFileOption | null) => void;
   timecodeOffset: string;
@@ -78,6 +82,9 @@ export function PerformanceMidiSetup({
   const parseError = useSession(session, (s) => s.parseError);
   const output = useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
+  const playing = useSession(session, (s) => s.playing);
+  const latestChart = useRef(chart);
+  latestChart.current = chart;
   useSession(session, (s) => s.portsVersion);
   const outputs = [...(access?.outputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
   const inputs = [...(access?.inputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
@@ -280,6 +287,25 @@ export function PerformanceMidiSetup({
           cues={cues}
           canTest={output?.state === "connected" && armed}
           onAdd={(line) => onSaveChart([chart.trimEnd(), line].filter(Boolean).join("\n"))}
+          locked={armed && playing}
+          onShowChart={onShowChart}
+          onRemove={(cue) => {
+            const next = removeCueToken(chart, cue);
+            if (next === null) return null;
+            onSaveChart(next);
+            // Undo puts the old text back only while the chart is still the one the removal made.
+            return () => {
+              if (latestChart.current !== next) return false;
+              onSaveChart(chart);
+              return true;
+            };
+          }}
+          onReplace={(cue, token, time) => {
+            const next = replaceCueToken(chart, cue, token, time);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
           onTest={(bytes) => {
             if (!armed || output?.state !== "connected") return;
             session.sendPerformance(bytes);
