@@ -10,6 +10,17 @@ describe("sanitizeSettingsPatch", () => {
     expect(sanitizeSettingsPatch({ showValues: "yes", gp50Extras: 1, portPattern: "GP" })).toEqual({ portPattern: "GP" });
   });
 
+  it("accepts only the backup retention choices", () => {
+    expect(sanitizeSettingsPatch({ backupRetention: "30" })).toEqual({ backupRetention: "30" });
+    expect(sanitizeSettingsPatch({ backupRetention: "90d" })).toEqual({ backupRetention: "90d" });
+    expect(sanitizeSettingsPatch({ backupRetention: "5" })).toEqual({});
+    expect(sanitizeSettingsPatch({ backupRetention: 10 })).toEqual({});
+  });
+
+  it("defaults backup retention to keeping every backup", () => {
+    expect(DEFAULT_SETTINGS.backupRetention).toBe("all");
+  });
+
   it("accepts null for the nullable settings", () => {
     expect(sanitizeSettingsPatch({ portPattern: null, valetonSuitePath: null })).toEqual({ portPattern: null });
   });

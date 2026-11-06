@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
-import { CMD, GLOBAL_EQ, eqValues } from "@/gp150/lib/protocol.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CMD, GLOBAL_EQ, GLOBALS, eqValues, hello } from "@/gp150/lib/protocol.mjs";
 import { applyPatchEdits, parsePrst } from "@/gp150/lib/prst.mjs";
 import type { DriverEvent } from "./types";
+import type { BleMidiConnection } from "@/bluetooth/connection";
 import { Gp150Driver } from "./gp150-driver";
 
 let open: Gp150Driver[] = [];
@@ -74,6 +75,20 @@ describe("Gp150Driver", () => {
     expect((await d.readGlobals()).values.globalEq).toBe(0);
   });
 
+  it("reads a record level at the pedal's −21 dB and sets it again, leaving a −21 sibling alone", async () => {
+    const { d, dev } = await connected();
+    const record = Uint8Array.from(dev.records.get(GLOBALS.micRecLevel.cmd)!);
+    record.set([0xeb, 0xff], GLOBALS.micRecLevel.off);
+    dev.records.set(GLOBALS.micRecLevel.cmd, record);
+    const snap = await d.readGlobals();
+    expect(snap.values.micRecLevel).toBe(-21);
+    await d.setGlobal("btRecLevel", -21);
+    const after = await d.readGlobals();
+    expect(after.values.btRecLevel).toBe(-21);
+    expect(after.values.micRecLevel).toBe(-21);
+    expect(d.clampGlobal("micRecLevel", -21)).toBe(-21);
+  });
+
   it("sends a param with the model of its module", async () => {
     const { d, dev } = await connected();
     await d.setParam(4, 0, 33);
@@ -132,5 +147,33 @@ describe("Gp150Driver", () => {
     const { d, snap } = await connected("gp180");
     expect(snap.device).toBe("gp180");
     expect(d.portName).toBe("GP-180 (simulated)");
+  });
+});
+
+describe("over Bluetooth", () => {
+  /** Just the parts of an open Bluetooth MIDI link that the driver touches. */
+  function link(name: string) {
+    const unsubscribe = vi.fn();
+    const offDisconnect = vi.fn();
+    const connection = { name, send: vi.fn(), subscribe: vi.fn(() => unsubscribe), onDisconnect: vi.fn(() => offDisconnect), close: vi.fn() };
+    return { connection, unsubscribe, offDisconnect, driver: Gp150Driver.fromBluetooth(connection as unknown as BleMidiConnection, { log: () => {}, onDisconnect: () => {} }) };
+  }
+
+  it("names the port after the link and sends the hello", async () => {
+    const { connection, driver } = link("GP-180");
+    expect(driver.portName).toBe("GP-180 (Bluetooth)");
+    // The sync waits for a reply that never comes; closing the driver is the end of this test.
+    void driver.sync().catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(connection.send).toHaveBeenCalledWith(hello());
+    await driver.close();
+  });
+
+  it("lets go of the link when it closes", async () => {
+    const { connection, unsubscribe, offDisconnect, driver } = link("Valeton GP-150");
+    await driver.close();
+    expect(offDisconnect).toHaveBeenCalled();
+    expect(connection.close).toHaveBeenCalled();
+    expect(unsubscribe).toHaveBeenCalled();
   });
 });

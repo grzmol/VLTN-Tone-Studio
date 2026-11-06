@@ -213,7 +213,7 @@ export interface GlobalEq {
 }
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
-export type DeviceMode = "webmidi" | "mock";
+export type DeviceMode = "webmidi" | "bluetooth" | "mock";
 
 export type ConnectionErrorCode =
   | "unsupported" // no WebMIDI

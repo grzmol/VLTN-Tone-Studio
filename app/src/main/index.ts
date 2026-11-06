@@ -19,6 +19,7 @@ import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import type { AppEvent } from "@shared/ipc";
 import { isOwnRenderer } from "./permissions";
+import { installBluetoothChooser } from "./bluetooth";
 
 // One app instance = one MIDI session (the pedal's port is exclusive on Windows). The second copy exits here,
 // before the rest of this file registers IPC or a window; the first copy gets its files and focus via "second-instance".
@@ -166,6 +167,7 @@ async function createWindow() {
   win.once("closed", () => {
     win = null;
   });
+  installBluetoothChooser(win);
   win.once("ready-to-show", () => {
     if (maximized) win?.maximize();
     win?.show();
@@ -230,6 +232,31 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
     if (!isOwnRenderer(details.requestingUrl ?? requestingOrigin, devUrl)) return false;
     return permission === "media" ? details.mediaType === "audio" : allowed.has(permission);
+  });
+  // Web Bluetooth asks the main process to confirm a pairing; a device that wants a PIN is paired in the system settings instead.
+  session.defaultSession.setBluetoothPairingHandler((details, callback) => {
+    const window = win;
+    if (!window || details.frame !== window.webContents.mainFrame) return callback({ confirmed: false });
+    if (details.pairingKind === "providePin") {
+      void dialog.showMessageBox(window, {
+        type: "info",
+        message: "Pair this MIDI device in your system's Bluetooth settings first",
+        detail: "The device asks for a PIN. Enter it in the system settings, then connect Bluetooth MIDI again in Tone Studio.",
+      });
+      return callback({ confirmed: false });
+    }
+    void dialog
+      .showMessageBox(window, {
+        type: "question",
+        title: "Bluetooth pairing",
+        message: `Pair with ${details.deviceId}?`,
+        detail: details.pairingKind === "confirmPin" ? `Confirm that the device shows PIN ${details.pin}.` : "Allow this device to connect for MIDI.",
+        buttons: ["Cancel", "Pair"],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => callback({ confirmed: response === 1 }))
+      .catch(() => callback({ confirmed: false }));
   });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.

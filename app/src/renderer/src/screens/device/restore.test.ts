@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { applyEdits, detectDevice, readName, rebuildPrst } from "@/gp5/lib/prst.mjs";
 import { PRST_MODELS, profileFor } from "@shared/devices";
-import { describeSlots, restoreEntries } from "./restore";
+import { alreadyMatchesCopy, describeSlots, restoreEntries } from "./restore";
 
 const fixture = (name: string): Uint8Array => rebuildPrst(name.replace(/^\d+-|\.prst$/g, ""), new Uint8Array(466), "gp5");
 const load = (name: string) => new Uint8Array(readFileSync(join(__dirname, "../../gp5/fixtures", name)));
@@ -104,5 +104,14 @@ describe("describeSlots", () => {
   it("uses the pedal's slot labels", () => {
     const gp200 = profileFor("gp200").slotLabel;
     expect(describeSlots([0, 1, 2, 3, 9], gp200)).toBe("Slots 01-A–01-D and 03-B");
+  });
+});
+
+describe("alreadyMatchesCopy", () => {
+  it("says the pedal already matches the backup, with no loss warning", () => {
+    const copy = alreadyMatchesCopy("GP-180");
+    expect(copy.title).toBe("The GP-180 already matches this backup");
+    expect(copy.description).not.toMatch(/lost/);
+    expect(copy.description).toMatch(/nothing/);
   });
 });

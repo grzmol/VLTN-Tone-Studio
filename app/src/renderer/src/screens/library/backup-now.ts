@@ -4,10 +4,17 @@ import { useDevice } from "@/state/device";
 import { pedalName } from "@/state/device-model";
 import { notifyBackupDone, notifyError } from "@/app/notify";
 import type { CollectionInfo } from "@shared/host/files";
+import type { BackupEntry } from "@/state/device-types";
 import { useLibrary } from "./store";
 
+/** A finished backup: its folder, and every slot as the pedal held it when read (what a compare or restore checks against). */
+export interface BackupResult {
+  info: CollectionInfo;
+  entries: BackupEntry[];
+}
+
 /** Runs the whole backup with progress (window + taskbar). Resolves with the new backup, or null when it failed. */
-export async function runBackupNow(): Promise<CollectionInfo | null> {
+export async function runBackupNow(): Promise<BackupResult | null> {
   const d = useDevice.getState();
   if (d.status !== "connected") {
     notifyError("Couldn't start the backup", new Error(`The ${pedalName(d.device)} isn't connected. Connect it and try again.`));
@@ -24,11 +31,11 @@ export async function runBackupNow(): Promise<CollectionInfo | null> {
   useLibrary.setState({ backupStartedAt: Date.now() });
   try {
     const entries = await d.backupAll({ onProgress: (f) => void host.app.setProgress(f).catch(() => {}) });
-    const info = await host.files.saveBackup(entries);
+    const info = await host.files.saveBackup(entries, d.device ?? undefined);
     useLibrary.getState().noteBackup(info, entries);
     await useLibrary.getState().refreshCollections();
     notifyBackupDone({ folder: info.id.slice(info.id.indexOf("/") + 1), path: info.path, count: entries.length });
-    return info;
+    return { info, entries };
   } catch (e) {
     notifyError("Backup didn't finish", e, async () => void (await runBackupNow()));
     return null;

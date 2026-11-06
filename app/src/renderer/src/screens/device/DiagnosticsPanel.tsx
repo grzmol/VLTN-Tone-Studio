@@ -16,6 +16,7 @@ import { flushSessionLog } from "@/state/session-log";
 import { clock, diagnosticChecks, vendorApps, type Check, type CheckState } from "./guidance";
 import { buildReport } from "./report";
 import { MidiLog } from "./MidiLog";
+import { useBluetooth } from "@/bluetooth/connection";
 
 const FIX_URL = "https://github.com/cesardamien/hotone-family-firmware-fix";
 
@@ -51,6 +52,7 @@ export function useChecks(): Check[] {
 /** Builds the plain-text report from the current state (Copy / Save / Help menu). */
 export async function currentReport(checks: Check[]): Promise<string> {
   const d = useDevice.getState();
+  const bluetooth = useBluetooth.getState();
   return buildReport({
     appVersion: await host.app.version().catch(() => "unknown"),
     platform: host.platform,
@@ -58,6 +60,14 @@ export async function currentReport(checks: Check[]): Promise<string> {
     checks,
     status: d.status,
     mode: d.mode,
+    bluetoothDiagnostics: bluetooth.diagnostics,
+    bluetooth: {
+      available: "bluetooth" in navigator,
+      connecting: bluetooth.connecting,
+      name: bluetooth.connection?.name ?? null,
+      state: bluetooth.connection?.state ?? "disconnected",
+      error: bluetooth.error,
+    },
     portName: d.portName,
     device: attachedDevice(d),
     connectionError: d.error,

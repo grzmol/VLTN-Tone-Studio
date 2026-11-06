@@ -68,7 +68,9 @@ export function PedalSettings({ offline }: { offline: boolean }) {
             Read-only until connected
           </span>
         )}
-        <span className="text-xs text-pretty text-silkscreen-3">Every change is sent to the pedal as you make it. There is nothing to save.</span>
+        <span className="text-xs text-pretty text-silkscreen-3">
+          Every change is sent to the pedal as you make it. There is nothing to save.
+        </span>
         {cabSim && <span className="text-xs text-pretty text-silkscreen-3">{cabSim.label}: turn it on when the pedal feeds a real guitar cabinet.</span>}
       </div>
     </section>
