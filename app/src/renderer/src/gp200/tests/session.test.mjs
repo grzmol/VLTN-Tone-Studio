@@ -480,3 +480,34 @@ test("simulator: CC0 + PC select with the manual's polarity, block CCs", async (
   const generated = parsePatch(encodePatchImage({ name: "x" }));
   assert.equal(generated.name, "x");
 });
+
+test("SnapTone / User IR rename: 0x1015 / 0x100c, name read back, 15 characters at most", async () => {
+  const { dev, s, sent } = await setup();
+  await s.connect();
+  const before = sent.length;
+  assert.equal(await s.renameSnapTone(2, "My Capture", { confirm: true }), "My Capture");
+  assert.equal(dev.snapTone[2].name, "My Capture");
+  // The record is { slot, 2 bytes, 16-byte name }, the layout Valeton's editor uses
+  const head = [REC.SNAPTONE_RENAME & 0xff, REC.SNAPTONE_RENAME >> 8, 20, 0, 2, 0, 0, 0];
+  const hasRecord = (d) => d.some((_, i) => head.every((x, j) => d[i + j] === x));
+  const out = sent.slice(before).map((x) => decodeFrame(x.bytes)).filter((f) => f?.kind === "data");
+  assert.ok(out.some((f) => hasRecord([...f.data])), "a 0x1015 record { type, 20, slot 2, 0, 0, name } went out");
+  // 16-byte field: 15 characters and a NUL; non-printable characters dropped
+  assert.equal(await s.renameUserIr(19, "ABCDEFGHIJKLMNOPQ\u0007", { confirm: true }), "ABCDEFGHIJKLMNO");
+  assert.equal(dev.userIr[19].name, "ABCDEFGHIJKLMNO");
+  // Cut at 15, then trimmed: no trailing space on the pedal
+  assert.equal(await s.renameUserIr(18, "A Very Long IR Name", { confirm: true }), "A Very Long IR");
+});
+
+test("SnapTone / User IR rename refuses: no confirm, a slot out of range, an empty name; a name that doesn't stick fails", async () => {
+  const { dev, s } = await setup();
+  await s.connect();
+  await assert.rejects(s.renameSnapTone(0, "X"), { code: "unsafe" });
+  await assert.rejects(s.renameSnapTone(10, "X", { confirm: true }), { code: "unsafe" });
+  await assert.rejects(s.renameUserIr(20, "X", { confirm: true }), { code: "unsafe" });
+  await assert.rejects(s.renameUserIr(0, " \u0001 ", { confirm: true }), { code: "unsafe" });
+  // A pedal that ignores the rename: the read-back still has the old name
+  const kept = dev.userIr;
+  Object.defineProperty(dev, "userIr", { get: () => kept, set: () => {} });
+  await assert.rejects(s.renameUserIr(1, "Ignored", { confirm: true }), { code: "verify" });
+});

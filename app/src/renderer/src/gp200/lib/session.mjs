@@ -33,6 +33,9 @@ import {
 import { applyPatchEdits, buildPrst, firstDifference, imageOf, parsePatch, withEightCtrl } from "./prst.mjs";
 import { SNAPTONE, isSnapToneSlot, toGp200SnapTone } from "./snaptone.mjs";
 
+/** Longest SnapTone / User IR name a rename writes: the 16-byte field keeps a terminating NUL. */
+export const SLOT_NAME_MAX = 15;
+
 export const DEFAULT_TIMING = Object.freeze({
   frameGapMs: 10, // the editor pumps its TX queue with a 10 ms timer, one frame per tick
   multiChunkPauseMs: 1000, // the editor sleeps 1 s after any multi-chunk message
@@ -681,6 +684,35 @@ export class Gp200Session extends EventTarget {
     const what = `SnapTone name ${slot + 1}`;
     const m = await this.#optional(() => this.exclusive(() => this.#query(encode.snapToneName(slot), kindIs("snapToneName", (r) => r.slot === slot), what)), what);
     return { slot, name: label, frames, entry: m && recordOf(m, "snapToneName") };
+  }
+
+  /**
+   * Rename a stored SnapTone (slot 0-9) or User IR (slot 0-19): 0x1015 / 0x100c with { slot, 2 bytes, 16-byte name }, the
+   * layout Valeton's editor uses for these records. Names are printable ASCII up to 15 characters, so the field keeps a
+   * terminating NUL. The slot's name is then read back and must match (strict, "verify" otherwise).
+   * Result: the name as stored.
+   */
+  async renameSnapTone(slot, name, { confirm } = {}) {
+    this.#guard(confirm, "renameSnapTone");
+    if (!isSnapToneSlot(slot)) throw new Gp200Error("unsafe", `SnapTone slot must be 0..${SNAPTONE.SLOTS - 1}, got ${slot}`);
+    return this.#renameSlot(encode.snapToneRename, encode.snapToneName, "snapToneName", slot, name, `SnapTone ${slot + 1}`);
+  }
+
+  async renameUserIr(slot, name, { confirm } = {}) {
+    this.#guard(confirm, "renameUserIr");
+    if (!Number.isInteger(slot) || slot < 0 || slot >= USER_IR.SLOTS) throw new Gp200Error("unsafe", `User IR slot must be 0..${USER_IR.SLOTS - 1}, got ${slot}`);
+    return this.#renameSlot(encode.irRename, encode.irName, "irName", slot, name, `User IR ${slot + 1}`);
+  }
+
+  #renameSlot(renameMsg, readMsg, kind, slot, name, what) {
+    const label = sanitizeName(name, SLOT_NAME_MAX).trim();
+    if (!label) throw new Gp200Error("unsafe", `${what}: the new name is empty`);
+    return this.exclusive(async () => {
+      await this.#sendMessage(renameMsg(slot, label));
+      const stored = recordOf(await this.#query(readMsg(slot), kindIs(kind, (r) => r.slot === slot), `${what} name`), kind).name;
+      if (stored !== label) throw new Gp200Error("verify", `${what} reads back as "${stored}" after renaming it to "${label}"`);
+      return stored;
+    });
   }
 
   #upload(msg, resultKind, slot, what, onProgress) {

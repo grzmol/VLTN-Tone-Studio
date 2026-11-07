@@ -13,7 +13,8 @@ import { pedalName, profileOrDefault } from "@/state/device-model";
 import type { OpenFile } from "@/state/ui";
 import { prepareUserIr, type UserIrFile } from "@/userir/convert";
 import { notifyError, notifySuccess } from "@/app/notify";
-import { closeFlow, closeLinkChoice, closeSplash, continueFromSplash, irSlotLabel, linkSlot, loadAccount, loadAllCounts, loadTab, readSlots, slotLabel, takePickedTone, useTones } from "./store";
+import { SLOT_NAME_MAX } from "@/gp200/lib/session.mjs";
+import { closeFlow, closeLinkChoice, closeRename, closeSplash, continueFromSplash, irSlotLabel, linkSlot, loadAccount, loadAllCounts, loadTab, readSlots, renameSlot, slotLabel, takePickedTone, useTones } from "./store";
 import { ToneImage } from "./ToneImage";
 import { irOccupant, irSummary, ReplaceIrNote, UserIrSlotPicker, useIrWriteBlocker } from "./UserIrParts";
 
@@ -213,6 +214,78 @@ export function LinkDialog() {
         <DialogFooter>
           <Button variant="ghost" onClick={closeLinkChoice}>
             Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Printable ASCII the pedal shows, upper case like the names Tone Studio sends, at most SLOT_NAME_MAX characters. */
+const slotRenameText = (text: string) =>
+  Array.from(text.toUpperCase())
+    .filter((c) => c >= " " && c <= "~")
+    .join("")
+    .slice(0, SLOT_NAME_MAX);
+
+/** Slot context menu: rename a stored SnapTone or User IR on the pedal (only the name changes). */
+export function RenameSlotDialog() {
+  const choice = useTones((s) => s.renameChoice);
+  const snapTones = useDevice((s) => s.snapTones);
+  const userIRs = useDevice((s) => s.userIRs);
+  const current = choice ? ((choice.kind === "snaptone" ? snapTones : userIRs)?.find((s) => s.slot === choice.slot)?.name ?? "") : "";
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // The pedal may keep trailing spaces ("IR ORANGE 4X12 "); the field starts without them
+    if (choice) setName(slotRenameText(current.trim()));
+    // Fill in the slot's name each time the dialog opens for a slot
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choice]);
+
+  const next = name.trim();
+  const ready = next !== "" && next !== current.trim() && !busy;
+
+  const rename = async () => {
+    if (!choice || !ready) return;
+    setBusy(true);
+    try {
+      await renameSlot(choice.kind, choice.slot, next);
+    } catch (e) {
+      notifyError("Couldn't rename the slot", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = choice ? slotLabel(choice.kind, choice.slot) : "";
+  return (
+    <Dialog open={choice !== null} onOpenChange={(o) => !o && !busy && closeRename()}>
+      <DialogContent className="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>Rename {label}</DialogTitle>
+          <DialogDescription>Changes only the name the pedal shows, up to {SLOT_NAME_MAX} characters. The sound and the presets that use it stay as they are.</DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void rename();
+          }}
+        >
+          <Input autoFocus aria-label={`New name for ${label}`} value={name} maxLength={SLOT_NAME_MAX} disabled={busy} onChange={(e) => setName(slotRenameText(e.target.value))} />
+          <span className="flex-none text-[12px] text-silkscreen-3">
+            {name.length}/{SLOT_NAME_MAX}
+          </span>
+        </form>
+        <DialogFooter>
+          <Button variant="ghost" disabled={busy} onClick={closeRename}>
+            Cancel
+          </Button>
+          <Button disabled={!ready} onClick={() => void rename()}>
+            {busy ? <Spinner /> : null}
+            Rename
           </Button>
         </DialogFooter>
       </DialogContent>

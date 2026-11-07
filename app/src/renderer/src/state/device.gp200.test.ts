@@ -57,7 +57,7 @@ describe("GP-200 in the device store", () => {
   it("connects with the built-in effect list: every block is there with its model, the GP-200 fields read", () => {
     const s = store();
     expect(s.device).toBe("gp200");
-    expect([...s.features].sort()).toEqual(["exportPreset", "globalEq", "liveBpm", "modified"]);
+    expect([...s.features].sort()).toEqual(["exportPreset", "globalEq", "liveBpm", "modified", "renameToneSlots"]);
     const p = s.preset!;
     expect(p.blocks).toHaveLength(11);
     expect(p.blocks.every((b) => b.params.length === 15 && b.model !== undefined)).toBe(true);
@@ -74,7 +74,7 @@ describe("GP-200 in the device store", () => {
   it("keeps the export read and live tempo open on a real GP-200; the Global EQ write is experimental", () => {
     useDevice.setState({ mode: "webmidi" });
     store().setGp50Extras(false);
-    expect([...store().features].sort()).toEqual(["exportPreset", "liveBpm", "modified"]);
+    expect([...store().features].sort()).toEqual(["exportPreset", "liveBpm", "modified", "renameToneSlots"]);
     expect(store().lockedFeatures).toEqual(["globalEq"]);
     expect(() => store().setGlobalEq(GLOBAL_EQ_INDEX.level, 60)).toThrow(/Experimental pedal commands/);
     useDevice.setState({ mode: "mock" });
@@ -155,6 +155,16 @@ describe("GP-200 in the device store", () => {
     expect((await storedIn(other)).name).toBe("Other Name");
     expect(store().slot).toBe(slot);
   }, 30_000);
+
+  it("renames a SnapTone and a User IR, then shows the names the pedal reads back", async () => {
+    expect(store().features).toContain("renameToneSlots");
+    expect(await store().renameToneSlot("snaptone", 3, "My Capture")).toBe("My Capture");
+    expect(store().snapTones?.[3].name).toBe("My Capture");
+    expect(await store().renameToneSlot("ir", 0, "My Cab IR")).toBe("My Cab IR");
+    expect(store().userIRs?.[0].name).toBe("My Cab IR");
+    expect(driver().mock!.userIr[0].name).toBe("My Cab IR");
+    expect(store().busy).toBeNull();
+  });
 
   it("writes a preset into another slot and makes it the active one", async () => {
     const target = (store().slot! + 9) % profileFor("gp200").slotCount;

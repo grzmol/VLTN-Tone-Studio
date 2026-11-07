@@ -38,7 +38,7 @@ import { CreatorAvatar, DiscoverCard, ToneCard, ToneCardSkeleton } from "./ToneC
 import { SearchBar } from "./SearchBar";
 import { SlotPanel } from "./SlotPanel";
 import { ToneSheet } from "./ToneSheet";
-import { FlowDialog, LinkDialog, LocalIrDialog, SplashDialog } from "./T3kDialogs";
+import { FlowDialog, LinkDialog, LocalIrDialog, RenameSlotDialog, SplashDialog } from "./T3kDialogs";
 import { LocalNamDialog } from "./LocalNamDialog";
 
 const TAB_LABEL: Record<ToneListKind, string> = { favorited: "Favorites", created: "Created", downloaded: "Downloaded", trending: "Trending", latest: "Latest" };
@@ -121,6 +121,7 @@ export function TonesScreen() {
       <SplashDialog />
       <FlowDialog />
       <LinkDialog />
+      <RenameSlotDialog />
       <LocalIrDialog file={localIr} onClose={() => setLocalIr(null)} />
       <LocalNamDialog file={localNam} onClose={() => setLocalNam(null)} />
     </div>
@@ -133,7 +134,7 @@ function useShortcuts() {
       const t = e.target as HTMLElement | null;
       if (t?.closest("input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
       const s = useTones.getState();
-      if (s.sheet || s.splashOpen || s.flowOpen || s.linkChoice || useUi.getState().paletteOpen) return;
+      if (s.sheet || s.splashOpen || s.flowOpen || s.linkChoice || s.renameChoice || useUi.getState().paletteOpen) return;
       if (modKey(e) && !e.altKey && !e.shiftKey && /^[1-6]$/.test(e.key)) {
         e.preventDefault();
         useTones.setState({ tab: [...TAB_ORDER, "search" as const][Number(e.key) - 1] });
