@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useSong } from "@/song/store";
-import { defaultMix, mergeMix, type Mix } from "@/song/stems/mix";
+import { partSplitNote, selectWholeSongStems, useSong } from "@/song/store";
+import { defaultMix, formatTime, mergeMix, type Mix } from "@/song/stems/mix";
 import type { TrackBuses } from "@/song/stems/player";
 import { songCues } from "@/song/performance/song-cues";
 import { midiFileFromOptions, type MidiFileOption } from "@/song/performance/smf";
@@ -120,10 +120,12 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const bluetooth = useBluetooth((s) => s.connection);
   const midiConfig = useMidiConfiguration();
   const source = useSong((s) => s.source),
-    stems = useSong((s) => s.stems),
+    stems = useSong(selectWholeSongStems),
     tracks = useSong((s) => s.tracks) ?? NO_TRACKS,
     setTrackInfo = useSong((s) => s.setTrackInfo),
     missingParts = useSong((s) => s.missingParts);
+  // A split of only part of the song is for Tone Match; Performance plays the whole song and says why the stems are missing.
+  const partNote = partSplitNote(useSong((s) => s.lastSplit), formatTime);
   const key = performanceKey(source);
   const library = useSongLibrary();
   const queued = !!source?.libraryId && library.queue[library.position] === source.libraryId;
@@ -221,7 +223,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     partChoiceNow.current = next;
     setPartChoice(next);
     const now = useSong.getState();
-    setMix((current) => applyPartChoices(current, next, partKeysOf(now.tracks ?? {}, now.stems)));
+    setMix((current) => applyPartChoices(current, next, partKeysOf(now.tracks ?? {}, selectWholeSongStems(now))));
   };
   // An imported track starts on the bus, volume and pan it saved; a choice the song made since then wins.
   const [mix, setMix] = useState<Mix>(() => withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
@@ -598,6 +600,11 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         </div>
         <PracticeMuteBanner note={noTrackNote(practiceSet(practiceKinds), practiceTracks)} />
         <MissingPartsNotice songKey={key} sections={sectionList} playing={playing || library.playlistPlaying} />
+        {partNote && (
+          <p className="text-xs text-silkscreen-2" role="status">
+            {partNote}
+          </p>
+        )}
         {analysis.notices.map((notice) => (
           <p key={notice.text} className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <span>{notice.text}</span>

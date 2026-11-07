@@ -76,6 +76,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **Window and file safety.** The main window runs sandboxed, and MIDI, SysEx and audio capture are granted only to Tone Studio's own pages.
 
 ### Fixed
+- **A part split no longer cuts a song short.** Splitting only part of a song for Tone Match left Performance and the Band panel with stems just that long. Performance now plays the whole song without them and says why, and the part's stems are never saved.
 - **Bluetooth keeps messages sent together in order.** Two messages sent at the same moment over Bluetooth could reach the pedal second one first, because one took a shortcut past the other's timer. On a GP-180 that showed as a program change landing 65 to 158 ms apart from its partner. Timed messages now wait in one queue, in timestamp order.
 - **Songs from an old backup open straight after a restore.** Restoring a backup made by an early version used to leave its songs unopenable until the app was restarted. They are now converted right away, with progress, as the restore finishes.
 - **Saving a song no longer loses tracks.** A track that could not be read when the song opened is kept as saved instead of being deleted on the next save, and an unreadable source is never replaced by a mix of the stems.

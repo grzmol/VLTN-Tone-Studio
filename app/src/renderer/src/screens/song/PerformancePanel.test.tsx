@@ -119,6 +119,8 @@ vi.mock("@/song/store", () => ({
   useSong: Object.assign((select: (s: unknown) => unknown) => select({ source: mocks.source, stems: null, tracks: noTracks, status: { kind: "idle" } }), {
     getState: () => ({ source: mocks.source }),
   }),
+  selectWholeSongStems: (s: { stems: unknown }) => s.stems,
+  partSplitNote: () => null,
 }));
 vi.mock("@/state/device", () => ({ useDevice: (select: (s: unknown) => unknown) => select({ device: "gp5", preset: null, mode: "mock" }) }));
 const playlist = vi.hoisted(() => ({

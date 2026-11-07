@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { host } from "@/host";
-import { useSong } from "@/song/store";
+import { selectWholeSongStems, useSong } from "@/song/store";
 import {
   planSections,
   RENDERED_KINDS,
@@ -157,7 +157,7 @@ export interface BandPanelButtonProps {
  */
 export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps) {
   const show = useBandPanel((s) => s.show);
-  const stems = useSong((s) => s.stems);
+  const stems = useSong(selectWholeSongStems);
   const tracks = useSong((s) => s.tracks);
   const missing = useSong((s) => s.missingParts);
   const generated = hasGeneratedParts(tracks);
@@ -255,7 +255,7 @@ function BandBody({
   }, []);
 
   const source = useSong((s) => s.source);
-  const stems = useSong((s) => s.stems);
+  const stems = useSong(selectWholeSongStems);
   const tracks = useSong((s) => s.tracks);
   const missing = useSong((s) => s.missingParts);
   const cues = useMemo<Cue[]>(() => parseChart(chart), [chart]);
@@ -341,7 +341,7 @@ function BandBody({
     setFinding(true);
     await attempt("Finding the beat was cancelled.", async () => {
       const found: BeatGridJob = startBeatGrid({
-        sources: beatSources(useSong.getState().stems, current.audio),
+        sources: beatSources(selectWholeSongStems(useSong.getState()), current.audio),
         sampleRate: current.audio.sampleRate,
         beatsPerBar: beats,
         // The chart's chord changes, or else the detected chords, so the downbeat follows the chords when the chart has none.
@@ -361,7 +361,7 @@ function BandBody({
    */
   const detectChords = async (audio: PcmAudio): Promise<Chord[] | null> => {
     setWork("Detecting chords…");
-    const stems = useSong.getState().stems;
+    const stems = selectWholeSongStems(useSong.getState());
     const detecting = startChordDetection({ harmony: harmonyOf(stems, audio).audio, bass: bassOf(stems), beats: grid?.beats ?? null });
     job.current = detecting;
     try {
@@ -394,9 +394,9 @@ function BandBody({
         songEnd,
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
-        follow: followFor(using, useSong.getState().stems, current.audio),
+        follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
         mix: current.audio,
-        originals: levelStems(useSong.getState().stems),
+        originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
       };
@@ -561,9 +561,9 @@ function BandBody({
         songEnd,
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
-        follow: followFor(using, useSong.getState().stems, current.audio),
+        follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
         mix: current.audio,
-        originals: levelStems(useSong.getState().stems),
+        originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
       });

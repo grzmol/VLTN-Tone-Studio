@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
-import { useSong } from "./store";
+import { selectWholeSongStems, useSong } from "./store";
 import { useNav } from "@/state/nav";
 import {
   emptyLibrary,
@@ -216,7 +216,9 @@ export function audioUnsaved(source: SongSource | null, stems: Stems | null, sav
 
 /** `audioUnsaved` for the open song and the library as they are now. */
 function libraryAudioUnsaved(): boolean {
-  const { source, stems } = useSong.getState();
+  const state = useSong.getState(),
+    { source } = state,
+    stems = selectWholeSongStems(state);
   return audioUnsaved(source, stems, useSongLibrary.getState().index.songs.find((song) => song.id === source?.libraryId));
 }
 
@@ -606,7 +608,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
       const unreadSource = unread.find((track) => trackKindOf(track) === "source");
       const tracks: [string, PcmAudio][] = [
         ...(unreadSource ? [] : [["source", source.audio] as [string, PcmAudio]]),
-        ...Object.entries(state.stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
+        ...Object.entries(selectWholeSongStems(state) ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source"),
       ];
       // One track at a time keeps the encoder's copy of the audio to a single track.
       // A track still holding the audio it was loaded with keeps its saved file: nothing is sent, and the store carries the file over.

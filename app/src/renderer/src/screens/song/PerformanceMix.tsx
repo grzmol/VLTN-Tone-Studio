@@ -16,6 +16,7 @@ import type { StemName } from "@/song/types";
  */
 function rowName(name: string, stems: Stems | null, info: TrackInfo | undefined): string {
   if (!stems) return "Song";
+  if (name === "source" && !info) return "Song";
   if (info?.kind === "stem" || (info === undefined && name in STEM_LABEL)) return STEM_LABEL[name as StemName] ?? name;
   return info?.name ?? name;
 }
