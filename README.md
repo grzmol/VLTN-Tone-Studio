@@ -289,9 +289,19 @@ The next song loads while the current one plays, so songs join without a gap, or
 
 <br>
 
+<img src="assets/perform-library.png" alt="Saved songs and a playlist, checked before the set" width="100%">
+
+<br>
+<br>
+
 Play at 50 to 150% speed, shift the pitch, set a capo, and send the click to its own output for in-ear monitors.<br>
 The metronome and the one-bar count-in can be a click, sticks, a hi-hat, a rock beat or your own drum samples, or go out as MIDI notes to a drum plugin.
 
+<br>
+
+<img src="assets/perform-play.png" alt="The Play view: transport, count-in sounds, sections and the mixer" width="100%">
+
+<br>
 <br>
 
 New audio saves itself, and the header always says whether the song is saved.<br>
@@ -320,6 +330,11 @@ Named commands for the GP-150 and GP-180 and other popular pedals save you looki
 
 <br>
 
+<img src="assets/perform-cues.png" alt="Song MIDI cues, with a GP-180 patch change on every chorus" width="100%">
+
+<br>
+<br>
+
 Connect a GP-150 or GP-180 over Bluetooth MIDI and lose the cable on stage.<br>
 The link packs messages that go out together, reconnects by itself when it drops, and switches Send cues back on when it's back. Editing stays on USB. See the [Performance guide](PERFORMANCE.md) and [Bluetooth MIDI](BLUETOOTH.md).
 
@@ -341,13 +356,27 @@ A program change can load the song that goes with your patch.
 
 <br>
 
+<img src="assets/perform-remote.png" alt="Remote control: a key bound to the guitar practice mute" width="100%">
+
+<br>
+<br>
+
 Stage mode fills the screen with big lyrics and chords and locks everything you shouldn't touch mid-song. A PDF chart can take the text chart's place, with your pen and highlighter marks.<br>
 An audience display shows the lyrics on a projector, and band sync puts them on your bandmates' phones over the local network, behind a PIN.
 
 <br>
 
+<img src="assets/perform-stage.png" alt="Stage mode following the lyrics and chords" width="100%">
+
+<br>
+<br>
+
 Practising? Mute the guitar, the vocals or any other instrument in every song of a playlist at once, with one footswitch.<br>
 Each song keeps its own mix, and turning the practice mute off brings it all back.
+
+<br>
+
+<img src="assets/perform-practice.png" alt="Guitar muted in every song, with the Practice badge in the mixer" width="100%">
 
 <br>
 <br>
@@ -367,13 +396,27 @@ Analyse one song, or the whole library in one go.
 
 <br>
 
-Missing a drummer or a bass player? Generate drums and bass that follow the song's beat, chords and sections, preview any section, and export them as MIDI.<br>
-Fix a wrong bass note by hand, and play the bass, and now the drums, through NAM captures and IRs from TONE3000.
+<img src="assets/band-beat.png" alt="The Band panel: the beat grid with the song's chords" width="100%">
 
+<br>
+<br>
+
+Missing a drummer or a bass player? Generate drums and bass that follow the song's beat, chords and sections, preview any section, and export them as MIDI.<br>
+Fix a wrong bass note by hand, and play the bass and the drums through NAM captures and IRs from TONE3000.
+
+<br>
+
+<img src="assets/band-panel.png" alt="Drum and bass tone chains, and the bar with Close and Play from" width="100%">
+
+<br>
 <br>
 
 For a careful map of a song, export a song brief, have an assistant fill in its sections, drums, bass, chords and lyrics, and import the song map.<br>
 You see what each part changes before it's applied, and Undo puts the song back. See [Song maps](SONG-MAP.md).
+
+<br>
+
+<img src="assets/songmap-import.png" alt="Importing a song map: each part listed before it's applied" width="100%">
 
 <br>
 <br>
