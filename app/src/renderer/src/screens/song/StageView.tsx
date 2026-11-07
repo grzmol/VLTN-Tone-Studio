@@ -1,3 +1,4 @@
+import { PracticeMuteBanner } from "./PracticeMute";
 import { Button } from "@/components/ui/button";
 import { host } from "@/host";
 import { useSong } from "@/song/store";
@@ -80,6 +81,7 @@ export function StageView({
           <>
             {stage && <p>Stage mode: seeking and editing locked. {queued ? `Set ${library.position + 1} / ${library.queue.length}` : ""}</p>}
             {stage && (playing || library.playlistPlaying) && !powerError && host.song.stagePower && <p>Desktop sleep prevention requested during playback.</p>}
+            {stage && <PracticeMuteBanner />}
             {stage && library.error && <p role="alert">{library.error}</p>}
             {stage && library.notice && <p role="status">{library.notice}</p>}
             {stage && queued && <p>Next: {nextTitle}</p>}

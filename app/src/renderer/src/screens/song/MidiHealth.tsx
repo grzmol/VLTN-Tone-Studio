@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Cue } from "@/song/performance/chart";
 import { midiPreflight } from "@/song/performance/midi-preflight";
+import type { Section } from "@/song/performance/sections";
 import type { TimecodeRate } from "@/song/performance/timecode";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
@@ -12,6 +13,7 @@ const REFRESH_MS = 500;
 
 export function MidiHealth({
   cues,
+  sections,
   duration,
   range,
   clock,
@@ -21,6 +23,8 @@ export function MidiHealth({
   timecode,
 }: {
   cues: Cue[];
+  /** The song's sections, which the cues on a section are placed on */
+  sections?: Section[];
   duration: number;
   /** The part of a trimmed song that plays, when the song is trimmed */
   range?: { start: number; end: number };
@@ -36,6 +40,7 @@ export function MidiHealth({
     () =>
       midiPreflight(cues, {
         duration,
+        sections,
         range,
         clock,
         tempoChannel,
@@ -43,7 +48,7 @@ export function MidiHealth({
         timecode,
         pedals: configuredPedals(library),
       }),
-    [cues, duration, range, clock, tempoChannel, outputName, timecode, library.channels, library.profiles],
+    [cues, sections, duration, range, clock, tempoChannel, outputName, timecode, library.channels, library.profiles],
   );
   const [timing, setTiming] = useState(() => useMidiDiagnostics.getState());
   const [ble, setBle] = useState(() => useBluetooth.getState().diagnostics);

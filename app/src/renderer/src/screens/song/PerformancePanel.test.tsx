@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { usePracticeMute } from "@/song/performance/practice-mute";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { clearSettingsCache, setSetting } from "@/song/performance/settings";
 import { PerformancePanel } from "./PerformancePanel";
@@ -118,6 +119,8 @@ vi.mock("@/song/store", () => ({
   useSong: Object.assign((select: (s: unknown) => unknown) => select({ source: mocks.source, stems: null, tracks: noTracks, status: { kind: "idle" } }), {
     getState: () => ({ source: mocks.source }),
   }),
+  selectWholeSongStems: (s: { stems: unknown }) => s.stems,
+  partSplitNote: () => null,
 }));
 vi.mock("@/state/device", () => ({ useDevice: (select: (s: unknown) => unknown) => select({ device: "gp5", preset: null, mode: "mock" }) }));
 const playlist = vi.hoisted(() => ({
@@ -201,6 +204,8 @@ vi.mock("@/song/stems/player", () => ({
       mocks.metronome(value);
     }
     setShape() {}
+    setCustomClickSamples() {}
+    setClickListener() {}
     async dispose() {}
     async play() {
       this.isPlaying = true;
@@ -318,6 +323,33 @@ it("never sends to a replacement USB output with the same ID without explicit re
   await act(async () => {
     fireEvent.click(screen.getByText("Play song"));
   });
+  access.outputs.set("usb", { id: "usb", name: "GP-180", state: "connected", send: replacementSend, clear: vi.fn() });
+  mocks.position = 0.08;
+  act(() => access.dispatchEvent(new Event("statechange")));
+  act(() => vi.advanceTimersByTime(20));
+  // Send cues is remembered for this output id, so the replacement object arms by itself and receives the cues.
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
+  expect(mocks.send).toHaveBeenCalled();
+});
+it("never sends to a replacement USB output when Send cues is not remembered for it", async () => {
+  vi.useFakeTimers();
+  const replacementSend = vi.fn();
+  const access = Object.assign(new EventTarget(), {
+    outputs: new Map([["usb", { id: "usb", name: "GP-180", state: "connected", send: mocks.send, clear: mocks.clear }]]),
+    inputs: new Map(),
+  });
+  vi.stubGlobal("navigator", { requestMIDIAccess: async () => access });
+  localStorage.setItem("vltn.performance.v1:clock-test.wav:44100:44100", "[00:00.10] {midi:pc 1 2}");
+  render(<PerformancePanel />);
+  await act(async () => {
+    fireEvent.click(screen.getByText("Enable USB / system MIDI"));
+  });
+  fireEvent.change(screen.getByLabelText("MIDI output"), { target: { value: "usb" } });
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => {
+    fireEvent.click(screen.getByText("Play song"));
+  });
+  act(() => useMidiConfiguration.getState().update({ sendCues: { on: false, outputId: "" } }));
   access.outputs.set("usb", { id: "usb", name: "GP-180", state: "connected", send: replacementSend, clear: vi.fn() });
   mocks.position = 0.08;
   act(() => access.dispatchEvent(new Event("statechange")));
@@ -455,7 +487,7 @@ it("sends timed song cues to Bluetooth without a USB editor or Web MIDI access",
   fireEvent.click(screen.getByText("Pause"));
   expect(mocks.clear).toHaveBeenCalled();
 });
-it("disarms after a Bluetooth disconnect and does not re-arm a replacement connection", () => {
+it("disarms after a Bluetooth disconnect and arms a replacement connection while Send cues is remembered", () => {
   localStorage.clear();
   mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
   const view = render(<PerformancePanel />);
@@ -464,6 +496,21 @@ it("disarms after a Bluetooth disconnect and does not re-arm a replacement conne
   mocks.bluetooth = null;
   view.rerender(<PerformancePanel />);
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+  expect(useMidiConfiguration.getState().sendCues).toEqual({ on: true, outputId: "bluetooth-midi" });
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  view.rerender(<PerformancePanel />);
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText(/Cues armed \(remembered\)/)).toBeTruthy();
+});
+it("does not re-arm a replacement Bluetooth connection once Send cues is turned off", () => {
+  localStorage.clear();
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  const view = render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  expect(useMidiConfiguration.getState().sendCues.on).toBe(false);
+  mocks.bluetooth = null;
+  view.rerender(<PerformancePanel />);
   mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
   view.rerender(<PerformancePanel />);
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
@@ -485,6 +532,21 @@ it("remembers global metronome, song clock and mixer settings without arming MID
   expect((screen.getByLabelText("Song volume") as HTMLInputElement).value).toBe("0.4");
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it("sets the count-in and sounds from the transport menus, and the settings controls and player follow", () => {
+  localStorage.clear();
+  render(<PerformancePanel />);
+  fireEvent.change(screen.getByLabelText("Count-in bars"), { target: { value: "1" } });
+  fireEvent.change(screen.getByLabelText("Metronome sound"), { target: { value: "hihat" } });
+  fireEvent.change(screen.getByLabelText("Count-in sound"), { target: { value: "sticks" } });
+  expect((screen.getByLabelText("Count-in") as HTMLSelectElement).value).toBe("1");
+  expect(mocks.metronome.mock.lastCall?.[0]).toMatchObject({ sound: "hihat", countInSound: "sticks" });
+  // The default sound is what a song without its own choice uses; the count-in sound follows the metronome unless set.
+  fireEvent.change(screen.getByLabelText("Metronome sound"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Count-in sound"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Default metronome sound"), { target: { value: "ride" } });
+  expect(mocks.metronome.mock.lastCall?.[0]).toMatchObject({ sound: "ride", countInSound: "same" });
 });
 
 it("remembers which bus each track plays on", () => {
@@ -604,7 +666,8 @@ it("keeps scheduled MIDI running while commands are hidden and remembers visibil
   view.unmount();
   render(<PerformancePanel />);
   expect((screen.getByLabelText("Show MIDI commands") as HTMLInputElement).checked).toBe(false);
-  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(false);
+  // Send cues was left on for this output, so the remounted panel starts armed.
+  expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
 });
 
 it("remembers USB configuration and applies GP-180 one-time song tempo without arming on reopen", async () => {
@@ -865,4 +928,16 @@ it("opens on the view chosen last time and remembers a new choice", () => {
   fireEvent.click(screen.getByRole("tab", { name: "MIDI" }));
   expect(screen.getByRole("tab", { name: "MIDI" }).getAttribute("aria-selected")).toBe("true");
   expect(localStorage.getItem("vltn.performance.view")).toBe("midi");
+});
+
+it("shows the practice mute banner and never mutes a song that has no split", () => {
+  localStorage.clear();
+  usePracticeMute.getState().clear();
+  render(<PerformancePanel />);
+  act(() => usePracticeMute.getState().set("guitar", true));
+  // The song plays its whole source as one track, so a muted instrument has nothing to silence.
+  expect(mocks.mix.mock.lastCall?.[0].other?.mute ?? false).toBe(false);
+  expect(screen.getByRole("status", { name: "Practice mute" }).textContent).toContain("Guitar muted in every song. This song has no guitar track to mute");
+  fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+  expect(screen.queryByRole("status", { name: "Practice mute" })).toBeNull();
 });

@@ -10,6 +10,7 @@ import { webUpdate } from "./update";
 import { webGp200Catalog } from "./gp200-catalog";
 import { webLog } from "./log";
 import { webAudience } from "./audience";
+import { webClickSamples } from "./click-samples";
 
 export const webHost: HostApi = {
   kind: "web",
@@ -25,4 +26,5 @@ export const webHost: HostApi = {
   gp200Catalog: webGp200Catalog,
   log: webLog,
   audience: webAudience,
+  clickSamples: webClickSamples,
 };

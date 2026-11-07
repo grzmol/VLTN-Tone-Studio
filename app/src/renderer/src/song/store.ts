@@ -127,6 +127,40 @@ const userTracksOf = (stems: Stems | null, tracks: Record<string, TrackInfo>): [
   Object.entries(stems ?? {}).filter((entry): entry is [string, PcmAudio] => entry[1] !== undefined && tracks[entry[0]]?.kind === "user");
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
+/**
+ * The tracks that play the whole song. A split of only part of the song (made for Tone Match) is shorter than the song, so its
+ * stems are left out: the song plays from its source, with its imported and generated tracks. Any other split plays as it is.
+ * Performance, the Band panel and the library read the song through this, so a part split never cuts a song short or gets saved.
+ */
+export function wholeSongStems(stems: Stems | null, split: SplitInfo | null, tracks: Record<string, TrackInfo>, source: PcmAudio | null): Stems | null {
+  if (!stems || !split?.range) return stems;
+  const kept = Object.entries(stems).filter(
+    (entry): entry is [string, PcmAudio] => entry[1] !== undefined && entry[0] !== "source" && tracks[entry[0]]?.kind === "user",
+  );
+  if (!kept.length || !source) return null;
+  return { source, ...Object.fromEntries(kept) };
+}
+
+/** What Performance says while the stems are from a part split, which it leaves out (see `wholeSongStems`); null otherwise. */
+export function partSplitNote(split: SplitInfo | null, format: (seconds: number) => string): string | null {
+  if (!split?.range) return null;
+  const part = `${format(split.range.start)} – ${format(split.range.end)}`;
+  return `The stems cover only ${part}, a part split for Tone Match, so the whole song plays without them. Split the whole song in Stems to play the stems here.`;
+}
+
+let wholeSongCache:{ stems: Stems | null; split: SplitInfo | null; tracks: Record<string, TrackInfo>; source: PcmAudio | null; result: Stems | null } | null =
+  null;
+
+/** `wholeSongStems` for a song store's state. It returns the same object until those parts change, so it is safe as a selector. */
+export function selectWholeSongStems(state: Pick<SongStore, "stems" | "lastSplit" | "tracks" | "source">): Stems | null {
+  const source = state.source?.audio ?? null;
+  const c = wholeSongCache;
+  if (c && c.stems === state.stems && c.split === state.lastSplit && c.tracks === state.tracks && c.source === source) return c.result;
+  const result = wholeSongStems(state.stems, state.lastSplit, state.tracks, source);
+  wholeSongCache = { stems: state.stems, split: state.lastSplit, tracks: state.tracks, source, result };
+  return result;
+}
+
 export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStore>> {
   let job: AbortController | null = null;
   const begin = () => {

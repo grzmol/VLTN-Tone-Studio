@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings } from "./arrangement";
-import type { BeatGrid } from "./beat-grid";
+import { fixedBeatGrid, type BeatGrid } from "./beat-grid";
+import type { Section } from "../performance/sections";
 import { generateDrums } from "./drums";
 import { DRUM_PITCHES } from "./note";
 import { parseChordName, type ChordAtBeat } from "./harmony";
-import { previewWindow, runBandJob, runBandPreview, transferables, type BandRequest } from "./band-job";
+import { sectionPreviewBars, previewWindow, runBandJob, runBandPreview, transferables, type BandRequest } from "./band-job";
 import { loudnessOf } from "./level";
 import type { BassSample, DrumLayer, SampleSet } from "./samples";
 import type { PcmAudio } from "../types";
@@ -242,5 +243,27 @@ describe("runBandJob bass ends", () => {
     const sorted = [...result.notes.bass].sort((a, b) => a.time - b.time);
     expect(sorted.length).toBeGreaterThan(1);
     for (let i = 0; i + 1 < sorted.length; i++) expect(sorted[i].time + sorted[i].duration).toBeLessThanOrEqual(sorted[i + 1].time - 0.01 + 1e-9);
+  });
+});
+
+describe("sectionPreviewBars", () => {
+  const grid = fixedBeatGrid(120, 0, 4, 120);
+  const section = (id: string, start: number, end: number): Section => ({ id, name: id, start, end, mode: "continue" });
+  // A bar is 2 s at 120 BPM in 4/4.
+  const sections = [section("intro", 0, 8), section("verse", 8, 24), section("chorus", 24, 100)];
+
+  it("gives a whole section the bars to the next section's start", () => {
+    expect(sectionPreviewBars(grid, sections, 0, "whole")).toBe(4);
+    expect(sectionPreviewBars(grid, sections, 1, "whole")).toBe(8);
+  });
+
+  it("ends the last section at the song's end, and caps a whole section at 32 bars", () => {
+    expect(sectionPreviewBars(grid, sections, 2, "whole", 40)).toBe(8);
+    expect(sectionPreviewBars(grid, sections, 2, "whole")).toBe(32);
+  });
+
+  it("uses 4 and 8 bars as asked", () => {
+    expect(sectionPreviewBars(grid, sections, 0, 4)).toBe(4);
+    expect(sectionPreviewBars(grid, sections, 0, 8)).toBe(8);
   });
 });

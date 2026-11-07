@@ -7,7 +7,11 @@ import { useSession, type PerformanceSession } from "@/song/performance/session"
 import { isMetronomeMode, METRONOME_MODES, type MetronomeMode } from "@/song/performance/rhythm";
 import { clampCrossfade } from "@/song/performance/transition";
 import { readCrossfade, writeCrossfade } from "@/song/performance/crossfade";
+import { CLICK_SOUNDS, isClickSound, isCountInSound, type ClickSounds, type ClickSoundsOwn } from "@/song/performance/click-sound";
 import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
+import { ClickSoundOptions } from "./ClickSoundOptions";
+import { ClickSampleSettings, useClickSampleSync } from "./ClickSampleSettings";
+import { MidiClickSettingsView, useMidiClick } from "./MidiClickSettings";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
 import { HelpNote } from "@/components/ui/help-note";
@@ -78,7 +82,15 @@ export interface MetronomeSettings {
   /** The global defaults, which a song without its own value uses */
   leadDefaults: LeadIn;
   onLeadDefault: (key: LeadInKey, value: number) => void;
+  /** A song's own metronome and count-in sounds; "" uses the global default */
+  soundOwn: ClickSoundsOwn;
+  onSoundOwn: (value: ClickSoundsOwn) => void;
+  /** The global default sounds */
+  soundDefaults: ClickSounds;
+  onSoundDefaults: (value: ClickSounds) => void;
 }
+
+const soundLabel = (id: string): string => CLICK_SOUNDS.find((sound) => sound.id === id)?.label ?? id;
 
 /** Playlist controls, library messages, play/seek and the tempo and metronome settings. */
 export function PerformanceTransport({
@@ -111,6 +123,8 @@ export function PerformanceTransport({
   const [crossfade, setCrossfade] = useState(readCrossfade);
   const source = useSong((s) => s.source);
   const player = useSession(session, (s) => s.player);
+  useClickSampleSync(player);
+  const midiClick = useMidiClick(session, player);
   const timecodeOn = useSession(session, (s) => s.timecode.enabled);
   const playing = useSession(session, (s) => s.playing);
   const starting = useSession(session, (s) => s.starting);
@@ -251,6 +265,56 @@ export function PerformanceTransport({
               ))}
             </select>
           </label>
+          <label>
+            Sound{" "}
+            <select
+              aria-label="Metronome sound"
+              className={field}
+              value={metronome.soundOwn.sound}
+              onChange={(e) => {
+                if (e.target.value === "" || isClickSound(e.target.value)) metronome.onSoundOwn({ ...metronome.soundOwn, sound: e.target.value });
+              }}
+            >
+              <option value="">Default ({soundLabel(metronome.soundDefaults.sound)})</option>
+              <ClickSoundOptions />
+            </select>
+          </label>
+          <Button type="button" size="sm" variant="outline" aria-label="Listen to the metronome sound" disabled={playing || !player} onClick={() => void player?.previewClicks("metronome")}>
+            Listen
+          </Button>
+          <span>
+            Count-in{" "}
+            <select
+              aria-label="Count-in bars"
+              className={field}
+              disabled={playing}
+              value={metronome.lead.countInBars}
+              onChange={(e) => metronome.onLead("countInBars", e.target.value === "" ? "" : limit("countInBars", e.target.value))}
+            >
+              <option value="">Default ({bars(metronome.leadDefaults.countInBars)})</option>
+              <option value={0}>Off</option>
+              <option value={1}>1 bar</option>
+              <option value={2}>2 bars</option>
+            </select>
+          </span>
+          <label>
+            <span className="sr-only">Count-in sound</span>
+            <select
+              aria-label="Count-in sound"
+              className={field}
+              value={metronome.soundOwn.countInSound}
+              onChange={(e) => {
+                if (e.target.value === "" || isCountInSound(e.target.value)) metronome.onSoundOwn({ ...metronome.soundOwn, countInSound: e.target.value });
+              }}
+            >
+              <option value="">Default ({metronome.soundDefaults.countInSound === "same" ? "same as metronome" : soundLabel(metronome.soundDefaults.countInSound)})</option>
+              <option value="same">Same as metronome</option>
+              <ClickSoundOptions />
+            </select>
+          </label>
+          <Button type="button" size="sm" variant="outline" aria-label="Listen to the count-in sound" disabled={playing || !player} onClick={() => void player?.previewClicks("countIn")}>
+            Listen
+          </Button>
           <details className="relative">
             <summary className="cursor-pointer">Metronome settings</summary>
             <div className="absolute right-0 z-20 mt-2 w-72 space-y-3 rounded-xl border border-seam bg-background p-4 shadow-xl">
@@ -348,6 +412,35 @@ export function PerformanceTransport({
                     <option value={0}>Off</option>
                     <option value={1}>1 bar</option>
                     <option value={2}>2 bars</option>
+                  </select>
+                </label>
+                <ClickSampleSettings />
+                <MidiClickSettingsView midi={midiClick} />
+                <label className="block">
+                  Default sound{" "}
+                  <select
+                    aria-label="Default metronome sound"
+                    className={field}
+                    value={metronome.soundDefaults.sound}
+                    onChange={(e) => {
+                      if (isClickSound(e.target.value)) metronome.onSoundDefaults({ ...metronome.soundDefaults, sound: e.target.value });
+                    }}
+                  >
+                    <ClickSoundOptions />
+                  </select>
+                </label>
+                <label className="block">
+                  Default count-in sound{" "}
+                  <select
+                    aria-label="Default count-in sound"
+                    className={field}
+                    value={metronome.soundDefaults.countInSound}
+                    onChange={(e) => {
+                      if (isCountInSound(e.target.value)) metronome.onSoundDefaults({ ...metronome.soundDefaults, countInSound: e.target.value });
+                    }}
+                  >
+                    <option value="same">Same as metronome</option>
+                    <ClickSoundOptions />
                   </select>
                 </label>
                 <label className="block">

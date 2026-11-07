@@ -3,9 +3,9 @@ import { STEM_NAMES } from "@shared/host/song";
 import { USER_TRACKS_MAX } from "@shared/song-library";
 import type { Separation, SeparationProgress } from "./stems/engine";
 import type { SplitChoice } from "./stems/options";
-import type { PcmAudio, Stems } from "./types";
+import type { PcmAudio, SplitInfo, Stems } from "./types";
 // vi.mock is hoisted above this import: the real engine needs a worker and the model; the store gets fakes.
-import { createSongStore, GENERATED_PLAYING_NOTICE, PLAYING_NOTICE, type SongDeps } from "./store";
+import { createSongStore, GENERATED_PLAYING_NOTICE, partSplitNote, PLAYING_NOTICE, selectWholeSongStems, wholeSongStems, type SongDeps } from "./store";
 import { getSetting, performanceKey, setSetting } from "./performance/settings";
 
 vi.mock("./stems/engine", () => ({ separateStems: vi.fn() }));
@@ -545,5 +545,37 @@ describe("generated parts in the song store", () => {
     expect(useSong.getState().stems?.track2).toBe(guide);
     expect(useSong.getState().tracks.track2).toMatchObject({ kind: "user", name: "Guide.wav" });
     expect(options(source).generatedParts).toBeUndefined();
+  });
+});
+
+describe("the whole song after a part split", () => {
+  const split = { model: "htdemucs_6s", quality: "fast", backends: ["webgpu"], seconds: 1 } as SplitInfo;
+  const part: SplitInfo = { ...split, range: { start: 23, end: 60 } };
+  const song = audio(8);
+  const stems: Stems = { guitar: audio(), drums: audio(), user1: audio(8) };
+  const tracks = { user1: { kind: "user" as const, name: "Keys" } };
+
+  it("keeps a whole-song split as it is", () => {
+    expect(wholeSongStems(stems, split, tracks, song)).toBe(stems);
+    expect(wholeSongStems(null, part, tracks, song)).toBeNull();
+  });
+
+  it("leaves a part split's stems out and plays the source with the imported tracks", () => {
+    expect(wholeSongStems(stems, part, tracks, song)).toEqual({ source: song, user1: stems.user1 });
+  });
+
+  it("plays the source alone when a part split has nothing else", () => {
+    expect(wholeSongStems({ guitar: audio(), drums: audio() }, part, {}, song)).toBeNull();
+  });
+
+  it("gives the same object back while the song does not change, so it works as a selector", () => {
+    const state = { stems, lastSplit: part, tracks, source: { name: "a.wav", audio: song } } as never;
+    expect(selectWholeSongStems(state)).toBe(selectWholeSongStems(state));
+  });
+
+  it("says why the stems are missing only for a part split", () => {
+    const format = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+    expect(partSplitNote(split, format)).toBeNull();
+    expect(partSplitNote(part, format)).toContain("only 0:23 – 1:00");
   });
 });

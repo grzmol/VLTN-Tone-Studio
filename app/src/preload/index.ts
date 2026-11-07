@@ -12,6 +12,7 @@ import { gp200CatalogApi } from "./gp200-catalog";
 import { logApi } from "./log";
 import { audienceApi } from "./audience";
 import { bandSyncApi } from "./band-sync";
+import { clickSamplesApi } from "./click-samples";
 
 const host: HostApi = {
   kind: "electron",
@@ -27,6 +28,7 @@ const host: HostApi = {
   gp200Catalog: gp200CatalogApi,
   log: logApi,
   audience: audienceApi,
+  clickSamples: clickSamplesApi,
   bandSync: bandSyncApi,
 };
 
