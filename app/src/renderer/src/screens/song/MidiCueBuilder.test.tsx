@@ -155,3 +155,12 @@ it("lists a section cue as Every Chorus (2×) with its times in a tooltip", () =
   expect(cell.getAttribute("title")).toBe("[00:30.00], [01:10.00]");
   expect(screen.getByLabelText("Remove cue at Every Chorus (2×): Raw MIDI command")).toBeTruthy();
 });
+
+it("removes one of two identical pedal commands sent as several messages, which have no Edit button", () => {
+  const line = "[00:00.00] {label:Recall memory 009} {midi:cc 16 0 0} {midi:pc 16 8}";
+  render(<Harness start={`${line}\n${line}`} />);
+  expect(screen.queryByLabelText("Edit cue at [00:00.00]: Recall memory 009")).toBeNull();
+  fireEvent.click(screen.getAllByLabelText("Remove cue at [00:00.00]: Recall memory 009")[1]);
+  expect(chartText()).toBe(line);
+  expect(screen.getAllByLabelText("Remove cue at [00:00.00]: Recall memory 009")).toHaveLength(1);
+});

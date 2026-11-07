@@ -26,6 +26,14 @@ export interface CueSource {
   stamp?: { start: number; end: number; text: string };
 }
 
+/** A timed line with one timestamp and several `{midi:…}` tokens, such as a pedal command sent as a bank select then a program change. */
+export interface CueLine {
+  /** The line index in the chart. */
+  index: number;
+  /** The whole line as it was read. Removing checks the chart still has exactly this line. */
+  text: string;
+}
+
 export interface Cue {
   time: number;
   text: string;
@@ -47,6 +55,11 @@ export interface Cue {
    * token shared by several timestamps. Those cues are changed in the chart text.
    */
   source?: CueSource;
+  /**
+   * Set instead of `source` when the cue is all the tokens on a line with one timestamp. The cue can then be removed as a whole, though its
+   * tokens are still edited in the chart text.
+   */
+  line?: CueLine;
   /** Set on a cue read from the song's MIDI file rather than the chart. */
   fromFile?: true;
 }
@@ -226,6 +239,7 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
               },
             }
           : {};
+      const whole = found.length > 1 && stamps.length === 1 ? { line: { index, text: line } } : {};
       return timestamps.map((t) => ({
         time: Number(t[1]) * 60 + Number(t[2]),
         text: `${body}${gap}${comment}`.trim(),
@@ -234,6 +248,7 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
         ...(hasChase || hasNoChase ? { chase: hasChase } : {}),
         ...kept,
         ...(tokens.length ? placed : {}),
+        ...whole,
       }));
     })
     .sort((a, b) => a.time - b.time);
@@ -263,7 +278,7 @@ function checkedLine(lines: string[], source: CueSource): string | null {
  */
 export function removeCueToken(chart: string, cue: Cue): string | null {
   const source = cue.source;
-  if (!source) return null;
+  if (!source) return cue.line ? removeCueLine(chart, cue.line) : null;
   const { lines, ends } = splitLines(chart),
     line = checkedLine(lines, source);
   if (line === null) return null;
@@ -273,12 +288,37 @@ export function removeCueToken(chart: string, cue: Cue): string | null {
   while (to < line.length && /[ \t]/.test(line[to])) to++;
   if (to === source.end) while (from > 0 && /[ \t]/.test(line[from - 1])) from--;
   const next = line.slice(0, from) + line.slice(to);
-  if (BLANK_AFTER_REMOVAL.test(next)) {
-    lines.splice(source.line, 1);
-    // The removed line takes its own ending; a last line without one leaves the ending before it behind, so drop that instead.
-    if (source.line < ends.length) ends.splice(source.line, 1);
-    else ends.pop();
-  } else lines[source.line] = next;
+  if (BLANK_AFTER_REMOVAL.test(next)) dropLine(lines, ends, source.line);
+  else lines[source.line] = next;
+  return joinLines(lines, ends);
+}
+
+/** Takes the line out of the chart, keeping the line ending of every other line. */
+function dropLine(lines: string[], ends: string[], index: number): void {
+  lines.splice(index, 1);
+  // The removed line takes its own ending; a last line without one leaves the ending before it behind, so drop that instead.
+  if (index < ends.length) ends.splice(index, 1);
+  else ends.pop();
+}
+
+/**
+ * Removes every `{midi:…}` token of a multi-token cue, with the cue's label and chase mark. Words and chords on the line stay; a line left
+ * with nothing else is removed. Returns null when the chart no longer has the line exactly as it was parsed.
+ */
+function removeCueLine(chart: string, cueLine: CueLine): string | null {
+  const { lines, ends } = splitLines(chart);
+  if (lines[cueLine.index] !== cueLine.text) return null;
+  const commentAt = cueLine.text.search(COMMENT),
+    code = commentAt < 0 ? cueLine.text : cueLine.text.slice(0, commentAt),
+    comment = commentAt < 0 ? "" : cueLine.text.slice(commentAt);
+  const kept = code
+    .replace(/\{midi:[^}]*\}[ \t]*/g, "")
+    .replace(/\{label:[^}]*\}[ \t]*/g, "")
+    .replace(/\{(?:no)?chase\}[ \t]*/g, "")
+    .trimEnd();
+  const next = comment ? `${kept} ${comment.trimStart()}` : kept;
+  if (BLANK_AFTER_REMOVAL.test(next)) dropLine(lines, ends, cueLine.index);
+  else lines[cueLine.index] = next;
   return joinLines(lines, ends);
 }
 
