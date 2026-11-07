@@ -113,6 +113,26 @@ describe("built-in GP-200 catalog", () => {
     expect(tempoSyncBinding(delay, time)).toMatchObject({ target: time, sync: { name: "Sync", subType: "Power" } });
     for (const block of ["PRE", "DST"]) expect(modelByFxid(BUILT_IN_CATALOG, 50331650, block)?.name, block).toBe("Yellow OD");
   });
+
+  it("uses the pedal's param index where it differs from the control's position", () => {
+    const ids = (fxid: number, block: string) => Object.fromEntries(modelByFxid(BUILT_IN_CATALOG, fxid, block)!.knobs.map((k) => [k.name, k.id]));
+    // Ping Pong: param 1 is Feedback and param 2 the Time (the synced note division when Sync is on), as presets read off a GP-200 show
+    expect(ids(0xb000004, "DLY")).toMatchObject({ Mix: 0, Time: 2, Feedback: 1, Sync: 3, Trail: 4 });
+    expect(ids(0xb000003, "DLY")).toMatchObject({ "Time A": 2, "Feedback A": 1, "Time B": 5, "Feedback B": 4 });
+    expect(ids(0x3000044, "DST")).toMatchObject({ "Hi-mid": 6, Treble: 8, Attack: 9 });
+    expect(ids(0x700005a, "AMP")).toMatchObject({ Presence: 6 });
+    // The sync pairs still resolve to the Time knob
+    for (const fxid of [0xb000004, 0xb000009]) {
+      const m = modelByFxid(BUILT_IN_CATALOG, fxid, "DLY")!;
+      const sync = m.knobs.find((k) => k.name === "Sync")!;
+      expect(tempoSyncBinding(m, sync)?.target, m.name).toMatchObject({ name: "Time", id: 2 });
+    }
+  });
+
+  it("lists Hammy under WAH and Auto Swell under NR", () => {
+    expect(modelByFxid(BUILT_IN_CATALOG, 0x1000049, "WAH")?.name).toBe("Hammy");
+    expect(modelByFxid(BUILT_IN_CATALOG, 0x400002d, "NR")?.name).toBe("Auto Swell");
+  });
 });
 
 describe("useGp200Catalog", () => {
