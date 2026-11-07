@@ -148,8 +148,8 @@ const legacyParse: unknown[] = [
 
 describe("existing chart syntax", () => {
   it("parses every existing chart exactly as before", () => {
-    // The source position is new; every other field is what the old parser gave.
-    expect(existingCharts.map((chart) => parseChart(chart).map(({ source: _source, ...cue }) => cue))).toEqual(legacyParse);
+    // The source position and whole line are new; every other field is what the old parser gave.
+    expect(existingCharts.map((chart) => parseChart(chart).map(({ source: _source, line: _line, ...cue }) => cue))).toEqual(legacyParse);
   });
   it("keeps the original MIDI command grammar and the existing errors", () => {
     expect(midiCommand("pc 1 5")).toEqual([192, 5]);
@@ -350,5 +350,22 @@ describe("removing and replacing a cue token", () => {
   it("gives no source to a cue that can't be placed alone", () => {
     expect(pick("[00:01] {midi:pc 1 1} {midi:pc 1 2}").source).toBeUndefined();
     expect(parseChart("[00:01][00:09] {midi:pc 1 1}").every((cue) => !cue.source)).toBe(true);
+  });
+  it("removes a pedal command's whole line when it has several tokens, leaving a duplicate of it alone", () => {
+    const line = "[00:00.00] {label:Valeton GP-180: Recall memory 009 (ch 16)} {midi:cc 16 0 0} {midi:pc 16 8}";
+    const chart = `[00:01] Words\n${line}\n${line}`;
+    const cues = parseChart(chart);
+    expect(cues[0].line).toEqual({ index: 1, text: line });
+    expect(removeCueToken(chart, cues[1])).toBe(`[00:01] Words\n${line}`);
+    expect(removeCueToken(chart, cues[0])).toBe(`[00:01] Words\n${line}`);
+  });
+  it("keeps the words and comment on a multi-token line and drops its label and chase mark", () => {
+    const chart = "[00:02] [C]Hello {label:Lead} {midi:cc 1 0 0} {midi:pc 1 5} {chase} // note\r\n[00:03] Bye";
+    expect(removeCueToken(chart, pick(chart))).toBe("[00:02] [C]Hello // note\r\n[00:03] Bye");
+  });
+  it("refuses to remove a multi-token line that changed, and gives no line to one with several timestamps", () => {
+    const chart = "[00:01] {midi:cc 1 0 0} {midi:pc 1 2}";
+    expect(removeCueToken("[00:01] {midi:cc 1 0 0} {midi:pc 1 3}", pick(chart))).toBeNull();
+    expect(parseChart("[00:01][00:09] {midi:cc 1 0 0} {midi:pc 1 2}").every((cue) => !cue.line)).toBe(true);
   });
 });

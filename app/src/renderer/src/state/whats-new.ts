@@ -2,7 +2,7 @@
 import { loadDevice, loadLastConnected } from "./device-storage";
 
 /** Release the notes in WhatsNewDialog describe. Bump it with the notes, not with package.json. */
-export const WHATS_NEW_VERSION = "0.9.0";
+export const WHATS_NEW_VERSION = "0.10.0";
 const SEEN_KEY = "gp5.whatsNewSeen.v1";
 
 export const loadWhatsNewSeen = (): string | null => {

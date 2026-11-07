@@ -4,7 +4,7 @@ import { parseChart, type Cue } from "./chart";
 import type { MidiMacro } from "./midi-macros";
 
 // A rewritten chart moves the tokens, so only their positions differ.
-const unplaced = (cues: Cue[]) => cues.map(({ source: _source, ...cue }) => cue);
+const unplaced = (cues: Cue[]) => cues.map(({ source: _source, line: _line, ...cue }) => cue);
 
 it("preserves banks, labels, note-offs, SysEx and independent times when editing lyrics", () => {
   const original =
