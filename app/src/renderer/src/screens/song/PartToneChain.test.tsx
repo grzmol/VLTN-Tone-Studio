@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTones } from "@/screens/tones/store";
 import type { BassTone, ToneBlock } from "@/song/band/arrangement";
-import { BassToneChain } from "./BassToneChain";
+import { PartToneChain } from "./PartToneChain";
 
 const mocks = vi.hoisted(() => ({
   electron: { value: true },
@@ -40,11 +40,11 @@ const chainOf = (blocks: ToneBlock[], extra: { dryWet?: number; fast?: boolean }
   fast: extra.fast ?? false,
 });
 
-function renderChain(tone: BassTone, songSeconds = 0) {
+function renderChain(tone: BassTone, songSeconds = 0, part: "bass" | "drums" = "bass") {
   const onChange = vi.fn();
   render(
     <TooltipProvider>
-      <BassToneChain tone={tone} songSeconds={songSeconds} onChange={onChange} />
+      <PartToneChain part={part} tone={tone} songSeconds={songSeconds} onChange={onChange} />
     </TooltipProvider>,
   );
   return onChange;
@@ -83,7 +83,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("BassToneChain", () => {
+describe("PartToneChain", () => {
   it("is clean by default, offers the presets, and has no blocks to edit", () => {
     renderChain(clean);
     expect(screen.getByText("Clean, as generated")).toBeTruthy();
@@ -233,7 +233,62 @@ describe("BassToneChain", () => {
 function renderTone(tone: BassTone, songSeconds: number) {
   return render(
     <TooltipProvider>
-      <BassToneChain tone={tone} songSeconds={songSeconds} onChange={vi.fn()} />
+      <PartToneChain part="bass" tone={tone} songSeconds={songSeconds} onChange={vi.fn()} />
     </TooltipProvider>,
   );
 }
+
+describe("PartToneChain for the drums", () => {
+  const outboard: ToneBlock = { type: "capture", role: "outboard", file: file("comp.nam"), inputDb: 0, outputDb: 0, mix: 1, on: true };
+
+  it("offers the drum presets, and each fills the right roles", () => {
+    const onChange = renderChain(clean, 0, "drums");
+    expect(screen.getByLabelText("Drum tone")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Driven bass" })).toBeNull();
+    const roles = () => (onChange.mock.lastCall![0] as { blocks: ToneBlock[] }).blocks.map((block) => [block.role, block.type, block.mix]);
+    fireEvent.click(screen.getByRole("button", { name: "Glued kit" }));
+    expect(roles()).toEqual([["outboard", "capture", 1]]);
+    fireEvent.click(screen.getByRole("button", { name: "Room kit" }));
+    expect(roles()).toEqual([["space", "ir", 0.3]]);
+    fireEvent.click(screen.getByRole("button", { name: "Recorded kit" }));
+    expect(roles()).toEqual([
+      ["outboard", "capture", 1],
+      ["space", "ir", 0.25],
+    ]);
+  });
+
+  it("adds only the drum roles, and goes back to clean drums", () => {
+    const onChange = renderChain(chainOf([outboard]), 0, "drums");
+    expect(screen.getByRole("button", { name: "Add outboard…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add preamp…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add space IR…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add amp…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add cab IR…" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clean drums" }));
+    expect(onChange).toHaveBeenCalledWith({ kind: "clean" });
+  });
+
+  it("presets the TONE3000 search to the outboard and space gear, without the bass word", async () => {
+    renderChain(chainOf([outboard]), 0, "drums");
+    fireEvent.click(screen.getByRole("button", { name: "Add outboard…" }));
+    expect(await screen.findByText("Choose an outboard capture")).toBeTruthy();
+    expect(useTones.getState().search).toMatchObject({ query: "", gears: ["outboard"] });
+    expect(useTones.getState().format).toBe("nam");
+    cleanup();
+    renderChain(chainOf([outboard]), 0, "drums");
+    fireEvent.click(screen.getByRole("button", { name: "Add space IR…" }));
+    expect(await screen.findByText("Choose a space IR")).toBeTruthy();
+    expect(useTones.getState().search).toMatchObject({ query: "", gears: ["space"] });
+    expect(useTones.getState().format).toBe("ir");
+  });
+
+  it("estimates twice the bass time for a capture, and is disabled in the web build", () => {
+    renderChain(chainOf([outboard]), 100, "drums");
+    expect(screen.getByText("About 16 s at Generate for this song.")).toBeTruthy();
+    cleanup();
+    mocks.electron.value = false;
+    renderChain(chainOf([outboard]), 0, "drums");
+    expect(screen.getByText("Drum tones need the desktop app.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Add outboard…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});

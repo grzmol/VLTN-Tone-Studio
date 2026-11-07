@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ACTION_IDS, ACTIONS, actionLabel, isActionId, runAction, type ActionHost } from "./actions";
+import { ACTION_IDS, ACTIONS, actionLabel, isActionId, runAction, type ActionHost, type ActionId } from "./actions";
 
 /** A host whose every method records its call and returns no hint, so each test can see what ran. */
 function recordingHost(pdf = false): ActionHost & { calls: [string, ...unknown[]][] } {
@@ -31,6 +31,8 @@ function recordingHost(pdf = false): ActionHost & { calls: [string, ...unknown[]
     "toggleClick",
     "tap",
     "speed",
+    "practiceToggle",
+    "practiceClear",
   ];
   const host = { calls } as unknown as ActionHost & { calls: [string, ...unknown[]][] };
   for (const name of names) {
@@ -89,6 +91,13 @@ describe("the action registry", () => {
       "speed.reset",
       "midi.arm",
       "midi.disarm",
+      "practice.toggle.guitar",
+      "practice.toggle.vocals",
+      "practice.toggle.bass",
+      "practice.toggle.drums",
+      "practice.toggle.piano",
+      "practice.toggle.other",
+      "practice.clear",
     ]) {
       expect(isActionId(id), id).toBe(true);
     }
@@ -104,6 +113,27 @@ describe("the action registry", () => {
   it("labels a numbered action with its number", () => {
     expect(actionLabel("section.jump", 3)).toBe("Jump to section now 3");
     expect(actionLabel("transport.stop")).toBe("Stop");
+  });
+});
+
+describe("the practice mute actions", () => {
+  it("toggle one kind each, in the Practice group", () => {
+    const host = recordingHost();
+    for (const kind of ["guitar", "vocals", "bass", "drums", "piano", "other"]) {
+      expect(ACTIONS[`practice.toggle.${kind}` as ActionId].group).toBe("Practice");
+      runAction({ action: `practice.toggle.${kind}` }, host);
+    }
+    runAction({ action: "practice.clear" }, host);
+    expect(host.calls).toEqual([
+      ["practiceToggle", "guitar"],
+      ["practiceToggle", "vocals"],
+      ["practiceToggle", "bass"],
+      ["practiceToggle", "drums"],
+      ["practiceToggle", "piano"],
+      ["practiceToggle", "other"],
+      ["practiceClear"],
+    ]);
+    expect(actionLabel("practice.toggle.guitar")).toBe("Practice mute: guitar");
   });
 });
 

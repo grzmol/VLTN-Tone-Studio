@@ -11,6 +11,11 @@ export interface PortChoice {
   name: string;
   transport: "bluetooth" | "system";
 }
+/** Whether Send cues is remembered, and the output id it was turned on for. It arms only that output. */
+export interface SendCuesPreference {
+  on: boolean;
+  outputId: string;
+}
 export interface MidiConfiguration {
   preset: string;
   output: PortChoice | null;
@@ -28,6 +33,8 @@ export interface MidiConfiguration {
   songTriggers: SongTriggerSettings;
   /** Whether MIDI timecode is sent, and at which rate. Off by default; the song's offset is in its options (see timecode.ts). */
   timecode: { enabled: boolean; fps: TimecodeRate };
+  /** Send cues stays on for every song until the user turns it off or presses Disarm. Absent in a saved config means off. */
+  sendCues: SendCuesPreference;
 }
 const defaults: MidiConfiguration = {
   preset: "cues",
@@ -42,6 +49,7 @@ const defaults: MidiConfiguration = {
   bindings: defaultBindings(),
   songTriggers: SONG_TRIGGER_DEFAULTS,
   timecode: { enabled: false, fps: DEFAULT_TIMECODE_RATE },
+  sendCues: { on: false, outputId: "" },
 };
 /** The stored shape of a macro. Whether its commands are valid is checked by `macroProblems`, so a bad one can still be shown and removed. */
 function isMacroShape(value: unknown): value is MidiMacro {
@@ -81,6 +89,11 @@ export function readMidiConfiguration(): MidiConfiguration {
         enabled: data.timecode?.enabled === true,
         fps: isTimecodeRate(data.timecode?.fps) ? data.timecode.fps : DEFAULT_TIMECODE_RATE,
       },
+      // Only a boolean true with a non-empty output id counts; anything else reads as off.
+      sendCues:
+        data.sendCues?.on === true && typeof data.sendCues.outputId === "string" && data.sendCues.outputId !== ""
+          ? { on: true, outputId: data.sendCues.outputId }
+          : { ...defaults.sendCues },
     };
   } catch {
     return { ...defaults };

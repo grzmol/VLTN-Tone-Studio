@@ -243,3 +243,32 @@ export function loadSampleSet(): Promise<SampleSet> {
   });
   return loaded;
 }
+
+/** The velocity a metronome hit is played at: the medium layer of every drum sample. */
+const CLICK_VELOCITY = 90;
+
+const clickSamples = new Map<number, Promise<PcmAudio>>();
+
+/**
+ * One drum sample's audio by GM pitch (the medium layer), fetched and decoded once. The metronome uses it for its drum sounds. A failed
+ * load is retried on the next call.
+ */
+export function loadDrumSample(pitch: number): Promise<PcmAudio> {
+  const cached = clickSamples.get(pitch);
+  if (cached) return cached;
+  const layers = SAMPLE_MAP.drums[String(pitch)]?.layers ?? [];
+  const layer = layers.find((l) => CLICK_VELOCITY >= l.velocity[0] && CLICK_VELOCITY <= l.velocity[1]) ?? layers[0];
+  if (!layer) return Promise.reject(new Error(`No drum sample for note ${pitch}.`));
+  const load = (async () => {
+    const url = sampleFileUrls().get(layer.file);
+    if (!url) throw new Error(`Sample ${layer.file} is missing from the app.`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Could not load sample ${layer.file}.`);
+    return decodeTrack(await response.arrayBuffer());
+  })().catch((error: unknown) => {
+    clickSamples.delete(pitch);
+    throw error;
+  });
+  clickSamples.set(pitch, load);
+  return load;
+}

@@ -140,3 +140,11 @@ it("requires start acknowledgement and detects a silent worker after starting", 
   expect(second.fault).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
 });
+it("hands click messages to the worker, and nothing once stopped", () => {
+  const f = setup();
+  f.handle.addTimed([{ bytes: [153, 37, 100], due: 5000 }]);
+  expect(f.worker.postMessage.mock.calls[1][0]).toEqual({ type: "clicks", messages: [{ bytes: [153, 37, 100], due: 5000 }] });
+  f.handle.stop();
+  f.handle.addTimed([{ bytes: [153, 37, 100], due: 6000 }]);
+  expect(f.worker.postMessage).toHaveBeenCalledTimes(2);
+});

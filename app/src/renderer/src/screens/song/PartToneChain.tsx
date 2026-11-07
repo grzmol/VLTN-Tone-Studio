@@ -1,6 +1,7 @@
-// The bass tone chain in the Band settings (spec 89): up to six blocks, played in order (pedal, preamp, amp, cab IR, space IR), each with its
-// levels, mix and on switch, and the chain's dry/wet. Changing the chain saves it; Generate is what renders it. Bass tones need the desktop
-// app (the TONE3000 browser and the file dialogs are there), so the web build shows the chain disabled.
+// A part's tone chain in the Band settings (spec 89 for the bass, 104 for the drums): up to six blocks, played in order, each with its levels, mix
+// and on switch, and the chain's dry/wet. The bass offers pedal, preamp, amp, cab IR and space IR; the drums offer outboard, preamp and space
+// IR. Changing the chain saves it; Generate is what renders it. Tones need the desktop app (the TONE3000 browser and the file dialogs are
+// there), so the web build shows the chain disabled.
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -10,30 +11,45 @@ import {
   BASS_TONE_INPUT_DB,
   BASS_TONE_OUTPUT_DB,
   MAX_TONE_BLOCKS,
+  PART_ROLES,
   TONE_BLOCK_TYPE,
-  TONE_ROLES,
-  type BassTone,
-  type BassToneFile,
+  type PartTone,
+  type PartToneFile,
+  type TonePart,
   type ToneBlock,
   type ToneRole,
 } from "@/song/band/arrangement";
-import { BASS_TONE_PRESETS, captureRenderSeconds, presetBlocks } from "@/song/band/bass-tone";
-import { BassSourceDialog, presetBassSearch, restoreBassSearch } from "./BassSourceDialog";
+import { captureRenderSeconds, PART_TONE_PRESETS, presetBlocks } from "@/song/band/part-tone";
+import { PartSourceDialog, presetPartSearch, restorePartSearch } from "./PartSourceDialog";
 
 /** The track of a band slider, as BandSettingsForm draws them: a lighter track keeps the full length visible at any value. */
 const BAND_TRACK = "bg-white/15";
 
-const ROLE_LABEL: Record<ToneRole, string> = { pedal: "Pedal", preamp: "Preamp", amp: "Amp", cab: "Cab IR", space: "Space IR" };
-const ADD_LABEL: Record<ToneRole, string> = { pedal: "Add pedal…", preamp: "Add preamp…", amp: "Add amp…", cab: "Add cab IR…", space: "Add space IR…" };
+const ROLE_LABEL: Record<ToneRole, string> = { pedal: "Pedal", preamp: "Preamp", amp: "Amp", cab: "Cab IR", space: "Space IR", outboard: "Outboard" };
+const ADD_LABEL: Record<ToneRole, string> = {
+  pedal: "Add pedal…",
+  preamp: "Add preamp…",
+  amp: "Add amp…",
+  cab: "Add cab IR…",
+  space: "Add space IR…",
+  outboard: "Add outboard…",
+};
+/** The part's name in the headings and notes. */
+const PART_LABEL: Record<TonePart, { title: string; clean: string; plural: string }> = {
+  bass: { title: "Bass tone", clean: "Clean bass", plural: "Bass tones" },
+  drums: { title: "Drum tone", clean: "Clean drums", plural: "Drum tones" },
+};
 
-export interface BassToneChainProps {
-  tone: BassTone;
+export interface PartToneChainProps {
+  part: TonePart;
+  tone: PartTone;
   /** The song's length in seconds, for the render-time estimate. */
   songSeconds: number;
-  onChange(tone: BassTone): void;
+  onChange(tone: PartTone): void;
 }
 
-export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProps) {
+export function PartToneChain({ part, tone, songSeconds, onChange }: PartToneChainProps) {
+  const label = PART_LABEL[part];
   const desktop = isElectron;
   const chain = tone.kind === "chain" ? tone : null;
   const blocks = chain?.blocks ?? [];
@@ -51,14 +67,14 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
   const remove = (index: number) => save(blocks.filter((_, i) => i !== index));
 
   const open = (role: ToneRole, slot: number | null) => {
-    presetBassSearch(role);
+    presetPartSearch(part, role);
     setPicking({ role, slot });
   };
   const close = () => {
-    restoreBassSearch();
+    restorePartSearch();
     setPicking(null);
   };
-  const pick = (file: BassToneFile) => {
+  const pick = (file: PartToneFile) => {
     if (!picking) return;
     close();
     if (picking.slot !== null) update(picking.slot, { file });
@@ -73,27 +89,27 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
       ? null
       : captures === 0
         ? "Only IRs: a few seconds at Generate."
-        : `About ${Math.round(captureRenderSeconds(blocks, songSeconds, chain?.fast ?? false))} s at Generate for this song.`;
+        : `About ${Math.round(captureRenderSeconds(blocks, songSeconds, chain?.fast ?? false, part === "drums"))} s at Generate for this song.`;
 
   return (
-    <section aria-label="Bass tone" className="flex flex-col gap-3 sm:col-span-2">
+    <section aria-label={label.title} className="flex flex-col gap-3 sm:col-span-2">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="font-medium">Bass tone</span>
+        <span className="font-medium">{label.title}</span>
         <span className="min-w-0 text-silkscreen-2">{summary}</span>
         {blocks.length > 0 && (
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="ghost" size="sm" onClick={() => onChange({ kind: "clean" })}>
-              Clean bass
+              {label.clean}
             </Button>
           </div>
         )}
       </div>
-      {!desktop && <p className="text-silkscreen-3">Bass tones need the desktop app.</p>}
+      {!desktop && <p className="text-silkscreen-3">{label.plural} need the desktop app.</p>}
 
       {blocks.length === 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-silkscreen-2">Start from a preset:</span>
-          {BASS_TONE_PRESETS.map((preset) => (
+          {PART_TONE_PRESETS[part].map((preset) => (
             <Button
               key={preset.name}
               variant="outline"
@@ -108,7 +124,7 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
       )}
 
       {blocks.length > 0 && (
-        <ol aria-label="Bass tone blocks" className="flex flex-col gap-3">
+        <ol aria-label={`${label.title} blocks`} className="flex flex-col gap-3">
           {blocks.map((block, index) => {
             const label = `${ROLE_LABEL[block.role]} ${index + 1}`;
             return (
@@ -187,7 +203,7 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
       )}
 
       <div className="flex flex-wrap gap-2">
-        {TONE_ROLES.map((role) => (
+        {PART_ROLES[part].map((role) => (
           <Button key={role} variant="outline" size="sm" disabled={!desktop || full} onClick={() => open(role, null)}>
             {ADD_LABEL[role]}
           </Button>
@@ -201,7 +217,7 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
             Chain {Math.round(chain.dryWet * 100)}% wet
             <Slider
               trackClassName={BAND_TRACK}
-              aria-label="Bass tone chain mix"
+              aria-label={`${label.title} chain mix`}
               min={0}
               max={100}
               step={5}
@@ -217,7 +233,7 @@ export function BassToneChain({ tone, songSeconds, onChange }: BassToneChainProp
         </div>
       )}
 
-      {picking && <BassSourceDialog role={picking.role} open onClose={close} onPick={(file) => pick(file)} />}
+      {picking && <PartSourceDialog part={part} role={picking.role} open onClose={close} onPick={(file) => pick(file)} />}
     </section>
   );
 }

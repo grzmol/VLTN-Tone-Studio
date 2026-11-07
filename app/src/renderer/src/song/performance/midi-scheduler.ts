@@ -12,6 +12,15 @@ export interface ScheduledMessage {
   time?: number;
 }
 /**
+ * A message that is due at a fixed clock time and belongs to no song position: the MIDI click's notes (spec 103). Unlike a cue it is
+ * never chased, and a jump or a rate change does not move it.
+ */
+export interface TimedMessage {
+  bytes: number[];
+  /** Clock time (the clock `origin` is on). */
+  due: number;
+}
+/**
  * A quarter-frame stream: quarter frame `next` is due at `anchor.time` plus its share of a quarter at `rate`, and carries the frame
  * count of its cycle. The worker reports the stream it is sending, so a hand-over can carry it on.
  */
@@ -93,6 +102,7 @@ export type SchedulerRequest =
   | { type: "sync"; position: number; at: number }
   | { type: "plan"; cap: number | null; jump: SchedulerJump | null }
   | { type: "timecode-end"; at: number | null }
+  | { type: "clicks"; messages: TimedMessage[] }
   | { type: "stop" };
 
 /**
@@ -202,6 +212,8 @@ export class MidiSchedule {
   private timecodeEnd = Infinity;
   /** The outgoing song's quarter frames, until its join. They come before this schedule's own full frame. */
   private tail: TimecodeTail | null = null;
+  /** The click messages still to send, soonest first. */
+  private timed: TimedMessage[] = [];
   constructor(
     config: SchedulerConfig,
     now: number,
@@ -235,6 +247,14 @@ export class MidiSchedule {
   }
   stop() {
     this.stopped = true;
+  }
+  /**
+   * Adds messages that are due at fixed clock times. They go out in the batch that reaches them, with the cues, so their timing comes
+   * from this schedule's clock and not from a timer in the renderer.
+   */
+  addTimed(messages: TimedMessage[]) {
+    if (this.stopped) return;
+    this.timed = [...this.timed, ...messages].sort((a, b) => a.due - b.due);
   }
   /** Stops quarter frames at clock time `at`, or lifts the stop with null. Cues and clock are not affected. */
   endTimecode(at: number | null) {
@@ -443,6 +463,10 @@ export class MidiSchedule {
     while (this.next < this.cues.length && this.cues[this.next].time <= until && this.cues[this.next].time < this.cap - 0.001) {
       const cue = this.cues[this.next++];
       for (const bytes of cue.messages) candidates.push({ bytes, due: this.clockAt(cue.time), label: cue.label || "Song cue", time: cue.time });
+    }
+    while (this.timed.length && this.timed[0].due <= now + lookahead * 1000) {
+      const { bytes, due } = this.timed.shift()!;
+      candidates.push({ bytes, due, label: "Click" });
     }
     if (this.tempo) {
       for (const bytes of this.tempo)

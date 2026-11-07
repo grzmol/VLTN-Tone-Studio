@@ -15,6 +15,7 @@ import { RENDER_RATE, renderPart } from "./render";
 import type { SampleSet } from "./samples";
 import { barBeats, beatSpan } from "./timing";
 import type { PcmAudio } from "../types";
+import type { Section } from "../performance/sections";
 
 /**
  * The audio that follow-my-playing reads, and the name the panel shows for it ("guitar", "piano", "other" or "mix"). Only the mono sum
@@ -167,6 +168,26 @@ export function previewWindow(grid: BeatGrid, fromTime: number, bars: number): P
   if (endBeat < beats.length) return { start: fromTime, end: beats[endBeat] };
   const last = beats.length - 1;
   return { start: fromTime, end: beats[last] + (endBeat - last) * beatSpan(beats, last) };
+}
+
+/** The most bars one preview renders, so a long section does not take minutes. */
+export const MAX_PREVIEW_BARS = 32;
+
+/** How much of a section a preview plays: all of it, or the first 4 or 8 bars. */
+export type PreviewLength = "whole" | 4 | 8;
+
+/**
+ * The bars a preview of a section covers. A whole section runs to the next section's start, and the last section to the song's end
+ * (`songEnd`, or its own end when not given). The result is at least 1 and at most MAX_PREVIEW_BARS. 4 and 8 are used as asked.
+ */
+export function sectionPreviewBars(grid: BeatGrid, sections: readonly Section[], index: number, length: PreviewLength, songEnd?: number): number {
+  if (length !== "whole") return Math.min(length, MAX_PREVIEW_BARS);
+  const section = sections[index];
+  if (!section) return 1;
+  const end = sections[index + 1]?.start ?? songEnd ?? section.end;
+  const barSeconds = (barBeats(grid) * 60) / grid.bpm;
+  const bars = Math.round((end - section.start) / barSeconds);
+  return Math.min(MAX_PREVIEW_BARS, Math.max(1, Number.isFinite(bars) ? bars : 1));
 }
 
 /** A copy of the audio from frame `from` for `frames` frames. Past the end of the audio is silence. */

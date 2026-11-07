@@ -1,4 +1,4 @@
-import { lateAction, STALE_MS, type ScheduledMessage, type SchedulerConfig, type SchedulerJump, type SchedulerReply, type TimecodeStream } from "./midi-scheduler";
+import { lateAction, STALE_MS, type TimedMessage, type ScheduledMessage, type SchedulerConfig, type SchedulerJump, type SchedulerReply, type TimecodeStream } from "./midi-scheduler";
 const failedWorkers = new WeakMap<Worker, Error>();
 /** The session keeps running through late messages; this reports them so the UI can show a non-blocking notice. */
 export interface SchedulerDegraded {
@@ -155,6 +155,15 @@ export function startMidiScheduler(
       if (active)
         try {
           worker.postMessage({ type: "plan", cap, jump });
+        } catch (error) {
+          fault(String(error));
+        }
+    },
+    /** Adds messages due at fixed clock times (the MIDI click). They are sent by the worker's clock, like cues. */
+    addTimed(messages: TimedMessage[]) {
+      if (active)
+        try {
+          worker.postMessage({ type: "clicks", messages });
         } catch (error) {
           fault(String(error));
         }

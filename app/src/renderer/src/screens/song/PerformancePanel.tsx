@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useSong } from "@/song/store";
-import { defaultMix, mergeMix, type Mix } from "@/song/stems/mix";
+import { partSplitNote, selectWholeSongStems, useSong } from "@/song/store";
+import { defaultMix, formatTime, mergeMix, type Mix } from "@/song/stems/mix";
 import type { TrackBuses } from "@/song/stems/player";
 import { songCues } from "@/song/performance/song-cues";
 import { midiFileFromOptions, type MidiFileOption } from "@/song/performance/smf";
@@ -10,6 +10,14 @@ import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { SpeedControls } from "./SpeedControls";
 import { bassOf, harmonyNameOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { PerformanceSession, carriedInto, leftPerformance, useSession, type Timing } from "@/song/performance/session";
+import {
+  ownClickSounds,
+  readClickSoundDefaults,
+  resolveClickSounds,
+  saveClickSoundDefaults,
+  type ClickSounds,
+  type ClickSoundsOwn,
+} from "@/song/performance/click-sound";
 import { isMetronomeMode, recordTap, tapBpm, type MetronomeMode } from "@/song/performance/rhythm";
 import { parseSections, saveLiveAsDefault, type Section } from "@/song/performance/sections";
 import { ownLeadIn, readLeadInDefaults, resolveLeadIn, saveLeadInDefaults, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
@@ -28,6 +36,7 @@ import { setSongPlaying } from "@/song/performance/playing-state";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { useBluetooth } from "@/bluetooth/connection";
 import { SongKey } from "./SongKey";
+import { SongMapImport } from "./SongMapImport";
 import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
 import { PerformanceMix } from "./PerformanceMix";
@@ -41,6 +50,8 @@ import { applyPartChoices, defaultPartChoices, partKeysOf, readPartChoices, type
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
+import { effectiveMute, noTrackNote, practiceSet, readCountsAs, usePracticeMute, type CountsAs, type PracticeTracks } from "@/song/performance/practice-mute";
+import { PracticeMuteBanner, PracticeMuteMenu } from "./PracticeMute";
 import { StageView } from "./StageView";
 import { SectionStrip } from "./SectionStrip";
 import { SectionEditor } from "./SectionEditor";
@@ -109,10 +120,12 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const bluetooth = useBluetooth((s) => s.connection);
   const midiConfig = useMidiConfiguration();
   const source = useSong((s) => s.source),
-    stems = useSong((s) => s.stems),
+    stems = useSong(selectWholeSongStems),
     tracks = useSong((s) => s.tracks) ?? NO_TRACKS,
     setTrackInfo = useSong((s) => s.setTrackInfo),
     missingParts = useSong((s) => s.missingParts);
+  // A split of only part of the song is for Tone Match; Performance plays the whole song and says why the stems are missing.
+  const partNote = partSplitNote(useSong((s) => s.lastSplit), formatTime);
   const key = performanceKey(source);
   const library = useSongLibrary();
   const queued = !!source?.libraryId && library.queue[library.position] === source.libraryId;
@@ -131,6 +144,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         lyricsLanguage: "auto",
         metronomeMode: "",
         countInBars: "",
+        metronomeSound: "",
+        countInSound: "",
         preRollBeats: "",
         startDelay: "",
         sections: [] as unknown[],
@@ -181,6 +196,18 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       session.fail(e);
     }
   };
+  // The metronome's and the count-in's sounds, the same way: a song's own value ("" uses the default) over a global default.
+  const [soundOwn, setSoundOwn] = useState<ClickSoundsOwn>(() => ownClickSounds(options));
+  const [soundDefaults, setSoundDefaults] = useState<ClickSounds>(readClickSoundDefaults);
+  const sounds = useMemo(() => resolveClickSounds(soundOwn, soundDefaults), [soundOwn, soundDefaults]);
+  const setSoundDefault = (next: ClickSounds) => {
+    setSoundDefaults(next);
+    try {
+      saveClickSoundDefaults(next);
+    } catch (e) {
+      session.fail(e);
+    }
+  };
   const [shapeVersion, setShapeVersion] = useState(0);
   // The drums and bass choice: the original, the generated track or both. A song that saved none starts from the default for its parts,
   // and its mix is set to match. A saved choice is already in the saved mix.
@@ -196,12 +223,15 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     partChoiceNow.current = next;
     setPartChoice(next);
     const now = useSong.getState();
-    setMix((current) => applyPartChoices(current, next, partKeysOf(now.tracks ?? {}, now.stems)));
+    setMix((current) => applyPartChoices(current, next, partKeysOf(now.tracks ?? {}, selectWholeSongStems(now))));
   };
   // An imported track starts on the bus, volume and pan it saved; a choice the song made since then wins.
   const [mix, setMix] = useState<Mix>(() => withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
   // The mix as last read or saved: the Stems tab saves into the same options, so only what changed here is written.
   const savedMix = useRef<Mix | null>(options.mix);
+  // What each imported track counts as for the practice mute. It is saved with the song, since only that song's tracks have these names.
+  const [countsAs, setCountsAs] = useState<Record<string, CountsAs>>(() => readCountsAs(options));
+  const practiceKinds = usePracticeMute((s) => s.kinds);
   const [trackBuses, setTrackBuses] = useState<TrackBuses>(() => ({ ...busDefaults(tracks), ...options.trackBuses }));
   useEffect(() => {
     setMix((current) => ({ ...mixDefaults(tracks), ...current }));
@@ -484,13 +514,20 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   }, [session, key, bpm, tempoSource]);
   useEffect(() => {
     setMix(withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
+    setCountsAs(readCountsAs(options));
   }, [player]);
   // A normalised song is raised or lowered as a whole: every track gets the same gain, so the balance stays as it was mixed.
   const [loudness, setLoudness] = useState<SongLoudness>(() => loudnessFromOptions(getSetting(key, ":options")));
   const songGain = loudness.normalise && loudness.lufs !== null ? normalisingGain(loudness.lufs, loudness.peakDb) : 1;
+  // The player plays the song's mix with the practice mute on top. The practice mute is never written into `mix`, which is what is saved.
+  const practiceTracks = useMemo<PracticeTracks>(
+    () => ({ keys: player?.names ?? [], info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs }),
+    [player, tracks, stems, countsAs],
+  );
+  const playedMix = useMemo(() => effectiveMute(mix, practiceSet(practiceKinds), practiceTracks), [mix, practiceKinds, practiceTracks]);
   useEffect(() => {
-    player?.setMix(mix, songGain);
-  }, [player, mix, songGain]);
+    player?.setMix(playedMix, songGain);
+  }, [player, playedMix, songGain]);
   useEffect(() => {
     player?.setTrackBuses(trackBuses);
   }, [player, trackBuses]);
@@ -512,11 +549,14 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           volume,
           mix: mergedMix,
           trackBuses,
+          practiceKinds: countsAs,
           partChoice,
           chordChoice,
           lyricsLanguage: readOptions(key, { lyricsLanguage: "auto" }).lyricsLanguage,
           metronomeMode: metronome,
           countInBars: lead.countInBars,
+          metronomeSound: soundOwn.sound,
+          countInSound: soundOwn.countInSound,
           preRollBeats: lead.preRollBeats,
           startDelay: lead.startDelay,
           sections: sectionList,
@@ -525,10 +565,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     } catch (e) {
       session.fail(e);
     }
-  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, partChoice, chordChoice, metronome, lead, sectionList]);
+  }, [session, key, firstBeat, beats, shift, capo, clock, volume, mix, trackBuses, countsAs, partChoice, chordChoice, metronome, lead, soundOwn, sectionList]);
   useEffect(() => {
-    player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat });
-  }, [player, metronome, bpm, beats, volume, firstBeat]);
+    player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
+  }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
   useEffect(() => {
     player?.setShape(playerShape(shapeFromOptions(getSetting(key, ":options"))));
@@ -558,7 +598,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             Enter stage mode
           </Button>
         </div>
+        <PracticeMuteBanner note={noTrackNote(practiceSet(practiceKinds), practiceTracks)} />
         <MissingPartsNotice songKey={key} sections={sectionList} playing={playing || library.playlistPlaying} />
+        {partNote && (
+          <p className="text-xs text-silkscreen-2" role="status">
+            {partNote}
+          </p>
+        )}
         {analysis.notices.map((notice) => (
           <p key={notice.text} className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <span>{notice.text}</span>
@@ -611,12 +657,19 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             onLead: setLeadOwn,
             leadDefaults,
             onLeadDefault: setLeadDefault,
+            soundOwn,
+            onSoundOwn: setSoundOwn,
+            soundDefaults,
+            onSoundDefaults: setSoundDefault,
           }}
           onTap={tap}
         />
       </div>
       <div style={{ display: shownView("play") }}>
         <SectionStrip session={session} onSaveDefaults={saveSectionDefaults} />
+        <div className="flex justify-end">
+          <PracticeMuteMenu />
+        </div>
         <PerformanceMix
           session={session}
           stems={stems}
@@ -627,6 +680,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           onTrackBus={(name, bus) => setTrackBuses((routes) => ({ ...routes, [name]: bus }))}
           onTrackInfo={setTrackInfo}
           partChoices={partChoice}
+          countsAs={countsAs}
+          onCountsAs={(trackKey, value) =>
+            setCountsAs((current) => {
+              const { [trackKey]: _dropped, ...rest } = current;
+              return value === undefined ? rest : { ...rest, [trackKey]: value };
+            })
+          }
         />
       </div>
       <div style={{ display: shownView("song") }}>
@@ -647,6 +707,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           libraryKey={savedSong?.key ?? undefined}
           onSpellingKey={setSpellingKey}
         />
+        <SongMapImport
+          songKey={key}
+          libraryId={source?.libraryId}
+          playing={playing || library.playlistPlaying}
+          title={savedSong?.title || source?.name || ""}
+          durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
+        />
         <TrackImport playing={playing || library.playlistPlaying} />
         <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
         <BandPanelButton sections={sectionList} partChoices={partChoice} />
@@ -665,6 +732,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             setFirstBeat(first);
           }}
           getPosition={() => session.position}
+          onPlayFrom={(seconds) => void session.seek(seconds).then(() => session.startPlayback())}
           partChoices={partChoice}
           onPartChoice={choosePart}
           bassLine={bassLine}
@@ -704,6 +772,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           session={session}
           chart={chart}
           onSaveChart={saveChart}
+          onShowChart={() => chooseView("lyrics")}
           midiFile={midiFile}
           onMidiFile={saveMidiFile}
           timecodeOffset={timecodeOffset}

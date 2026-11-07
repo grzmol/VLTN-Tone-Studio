@@ -6,7 +6,7 @@ import { notifyError } from "@/app/notify";
 import { useFileHandler, type OpenFile } from "@/state/ui";
 import { usePedalNameOrBoth } from "@/state/device";
 import { AUDIO_ACCEPT } from "@/song/decode";
-import { useSongLibrary } from "@/song/library";
+import { confirmLeave, useSongLibrary } from "@/song/library";
 import { useNav } from "@/state/nav";
 import { useSong } from "@/song/store";
 import type { SongSource } from "@/song/types";
@@ -15,11 +15,13 @@ import { StemsPanel } from "./stems/StemsPanel";
 import { ToneMatchPanel } from "./tonematch/ToneMatchPanel";
 import { SongLibraryPanel } from "./SongLibraryPanel";
 import { PerformancePanel } from "./PerformancePanel";
+import { SaveBeforeLeaving, SaveIndicator } from "./SaveIndicator";
 import { useSongTab, type SongTab } from "./tab";
 
 /** Decode `file`; the Stems tab then offers the model and quality choice before the split. */
 export async function openSong(file: File): Promise<void> {
   if (useSongLibrary.getState().busy) return;
+  if (!(await confirmLeave())) return;
   useSongLibrary.getState().pausePlaylist();
   useNav.getState().go("song", "stems");
   await useSong.getState().load(file);
@@ -69,12 +71,16 @@ export function SongScreen() {
           if (file) void openSong(file);
         }}
       />
+      <SaveBeforeLeaving />
       <Tabs value={tab} onValueChange={(v) => setTab(v as SongTab)} className="flex min-h-0 flex-1 flex-col gap-3.5">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-6 pt-5 pb-1">
           <h1 className="col-start-1 row-start-1 text-[32px] leading-[1.1] font-bold tracking-[-0.02em] text-balance">Song</h1>
-          <p className="col-start-1 row-start-2 mt-1.5 truncate text-[12px] text-silkscreen-3">
-            {songHeadline(source, saved, `Split a song into stems on this computer, then find a ${pedal} tone for its guitar.`)}
-          </p>
+          <div className="col-start-1 row-start-2 mt-1.5 flex min-w-0 items-center gap-3">
+            <p className="truncate text-[12px] text-silkscreen-3">
+              {songHeadline(source, saved, `Split a song into stems on this computer, then find a ${pedal} tone for its guitar.`)}
+            </p>
+            <SaveIndicator />
+          </div>
           <div className="col-start-2 row-span-2 row-start-1 flex items-center gap-3">
             <TabsList aria-label="Song">
               <TabsTrigger value="songs">Songs & playlists</TabsTrigger>

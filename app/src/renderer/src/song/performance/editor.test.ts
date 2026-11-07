@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
 import { editableEvents, eventChart } from "./editor";
-import { parseChart } from "./chart";
+import { parseChart, type Cue } from "./chart";
 import type { MidiMacro } from "./midi-macros";
+
+// A rewritten chart moves the tokens, so only their positions differ.
+const unplaced = (cues: Cue[]) => cues.map(({ source: _source, ...cue }) => cue);
 
 it("preserves banks, labels, note-offs, SysEx and independent times when editing lyrics", () => {
   const original =
@@ -11,7 +14,7 @@ it("preserves banks, labels, note-offs, SysEx and independent times when editing
   rows[0].lyrics = "Corrected words";
   rows[0].chords = "Dm A7";
   const result = parseChart(eventChart(rows));
-  expect(result.filter((c) => c.messages.length)).toEqual(parseChart(original).filter((c) => c.messages.length));
+  expect(unplaced(result.filter((c) => c.messages.length))).toEqual(unplaced(parseChart(original).filter((c) => c.messages.length)));
   expect(result[0].text).toBe("[Dm] [A7] Corrected words");
 });
 it("makes generated lyrics and chord estimates editable without inventing timestamps", () => {

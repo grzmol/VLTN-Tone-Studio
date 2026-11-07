@@ -32,7 +32,7 @@ The play controls, tempo and metronome stay at the top. Under them, choose a vie
 
 The view you used last opens next time. Longer explanations sit behind **How this works**, and the cards in **Setup** and **MIDI** fold away with the arrow beside their title.
 
-Everything here works in the desktop app. The browser build can play a song and send USB MIDI, but has no song library and no sleep prevention. Saved songs, backups and playlists are covered in the [song library guide](SONG-LIBRARY.md).
+Everything here works in the desktop app. The browser build can play a song and send USB MIDI, but has no song library and no sleep prevention. Saved songs, backups and playlists are covered in the [song library guide](SONG-LIBRARY.md). To have an assistant map a song's sections, drums, bass and timing, export a song brief and import the reply: see the [song map guide](SONG-MAP.md).
 
 ## Prepare a song
 
@@ -47,7 +47,7 @@ Everything here works in the desktop app. The browser build can play a song and 
 
 **Metronome.** Choose **Off**, **While stopped** (a rehearsal click on the grid), **While playing** or **Both** from the **Metronome** menu. The choice is saved for each song and starts from the last one used. To line it up with a recording that has an intro, pause on the first downbeat and choose **Metronome settings → Set first beat here**. Fine-tune with **First beat (seconds)**, or **Reset first beat**. The grid is fixed, so it cannot follow a recording that speeds up or slows down. It does not move lyrics or MIDI cues.
 
-**Count-in, pre-roll and start delay.** In **Metronome settings**, a count-in of one or two bars clicks before the audio starts, and a pre-roll starts the audio a few beats before the current position so you can re-enter a passage. A start delay of up to 10 seconds comes before both; press Play again while it waits to cancel. The count-in, pre-roll and start delay are saved for each song. A song without its own value uses the global default, set under **Defaults for songs without their own** in **Metronome settings**. The count-in shows as a countdown on the beat light, and the stage view can flash its edge on each beat.
+**Count-in, pre-roll and start delay.** In **Metronome settings**, a count-in of one or two bars clicks before the audio starts, and a pre-roll starts the audio a few beats before the current position so you can re-enter a passage. A start delay of up to 10 seconds comes before both; press Play again while it waits to cancel. The count-in, pre-roll and start delay are saved for each song. A song without its own value uses the global default, set under **Defaults for songs without their own** in **Metronome settings**. **Click sounds.** **Sound** next to **Metronome** picks what the click sounds like: the click, sticks, a closed hi-hat, kick and hat (kick on the first beat) or ride. The count-in has its own sound menu, set to the metronome's sound by default, so you can rehearse on the click and count the band in on sticks. The sounds come from the band's drum samples and play through the click output. Each song keeps its choice, and a song without one uses the default under **Defaults for songs without their own**. **More click sounds.** The **Sound** menus are grouped. **Click** has the click, a cowbell and a woodblock, which are made by the app. **Drummer** has sticks, pedal hat, hi-hat, open hat, ride and snare. **Patterns** change the drum on the beat: kick and hat; rock, with the kick on 1 and 3 and the snare on 2 and 4 (in other meters the kick on 1 and the snare on the rest); toms from high to low across the bar, staying on the low tom after the third beat; and a crash on one with a closed hat after it. Press **Listen** beside a menu to hear one bar at the song tempo through the click output without starting the song. **My samples** plays your own sounds: in **Metronome settings → My samples** load one file for the **Downbeat** and one for the **Other beats** (WAV, FLAC or MP3, at most 2 seconds; a longer file is cut with a notice). Bounce a single hit from your drum plugin and load it. The files are copied into the app's data folder, so they stay after a restart, and an empty slot uses the click. **Send the click as MIDI.** Also in **Metronome settings**, tick **Send the click as MIDI** and choose an output (turn on USB / system MIDI first). Each beat goes out as a drum note on channel 10, or the channel you pick, at velocity 100 on the downbeat and 80 on the others, with a note-off 50 ms later. The note follows the sound (37 sticks, 44 pedal hat, and so on; the click and your own samples send the side stick). Use a virtual port, for example the IAC driver on a Mac, to feed a drum plugin in another app; the app does not host plugins. **Offset (ms)** moves the notes by −100 to +100 ms to make up for the other app's delay. **Also play the click here** keeps the built-in sound on while the MIDI click is on. The MIDI click uses its own output and does not need **Send cues**; it is never sent to the cue output unless you choose that one. Its notes are timed by the same MIDI scheduler clock as cues. The count-in shows as a countdown on the beat light, and the stage view can flash its edge on each beat.
 
 **Tap tempo.** Press **Tap tempo** or the **T** key to set the Song BPM by tapping. It averages the last four taps, and a pause of two seconds starts again. Taps set the BPM only while stopped. The beat light next to the transport shows song beats, not count-in beats.
 
@@ -144,7 +144,7 @@ An import replaces the chart, so it is refused during playback, and when the cha
 
 ## MIDI cues
 
-A cue is a MIDI message sent at a time in the song. Write them in the chart as `{midi:…}` tokens, or build them with **Song MIDI cues**.
+A cue is a MIDI message sent at a time in the song. Write them in the chart as `{midi:…}` tokens, or build them with **Song MIDI cues**. A cue can also fire at the start of a song section, such as every chorus, instead of at a time ([Cues on a section](MIDI-PEDALS.md#triggers-macros-and-song-midi-files)).
 
 | Token | Message | Notes |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ A cue is a MIDI message sent at a time in the song. Write them in the chart as `
 
 Empty or incomplete tokens are rejected instead of being dropped silently.
 
-To send cues, pick an output, then switch on **Send cues**. This is called arming, and it is never saved with a song. Reopening a song starts disarmed.
+To send cues, pick an output, then switch on **Send cues**. This is called arming. Send cues is remembered on this computer for the output you switched it on for, not with a song: it stays on for every song, tab and restart until you switch it off or press **Disarm**, and the Performance MIDI summary says "(remembered)" when the app armed itself. Only that output is armed. Choosing another output disarms, and you switch Send cues on again for the new one.
 
 - Pause, seek, leaving the Song screen or changing the output clears anything queued. Switching to another Song tab does not.
 - Seeking pauses; pressing Play starts cues from the new position. Earlier cues are not played as cues, but the pedals are brought to the state they would be in: just before the song starts, the app sends the latest bank select and program change for each channel, then the latest value of each controller. It does the same if a stall drops a patch or controller change.
@@ -251,7 +251,7 @@ The set loads and starts each next song, then stops after the last one. Performa
 
 Switching to another Song tab keeps the set playing and its queue editable. While Performance is hidden, only transport and song keys work; other keys, such as Page Down and the arrows, are left to the page. Leaving the Song screen pauses the set.
 
-An armed MIDI output stays armed across songs while the same device stays connected. For cues from the first second, choose **Load set paused**, connect and switch on **Send cues**, then press **Play playlist** in Performance. Starting a playlist again from the library starts a new disarmed session.
+An armed MIDI output stays armed across songs while the same device stays connected, and Send cues re-arms itself when that output reconnects. For cues from the first second, choose **Load set paused**, connect and switch on **Send cues**, then press **Play playlist** in Performance. Starting a playlist again from the library arms the same remembered output.
 
 Before a set:
 
@@ -279,6 +279,18 @@ For each song, the **Song shape** controls in the Performance setup set how it s
 - **At the end** chooses what follows: **Play the next song**, **Stop the playlist**, which pauses the set at that song's end, or **Loop the song**, which repeats it without moving on.
 
 Trim changes while a song plays move its stop at once. Looping jumps back to the trimmed start a second before the end, so the loop has no gap. Sections are cut to the trimmed range, and preflight warns about cues or sections outside it, which will not play.
+
+## Practice mute
+
+To play along with a playlist, mute your own instrument once and every song comes up without it. Open **Practice mute** on the Play tab (next to the mixer) and tick **Guitar**, **Vocals**, **Bass**, **Drums**, **Piano** or **Other**. It applies to every song that loads: by hand, in a playlist, from a song trigger, and the next song across a gapless join, which is muted before it starts, so the instrument is not heard for a moment at the join.
+
+- **What a kind covers.** A split stem counts as its own kind. The generated drums and bass count as drums and bass. An imported track counts by its name: "guitar" or "gtr", "vocal" or "vox", "bass", "drum", "piano" or "keys". If a name is wrong, choose **Counts as** on the track's mixer row (a kind, or none).
+- **Songs keep their mix.** The practice mute is never saved into a song. Each muted row shows a **Practice** badge, and each song's own mute, solo, volume and pan are exactly as you left them when you turn the practice mute off. Unticking the muted row's checkbox turns that kind's practice mute off.
+- **A song with no split** has nothing to mute by instrument (it plays as one track), so it plays whole and the banner says so.
+- **The banner.** While any kind is muted, the Performance tab and stage mode say "Guitar muted in every song" with an **Unmute** button.
+- **Hands free.** In **Edit remote control**, the **Practice** group has **Practice mute: guitar** (and the other kinds) and **Practice mute: all off**. Bind them to a footswitch, a key or a page-turner. A short notice says "Guitar muted in every song" or "Guitar back on". These keys also work while another Song tab is showing.
+- Changing it during a song fades the track out or in with the normal mute ramp. The song does not stop.
+- It is kept on this computer and comes back after a restart.
 
 ## PDF charts
 
@@ -311,7 +323,7 @@ A controller binding has three modes:
 
 Tick **Double press** on a binding that must not run by accident, such as Stop or Panic. The first press shows a hint, and the action runs when the second press comes within 0.6 s.
 
-The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, and arm or disarm MIDI cues. Lyrics pages scroll the reader by a screenful, because the app has no PDF view.
+The actions cover transport (play, play or pause, stop, play from start, panic), songs (next, previous, select by number, crossfade), sections (next, previous, arm, jump now, loop, exit loop, cancel jump), lyrics (scroll and page), text size, stage mode, mute groups 1–6, click, tap tempo, speed up, down and reset, arm or disarm MIDI cues, and the [practice mute](#practice-mute) of each instrument. Lyrics pages scroll the reader by a screenful, because the app has no PDF view.
 
 Things to know:
 
@@ -386,6 +398,8 @@ If the grid is wrong, correct it:
 
 **Bass tone.** The generated bass can play through a chain of up to six blocks, in the order you set: a pedal (a compressor or drive), a preamp, an amp, a cab IR and a space IR for room or reverb. **Add pedal…**, **Add preamp…**, **Add amp…**, **Add cab IR…** and **Add space IR…** pick a NAM capture from TONE3000 (the search starts on "bass" with that gear, and you can change it) or open a `.nam` or `.wav` file on this computer. A capture that is an older A1 model is labelled "older capture". Each block has **On**, its **In** drive, its **Out** level and its **Mix** (100% is all processed, 0% passes the block through), and **Up**, **Down** and **Remove** change the order. **Start from a preset** sets up an empty chain with the roles set, for you to fill: Bass DI + amp, Driven bass, or Studio bass (a pedal, an amp, a cab and a room IR at 20%). The chain has a **Chain wet** mix with the clean bass, and **Fast render** renders captures at their Lite size where the file has one. A full-size capture takes about 5 s to render per minute of song (less with Fast render), and the panel shows the estimate for the song. **Clean bass** goes back to the clean sample. The chain renders when you press Generate, and the preview hears it too. The whole chain is matched to the clean bass's loudness, so it changes the tone and not the level. It never renders during playback. TONE3000 has no bass tag, so the search matches on the word "bass" and can list a capture that is not for bass, so listen before you use one. If a capture or IR is no longer on the computer, the bass plays clean and the panel says which file is missing. Empty slots and off blocks play nothing. The web build can't use bass tones, so the chain is disabled there.
 
+**Drum tone.** The generated drums can play through the same kind of chain, under **Drum tone** in the Band settings. The drums offer three kinds of block: **Add outboard…** (a compressor, preamp, console or tape capture, found under TONE3000's outboard gear), **Add preamp…** (a capture) and **Add space IR…** (a room or plate IR). Each can also be a `.nam` or `.wav` file from this computer, and each has the same **On**, **In**, **Out** and **Mix** controls, **Up**, **Down** and **Remove**, **Chain wet** and **Fast render** as the bass chain. **Start from a preset** gives empty slots to fill: **Glued kit** (an outboard capture), **Room kit** (a space IR at 30%) or **Recorded kit** (an outboard capture, then a space IR at 25%). A capture plays on the middle of the kit and the sides are added back at the same level change, so a mono capture does not narrow the kit. A stereo space IR plays its left and right on the kit's left and right, and a mono IR plays on both. The panel shows the render estimate (captures count double for the two sides). The drum tone renders when you press Generate, after the drums are made and while the footer says "Applying the drum tone…", and the preview hears it too. It never renders during playback. The kit is matched to the clean kit's loudness. If a file is no longer on the computer, the drums play clean and the panel says which file is missing, while the bass still gets its own tone. **Clean drums** goes back to the dry kit. The web build can't use drum tones, so the chain is disabled there.
+
 **Sections.** The table has one row per section, or one row for a song without sections. Each row sets the section's style, **Energy** (1 to 5), whether it has a **Fill** at its end, and whether drums and bass play in it. Energy starts from the section's name: choruses and solos are higher, intros, verses and outros lower. The defaults also follow the original band. The generated bass rests in a section where the original bass stops, the generated drums stop where the original drums stop, and a section that is clearly louder or quieter than the rest of the song plays one energy level up or down. Your own settings for a section always win. Click a row to select it. Preview then starts from that section. Energy shapes the drums. **Bass part**, **Busy** and **Loud** shape the bass, and Loud also softens or hardens the drums. **More** opens the rest of the bass options for the row. The table scrolls sideways inside its own box when the window is narrow.
 
 **The bass part.** Each section plays one bass part: **Ring out** (held notes, one or two a bar), **Root pulse** (quarters or eighths on the root), **Groove** (the style's rhythms), **Melodic** (groove with approach notes), **Walking**, **Pedal** (one held note that ignores the chords) or **Rest**. **Auto** picks one from the section's name, and the row shows what it picked, for example "Auto · Ring out". Intros start on a pedal for two bars, verses ring when quiet and pulse when busier, pre-chorus pulses and gets louder over its last two bars, choruses groove or go melodic at busy 4 and up, bridges go melodic an octave up (or ring when the chorus grooves), solos groove and outros ring. A section with another name plays the default part. **Busy** (1 to 5, from the energy) sets how many notes a part plays, and **Loud** (1 to 5) how hard they play. **Feel** sets how long the notes ring: Tight shortens them and Ring lets them sound on. **Octave** moves a section up or down an octave when the range allows it. **Fills** (0 to 3) set how often the bass varies the last bar of a four-bar phrase, with a pickup, an octave pop, a run into the next root or an empty last beat. A section that leads into a section with a different name plays a short run into its first note. **Hit the one** holds a chorus's first note and plays it harder. **Slides**, **Dead notes** and **Pickups** are playing techniques. Each style sets its own defaults, shown in More: funk plays dead notes, ballad slides, and the others pickups. After Generate, the panel says how far under the song each part sits, for example "Drums set 4.0 dB under the song, bass 7.2 dB under." A part that the peak limit held back says so.
@@ -395,7 +409,7 @@ If the grid is wrong, correct it:
 - **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Changing a setting does not regenerate anything. The panel says "Parts out of date" until you press Generate again.
 - **Try another** keeps your settings and makes a different take.
 - **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
-- **Preview 4 bars** plays four bars of the parts over the song, from the selected section or from the playhead. **Stop preview** ends it early.
+- **Preview** plays the parts over the song, from the section you pick in the menu next to it (or from the playhead), for the whole section, 4 bars or 8 bars. **Stop preview** ends it early. The buttons stay at the bottom of the dialog, and after **Generate** the bar offers **Close** and **Play from** the selected section.
 - **Export MIDI…** saves the notes of the last Generate as `<song title> - band.mid`. Drums go on channel 10 and bass on channel 1, with the song's tempo. It is available after Generate until you close the panel. Open the file in a sequencer or a notation app to use the parts elsewhere.
 
 Everything here works offline, and the samples ship with the app. Generating, removing, previewing and exporting are all off during playback, so press Stop first.
@@ -418,7 +432,7 @@ The drum and bass samples are CC0, so they need no attribution. The [sample noti
 Choose **Enter stage mode** in Performance. The window fills with large lyrics and transport buttons, and MIDI status and faults stay visible. Setup, the mixer, editors, seeking, rewind and chord popups are locked, and Escape or clicking outside does not exit.
 
 - **Play/Pause** and **Stop playback** stay available.
-- **Panic / stop MIDI** pauses playback, clears queued MIDI and disarms. It cannot undo commands a pedal already received.
+- **Panic / stop MIDI** pauses playback, clears queued MIDI, disarms and turns Send cues off. It cannot undo commands a pedal already received.
 - **Exit stage mode** unlocks everything. Leaving the Performance screen also exits.
 - Stage mode does not arm MIDI or change the BPM, and it stays on across playlist songs.
 
@@ -466,7 +480,7 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - **Tempo jumps.** Turn **Send MIDI Clock** off and use the one-time tempo command.
 - **A pedal answers the wrong command.** Two pedals share a channel, or the pedal is on OMNI. Give each its own channel.
 - **A looper stops by itself.** Pause and panic only release channels that sent notes, because blanket CC 64 is the GP-180 looper Stop.
-- **USB output silent after the Mac sleeps.** The app requests the system's MIDI ports again on wake, and if the pedal came back as a new device the cues stay disarmed until you arm them again.
+- **USB output silent after the Mac sleeps.** The app requests the system's MIDI ports again on wake, and if the pedal came back as the same output, Send cues arms it again by itself. A fault (a failed send, timing that cannot recover) disarms at once and shows the fault, but Send cues stays on, so the next song or a reconnect arms again.
 - **USB editor does not connect.** Connect the powered pedal by USB and use **Look for the pedal**. Make sure its MIDI input allows USB and close other MIDI apps.
 - **Bug reports.** **Copy diagnostic report** and **Save log** in Diagnostics include Bluetooth state, write and notification counts and MIDI traffic. The **Bluetooth clock timing** and **Reset timing counters** controls show queue lateness.
 

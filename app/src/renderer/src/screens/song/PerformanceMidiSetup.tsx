@@ -1,9 +1,10 @@
 import { SettingsCard } from "@/components/ui/settings-card";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { BluetoothControls } from "@/bluetooth/BluetoothControls";
 import { useMidiConfiguration, MIDI_SETUP_PRESETS, rememberedPort } from "@/song/performance/midi-configuration";
 import { BLUETOOTH_PORT_ID, selectArmed, selectOutput, useSession, type PerformanceSession } from "@/song/performance/session";
+import { removeCueToken, replaceCueToken } from "@/song/performance/chart";
 import { MidiCueBuilder } from "./MidiCueBuilder";
 import { MidiFileField } from "./MidiFileField";
 import type { MidiFileOption } from "@/song/performance/smf";
@@ -17,6 +18,7 @@ const field = "rounded border border-seam bg-transparent p-2";
 export function SessionMidiHealth({ session }: { session: PerformanceSession }) {
   const cues = useSession(session, (s) => s.cues);
   const parseError = useSession(session, (s) => s.parseError);
+  const sections = useSession(session, (s) => s.sections);
   const player = useSession(session, (s) => s.player);
   const clock = useSession(session, (s) => s.clock);
   const tempoOnStart = useSession(session, (s) => s.tempoOnStart);
@@ -39,6 +41,7 @@ export function SessionMidiHealth({ session }: { session: PerformanceSession }) 
   return (
     <MidiHealth
       cues={cues}
+      sections={sections}
       duration={player?.duration ?? 0}
       range={range}
       clock={clock}
@@ -55,6 +58,7 @@ export function PerformanceMidiSetup({
   session,
   chart,
   onSaveChart,
+  onShowChart,
   midiFile,
   onMidiFile,
   timecodeOffset,
@@ -63,6 +67,8 @@ export function PerformanceMidiSetup({
   session: PerformanceSession;
   chart: string;
   onSaveChart: (chart: string) => void;
+  /** Goes to the Lyrics & chords view. */
+  onShowChart?: () => void;
   midiFile: MidiFileOption | null;
   onMidiFile: (file: MidiFileOption | null) => void;
   timecodeOffset: string;
@@ -75,16 +81,21 @@ export function PerformanceMidiSetup({
   const inputId = useSession(session, (s) => s.inputId);
   const midiStatus = useSession(session, (s) => s.midiStatus);
   const cues = useSession(session, (s) => s.cues);
+  const sections = useSession(session, (s) => s.sections);
   const parseError = useSession(session, (s) => s.parseError);
-  const output = useSession(session, selectOutput);
+  const output =useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
+  const remembered = useSession(session, (s) => s.armedByPreference);
+  const playing = useSession(session, (s) => s.playing);
+  const latestChart = useRef(chart);
+  latestChart.current = chart;
   useSession(session, (s) => s.portsVersion);
   const outputs = [...(access?.outputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
   const inputs = [...(access?.inputs.values() ?? []), ...(bluetooth ? [bluetooth] : [])].filter((p) => p.state === "connected");
   return (
     <SettingsCard
       title="Performance MIDI controller"
-      summary={`${output?.state === "connected" ? output.name : "Output disconnected"} · ${armed ? "Cues armed" : "Cues disarmed"}`}
+      summary={`${output?.state === "connected" ? output.name : "Output disconnected"} · ${armed ? (remembered ? "Cues armed (remembered)" : "Cues armed") : "Cues disarmed"}`}
       storageKey="midi-controller"
     >
       <HelpNote>
@@ -169,9 +180,9 @@ export function PerformanceMidiSetup({
           </div>
           <HelpNote>
             <p>
-              Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Cue sending is armed per session. Bluetooth
-              still needs a manual connection. One-time GP-150 / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check
-              saved chart cues for conflicting tempo commands.
+              Remembered on this computer: ports, setup, pedal channels, command choices and display preference. Send cues is remembered for the output it was
+              turned on for. Send cues stays on for every song until you turn it off or press Disarm. Bluetooth still needs a manual connection. One-time GP-150
+              / GP-180 tempo uses the song BPM rounded to a whole number (40–300); use app clock off. Check saved chart cues for conflicting tempo commands.
             </p>
           </HelpNote>
           {midiConfig.output && (
@@ -221,7 +232,7 @@ export function PerformanceMidiSetup({
             checked={armed}
             onChange={(e) => {
               session.panic();
-              session.setArmed(e.target.checked);
+              session.sendCues(e.target.checked);
               session.setMidiStatus("");
             }}
           />{" "}
@@ -250,7 +261,7 @@ export function PerformanceMidiSetup({
           variant="outline"
           onClick={() => {
             session.panic();
-            session.setArmed(false);
+            session.disarm();
           }}
         >
           Panic / disarm
@@ -278,8 +289,28 @@ export function PerformanceMidiSetup({
       {midiConfig.showCommands && (
         <MidiCueBuilder
           cues={cues}
+          sections={sections}
           canTest={output?.state === "connected" && armed}
           onAdd={(line) => onSaveChart([chart.trimEnd(), line].filter(Boolean).join("\n"))}
+          locked={armed && playing}
+          onShowChart={onShowChart}
+          onRemove={(cue) => {
+            const next = removeCueToken(chart, cue);
+            if (next === null) return null;
+            onSaveChart(next);
+            // Undo puts the old text back only while the chart is still the one the removal made.
+            return () => {
+              if (latestChart.current !== next) return false;
+              onSaveChart(chart);
+              return true;
+            };
+          }}
+          onReplace={(cue, token, time) => {
+            const next = replaceCueToken(chart, cue, token, time);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
           onTest={(bytes) => {
             if (!armed || output?.state !== "connected") return;
             session.sendPerformance(bytes);

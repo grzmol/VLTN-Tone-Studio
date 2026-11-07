@@ -9,9 +9,10 @@ import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
+import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
-import type { Cue, MidiTrigger } from "@/song/performance/chart";
+import { expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
 import { setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
 import { beatSeconds, countInBeats, preRollStart } from "@/song/performance/rhythm";
 import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/performance/transition";
@@ -138,6 +139,8 @@ export interface SessionState {
   inputId: string;
   /** Arming belongs to this exact connection object, never just a reusable port ID. */
   armedOutput: MidiOutput | null;
+  /** Whether the session armed itself from the remembered Send cues preference, rather than the user arming it just now. */
+  armedByPreference: boolean;
   clock: boolean;
   midiStatus: string;
   error: string;
@@ -197,7 +200,7 @@ const NO_VIEW: ViewHost = {
 };
 
 /** The action groups a key may run while the performance screen is hidden by another Song tab. */
-const HIDDEN_KEY_GROUPS = new Set<string>(["Transport", "Songs"]);
+const HIDDEN_KEY_GROUPS = new Set<string>(["Transport", "Songs", "Practice"]);
 /** Whether a binding's action is a transport or song action, which still runs while the screen is hidden. */
 const runsWhileHidden = (action: string): boolean => isActionId(action) && HIDDEN_KEY_GROUPS.has(ACTIONS[action].group);
 
@@ -205,6 +208,9 @@ const runsWhileHidden = (action: string): boolean => isActionId(action) && HIDDE
 const SPEED_STEP = 0.05;
 /** Shown when Learn is given a key with a modifier, which a binding cannot match */
 const MODIFIER_HINT = "Use a key without Ctrl, Alt or Cmd.";
+
+/** Shown when the remembered output is back and Send cues arms it again. */
+const REARMED_STATUS = "MIDI output reconnected. Send cues is on.";
 
 /** Shown after a sleep re-enumerated the port and the session was armed: the cues must be armed again to send. */
 const RECONNECTED_STATUS = "MIDI output reconnected after sleep. Send cues to arm again.";
@@ -336,6 +342,7 @@ export class PerformanceSession {
   /** Whether the playing song has been counted as played. Counted once per song, at its halfway point. */
   private playedRecorded = false;
   private playedTimer: ReturnType<typeof setInterval> | null = null;
+  private expandedCues: { cues: Cue[]; sections: Section[]; value: Cue[] } | null = null;
   private clampedSections: { source: Section[]; start: number; end: number; value: Section[] } | null = null;
   /** The id of the song being handed over to, from the moment the library moves on until the session that takes it over is set up */
   private handingOver: string | null = null;
@@ -419,9 +426,9 @@ export class PerformanceSession {
     arm: () => {
       const output = this.output;
       if (!output || output.state !== "connected") return "Choose a connected MIDI output first.";
-      this.setArmed(true);
+      this.sendCues(true);
     },
-    disarm: () => this.setArmed(false),
+    disarm: () => this.disarm(),
     speed: (change) => {
       const rate = this.state.speed.rate;
       if (change === "reset") {
@@ -431,6 +438,16 @@ export class PerformanceSession {
       const next = clampRate(Math.round((rate + (change === "up" ? SPEED_STEP : -SPEED_STEP)) * 100) / 100);
       if (next === rate) return change === "up" ? "Speed is at its maximum." : "Speed is at its minimum.";
       this.setSpeed({ rate: next });
+    },
+    // The practice mute is global, so it works with no song loaded. The player ramps the gain when the screen applies it.
+    practiceToggle: (kind) => {
+      const on = usePracticeMute.getState().toggle(kind);
+      showToast({ tone: "info", title: toggleNotice(kind, on, practiceSet(usePracticeMute.getState().kinds)) });
+    },
+    practiceClear: () => {
+      if (!usePracticeMute.getState().kinds.length) return "No practice mute is on.";
+      usePracticeMute.getState().clear();
+      showToast({ tone: "info", title: "Practice mute off" });
     },
   };
 
@@ -450,6 +467,7 @@ export class PerformanceSession {
       portId,
       inputId: carried?.inputId || (initial.savedInput?.transport === "bluetooth" ? BLUETOOTH_PORT_ID : ""),
       armedOutput: carried?.armed && carried.output === first && first?.state === "connected" ? first : null,
+      armedByPreference: false,
       clock: options.initialClock,
       midiStatus: "",
       error: "",
@@ -467,6 +485,8 @@ export class PerformanceSession {
       ...initial,
     }));
     this.effects = this.createEffects();
+    // The preference arms a new session for its remembered output, when that output is connected.
+    if (!this.state.armedOutput && !this.armRemembered() && portId !== BLUETOOTH_PORT_ID && this.rememberedFor(portId) && access) this.portLost = true;
   }
 
   get state(): SessionState {
@@ -652,6 +672,10 @@ export class PerformanceSession {
     this.unsubscribe = this.store.subscribe(() => this.flush());
     this.unsubscribeResume = host.song.onSystemResume?.(this.resumeMidi) ?? null;
     this.flush();
+    // A USB output is only reachable once system MIDI is open, so a remembered Send cues for it opens it, and opening arms it.
+    const { savedOutput, access } = this.state;
+    if (!access && savedOutput?.transport === "system" && this.rememberedFor(savedOutput.id) && typeof navigator.requestMIDIAccess === "function")
+      void this.openMidi();
   }
 
   /** Runs every effect cleanup, which stops the scheduler and sends the final panic. */
@@ -677,6 +701,19 @@ export class PerformanceSession {
   }
 
   // ---- triggers ------------------------------------------------------------------------------------------------
+
+  /**
+   * The cues the scheduler and the state chase use: the chart's cues, with each section cue turned into timed cues at the start of the sections
+   * it names. The same array while neither the cues nor the sections change, and the chart's own array when it has no section cues, so a chart
+   * without them behaves exactly as before.
+   */
+  private playCues(s: Pick<SessionState, "cues" | "sections">): Cue[] {
+    const cached = this.expandedCues;
+    if (cached && cached.cues === s.cues && cached.sections === s.sections) return cached.value;
+    const value = expandSectionCues(s.cues, s.sections);
+    this.expandedCues = { cues: s.cues, sections: s.sections, value };
+    return value;
+  }
 
   /** The messages of the song's triggers of one kind, in chart order. */
   private triggerBytes(kind: MidiTrigger): number[][] {
@@ -788,7 +825,32 @@ export class PerformanceSession {
   setPortId = (portId: string) => this.set({ portId });
   setInputId = (inputId: string) => this.set({ inputId });
   setAccess = (access: MIDIAccess | null) => this.set({ access });
-  setArmed = (value: boolean) => this.set({ armedOutput: value ? (this.output ?? null) : null });
+  /** Arms or disarms this session only. Faults and output changes use it, so they leave the remembered preference alone. */
+  setArmed = (value: boolean) => this.set({ armedOutput: value ? (this.output ?? null) : null, armedByPreference: false });
+
+  /** The Send cues choice: arms or disarms, and remembers it for the selected output so later songs and sessions follow. */
+  sendCues = (on: boolean) => {
+    const { portId } = this.state;
+    useMidiConfiguration.getState().update({ sendCues: { on, outputId: on ? portId : "" } });
+    this.setArmed(on);
+  };
+
+  /** The explicit stop: disarms and turns the remembered preference off. */
+  disarm = () => this.sendCues(false);
+
+  /** Whether the Send cues preference was turned on for this port. */
+  private rememberedFor(portId: string): boolean {
+    const { on, outputId } = useMidiConfiguration.getState().sendCues;
+    return on && outputId !== "" && outputId === portId;
+  }
+
+  /** Arms the selected output when the preference is on for it and it is connected. Returns whether it armed. */
+  private armRemembered(): boolean {
+    const output = this.output;
+    if (!output || output.state !== "connected" || !this.rememberedFor(this.state.portId)) return false;
+    this.set({ armedOutput: output, armedByPreference: true });
+    return true;
+  }
 
   /** Waits out the start delay. Cancelling resolves the wait at once. */
   private waitStartDelay(seconds: number): Promise<void> {
@@ -971,7 +1033,7 @@ export class PerformanceSession {
       // A chase that the pedals need before the song begins holds the audio back by CHASE_LEAD_MS, so it goes out first. Nothing is held
       // when the output is not armed, or when there is no state to chase (a start from the beginning, or no cues before the position).
       const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
-      const chaseLead = armed && computeChaseState(this.state.cues, chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
+      const chaseLead = armed && computeChaseState(this.playCues(this.state), chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
       // Clock without a count-in has no lead-in to cover the scheduler's start, so the hold is CLOCK_LEAD_MS.
       const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 ? CLOCK_LEAD_MS : 0;
       const lead = Math.max(chaseLead, clockLead) / 1000;
@@ -1209,7 +1271,7 @@ export class PerformanceSession {
     this.batch(() => {
       this.pause();
       this.panic();
-      this.setArmed(false);
+      this.disarm();
     });
     // After the flush: the carry effect would otherwise store the disarmed state over this reset.
     if (this.state.queued) useSongLibrary.getState().rememberMidi(null);
@@ -1245,7 +1307,10 @@ export class PerformanceSession {
         : "USB / system MIDI is enabled, but no outputs are available. Connect the pedal and close other MIDI apps, then try again.";
       if (wasArmed && remembered) midiStatus = RECONNECTED_STATUS;
       else if (wasArmed) useMidiDiagnostics.getState().fault("System MIDI output disconnected. Cues disarmed.");
-      this.set({ access: next, midiStatus });
+      this.batch(() => {
+        this.set({ access: next, midiStatus });
+        if (remembered && this.armRemembered()) this.set({ midiStatus: REARMED_STATUS });
+      });
     } catch (e) {
       this.set({ midiStatus: "USB / system MIDI could not be opened." });
       this.fail(e);
@@ -1880,7 +1945,7 @@ export class PerformanceSession {
       },
       // The MIDI scheduler itself.
       {
-        deps: (s) => [s.playing, s.player, armedOf(s), selectOutput(s), s.clock, s.bpm, s.cues, s.timecode],
+        deps: (s) => [s.playing, s.player, armedOf(s), selectOutput(s), s.clock, s.bpm, this.playCues(s), s.timecode],
         run: (s) => this.runScheduler(s),
       },
       // A USB output that goes away disarms the session. The same port id re-enumerated as a new object is the same device:
@@ -1896,17 +1961,20 @@ export class PerformanceSession {
             if (portId === BLUETOOTH_PORT_ID) return;
             const current = access.outputs.get(portId);
             if (!armedOutput) {
-              // The remembered port is back: take it up again, so Enable and arming work from the new object.
+              // The remembered port is back: take it up again, so Enable and arming work from the new object. Opening arms it too
+              // when Send cues is on for it. A port that goes away while Send cues is on is marked lost even if a fault had disarmed it.
+              if (current?.state !== "connected" && this.rememberedFor(portId)) this.portLost = true;
               if (this.portLost && current?.state === "connected") void this.openMidi();
               return;
             }
             if (current === armedOutput && current.state === "connected") return;
             if (current?.state === "connected") {
-              this.set({ midiStatus: RECONNECTED_STATUS });
-            } else {
-              useMidiDiagnostics.getState().fault("System MIDI output disconnected. Cues disarmed.");
-              this.portLost = true;
+              this.setArmed(false);
+              this.set({ midiStatus: this.armRemembered() ? REARMED_STATUS : RECONNECTED_STATUS });
+              return;
             }
+            useMidiDiagnostics.getState().fault("System MIDI output disconnected. Cues disarmed.");
+            this.portLost = true;
             this.setArmed(false);
           };
           access.addEventListener("statechange", update);
@@ -1937,6 +2005,8 @@ export class PerformanceSession {
             if (s.armedOutput && s.armedOutput === this.previousBluetooth)
               useMidiDiagnostics.getState().fault("Bluetooth output disconnected or replaced. Cues disarmed.");
             this.setArmed(false);
+            // A new Bluetooth connection for the remembered output is the same pedal coming back.
+            if (this.armRemembered()) this.set({ midiStatus: REARMED_STATUS });
           }
           this.previousBluetooth = s.bluetooth;
         },
@@ -2010,7 +2080,7 @@ export class PerformanceSession {
       this.incomingTail = null;
       const handle = startMidiScheduler(
         {
-          cues: s.cues,
+          cues: this.playCues(s),
           position: cuePosition,
           duration: player.duration,
           origin,

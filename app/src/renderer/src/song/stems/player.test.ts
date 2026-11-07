@@ -4,6 +4,9 @@ import { DEFAULT_OUTPUTS, type OutputConfig } from "../audio/outputs";
 import type { Stems } from "../types";
 import { StemPlayer } from "./player";
 
+const loadDrumSample = vi.hoisted(() => vi.fn());
+vi.mock("../band/samples", () => ({ loadDrumSample }));
+
 class Context {
   static instances: Context[] = [];
   currentTime = 10;
@@ -60,6 +63,9 @@ class Context {
     this.sources.push(n);
     return n;
   }
+  createBiquadFilter() {
+    return { ...this.node(), Q: { setValueAtTime: vi.fn() } };
+  }
   createOscillator() {
     const n = this.node();
     this.oscillators.push(n);
@@ -67,6 +73,8 @@ class Context {
   }
 }
 afterEach(() => {
+  vi.restoreAllMocks();
+  loadDrumSample.mockReset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Context.instances = [];
@@ -709,5 +717,180 @@ it("scales every track by the master gain, with the mix, and ramps the change", 
   // Only the volume gains are ramped by a mix change, so they are the nodes with a target set. Drums is built first.
   const ramped = ctx.gains.filter((g) => g.gain.setTargetAtTime.mock.calls.length > 0).map((g) => g.gain.setTargetAtTime.mock.calls[0][0]);
   expect(ramped).toEqual([2, 1]);
+  await player.dispose();
+});
+
+/** Lets the player's background sample decode finish. */
+const decoded = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+/** Drum samples in these tests are one frame long and hold their note number; the stems are 1000 frames. */
+const sample = (note: number) => ({ sampleRate: 44100, channels: [new Float32Array([note])] });
+function stubBuffers() {
+  vi.spyOn(Context.prototype, "createBuffer").mockImplementation(function (_channels: number, length: number) {
+    const buffer = { length, note: -1, copyToChannel: (data: Float32Array) => void (buffer.note = data[0]) };
+    return buffer;
+  } as never);
+}
+type Sourced = { buffer: unknown; start: { mock: { calls: number[][] } }; stop: { mock: { calls: unknown[][] } } };
+const clickSources = (ctx: Context) => (ctx.sources as unknown as Sourced[]).filter((source) => (source.buffer as { length: number } | null)?.length === 1);
+const noteOf = (source: Sourced) => (source.buffer as { note: number }).note;
+
+it("plays the count-in's drum sample on every beat, accented, and uses the blip until the sample is ready", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  let ready!: (audio: unknown) => void;
+  loadDrumSample.mockImplementation(() => new Promise((resolve) => (ready = resolve)));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.5, sound: "click", countInSound: "sticks" });
+  const ctx = Context.instances[0];
+  await vi.waitFor(() => expect(loadDrumSample).toHaveBeenCalledWith(37));
+  // The sample is still decoding at Play, so the count-in uses the blip rather than staying silent.
+  await player.play({ countInBeats: 4 });
+  expect(ctx.oscillators).toHaveLength(4);
+  expect(clickSources(ctx)).toHaveLength(0);
+  player.pause();
+  ready(sample(37));
+  await decoded();
+  const gainsBefore = ctx.gains.length;
+  await player.play({ countInBeats: 4 });
+  const clicks = clickSources(ctx);
+  expect(clicks).toHaveLength(4);
+  expect(ctx.oscillators).toHaveLength(4);
+  expect(clicks.map(noteOf)).toEqual([37, 37, 37, 37]);
+  expect(clicks.map((source) => source.start.mock.calls[0][0])).toEqual([10.02, 10.52, 11.02, 11.52].map((t) => expect.closeTo(t)));
+  const accents = ctx.gains.slice(gainsBefore).map((gain) => gain.gain.setValueAtTime.mock.calls[0]?.[0]);
+  expect(accents.filter((v) => v === 0.5 || v === 0.5 * 0.65)).toEqual([0.5, 0.5 * 0.65, 0.5 * 0.65, 0.5 * 0.65]);
+  await player.dispose();
+});
+
+it("uses the kick on the downbeat and the closed hat on the other beats for kick-hat", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "kick-hat" });
+  await decoded();
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(Context.instances[0]).map(noteOf)).toEqual([36, 42, 42, 42]);
+  await player.dispose();
+});
+
+it("stops sample clicks on pause as it does blips", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "hihat" });
+  await decoded();
+  await player.play({ countInBeats: 4 });
+  const clicks = clickSources(Context.instances[0]);
+  expect(clicks).toHaveLength(4);
+  player.pause();
+  expect(clicks.every((source) => source.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  await player.dispose();
+});
+
+it("falls back to the blip when a sample fails to load", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockRejectedValue(new Error("no file"));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "ride" });
+  await decoded();
+  await player.play({ countInBeats: 4 });
+  expect(Context.instances[0].oscillators).toHaveLength(4);
+  await player.dispose();
+});
+
+it("plays rock as kick, snare, kick, snare over a bar, and the toms from high to low", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "rock", countInSound: "toms" });
+  await decoded();
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(Context.instances[0]).map(noteOf)).toEqual([50, 47, 45, 45]);
+  player.pause();
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "rock", countInSound: "same" });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(Context.instances[0]).slice(4).map(noteOf)).toEqual([36, 38, 36, 38]);
+  await player.dispose();
+});
+
+it("plays the cowbell on two oscillators and the woodblock on a noise burst, and stops them on pause", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  const ctx = Context.instances[0];
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "cowbell", countInSound: "same" });
+  await player.play({ countInBeats: 2 });
+  // Two square oscillators a click, and no drum sample was asked for.
+  expect(ctx.oscillators).toHaveLength(4);
+  expect(loadDrumSample).not.toHaveBeenCalled();
+  player.pause();
+  expect(ctx.oscillators.every((osc) => osc.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  const before = ctx.sources.length;
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "woodblock", countInSound: "same" });
+  await player.play({ countInBeats: 2 });
+  // The first new source is the song's own stem; the rest are the two noise bursts.
+  const noise = ctx.sources.slice(before + 1);
+  expect(noise).toHaveLength(2);
+  player.pause();
+  expect(noise.every((source) => source.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  await player.dispose();
+});
+
+it("Listen schedules one bar on the click bus and does not start the song", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  loadDrumSample.mockImplementation(async (note: number) => sample(note));
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 3, volume: 0.25, sound: "snare" });
+  await decoded();
+  const ctx = Context.instances[0];
+  const stems = ctx.sources.length;
+  await player.previewClicks();
+  const bar = clickSources(ctx);
+  expect(bar).toHaveLength(3);
+  expect(bar.map((source) => source.start.mock.calls[0][0])).toEqual([10.05, 10.55, 11.05].map((t) => expect.closeTo(t)));
+  // No stem source was started: only the three clicks were added.
+  expect(ctx.sources.length - stems).toBe(3);
+  expect(player.isPlaying).toBe(false);
+  // Listening again cuts the first bar off.
+  await player.previewClicks();
+  expect(bar.every((source) => source.stop.mock.calls.some((call) => call.length === 0))).toBe(true);
+  await player.dispose();
+});
+
+it("tells the click listener about every beat and stays silent when 'also play' is off", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  const heard: [number, number, number][] = [];
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "click" });
+  player.setClickListener((click) => heard.push([click.when, click.beat, click.beats]), false);
+  await player.play({ countInBeats: 4 });
+  expect(heard.map((h) => h[1])).toEqual([0, 1, 2, 3]);
+  expect(heard[0][0]).toBeCloseTo(10.02);
+  expect(Context.instances[0].oscillators).toHaveLength(0);
+  await player.dispose();
+});
+
+it("plays your own samples on the right beats, and the blip for an empty slot", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  stubBuffers();
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.5, sound: "custom" });
+  const ctx = Context.instances[0];
+  // The downbeat has a sample (a single frame holding 7); the other beats have none yet.
+  player.setCustomClickSamples({ down: sample(7), other: null });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(ctx).map(noteOf)).toEqual([7]);
+  expect(ctx.oscillators).toHaveLength(3);
+  player.pause();
+  player.setCustomClickSamples({ down: sample(7), other: sample(9) });
+  await player.play({ countInBeats: 4 });
+  expect(clickSources(ctx).slice(1).map(noteOf)).toEqual([7, 9, 9, 9]);
+  // Samples are never asked of the band's kit.
+  expect(loadDrumSample).not.toHaveBeenCalled();
   await player.dispose();
 });

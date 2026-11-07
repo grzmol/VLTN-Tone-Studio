@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { COLOUR_NAMES, COLOUR_TAG, headingLabel, midiCommand, parseChart, stageText, timedCues, transpose } from "./chart";
+import { COLOUR_NAMES, COLOUR_TAG, headingLabel, midiCommand, parseChart, removeCueToken, replaceCueToken, stageText, timedCues, transpose } from "./chart";
 import { isChased } from "./midi-chase";
 
 /** Charts written with the original grammar. Their parse is pinned to the output of the parser from before triggers, macros and the extended grammar. */
-const existingCharts: string[] = [
-] = [
+const existingCharts: string[] = ([] = [
   "[00:00] {midi:pc 1 1}\n[00:01] {midi:pc 1 2}\n[00:02] {midi:pc 1 3}",
   "[00:10.5][00:02.00] [Am]Verse {midi:pc 2 127}\n[00:00] Intro {midi:cc 1 80 127}",
   "[00:12.50] [Am]Words here {midi:pc 1 0} {label:Patch A}\n[00:24.00] [F]Chorus {midi:cc 1 64 127} {label:Looper record}",
@@ -14,241 +13,143 @@ const existingCharts: string[] = [
   "Lyrics without timestamps\n[00:05] Line one\n\n  \n[00:06.25] Line two {label:Two}",
   "[00:00] [Bbmaj7/D] Hello [Am] [F#sus4] {midi:cc 1 0 0}",
   "[00:03] {midi:cc 1 0 0} {midi:cc 1 32 1} {midi:pc 1 9}",
-  ""
-];
+  "",
+]);
 
 /** The parse of each chart above before this change. If one of these changes, an existing chart would play differently. */
 const legacyParse: unknown[] = [
   [
     {
-      "time": 0,
-      "text": "",
-      "messages": [
-        [
-          192,
-          1
-        ]
-      ]
+      time: 0,
+      text: "",
+      messages: [[192, 1]],
     },
     {
-      "time": 1,
-      "text": "",
-      "messages": [
-        [
-          192,
-          2
-        ]
-      ]
+      time: 1,
+      text: "",
+      messages: [[192, 2]],
     },
     {
-      "time": 2,
-      "text": "",
-      "messages": [
-        [
-          192,
-          3
-        ]
-      ]
-    }
+      time: 2,
+      text: "",
+      messages: [[192, 3]],
+    },
   ],
   [
     {
-      "time": 0,
-      "text": "Intro",
-      "messages": [
-        [
-          176,
-          80,
-          127
-        ]
-      ]
+      time: 0,
+      text: "Intro",
+      messages: [[176, 80, 127]],
     },
     {
-      "time": 2,
-      "text": "[Am]Verse",
-      "messages": [
-        [
-          193,
-          127
-        ]
-      ]
+      time: 2,
+      text: "[Am]Verse",
+      messages: [[193, 127]],
     },
     {
-      "time": 10.5,
-      "text": "[Am]Verse",
-      "messages": [
-        [
-          193,
-          127
-        ]
-      ]
-    }
+      time: 10.5,
+      text: "[Am]Verse",
+      messages: [[193, 127]],
+    },
   ],
   [
     {
-      "time": 12.5,
-      "text": "[Am]Words here",
-      "messages": [
-        [
-          192,
-          0
-        ]
+      time: 12.5,
+      text: "[Am]Words here",
+      messages: [[192, 0]],
+      label: "Patch A",
+    },
+    {
+      time: 24,
+      text: "[F]Chorus",
+      messages: [[176, 64, 127]],
+      label: "Looper record",
+    },
+  ],
+  [
+    {
+      time: 25,
+      text: "",
+      messages: [
+        [144, 60, 100],
+        [128, 60, 0],
       ],
-      "label": "Patch A"
     },
     {
-      "time": 24,
-      "text": "[F]Chorus",
-      "messages": [
-        [
-          176,
-          64,
-          127
-        ]
+      time: 26,
+      text: "",
+      messages: [[128, 60, 0]],
+    },
+  ],
+  [
+    {
+      time: 27,
+      text: "",
+      messages: [[240, 125, 1, 247]],
+      chase: true,
+    },
+    {
+      time: 28,
+      text: "",
+      messages: [[177, 80, 127]],
+      chase: false,
+    },
+  ],
+  [
+    {
+      time: 30,
+      text: "",
+      messages: [
+        [178, 64, 127],
+        [178, 64, 0],
       ],
-      "label": "Looper record"
-    }
-  ],
-  [
-    {
-      "time": 25,
-      "text": "",
-      "messages": [
-        [
-          144,
-          60,
-          100
-        ],
-        [
-          128,
-          60,
-          0
-        ]
-      ]
+      label: "Momentary",
+      chase: false,
     },
     {
-      "time": 26,
-      "text": "",
-      "messages": [
-        [
-          128,
-          60,
-          0
-        ]
-      ]
-    }
+      time: 62.5,
+      text: "Chords [C][G/B]",
+      messages: [[207, 127]],
+    },
   ],
   [
     {
-      "time": 27,
-      "text": "",
-      "messages": [
-        [
-          240,
-          125,
-          1,
-          247
-        ]
+      time: 5,
+      text: "Line one",
+      messages: [],
+    },
+    {
+      time: 6.25,
+      text: "Line two",
+      messages: [],
+      label: "Two",
+    },
+  ],
+  [
+    {
+      time: 0,
+      text: "[Bbmaj7/D] Hello [Am] [F#sus4]",
+      messages: [[176, 0, 0]],
+    },
+  ],
+  [
+    {
+      time: 3,
+      text: "",
+      messages: [
+        [176, 0, 0],
+        [176, 32, 1],
+        [192, 9],
       ],
-      "chase": true
     },
-    {
-      "time": 28,
-      "text": "",
-      "messages": [
-        [
-          177,
-          80,
-          127
-        ]
-      ],
-      "chase": false
-    }
   ],
-  [
-    {
-      "time": 30,
-      "text": "",
-      "messages": [
-        [
-          178,
-          64,
-          127
-        ],
-        [
-          178,
-          64,
-          0
-        ]
-      ],
-      "label": "Momentary",
-      "chase": false
-    },
-    {
-      "time": 62.5,
-      "text": "Chords [C][G/B]",
-      "messages": [
-        [
-          207,
-          127
-        ]
-      ]
-    }
-  ],
-  [
-    {
-      "time": 5,
-      "text": "Line one",
-      "messages": []
-    },
-    {
-      "time": 6.25,
-      "text": "Line two",
-      "messages": [],
-      "label": "Two"
-    }
-  ],
-  [
-    {
-      "time": 0,
-      "text": "[Bbmaj7/D] Hello [Am] [F#sus4]",
-      "messages": [
-        [
-          176,
-          0,
-          0
-        ]
-      ]
-    }
-  ],
-  [
-    {
-      "time": 3,
-      "text": "",
-      "messages": [
-        [
-          176,
-          0,
-          0
-        ],
-        [
-          176,
-          32,
-          1
-        ],
-        [
-          192,
-          9
-        ]
-      ]
-    }
-  ],
-  []
+  [],
 ];
 
 describe("existing chart syntax", () => {
   it("parses every existing chart exactly as before", () => {
-    expect(existingCharts.map((chart) => parseChart(chart))).toEqual(legacyParse);
+    // The source position is new; every other field is what the old parser gave.
+    expect(existingCharts.map((chart) => parseChart(chart).map(({ source: _source, ...cue }) => cue))).toEqual(legacyParse);
   });
   it("keeps the original MIDI command grammar and the existing errors", () => {
     expect(midiCommand("pc 1 5")).toEqual([192, 5]);
@@ -407,5 +308,47 @@ describe("comments are inert for MIDI", () => {
     expect(cue.text).toBe("Lyric  //  {midi:pc 9 9} keep   this");
     expect(stageText(cue.text)).toBe("Lyric");
     expect(line.slice(line.indexOf("//"))).toBe("//  {midi:pc 9 9} keep   this  ");
+  });
+});
+
+describe("removing and replacing a cue token", () => {
+  const pick = (chart: string, index = 0) => parseChart(chart)[index];
+  it("removes a timed cue and its line, and nothing else", () => {
+    const chart = "[00:01] Words\n[00:02.50] {midi:pc 1 5}\n[00:03] More\n";
+    expect(removeCueToken(chart, pick(chart, 1))).toBe("[00:01] Words\n[00:03] More\n");
+  });
+  it("keeps the words on a line that has them", () => {
+    const chart = "[00:02] [C]Hello {midi:pc 1 5} // note\r\n[00:03] Bye";
+    expect(removeCueToken(chart, pick(chart))).toBe("[00:02] [C]Hello // note\r\n[00:03] Bye");
+  });
+  it("removes a trigger cue and the line it was alone on", () => {
+    const chart = "{midi@load:pc 1 2}\n[00:01] Words";
+    expect(removeCueToken(chart, pick(chart))).toBe("[00:01] Words");
+  });
+  it("removes the last line without leaving a stray line ending", () => {
+    const chart = "[00:01] Words\n{midi@end:pc 1 2}";
+    expect(removeCueToken(chart, pick(chart))).toBe("[00:01] Words");
+  });
+  it("removes one of two tokens on a line", () => {
+    const chart = "{midi@load:pc 1 1} {midi@play:pc 1 2}\nx";
+    const cues = parseChart(chart);
+    expect(removeCueToken(chart, cues[0])).toBe("{midi@play:pc 1 2}\nx");
+    expect(removeCueToken(chart, cues[1])).toBe("{midi@load:pc 1 1}\nx");
+  });
+  it("replaces a token in place and can move the timestamp", () => {
+    const chart = "a\n[00:02.50] [C]Hello {midi:pc 1 5} tail\nb";
+    expect(replaceCueToken(chart, pick(chart), "{midi:pc 1 6}")).toBe("a\n[00:02.50] [C]Hello {midi:pc 1 6} tail\nb");
+    expect(replaceCueToken(chart, pick(chart), "{midi:pc 1 6}", 4)).toBe("a\n[00:04.00] [C]Hello {midi:pc 1 6} tail\nb");
+  });
+  it("refuses when the chart changed since it was parsed", () => {
+    const chart = "[00:02] {midi:pc 1 5}";
+    const cue = pick(chart);
+    expect(removeCueToken("x" + chart, cue)).toBeNull();
+    expect(replaceCueToken("[00:02] {midi:pc 1 9}", cue, "{midi:pc 1 6}")).toBeNull();
+    expect(removeCueToken("", cue)).toBeNull();
+  });
+  it("gives no source to a cue that can't be placed alone", () => {
+    expect(pick("[00:01] {midi:pc 1 1} {midi:pc 1 2}").source).toBeUndefined();
+    expect(parseChart("[00:01][00:09] {midi:pc 1 1}").every((cue) => !cue.source)).toBe(true);
   });
 });
