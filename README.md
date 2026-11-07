@@ -7,7 +7,8 @@
 A desktop editor and librarian for Valeton multi-effects:<br>
 **GP-5 · GP-50 · GP-150 · GP-180 · GP-200 · GP-200LT · GP-200JR**
 
-Shape tones live, sort and back up every slot, match a song's guitar tone, and bring NAM captures and IRs from TONE3000 straight to the pedal.
+Shape tones live, sort and back up every slot, match a song's guitar tone, and bring NAM captures and IRs from TONE3000 straight to the pedal.<br>
+Then play your set: stems, lyrics and chords, a generated band, and MIDI cues that switch your pedals on time.
 
 <br>
 
@@ -46,7 +47,7 @@ Bugs and ideas are welcome in [Issues](https://github.com/grzmol/VLTN-Tone-Studi
 <br>
 <br>
 
-[Download](#download-v090) &nbsp;·&nbsp; [Rig](#every-knob-live) &nbsp;·&nbsp; [Library](#every-preset-one-view) &nbsp;·&nbsp; [Tones](#tones-from-tone3000) &nbsp;·&nbsp; [Song](#from-a-song-to-a-tone) &nbsp;·&nbsp; [GP-200 family](#the-gp-200-family) &nbsp;·&nbsp; [Devices](#devices) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Troubleshooting](#when-the-pedal-doesnt-connect) &nbsp;·&nbsp; [Build](#build-it-yourself) &nbsp;·&nbsp; [License](#license)
+[Download](#download-v090) &nbsp;·&nbsp; [Rig](#every-knob-live) &nbsp;·&nbsp; [Library](#every-preset-one-view) &nbsp;·&nbsp; [Tones](#tones-from-tone3000) &nbsp;·&nbsp; [Song](#from-a-song-to-a-tone) &nbsp;·&nbsp; [Perform](#perform-a-set) &nbsp;·&nbsp; [GP-200 family](#the-gp-200-family) &nbsp;·&nbsp; [Devices](#devices) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Troubleshooting](#when-the-pedal-doesnt-connect) &nbsp;·&nbsp; [Build](#build-it-yourself) &nbsp;·&nbsp; [License](#license)
 
 <br>
 
@@ -283,9 +284,98 @@ The NAM captures you downloaded from TONE3000 are ranked against the song's guit
 
 ## Perform a set.
 
-Save songs with their stems, lyrics, chords and MIDI cues, line them up in a playlist and play the whole set from one screen.<br>
-Timed program changes reach your GP-150 or GP-180 and the pedals behind it over USB or Bluetooth MIDI. Stage mode locks the screen for the gig. Generated drums and bass follow the song's beat and sections, and export as MIDI. See the [Performance guide](PERFORMANCE.md).
+Save a song with its stems, lyrics, chords, sections and MIDI cues, line songs up in a playlist and play the whole set from one screen.<br>
+The next song loads while the current one plays, so songs join without a gap, or with a crossfade you choose. Split a playlist into sets, let a smart playlist pick songs by rules, and check the whole set before the gig.
 
+<br>
+
+Play at 50 to 150% speed, shift the pitch, set a capo, and send the click to its own output for in-ear monitors.<br>
+The metronome and the one-bar count-in can be a click, sticks, a hi-hat, a rock beat or your own drum samples, or go out as MIDI notes to a drum plugin.
+
+<br>
+
+New audio saves itself, and the header always says whether the song is saved.<br>
+Songs are stored as lossless FLAC, a save never touches the old copy until the new one is on disk, and a deleted song goes to the Trash. The library, its playlists and its audio go into one portable backup. See the [song library guide](SONG-LIBRARY.md).
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## Your pedals follow the song.
+
+Patch changes, tempo and any other MIDI message go out at the right moment of the song, to your GP-150 or GP-180 and the pedals behind it.<br>
+Fire a cue at a time, on load, play or stop, or at the start of every chorus. Cues on a section follow the sections when you move them. Start in the middle of a song and every pedal is set as if you'd played from the top.
+
+<br>
+
+The timing runs in its own worker on the audio clock, so a busy screen never makes a cue late.<br>
+Named commands for the GP-150 and GP-180 and other popular pedals save you looking up MIDI numbers, and a check before the set says what a cue needs that isn't connected. MIDI clock and MIDI timecode are there for gear that follows them.
+
+<br>
+
+Connect a GP-150 or GP-180 over Bluetooth MIDI and lose the cable on stage.<br>
+The link packs messages that go out together, reconnects by itself when it drops, and switches Send cues back on when it's back. Editing stays on USB. See the [Performance guide](PERFORMANCE.md) and [Bluetooth MIDI](BLUETOOTH.md).
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## Hands on the guitar.
+
+Every live action can run from a footswitch, a MIDI message, a key or a Bluetooth page-turner: play, next section, next song, tap tempo, scroll the lyrics.<br>
+A program change can load the song that goes with your patch.
+
+<br>
+
+Stage mode fills the screen with big lyrics and chords and locks everything you shouldn't touch mid-song. A PDF chart can take the text chart's place, with your pen and highlighter marks.<br>
+An audience display shows the lyrics on a projector, and band sync puts them on your bandmates' phones over the local network, behind a PIN.
+
+<br>
+
+Practising? Mute the guitar, the vocals or any other instrument in every song of a playlist at once, with one footswitch.<br>
+Each song keeps its own mix, and turning the practice mute off brings it all back.
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## A band behind you.
+
+Tone Studio finds a song's beat, key, chords and sections on your computer, and writes down the lyrics from the vocals stem, timed to the song.<br>
+Analyse one song, or the whole library in one go.
+
+<br>
+
+Missing a drummer or a bass player? Generate drums and bass that follow the song's beat, chords and sections, preview any section, and export them as MIDI.<br>
+Fix a wrong bass note by hand, and play the bass, and now the drums, through NAM captures and IRs from TONE3000.
+
+<br>
+
+For a careful map of a song, export a song brief, have an assistant fill in its sections, drums, bass, chords and lyrics, and import the song map.<br>
+You see what each part changes before it's applied, and Undo puts the song back. See [Song maps](SONG-MAP.md).
+
+<br>
 <br>
 
 </div>
@@ -438,6 +528,9 @@ Still stuck? *Copy diagnostic report* gives a short summary without preset conte
 | **SnapTones** | Converts NAM A1 and A2 captures the way Valeton Suite does, in a Web Worker, then uploads them over USB |
 | **User IRs** | Prepared like Valeton Suite does it (first channel, 44.1 kHz, 24-bit), 512 or 1024 samples per model |
 | **Stems** | Demucs on your computer: Standard (`htdemucs_6s`), Fine-tuned (`htdemucs_ft`) or Best (both); WebGPU when the graphics card can run it |
+| **Song library** | Lossless FLAC, every save staged and flushed to disk before the library points at it; deleted songs go to the Trash |
+| **Performance** | Web Audio playback with gapless joins; MIDI cues scheduled in a worker on the audio clock, over USB or Bluetooth LE MIDI |
+| **Analysis** | Beat, key, chords and sections in Web Workers; lyrics with Whisper on your computer |
 | **Safety** | Backs up a slot automatically before it's overwritten |
 | **GP-200 effect list** | Generated from [GP200 Studio](https://github.com/kabir0st/gp200-studio)'s catalog at a pinned commit (`app/scripts/gp200-catalog-from-studio.mjs`); your own `algorithm.xml` replaces it |
 | **Diagnostics** | USB, driver and port checks per OS, and a rotating session log (4 MB files, newest 20 MB) in the app's data folder |
