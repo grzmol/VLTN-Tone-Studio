@@ -119,6 +119,8 @@ export interface DeviceDriver {
   readModified?(): Promise<boolean>;
   /** "exportPreset": stored preset of `slot` as a full .prst, without selecting it. */
   exportPreset?(slot: number): Promise<Uint8Array>;
+  /** "renameToneSlots": rename a stored SnapTone or User IR; resolves with the name as stored. */
+  renameToneSlot?(kind: "snaptone" | "ir", slot: number, name: string): Promise<string>;
   /** "liveBpm": tempo of the active preset, 40..260. */
   setBpm?(bpm: number): Promise<void>;
   /** "exp": the given EXP fields of the active preset (values checked first). */

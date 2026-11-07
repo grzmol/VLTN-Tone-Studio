@@ -26,7 +26,7 @@ import type { SlotName } from "@/state/device-types";
 import type { OpenFile } from "@/state/ui";
 import { requestPresetSwitch } from "@/app/preset-switch";
 import { notifyError, showToast } from "@/app/notify";
-import { irSlotLabel, openLinkChoice, openSheet, readSlots, unlink, useTones } from "./store";
+import { irSlotLabel, openLinkChoice, openRename, openSheet, readSlots, unlink, useTones } from "./store";
 import { buildUsage, type PresetRef } from "./usage";
 import { ToneImage } from "./ToneImage";
 
@@ -259,6 +259,8 @@ function SlotCell({
   const stale = link && link.gp5.slotName && link.gp5.slotName !== slot.name;
   const records = useTones((s) => s.records);
   const linkable = Object.values(records).filter((r) => (kind === "snaptone" ? r.format === "nam" : r.format === "ir"));
+  const canRename = useDevice((s) => s.features.includes("renameToneSlots"));
+  const busy = useDevice((s) => s.busy);
 
   const onClick = () => {
     if (link) openSheet(link.tone_id);
@@ -319,6 +321,11 @@ function SlotCell({
           {!readOnly && !empty && (
             <ContextMenuItem disabled={linkable.length === 0} onSelect={() => openLinkChoice({ kind, slot: slot.slot })}>
               Link to a TONE3000 tone…
+            </ContextMenuItem>
+          )}
+          {!readOnly && !empty && canRename && (
+            <ContextMenuItem disabled={Boolean(busy)} onSelect={() => openRename({ kind, slot: slot.slot })}>
+              Rename…
             </ContextMenuItem>
           )}
           {link && (

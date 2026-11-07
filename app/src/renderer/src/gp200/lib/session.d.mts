@@ -24,6 +24,8 @@ export interface Gp200Timing {
   verifyReads: number;
 }
 export const DEFAULT_TIMING: Readonly<Gp200Timing>;
+/** Longest SnapTone / User IR name a rename writes (the 16-byte field keeps a terminating NUL). */
+export const SLOT_NAME_MAX: number;
 
 export type Gp200ErrorCode = "timeout" | "length" | "verify" | "unsafe" | "closed" | "updater";
 export class Gp200Error extends Error {
@@ -146,6 +148,9 @@ export class Gp200Session extends EventTarget {
   ): Promise<WriteResult>;
   /** User IR slot 0-19: up to 1024 24-bit samples at 44.1 kHz. */
   uploadUserIr(slot: number, name: string, samples: ArrayLike<number>, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<UploadResult>;
+  /** Rename a stored SnapTone (0-9) / User IR (0-19); the name is read back and must match. Resolves with the stored name. */
+  renameSnapTone(slot: number, name: string, opts: { confirm: true }): Promise<string>;
+  renameUserIr(slot: number, name: string, opts: { confirm: true }): Promise<string>;
   /** SnapTone slot 0-9 (0-4 AMP, 5-9 DST): a 0x2288 clone or a 0x1288 GP-200 blob. */
   uploadSnapTone(slot: number, name: string, blob: Bytes, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<UploadResult>;
 }

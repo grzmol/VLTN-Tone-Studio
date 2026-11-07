@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { AccountState, FlowRequest, NamCheck, SendStep, T3kGear, T3kTone, T3kArchitecture, ToneListKind, ToneRecord, ToneSort } from "@shared/host/tones";
 import { HostError } from "@shared/ipc";
-import { firstEmptySlot } from "@shared/tone3000";
+import { firstEmptySlot, linkedSlotOn } from "@shared/tone3000";
 import { host } from "@/host";
 import { useDevice } from "@/state/device";
 import { DEFAULT_DEVICE, pedalName, presetDevice, profileOrDefault } from "@/state/device-model";
@@ -102,6 +102,8 @@ interface TonesState {
   usage: UsageInfo | null;
   send: Record<number, SendState>;
   linkChoice: LinkChoice | null;
+  /** Slot context menu: the SnapTone / User IR being renamed */
+  renameChoice: LinkChoice | null;
 }
 
 const empty = (): ListState => ({ tones: [], page: 0, totalPages: 1, total: 0, fetchedAt: 0, loading: false, error: null, loaded: false });
@@ -126,6 +128,7 @@ export const useTones = create<TonesState>(() => ({
   usage: null,
   send: {},
   linkChoice: null,
+  renameChoice: null,
 }));
 
 const set = useTones.setState;
@@ -540,4 +543,26 @@ export function closeLinkChoice(): void {
 
 export function openLinkChoice(choice: LinkChoice): void {
   set({ linkChoice: choice });
+}
+
+export function openRename(choice: LinkChoice): void {
+  set({ renameChoice: choice });
+}
+
+export function closeRename(): void {
+  set({ renameChoice: null });
+}
+
+/**
+ * Rename a stored SnapTone or User IR on the pedal (feature "renameToneSlots"). A tone linked to the slot keeps its link
+ * under the new name, so the panel doesn't report the slot as renamed behind its back. Resolves with the stored name.
+ */
+export async function renameSlot(kind: "snaptone" | "ir", slot: number, name: string): Promise<string> {
+  const stored = await useDevice.getState().renameToneSlot(kind, slot, name);
+  const device = useDevice.getState().device;
+  for (const r of Object.values(get().records))
+    if (linkedSlotOn(r, kind, device) === slot) storeRecord(await host.tones.link(r.tone_id, { kind, slot, slotName: stored, device: linkDevice() }));
+  set({ renameChoice: null });
+  notifySuccess(`Renamed ${slotLabel(kind, slot)} on your ${pedal()}`, stored);
+  return stored;
 }
