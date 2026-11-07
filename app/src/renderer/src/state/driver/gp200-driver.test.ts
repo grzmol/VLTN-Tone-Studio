@@ -8,7 +8,7 @@ import { applyPatchEdits, buildPrst, isGp200Prst, parsePatch, parsePrst } from "
 import { profileFor } from "@shared/devices";
 import { firstEmptySlot } from "@shared/tone3000";
 import type { DriverEvent } from "./types";
-import { Gp200Driver, Gp200UpdaterError } from "./gp200-driver";
+import { Gp200Driver, Gp200UpdaterError, gp200SlotKind } from "./gp200-driver";
 import { GP200_EQ_DEFAULTS, GP200_GLOBAL_SPECS } from "./gp200-globals";
 
 
@@ -118,6 +118,31 @@ describe("Gp200Driver sync", () => {
     expect(firstEmptySlot("ir", irs, "gp200lt")).toBeNull();
     expect(d.mock!.log).toHaveLength(asked);
     expect((await d.readSnapTones())[0]).toMatchObject({ slot: 0, kind: "empty" }); // SnapTone names still read
+  });
+});
+
+describe("Gp200Driver slot tables", () => {
+  it("reads the slot flag as the pedal sends it: 0 = holds data, 1 = empty", () => {
+    // As a GP-200 on firmware 1.8.2 answers (example names): a stored SnapTone / User IR with flag 0, empty slots with flag 1
+    expect(gp200SlotKind({ flag: 0, name: "My Capture" })).toBe("user");
+    expect(gp200SlotKind({ flag: 0, name: "My Cab IR" })).toBe("user");
+    expect(gp200SlotKind({ flag: 1, name: "" })).toBe("empty");
+    expect(gp200SlotKind({ flag: 1, name: "User IR" })).toBe("empty");
+    expect(gp200SlotKind({ flag: 1, name: "SnapTone 3" })).toBe("empty");
+    // The flag decides: a stored IR the user named "Empty" is still occupied
+    expect(gp200SlotKind({ flag: 0, name: "Empty" })).toBe("user");
+    // Never offered as empty: an unexpected flag, or an "empty" slot with a name of its own
+    expect(gp200SlotKind({ flag: 2, name: "" })).toBe("unknown");
+    expect(gp200SlotKind({ flag: 1, name: "My Cab" })).toBe("unknown");
+  });
+
+  it("a stored SnapTone is never proposed as the first empty slot", async () => {
+    const { d, dev } = await connected();
+    dev.snapTone[0] = { name: "My Capture", sum: 0, data: new Uint8Array(16) };
+    const table = await d.readSnapTones();
+    expect(table[0]).toEqual({ slot: 0, name: "My Capture", kind: "user" });
+    expect(table[1].kind).toBe("empty");
+    expect(firstEmptySlot("snaptone", table, "gp200")).toBe(1);
   });
 });
 
