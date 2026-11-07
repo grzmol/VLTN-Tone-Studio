@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { audioUnsaved, useSongLibrary } from "@/song/library";
 import { mountLeaveGuard, useLeaveGuard } from "@/song/leave-guard";
-import { useSong } from "@/song/store";
+import { selectWholeSongStems, useSong } from "@/song/store";
 
 export type SaveIndicatorState =
   { kind: "saved" } | { kind: "saving"; step: string } | { kind: "unsaved"; inLibrary: boolean } | { kind: "failed"; message: string };
@@ -31,7 +31,7 @@ export const defaultTitle = (name: string): string => name.replace(/\.[^.]+$/, "
 /** The save state next to the song's name: Saved, Saving…, Not saved, or Couldn't save, with a button where there is something to do. */
 export function SaveIndicator() {
   const source = useSong((s) => s.source);
-  const stems = useSong((s) => s.stems);
+  const stems = useSong(selectWholeSongStems);
   const saveStep = useSongLibrary((s) => s.saveStep);
   const saveError = useSongLibrary((s) => s.saveError);
   const saved = useSongLibrary((s) => s.index.songs.find((song) => song.id === source?.libraryId));

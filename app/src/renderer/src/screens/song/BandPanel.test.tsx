@@ -49,7 +49,7 @@ vi.mock("@/song/store", async () => {
     removeGeneratedParts: vi.fn(() => [] as string[]),
   }));
   mocks.store = useSong as unknown as typeof mocks.store;
-  return { useSong };
+  return { useSong, selectWholeSongStems: (s: { stems: unknown }) => s.stems };
 });
 vi.mock("@/song/band/beat-grid-client", () => ({ startBeatGrid: mocks.startBeatGrid }));
 vi.mock("@/song/band/chord-detect-client", () => ({ startChordDetection: mocks.startChordDetection }));
