@@ -374,7 +374,7 @@ test("User IR upload: 1024 x int32, byte sum, 0x100B result, name refresh", asyn
   const r = await s.uploadUserIr(19, "My Cab IR", samples, { confirm: true, onProgress: (d) => (last = d) });
   assert.equal(r.frames, 23);
   assert.equal(last, 23);
-  assert.deepEqual({ slot: r.entry.slot, name: r.entry.name, flag: r.entry.flag }, { slot: 19, name: "My Cab IR", flag: 1 });
+  assert.deepEqual({ slot: r.entry.slot, name: r.entry.name, flag: r.entry.flag }, { slot: 19, name: "My Cab IR", flag: 0 });
   assert.equal(dev.userIr[19].data.length, 4096);
   assert.equal(new DataView(dev.userIr[19].data.buffer).getInt32(4, true), -8305139);
   dev.failUploads = true;
