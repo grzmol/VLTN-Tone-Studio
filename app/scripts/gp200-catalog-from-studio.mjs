@@ -5,11 +5,13 @@
 // gp200/lib/catalog.mjs builds from algorithm.xml.
 //
 // What the source doesn't carry, and how it's filled:
-//  - control param index (XML ID): taken to be the XML idx, as gp200-studio writes params[idx];
+//  - control param index (XML ID): taken to be the XML idx, as gp200-studio writes params[idx], except where the two
+//    differ (PARAM_IDS below, checked against the param indexes in Valeton's GP-200 editor 1.6.0, 1.8.0 and 1.8.1);
 //  - Combox TrueIDs, Suffix units, MinISOff, CABCode and the editor's list order (Index): not available; list order
 //    follows effectNames.ts;
 //  - fxids that sit in more than one module: effectNames.ts keeps the first module only. Boosts and overdrives listed
-//    under PRE are also put under DST, and the 0x04 (MOD range) models listed under PRE also under MOD.
+//    under PRE are also put under DST, the 0x04 (MOD range) models listed under PRE also under MOD, and Hammy and
+//    Auto Swell also under WAH and NR (ALSO_IN below).
 //
 // Usage: node scripts/gp200-catalog-from-studio.mjs   (needs network; writes the file, prints the counts)
 import { writeFileSync } from "node:fs";
@@ -28,7 +30,7 @@ async function source(file) {
 }
 
 const STR = String.raw`'((?:[^'\\]|\\.)*)'`;
-const unquote = (s) => s.replace(/\\(.)/g, "$1");
+const unquote = (s) => s.replace(/\\(.)/g, "$1").replaceAll("&amp;", "&");
 
 /** effectNames.ts: [{ code, name, module }] in file order. */
 function parseNames(ts) {
@@ -83,12 +85,35 @@ function parseSyncBinds(ts) {
  */
 const DISABLED = { 184549381: ["Sync"] };
 
+/**
+ * Param index (algorithm.xml ID) of the controls whose index differs from their UI position (idx), which is all
+ * gp200-studio stores. Valeton's editor keeps these indexes unchanged from 1.6.0 to 1.8.1; presets read off a GP-200
+ * agree (Ping Pong: param 2 holds the synced note division, param 1 the feedback).
+ */
+const PARAM_IDS = {
+  0x1000023: { "Hi Vol": 4, "Low Vol": 5 }, // Pitch
+  0x100004d: { "Smooth Mode": 5 }, // Harmonizer 1
+  0x100004e: { "Smooth Mode": 6 }, // Harmonizer 2
+  0x3000044: { "Hi-mid": 6, Treble: 8, Attack: 9 }, // Black Bass
+  0x700005a: { Presence: 6 }, // EV 51
+  0xb000003: { "Time A": 2, "Feedback A": 1, "Time B": 5, "Feedback B": 4 }, // Dual Echo
+  0xb000004: { Time: 2, Feedback: 1 }, // Ping Pong
+  0xb000005: { Trail: 4 }, // Slapback
+  0xb000006: { Time: 2, Feedback: 1 }, // Sweep Echo
+  0xb000009: { Time: 2, Feedback: 1 }, // Ring Echo
+  0xb000014: { Time: 2, Feedback: 1 }, // Vintage Rack
+  0xb000026: { Sync: 6, Trail: 7 }, // Lofi Echo
+};
+
+/** Models Valeton's editor also lists in a block gp200-studio doesn't put them in. */
+const ALSO_IN = { 0x1000049: ["WAH"], 0x400002d: ["NR"] }; // Hammy, Auto Swell
+
 const KIND = { knob: ["Knob", 1], combox: ["Combox", 2], switch: ["Switch", 3] };
 
 function knobsOf(code, params, binds) {
   const knobs = params.map((p) => {
     const [kind, type] = KIND[p.type];
-    const k = { kind, name: p.name, idx: p.idx, id: p.idx, type, default: p.default };
+    const k = { kind, name: p.name, idx: p.idx, id: PARAM_IDS[code]?.[p.name] ?? p.idx, type, default: p.default };
     if (p.type === "knob") Object.assign(k, { min: p.min, max: p.max, step: p.step });
     else k.options = p.options;
     return k;
@@ -106,10 +131,11 @@ function knobsOf(code, params, binds) {
 /** Other modules an fxid also sits in (see the header). */
 function alsoIn(entry) {
   if (entry.module !== "PRE") return [];
+  const extra = ALSO_IN[entry.code] ?? [];
   const range = entry.code >>> 24;
-  if (range === 0x03 || /Boost|^FAT BB$/.test(entry.name)) return ["DST"];
-  if (range === 0x04) return ["MOD"];
-  return [];
+  if (range === 0x03 || /Boost|^FAT BB$/.test(entry.name)) return ["DST", ...extra];
+  if (range === 0x04) return ["MOD", ...extra];
+  return extra;
 }
 
 const [names, params, binds] = await Promise.all([source("effectNames.ts"), source("effectParams.ts"), source("effectSyncBinds.ts")]).then(([n, p, s]) => [
@@ -122,7 +148,9 @@ const modules = new Map(BLOCKS.map((b) => [b, []]));
 for (const entry of names) {
   const controls = params.get(entry.code)?.filter((p) => !DISABLED[entry.code]?.includes(p.name));
   if (!controls) throw new Error(`no params for ${entry.name} (${entry.code})`);
-  if (new Set(controls.map((p) => p.idx)).size !== controls.length) throw new Error(`${entry.name} (${entry.code}): two controls share a param index`);
+  if (new Set(controls.map((p) => p.idx)).size !== controls.length) throw new Error(`${entry.name} (${entry.code}): two controls share a UI position`);
+  for (const name of Object.keys(PARAM_IDS[entry.code] ?? {}))
+    if (!controls.some((p) => p.name === name)) throw new Error(`PARAM_IDS: ${entry.name} (${entry.code}) has no control ${name}`);
   for (const module of [entry.module, ...alsoIn(entry)]) {
     const algs = modules.get(module);
     if (!algs) throw new Error(`unknown module ${module} for ${entry.name}`);
