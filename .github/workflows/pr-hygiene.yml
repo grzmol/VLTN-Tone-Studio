@@ -1,0 +1,34 @@
+# Keeps AI slop out of develop: free-form or filler commit messages, PR titles and descriptions, pasted chatbot
+# footers, truncated "... rest of the code" placeholders and AI tool files. Rules live in scripts/check-slop.mjs.
+# Make "Slop check" a required status check on develop and main so a failing PR cannot be merged.
+name: PR hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  slop:
+    name: Slop check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "26"
+      - run: node --test .github/scripts/check-slop.test.mjs
+      # The title and body are read from the event file by the script, never interpolated into the shell.
+      - run: node .github/scripts/check-slop.mjs "$BASE" "$HEAD"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
