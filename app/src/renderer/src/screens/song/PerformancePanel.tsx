@@ -36,6 +36,7 @@ import { setSongPlaying } from "@/song/performance/playing-state";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { useBluetooth } from "@/bluetooth/connection";
 import { SongKey } from "./SongKey";
+import { SoloScales } from "./SoloScales";
 import { SongMapImport } from "./SongMapImport";
 import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
@@ -309,6 +310,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const shapeShift = shift + chordDisplayTranspose(speed.semitones, capo, speed.applyToChords);
   // The key the chord names are spelled by, from the SongKey readout (its override, then the library key, then a strong estimate).
   const [spellingKey, setSpellingKey] = useState<string | undefined>();
+  // Bumped when the reader's Solo scale dialog saves, so the This song section reads the choice again.
+  const [soloVersion, setSoloVersion] = useState(0);
   // Generated parts do not change the audio the chords were analysed under (see songAudioId), so the saved chords stay after Generate.
   const audioId = useMemo(
     () => (source ? songAudioId(source.audio, stems, generatedTrackKeysIn(readOptions<Record<string, unknown>>(key, {}))) : ""),
@@ -707,6 +710,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           libraryKey={savedSong?.key ?? undefined}
           onSpellingKey={setSpellingKey}
         />
+        <h3 className="text-sm font-semibold">Solo scale</h3>
+        <SoloScales key={`${key}:${soloVersion}`} songKey={spellingKey} shift={shapeShift} capo={capo} storageKey={key} />
         <SongMapImport
           songKey={key}
           libraryId={source?.libraryId}
@@ -764,6 +769,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
           speedNote={speedNote(speed)}
           pdf={pdfState}
+          soloScale={{ storageKey: key, capo, onChange: () => setSoloVersion((v) => v + 1) }}
         />
       </div>
       <div style={{ display: shownView("midi") }}>

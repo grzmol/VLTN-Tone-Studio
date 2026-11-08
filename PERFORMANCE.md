@@ -108,6 +108,19 @@ Use **Speed & pitch** in Performance.
 
 **Limits.** The stretch uses SoundTouch, an open-source library under LGPL-2.1, and is not yet tested on hardware. In a test on click trains, the median error was 1 to 4 ms and the worst was about 8 ms, so not every click lands within 5 ms. A transient can be dropped at extreme settings; in the test this happened at 125%, 150% and −3 semitones. The shorter analysis windows used for alignment can sound rougher on low notes than the defaults. The built-in metronome is not stretched: it runs on the effective tempo. A render briefly holds a second copy of a long song in memory, and changes swap only at beats, not bars.
 
+## Solo scales
+
+**Solo scale** shows where to solo on the neck, for the song's key. Open it on the **This song** tab, under the key readout, or from the **Solo scale** button above the lyrics in Lyrics & chords (not in stage mode).
+
+- **The default is the minor pentatonic.** In a minor key it starts on the key's note. In a major key it starts on the relative minor: A major shows F# minor pentatonic. Those are the same notes as A major pentatonic, so nothing clashes with the song. The caption says so.
+- **Other scales.** Pick major pentatonic, blues, natural minor, major, Dorian, Mixolydian or harmonic minor. **Root** starts on **From the song key**, or pick any note.
+- **Positions.** **Whole neck** shows every scale note. Pick **Position 1**, **2** and so on to light up one box (five for a pentatonic scale, seven for the others) and its copy 12 frets higher. Position 1 starts on the root.
+- **Frets or Notes.** **Show** writes the fret number or the note name in each circle. This is a setting of the computer, not of the song.
+- **Pitch and capo.** The scale follows the same shift as the chord names: the chart transpose, the pitch when **Apply pitch to chords** is on, and the capo. With a capo, frets are counted from the capo.
+- **Saved with the song.** The scale and root are kept in the song and in backups. With no key set, the panel asks for one.
+
+The diagram assumes standard tuning (E A D G B e).
+
 ## Lyrics and chords
 
 Lyrics from the vocals are made by the analysis after a split, with the model chosen under **After the split** on the Stems tab, and are not started when this panel opens. The buttons below make or redo them: **Generate lyrics from vocals** for a song with none, and **Transcribe again** for a chart that the performer has not written.

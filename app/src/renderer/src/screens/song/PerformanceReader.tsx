@@ -7,6 +7,7 @@ import { headingLabel, lrcTime, parseChart, stageText, transpose, type Cue } fro
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import type { Chord } from "@/song/performance/chords";
 import { ChordVoicings } from "./ChordVoicings";
+import { SoloScalesDialog } from "./SoloScales";
 import { formatted } from "./lyric-format";
 import { PerformanceEditor } from "./PerformanceEditor";
 import { performanceLines } from "@/song/performance/reader";
@@ -62,11 +63,14 @@ export function PerformanceReader({
   stage = false,
   onExitStage,
   pdf,
+  soloScale,
 }: {
   stage?: boolean;
   onExitStage?: () => void;
   /** The song's PDF chart, when it is a saved song. The PDF replaces the lyrics body while its view is on. */
   pdf?: PdfReaderState;
+  /** What the Solo scale button needs: the song's settings key and capo. Without it the button is not shown. */
+  soloScale?: { storageKey: string; capo: number; onChange?: () => void };
   chart: string;
   lyrics: string;
   chords: Chord[];
@@ -83,10 +87,12 @@ export function PerformanceReader({
 }) {
   const [editing, setEditing] = useState(false);
   const [selectedChord, setSelectedChord] = useState<string | null>(null);
+  const [soloOpen, setSoloOpen] = useState(false);
   useEffect(() => {
     if (stage) {
       setEditing(false);
       setSelectedChord(null);
+      setSoloOpen(false);
     }
   }, [stage]);
   const showCommands = useMidiConfiguration((s) => s.showCommands);
@@ -126,6 +132,7 @@ export function PerformanceReader({
     rowRefs = useRef<(HTMLDivElement | null)[]>([]),
     expandButton = useRef<HTMLButtonElement>(null);
   const chordButton = useRef<HTMLButtonElement | null>(null);
+  const soloButton = useRef<HTMLButtonElement>(null);
   const active = useActiveIndex(useMemo(() => lines.map((line) => line.time), [lines]));
   const changes = useMemo(() => lines.flatMap((line) => line.chords), [lines]);
   const activeChord = useActiveIndex(useMemo(() => changes.map((chord) => chord.time), [changes]));
@@ -206,6 +213,11 @@ export function PerformanceReader({
             }}
           >
             Edit chords, lyrics & MIDI
+          </Button>
+        )}
+        {!stage && soloScale && (
+          <Button ref={soloButton} variant="outline" onClick={() => setSoloOpen(true)}>
+            Solo scale
           </Button>
         )}
         <label className="flex items-center gap-2 text-sm">
@@ -401,6 +413,18 @@ export function PerformanceReader({
         </div>
       )}
       <ChordVoicings chord={selectedChord} onClose={() => setSelectedChord(null)} returnFocus={() => chordButton.current?.focus({ preventScroll: true })} />
+      {!stage && soloScale && (
+        <SoloScalesDialog
+          open={soloOpen}
+          onClose={() => setSoloOpen(false)}
+          returnFocus={() => soloButton.current?.focus({ preventScroll: true })}
+          songKey={songKey}
+          shift={shift}
+          capo={soloScale.capo}
+          storageKey={soloScale.storageKey}
+          onChange={soloScale.onChange}
+        />
+      )}
       <p className="mt-2 text-xs text-silkscreen-3">
         Chords follow their timestamps above the corresponding lyric line. Chart chords take priority over estimates. Untimed text stays available for manual
         reading.
