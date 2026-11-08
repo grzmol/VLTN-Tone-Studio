@@ -24,7 +24,7 @@ import { overridesFor, type EntryOverride } from "@shared/entry-overrides";
 import { decodeTrack, encodeTrack } from "./codec/flac-client";
 import { storedBits } from "@shared/flac";
 import { migrateLyricsJob } from "./performance/lyrics-jobs";
-import { playerShape, shapeFromOptions } from "./performance/song-shape";
+import { playerShapeFromOptions } from "./performance/song-shape";
 import { sharedPlaybackEngine } from "./audio/playback-engine";
 import { StemPlayer, yieldToMain } from "./stems/player";
 import { playableStems } from "./stems/playable";
@@ -481,7 +481,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           stems = (await new RenderQueue().render(playable, speed)) ?? playable;
           renderedAhead.add(next.id);
         }
-        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShape(shapeFromOptions(options)), yieldToMain, speed.rate);
+        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShapeFromOptions(options), yieldToMain, speed.rate);
         if (generation !== prefetchGeneration) {
           if (import.meta.env.DEV) console.debug(`[prefetch] ${id} dropped: superseded while loading`);
           await player.dispose();

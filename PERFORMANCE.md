@@ -275,6 +275,7 @@ While a song plays, the next one in the playlist loads in the background. If it 
 For each song, the **Song shape** controls in the Performance setup set how it starts and ends:
 
 - **Trim start (s)** and **Trim end (s)** cut the ends of the song. **Auto** trims to the audible part above −60 dBFS, and **Clear trim** removes both values.
+- With **Trim start** empty, the song skips the silence the song analysis found at its start, and the field shows how much. Set it to 0 to play from the very start of the file.
 - **Fade in (s)** and **Fade out (s)** run from 0 to 10 seconds. A change applies from the song's next start, not mid-play.
 - **At the end** chooses what follows: **Play the next song**, **Stop the playlist**, which pauses the set at that song's end, or **Loop the song**, which repeats it without moving on.
 

@@ -23,7 +23,7 @@ import { parseSections, saveLiveAsDefault, type Section } from "@/song/performan
 import { ownLeadIn, readLeadInDefaults, resolveLeadIn, saveLeadInDefaults, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
 import { type StemName } from "@/song/types";
 import { getSetting, performanceKey, readOptions, setSetting } from "@/song/performance/settings";
-import { playerShape, shapeFromOptions } from "@/song/performance/song-shape";
+import { playerShapeFromOptions } from "@/song/performance/song-shape";
 import { readTempoSource, type TempoSource } from "@/song/performance/tempo-source";
 import { useSongAnalysis } from "./use-song-analysis";
 import { generatedTrackKeysIn, parseAnalysis, songAudioId } from "@/song/analysis/song-analysis";
@@ -571,7 +571,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
   useEffect(() => {
-    player?.setShape(playerShape(shapeFromOptions(getSetting(key, ":options"))));
+    player?.setShape(playerShapeFromOptions(getSetting(key, ":options")));
   }, [player, key, shapeVersion]);
   useEffect(() => {
     try {
