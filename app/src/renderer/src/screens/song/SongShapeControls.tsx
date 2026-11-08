@@ -13,7 +13,7 @@ const parse = (text: string): number | undefined => (text.trim() === "" ? undefi
 
 /**
  * The song's trim, fades and end behaviour. They are saved in the song's options, and the player takes them on the next change of
- * the song's settings. Auto trims to the audible part of the song, at −60 dBFS.
+ * the song's settings. Auto trims to the audible part of the song, at −60 dBFS. A song with no trim start skips the silence at its start.
  */
 export function SongShapeControls({
   songKey,
@@ -52,6 +52,8 @@ export function SongShapeControls({
   const trailing = silence ? duration - silence.end : 0;
   const offer = silence && (silence.start > 0 || trailing > 0) && shape.trimStart === undefined && shape.trimEnd === undefined ? silence : null;
   const fade = (text: string) => Math.max(0, Math.min(CROSSFADE_MAX_S, Number(text) || 0));
+  // With no trim start of its own, the song starts after the silence the analysis found (see playerShapeFromOptions). 0 plays from the very start.
+  const autoStart = shape.trimStart === undefined && silence && silence.start > 0 ? silence.start : undefined;
   return (
     <div aria-label="Song shape" className="flex flex-wrap items-end gap-3 rounded border border-seam p-3">
       {offer && (
@@ -71,6 +73,8 @@ export function SongShapeControls({
           step={0.1}
           className={field}
           value={shape.trimStart ?? ""}
+          placeholder={autoStart === undefined ? undefined : `${autoStart.toFixed(1)} (silence skipped)`}
+          title="Empty skips the silence at the start of the song. 0 plays from the very start."
           onChange={(e) => save({ trimStart: parse(e.target.value) })}
         />
       </label>

@@ -55,3 +55,11 @@ it("does not offer a trim once one is set, and offers nothing without silence", 
   render(<SongShapeControls songKey={key} audio={audio()} silence={{ start: 1, end: 3 }} onChange={vi.fn()} />);
   expect(screen.queryByRole("button", { name: /Trim the silence/ })).toBeNull();
 });
+
+it("shows the silence skipped at the start when no trim start is set, and none once one is", () => {
+  render(<SongShapeControls songKey={key} audio={audio()} silence={{ start: 1, end: 3 }} onChange={vi.fn()} />);
+  expect(screen.getByLabelText("Trim start (s)").getAttribute("placeholder")).toBe("1.0 (silence skipped)");
+  fireEvent.change(screen.getByLabelText("Trim start (s)"), { target: { value: "0" } });
+  expect(screen.getByLabelText("Trim start (s)").getAttribute("placeholder")).toBeNull();
+  expect(stored()).toMatchObject({ trimStart: 0 });
+});
