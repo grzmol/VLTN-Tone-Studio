@@ -371,6 +371,12 @@ An audience display shows the lyrics on a projector, and band sync puts them on 
 <br>
 <br>
 
+Not sure where to take a solo? Solo scale shows the song's scale on the neck, for the key as you play it, capo and pitch shift included.<br>
+It starts on the minor pentatonic, offers seven more scales, lights up one box position at a time, and shows fret numbers or note names.
+
+<br>
+<br>
+
 Practising? Mute the guitar, the vocals or any other instrument in every song of a playlist at once, with one footswitch.<br>
 Each song keeps its own mix, and turning the practice mute off brings it all back.
 
