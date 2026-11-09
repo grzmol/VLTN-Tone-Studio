@@ -265,8 +265,8 @@ function correlation(dry: Float32Array, wet: Float32Array, start: number, length
  * How many frames later than `dry` the `wet` signal is: the lag from 0 to MAX_CHAIN_LATENCY_MS that gives the largest cross-correlation of
  * the two. It looks at the loudest few seconds only, finds the spot on the average of a few samples at a time, then refines it at the full
  * rate, so a five minute part takes well under a second. An IR's strongest tap is its direct sound and a capture's delay is its latency, so
- * the same search finds both. When two lags are equally good (a steady tone) the shorter one wins. A silent part, or a wet signal that
- * does not follow the dry one, gives 0.
+ * the same search finds both. The size of the correlation counts, not its sign, since a capture or an IR can flip the polarity. When two
+ * lags are equally good (a steady tone) the shorter one wins. A silent part, or a wet signal that does not follow the dry one, gives 0.
  */
 export function chainLatency(dry: Float32Array, wet: Float32Array, sampleRate: number): number {
   const maxLag = Math.round((MAX_CHAIN_LATENCY_MS / 1000) * sampleRate);
@@ -274,7 +274,7 @@ export function chainLatency(dry: Float32Array, wet: Float32Array, sampleRate: n
   if (length < COARSE_STEP * 2) return 0;
   const start = loudestStart(dry, length, Math.round(sampleRate / 2));
   // A lag only counts when it is clearly better than a shorter one, so rounding noise never moves a tie to a later copy.
-  const better = (value: number, best: number) => value > best + Math.abs(best) * 1e-6;
+  const better = (value: number, best: number) => Math.abs(value) > Math.abs(best) * (1 + 1e-6);
 
   const coarseLength = Math.floor(length / COARSE_STEP);
   const coarseDry = averaged(dry, start, coarseLength, COARSE_STEP);
@@ -288,7 +288,7 @@ export function chainLatency(dry: Float32Array, wet: Float32Array, sampleRate: n
       coarseBest = lag;
     }
   }
-  if (coarseValue <= 0) return 0;
+  if (coarseValue === 0) return 0;
 
   let best = 0;
   let bestValue = 0;

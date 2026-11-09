@@ -580,6 +580,11 @@ describe("chainLatency", () => {
     });
   }
 
+  it("finds the delay of a chain that flips the polarity", () => {
+    const flipped = delayed(dry, ms(21), true).map((v) => -v);
+    expect(chainLatency(dry, flipped, RATE)).toBe(ms(21));
+  });
+
   it("decides on the loudest stretch, not on a long quiet intro", () => {
     const part = new Float32Array(RATE * 12);
     part.set(hits(RATE * 4, ms(250)), RATE * 8);
