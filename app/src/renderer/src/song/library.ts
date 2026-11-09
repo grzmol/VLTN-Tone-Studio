@@ -26,6 +26,10 @@ import { storedBits } from "@shared/flac";
 import { migrateLyricsJob } from "./performance/lyrics-jobs";
 import { playerShapeFromOptions } from "./performance/song-shape";
 import { sharedPlaybackEngine } from "./audio/playback-engine";
+import { loudnessFromOptions, normalisingGain } from "./audio/loudness";
+import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, readPartChoices } from "./band/part-choice";
+import { mixDefaults } from "./tracks";
+import type { Mix } from "./stems/mix";
 import { StemPlayer, yieldToMain } from "./stems/player";
 import { playableStems } from "./stems/playable";
 import { RenderQueue, isPlainSpeed } from "./audio/render-queue";
@@ -348,22 +352,26 @@ async function readIndex(): Promise<SongLibrary> {
   return index;
 }
 /**
- * Silences the practice-muted tracks of a song that is prepared ahead. The player of a playlist join starts before its screen exists, so
- * it must have the mute before the hand-over, or the muted instrument would be heard for a moment. The screen then applies the whole mix.
+ * Gives a song that is prepared ahead its saved mix: the volumes and mutes, the drums and bass choice, the practice mute and the loudness
+ * gain. The player of a playlist join starts before its screen exists, so it must have the mix before the hand-over, or the join would
+ * play every track at once (the original drums under the generated ones, say) until the screen applied the mix.
  */
-export function applyPracticeMute(song: PreparedSong, changed = false): void {
-  const kinds = usePracticeMute.getState().kinds;
-  // With nothing muted a new song needs no call. A change must still reach the song, so that turning a mute off brings the track back.
-  if (!kinds.length && !changed) return;
+export function applyPracticeMute(song: PreparedSong): void {
   const options = song.settings[":options"] ?? "";
-  let saved: unknown = null;
+  let saved: { mix?: Mix; partChoice?: unknown } | null = null;
   try {
     saved = JSON.parse(options || "null");
   } catch {
-    /* unreadable options: the tracks go by their names */
+    /* unreadable options: every track plays at the default */
   }
+  const keys = partKeysOf(song.tracks, song.stems);
+  const choices = readPartChoices(saved?.partChoice, defaultPartChoices(null, keys));
+  const base = { ...mixDefaults(song.tracks), ...(saved?.mix && typeof saved.mix === "object" ? saved.mix : {}) };
+  const mix = muteSilencedParts(saved?.partChoice === undefined ? applyPartChoices(base, choices, keys) : base, choices, keys);
   const tracks = { keys: song.player.names, info: song.tracks, split: Object.keys(song.stems).length > 0, countsAs: readCountsAs(saved) };
-  song.player.setMix(effectiveMute({}, practiceSet(kinds), tracks));
+  const loudness = loudnessFromOptions(options);
+  const gain = loudness.normalise && loudness.lufs !== null ? normalisingGain(loudness.lufs, loudness.peakDb) : 1;
+  song.player.setMix(effectiveMute(mix, practiceSet(usePracticeMute.getState().kinds), tracks), gain);
 }
 const api = () => {
   if (!host.song.library) throw new Error("Saved songs are available in the desktop app.");
@@ -1019,7 +1027,7 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
 usePracticeMute.subscribe((state, previous) => {
   if (state.kinds === previous.kinds) return;
   const prepared = useSongLibrary.getState().prepared;
-  if (prepared) applyPracticeMute(prepared, true);
+  if (prepared) applyPracticeMute(prepared);
 });
 
 // Audio that changes in a library song saves itself. Loading a song sets audio that is already saved, so it never starts a save.
