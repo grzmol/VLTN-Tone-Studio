@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DRUM_PAN, PEAK_LIMIT, panGains, renderPart } from "./render";
+import { DRUM_PAN, PEAK_LIMIT, panGains, renderPart, sampleAttack } from "./render";
 import { CLOSED_HAT, KICK, OPEN_HAT, SNARE, type NoteEvent } from "./note";
 import { pickDrumSample, type BassSample, type DrumLayer, type SampleSet } from "./samples";
 import type { PcmAudio } from "../types";
@@ -32,12 +32,6 @@ function kit(drums: Partial<Record<number, DrumLayer[]>>, basses: BassSample[] =
   return { drums: new Map(Object.entries(drums).map(([pitch, layers]) => [Number(pitch), layers ?? []])), bass: basses };
 }
 
-function indexOfPeak(channel: Float32Array): number {
-  let best = 0;
-  for (let i = 1; i < channel.length; i++) if (Math.abs(channel[i]) > Math.abs(channel[best])) best = i;
-  return best;
-}
-
 function peak(channel: Float32Array): number {
   let max = 0;
   for (let i = 0; i < channel.length; i++) max = Math.max(max, Math.abs(channel[i]));
@@ -52,9 +46,40 @@ function crossings(channel: Float32Array, from: number, to: number): number {
 }
 
 describe("renderPart: drums", () => {
-  it("renders a hit at its time, to within one sample", () => {
-    const { audio } = renderPart([hit(0.5, KICK)], "drums", kit({ [KICK]: [layer(impulse(1))] }), RATE * 2);
-    expect(Math.abs(indexOfPeak(audio.channels[0]) - 22050)).toBeLessThanOrEqual(1);
+  // A sample's attack is not its first frame: a kick may be silent for 5 ms. The voice starts early by that, so the attack (the half-peak of
+  // a short envelope, the same measure the beat grid uses on the original drums) lands on the note's time and not 5 ms after it.
+  it("renders a hit with its attack on the note's time, to within one sample", () => {
+    const attackAt = Math.round(0.005 * RATE);
+    const slow = new Float32Array(attackAt + 400).fill(0);
+    slow.fill(0.8, attackAt);
+    const audio = { sampleRate: RATE, channels: [slow] };
+    expect(sampleAttack(audio)).toBe(attackAt);
+    const rendered = renderPart([hit(0.5, KICK)], "drums", kit({ [KICK]: [layer(audio)] }), RATE * 2).audio;
+    const around = { sampleRate: RATE, channels: [rendered.channels[0].slice(22050 - 1000)] };
+    expect(Math.abs(sampleAttack(around) - 1000)).toBeLessThanOrEqual(1);
+  });
+
+  it("does not start a voice before the first frame when its attack is later than the note", () => {
+    const slow = new Float32Array(500);
+    slow.fill(0.8, 300);
+    const rendered = renderPart([hit(0, KICK)], "drums", kit({ [KICK]: [layer({ sampleRate: RATE, channels: [slow] })] }), 2000).audio;
+    expect(rendered.channels[0][0]).toBe(0);
+    expect(rendered.channels[0][300]).toBeGreaterThan(0);
+  });
+
+  it("starts a bass note early by its sample's attack too", () => {
+    const attackAt = Math.round(0.004 * RATE);
+    const body = new Float32Array(attackAt + 6000);
+    for (let i = attackAt; i < body.length; i++) body[i] = 0.8 * Math.sin((2 * Math.PI * 110 * i) / RATE);
+    const rendered = renderPart(
+      [{ time: 0.5, pitch: 40, velocity: 100, duration: 0.2 }],
+      "bass",
+      kit({}, [bass(40, { sampleRate: RATE, channels: [body] })]),
+      RATE * 2,
+      RATE,
+    ).audio;
+    const around = { sampleRate: RATE, channels: [rendered.channels[0].slice(22050 - 1000)] };
+    expect(Math.abs(sampleAttack(around) - 1000)).toBeLessThanOrEqual(2);
   });
 
   it("chooses the velocity layer and gain the picker chooses", () => {

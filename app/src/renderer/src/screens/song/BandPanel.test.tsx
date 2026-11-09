@@ -442,7 +442,8 @@ describe("Band panel", () => {
     expect(saved.drums.channels).toHaveLength(2);
     expect(saved.drums.channels[0][20000]).toBeCloseTo(0.5, 2);
     expect(saved.drums.channels[1][20000]).toBeCloseTo(0.5, 2);
-    expect(mocks.chain).toHaveBeenCalledTimes(2);
+    // Each part is rendered once and then a click goes through the same chain to measure its delay: two parts, four calls.
+    expect(mocks.chain).toHaveBeenCalledTimes(4);
     expect(mocks.tones.readNam).toHaveBeenCalledWith(42, 7);
   });
 
