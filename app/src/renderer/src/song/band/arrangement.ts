@@ -221,6 +221,8 @@ export interface BandSettings {
   /** Generated parts take their accents and stops from the playing of the follow source (feel.ts). */
   followPlaying: boolean;
   followSource: FollowSource;
+  /** Generated drum hits move onto the original drummer's hits when the song has a drums stem (drummer-timing.ts, spec 107). */
+  followDrummer: boolean;
   /** Humanising of the generated drums and bass (humanise.ts). */
   humanise: HumaniseSettings;
   /** How long each bass note rings, from 0 (tight) to 1 (ring). Scales the lengths the bass part gives (bass.ts). */
@@ -257,6 +259,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   lockToKick: true,
   followPlaying: true,
   followSource: "auto",
+  followDrummer: true,
   humanise: { amount: 0.5, feel: "style" },
   bassTone: { kind: "clean" },
   drumTone: { kind: "clean" },
@@ -607,6 +610,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBool(value.lockToKick) &&
     isBool(value.followPlaying) &&
     isFollowSource(value.followSource) &&
+    isBool(value.followDrummer) &&
     isHumanise(value.humanise) &&
     isUnit(value.bassFeel) &&
     isPartTone(value.bassTone, "bass") &&
@@ -687,6 +691,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,
+    followDrummer: isBool(source.followDrummer) ? source.followDrummer : defaults.followDrummer,
     humanise: parseHumanise(source.humanise),
     bassTone: parseBassTone(source.bassTone),
     drumTone: parseDrumTone(source.drumTone),
