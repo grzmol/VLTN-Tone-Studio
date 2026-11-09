@@ -4,6 +4,7 @@ import type { BassTone, BassToneFile, ToneBlock } from "./arrangement";
 import {
   applyBassTone,
   applyPartTone,
+  chainLatency,
   BASS_TONE_PRESETS,
   DRUM_TONE_PRESETS,
   loadPartTone,
@@ -519,5 +520,166 @@ describe("the drum tone's files, presets and estimate", () => {
     const drums = kit(100);
     const result = await applyPartTone(drums, { kind: "clean" }, noFiles(), identity, "drums");
     expect(result).toEqual({ audio: drums, notice: null });
+  });
+});
+
+/** Repeatable noise in -1..1, so the tests don't depend on Math.random. */
+function noise(length: number, seed = 1): Float32Array {
+  let state = seed;
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    out[i] = state / 0x80000000 - 1;
+  }
+  return out;
+}
+
+/** Short decaying noise bursts every `period` frames, from `first`: hits with a sharp attack, like a kit's. */
+function hits(frames: number, period: number, first = 2000): Float32Array {
+  const out = new Float32Array(frames);
+  const burst = noise(1200, 7);
+  for (let at = first; at < frames; at += period) {
+    for (let i = 0; i < burst.length && at + i < frames; i++) out[at + i] = 0.8 * burst[i] * Math.exp(-i / 250);
+  }
+  return out;
+}
+
+/** `samples` delayed by `delay` frames, plus a quieter reverb-like tail of a few decaying taps after the direct one. */
+function delayed(samples: Float32Array, delay: number, tail = false): Float32Array {
+  const out = new Float32Array(samples.length);
+  const taps = tail ? [[0, 1], ...[1, 2, 3, 4, 5, 6, 7, 8].map((k) => [k * 211, 0.35 * Math.exp(-k / 3)])] : [[0, 1]];
+  for (const [offset, gain] of taps) for (let i = 0; i + delay + offset < samples.length; i++) out[i + delay + offset] += samples[i] * gain;
+  return out;
+}
+
+/** The first frame at or after `from` where the channel passes a fifth of its peak in the next `span` frames. */
+function attackAfter(channel: Float32Array, from: number, span = 1500): number {
+  let peak = 0;
+  for (let i = from; i < from + span; i++) peak = Math.max(peak, Math.abs(channel[i]));
+  for (let i = from; i < from + span; i++) if (Math.abs(channel[i]) > peak * 0.2) return i;
+  return -1;
+}
+
+const ms = (milliseconds: number, rate = RATE) => Math.round((milliseconds / 1000) * rate);
+
+describe("chainLatency", () => {
+  const dry = noise(RATE * 3, 3);
+
+  for (const delay of [0, 5, 21, 40]) {
+    it(`finds a ${delay} ms delay of noise to the sample`, () => {
+      expect(chainLatency(dry, delayed(dry, ms(delay)), RATE)).toBe(ms(delay));
+    });
+
+    it(`finds a ${delay} ms delay when a quieter tail follows the direct sound`, () => {
+      expect(chainLatency(dry, delayed(dry, ms(delay), true), RATE)).toBe(ms(delay));
+    });
+
+    it(`finds a ${delay} ms delay of a hit train to the sample`, () => {
+      const train = hits(RATE * 4, ms(250));
+      expect(chainLatency(train, delayed(train, ms(delay), true), RATE)).toBe(ms(delay));
+    });
+  }
+
+  it("decides on the loudest stretch, not on a long quiet intro", () => {
+    const part = new Float32Array(RATE * 12);
+    part.set(hits(RATE * 4, ms(250)), RATE * 8);
+    part.set(
+      noise(RATE * 7, 9).map((v) => v * 0.001),
+      0,
+    );
+    expect(chainLatency(part, delayed(part, ms(21)), RATE)).toBe(ms(21));
+  });
+
+  it("gives 0 for a silent part, a silent chain and an empty part", () => {
+    const silence = new Float32Array(RATE);
+    expect(chainLatency(silence, silence, RATE)).toBe(0);
+    expect(chainLatency(dry, new Float32Array(dry.length), RATE)).toBe(0);
+    expect(chainLatency(new Float32Array(0), new Float32Array(0), RATE)).toBe(0);
+  });
+
+  it("does not look past the longest delay", () => {
+    expect(chainLatency(dry, delayed(dry, ms(100)), RATE)).toBeLessThanOrEqual(ms(60));
+  });
+
+  it("takes well under a second for a five minute stereo part", () => {
+    const five = RATE * 300;
+    const part = hits(five, ms(500));
+    const wet = delayed(part, ms(21), true);
+    const started = performance.now();
+    const lag = chainLatency(part, wet, RATE);
+    const took = performance.now() - started;
+    expect(lag).toBe(ms(21));
+    expect(took).toBeLessThan(1000);
+  });
+});
+
+describe("renderPartTone lines the part up with the beat", () => {
+  const frames = RATE * 3;
+  const period = ms(500);
+  const kitHits = hits(frames, period);
+  const mono: PcmAudio = { sampleRate: RATE, channels: [kitHits, kitHits.slice()] };
+  const stereoKit: PcmAudio = { sampleRate: RATE, channels: [kitHits, hits(frames, period).map((v) => v * 0.7)] };
+  const clicks = Array.from({ length: 5 }, (_, k) => 2000 + k * period);
+
+  /** A chain that delays its input by `delay` frames at the chain rate. */
+  const delaying =
+    (delay: number): PartChain =>
+    async (_blocks, input) =>
+      delayed(input, delay);
+
+  /** A chain that convolves with an IR whose direct tap is at `delay` frames and whose few later taps decay. */
+  const room =
+    (delay: number): PartChain =>
+    async (_blocks, input) =>
+      delayed(input, delay, true);
+
+  const expectOnTheBeat = (out: PcmAudio, reference: PcmAudio) => {
+    for (let c = 0; c < out.channels.length; c++) {
+      for (const at of clicks) expect(Math.abs(attackAfter(out.channels[c], at - 200) - attackAfter(reference.channels[c], at - 200))).toBeLessThanOrEqual(2);
+    }
+  };
+
+  for (const [name, chain] of [
+    ["a delay of 21 ms", delaying(ms(21, CHAIN_RATE))],
+    ["a room IR with its direct sound at 20 ms and a tail", room(ms(20, CHAIN_RATE))],
+  ] as const) {
+    it(`puts a mono part's attacks where the dry part's are through ${name}`, async () => {
+      expectOnTheBeat(await renderPartTone(mono, loaded({ blocks: [amp()] }), chain), mono);
+    });
+
+    it(`puts a stereo part's attacks where the dry part's are through ${name}`, async () => {
+      const out = await renderPartTone(stereoKit, loaded({ blocks: [outboardBlock()] }), chain, true);
+      expectOnTheBeat(out, stereoKit);
+    });
+  }
+
+  it("keeps a blend of 0.5 through a delaying chain as loud as the dry part, within 1 dB", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()], dryWet: 0.5 }), delaying(ms(21, CHAIN_RATE)));
+    const rmsOf = (samples: Float32Array) => Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    expect(20 * Math.log10(rmsOf(out.channels[0]) / rmsOf(mono.channels[0]))).toBeGreaterThan(-1);
+  });
+
+  it("does not cancel a blend of dry and delayed hits: the attack stays as sharp as the dry one", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()], dryWet: 0.5 }), delaying(ms(21, CHAIN_RATE)));
+    expectOnTheBeat(out, mono);
+  });
+
+  it("shifts nothing for a chain that adds no delay", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()] }), async (_blocks, input) => input.slice());
+    expectOnTheBeat(out, mono);
+  });
+
+  it("returns a clean tone and an empty chain unchanged", async () => {
+    const files = noFiles();
+    expect((await applyPartTone(mono, { kind: "clean" }, files, delaying(1000), "bass")).audio).toBe(mono);
+    const empty = await renderPartTone(mono, loaded({ blocks: [] }), delaying(1000));
+    for (let c = 0; c < 2; c++) for (const i of [0, 2100, 5000, frames - 1]) expect(empty.channels[c][i]).toBeCloseTo(mono.channels[c][i], 5);
+  });
+
+  it("renders a silent part without throwing", async () => {
+    const silence: PcmAudio = { sampleRate: RATE, channels: [new Float32Array(RATE), new Float32Array(RATE)] };
+    const out = await renderPartTone(silence, loaded({ blocks: [amp()] }), delaying(ms(21, CHAIN_RATE)));
+    expect(out.channels[0]).toHaveLength(RATE);
+    expect(Math.max(...out.channels[0].map(Math.abs))).toBe(0);
   });
 });
