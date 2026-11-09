@@ -5,6 +5,7 @@ import {
   applyBassTone,
   applyPartTone,
   chainLatency,
+  firstArrival,
   BASS_TONE_PRESETS,
   DRUM_TONE_PRESETS,
   loadPartTone,
@@ -139,7 +140,10 @@ describe("renderBassTone", () => {
     const chain = vi.fn(identity);
     const cab: LoadedBlock = { type: "ir", role: "cab", ir: new Float32Array([1, 0.5]), on: true, inputDb: 2, outputDb: -4, mix: 1 };
     await renderBassTone(sine(2000, 110, 0.4), loaded({ blocks: [amp("prepared"), cab], fast: true }), chain);
-    expect(chain).toHaveBeenCalledTimes(1);
+    // The part is rendered once, then a click is rendered through the same blocks to measure the chain's delay.
+    expect(chain).toHaveBeenCalledTimes(2);
+    expect(chain.mock.calls[1][0]).toEqual([amp("prepared"), cab]);
+    expect(chain.mock.calls[1][2]).toBe(true);
     const [blocks, input, fast] = chain.mock.calls[0];
     expect(blocks).toEqual([amp("prepared"), cab]);
     expect(input.length).toBeGreaterThanOrEqual(Math.round((2000 * CHAIN_RATE) / RATE));
@@ -430,10 +434,11 @@ describe("renderPartTone for stereo drums", () => {
     const left = Float32Array.of(1, 0.5);
     const right = Float32Array.of(0.25, 0.1);
     await renderPartTone(drums, loaded({ blocks: [roomBlock(left, right)] }), record, true);
-    expect(calls.map((call) => call.ir)).toEqual([left, right]);
+    // The third call is the click that measures the chain's delay, once for both channels, on the left IR.
+    expect(calls.map((call) => call.ir)).toEqual([left, right, left]);
     calls.length = 0;
     await renderPartTone(drums, loaded({ blocks: [roomBlock(left)] }), record, true);
-    expect(calls.map((call) => call.ir)).toEqual([left, left]);
+    expect(calls.map((call) => call.ir)).toEqual([left, left, left]);
   });
 
   it("applies dry/wet and the output of the blend as it does for the bass", async () => {
@@ -452,8 +457,10 @@ describe("renderPartTone for stereo drums", () => {
   it("leaves a mono part as it was: one chain call with every block", async () => {
     const chain = vi.fn<PartChain>(async (_blocks, input) => input.slice());
     await renderPartTone(sine(2000, 110, 0.4), loaded({ blocks: [outboardBlock(), roomBlock(Float32Array.of(1))] }), chain);
-    expect(chain).toHaveBeenCalledTimes(1);
+    // One call for the part and one for the click that measures the delay.
+    expect(chain).toHaveBeenCalledTimes(2);
     expect(chain.mock.calls[0][0]).toHaveLength(2);
+    expect(chain.mock.calls[1][0]).toHaveLength(2);
   });
 });
 
@@ -562,59 +569,64 @@ function attackAfter(channel: Float32Array, from: number, span = 1500): number {
 
 const ms = (milliseconds: number, rate = RATE) => Math.round((milliseconds / 1000) * rate);
 
+/** A chain that mixes `dry` of the input with no delay and `1 - dry` of it delayed by `delay` frames, as an IR block at mix 0.3 does. */
+const mixing =
+  (dry: number, delay: number): PartChain =>
+  async (_blocks, input) => {
+    const wet = delayed(input, delay);
+    return input.map((v, i) => v * dry + wet[i] * (1 - dry));
+  };
+
+describe("firstArrival", () => {
+  it("finds the first sample within 20 dB of the peak, whatever its sign", () => {
+    const response = new Float32Array(1000);
+    response[300] = -0.05; // 26 dB under the peak: noise before the arrival
+    response[400] = -0.2; // 20 dB under: this is the arrival
+    response[450] = 1;
+    expect(firstArrival(response)).toBe(400);
+  });
+
+  it("gives 0 for a silent response", () => {
+    expect(firstArrival(new Float32Array(100))).toBe(0);
+  });
+});
+
 describe("chainLatency", () => {
-  const dry = noise(RATE * 3, 3);
+  const blocks = [amp()];
 
-  for (const delay of [0, 5, 21, 40]) {
-    it(`finds a ${delay} ms delay of noise to the sample`, () => {
-      expect(chainLatency(dry, delayed(dry, ms(delay)), RATE)).toBe(ms(delay));
-    });
-
-    it(`finds a ${delay} ms delay when a quieter tail follows the direct sound`, () => {
-      expect(chainLatency(dry, delayed(dry, ms(delay), true), RATE)).toBe(ms(delay));
-    });
-
-    it(`finds a ${delay} ms delay of a hit train to the sample`, () => {
-      const train = hits(RATE * 4, ms(250));
-      expect(chainLatency(train, delayed(train, ms(delay), true), RATE)).toBe(ms(delay));
+  for (const delay of [0, 3, 21]) {
+    it(`finds a ${delay} ms delay of a click to the sample`, async () => {
+      const found = await chainLatency(blocks, async (_b, input) => delayed(input, ms(delay, CHAIN_RATE)), false, CHAIN_RATE);
+      expect(found).toBe(ms(delay, CHAIN_RATE));
     });
   }
 
-  it("finds the delay of a chain that flips the polarity", () => {
-    const flipped = delayed(dry, ms(21), true).map((v) => -v);
-    expect(chainLatency(dry, flipped, RATE)).toBe(ms(21));
+  it("converts the delay to the part's rate", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(21, CHAIN_RATE)), false, RATE)).toBeCloseTo(ms(21), -0.5);
   });
 
-  it("decides on the loudest stretch, not on a long quiet intro", () => {
-    const part = new Float32Array(RATE * 12);
-    part.set(hits(RATE * 4, ms(250)), RATE * 8);
-    part.set(
-      noise(RATE * 7, 9).map((v) => v * 0.001),
-      0,
-    );
-    expect(chainLatency(part, delayed(part, ms(21)), RATE)).toBe(ms(21));
+  it("finds a room that is fully wet, with its tail after the direct sound", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(20.4, CHAIN_RATE), true), false, CHAIN_RATE)).toBe(ms(20.4, CHAIN_RATE));
   });
 
-  it("gives 0 for a silent part, a silent chain and an empty part", () => {
-    const silence = new Float32Array(RATE);
-    expect(chainLatency(silence, silence, RATE)).toBe(0);
-    expect(chainLatency(dry, new Float32Array(dry.length), RATE)).toBe(0);
-    expect(chainLatency(new Float32Array(0), new Float32Array(0), RATE)).toBe(0);
+  it("gives 0 for 70% dry plus 30% of a room at 21 ms: the dry path arrives first", async () => {
+    expect(await chainLatency(blocks, mixing(0.7, ms(21, CHAIN_RATE)), false, CHAIN_RATE)).toBe(0);
   });
 
-  it("does not look past the longest delay", () => {
-    expect(chainLatency(dry, delayed(dry, ms(100)), RATE)).toBeLessThanOrEqual(ms(60));
+  it("finds the delay of a chain that flips the polarity", async () => {
+    const flipped: PartChain = async (_b, input) => delayed(input, ms(21, CHAIN_RATE)).map((v) => -v);
+    expect(await chainLatency(blocks, flipped, false, CHAIN_RATE)).toBe(ms(21, CHAIN_RATE));
   });
 
-  it("takes well under a second for a five minute stereo part", () => {
-    const five = RATE * 300;
-    const part = hits(five, ms(500));
-    const wet = delayed(part, ms(21), true);
-    const started = performance.now();
-    const lag = chainLatency(part, wet, RATE);
-    const took = performance.now() - started;
-    expect(lag).toBe(ms(21));
-    expect(took).toBeLessThan(1000);
+  it("gives 0 for a silent chain, and never more than the cap", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => new Float32Array(input.length), false, CHAIN_RATE)).toBe(0);
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(100, CHAIN_RATE)), false, CHAIN_RATE)).toBe(ms(60, CHAIN_RATE));
+  });
+
+  it("renders the click through the same blocks and the same fast flag", async () => {
+    const chain = vi.fn<PartChain>(async (_b, input) => input.slice());
+    await chainLatency(blocks, chain, true, CHAIN_RATE);
+    expect(chain).toHaveBeenCalledWith(blocks, expect.any(Float32Array), true);
   });
 });
 
@@ -657,6 +669,12 @@ describe("renderPartTone lines the part up with the beat", () => {
       expectOnTheBeat(out, stereoKit);
     });
   }
+
+  it("moves nothing for a room that is mixed 30% wet inside the chain: the dry kit passes with no delay and stays on the beat", async () => {
+    const chain = mixing(0.7, ms(21, CHAIN_RATE));
+    expectOnTheBeat(await renderPartTone(stereoKit, loaded({ blocks: [outboardBlock()] }), chain, true), stereoKit);
+    expectOnTheBeat(await renderPartTone(mono, loaded({ blocks: [amp()] }), chain), mono);
+  });
 
   it("keeps a blend of 0.5 through a delaying chain as loud as the dry part, within 1 dB", async () => {
     const out = await renderPartTone(mono, loaded({ blocks: [amp()], dryWet: 0.5 }), delaying(ms(21, CHAIN_RATE)));

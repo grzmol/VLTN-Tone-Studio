@@ -219,89 +219,39 @@ function rms(samples: Float32Array): number {
 /** The longest delay a tone chain is allowed to have removed. A room IR's direct sound arrives at about 20 ms; nothing sane is later than this. */
 export const MAX_CHAIN_LATENCY_MS = 60;
 
-/** The stretch of the part that decides the delay. It is the loudest one, so a long silent intro does not. */
-const LATENCY_WINDOW_SECONDS = 4;
+/** How far below the response's peak the first arrival is read: -20 dB, a tenth of the peak. */
+const ARRIVAL_THRESHOLD_DB = -20;
 
-/** The coarse search looks at the average of this many samples, then the best spot is refined at the full rate. */
-const COARSE_STEP = 4;
+/** The length of the click the chain is measured with, and how long a response is read for. */
+const CLICK_MILLISECONDS = 1;
+const PROBE_SECONDS = 0.25;
+const PROBE_LEVEL = 0.5;
 
-/** The start of the loudest `length` samples of `samples`, searched in steps of half a second. */
-function loudestStart(samples: Float32Array, length: number, step: number): number {
-  const energy = new Float64Array(samples.length + 1);
-  for (let i = 0; i < samples.length; i++) energy[i + 1] = energy[i] + samples[i] * samples[i];
-  const last = samples.length - length;
-  let best = 0;
-  let bestEnergy = -1;
-  for (let start = 0; start <= last; start = start === last ? last + 1 : Math.min(start + step, last)) {
-    const sum = energy[start + length] - energy[start];
-    if (sum > bestEnergy) {
-      bestEnergy = sum;
-      best = start;
-    }
-  }
-  return best;
-}
-
-/** The average of each `step` samples of `samples` from `start`, `count` of them (past the end counts as silence). */
-function averaged(samples: Float32Array, start: number, count: number, step: number): Float32Array {
-  const out = new Float32Array(count);
-  for (let k = 0; k < count; k++) {
-    let sum = 0;
-    for (let j = 0; j < step; j++) sum += samples[start + k * step + j] ?? 0;
-    out[k] = sum / step;
-  }
-  return out;
-}
-
-/** The correlation of `dry` with `wet` delayed by `lag`, over `length` samples starting at `start`. */
-function correlation(dry: Float32Array, wet: Float32Array, start: number, length: number, lag: number): number {
-  const end = Math.min(start + length, wet.length - lag);
-  let sum = 0;
-  for (let n = start; n < end; n++) sum += dry[n] * wet[n + lag];
-  return sum;
+/**
+ * The index of the first sample whose absolute value reaches -20 dB of the largest one: where a response to a click begins. The sign does
+ * not matter, since a capture or an IR can flip the polarity. A response that is silent gives 0.
+ */
+export function firstArrival(response: Float32Array): number {
+  let peak = 0;
+  for (let i = 0; i < response.length; i++) peak = Math.max(peak, Math.abs(response[i]));
+  if (!(peak > 0)) return 0;
+  const threshold = peak * 10 ** (ARRIVAL_THRESHOLD_DB / 20);
+  return response.findIndex((value) => Math.abs(value) >= threshold);
 }
 
 /**
- * How many frames later than `dry` the `wet` signal is: the lag from 0 to MAX_CHAIN_LATENCY_MS that gives the largest cross-correlation of
- * the two. It looks at the loudest few seconds only, finds the spot on the average of a few samples at a time, then refines it at the full
- * rate, so a five minute part takes well under a second. An IR's strongest tap is its direct sound and a capture's delay is its latency, so
- * the same search finds both. The size of the correlation counts, not its sign, since a capture or an IR can flip the polarity. When two
- * lags are equally good (a steady tone) the shorter one wins. A silent part, or a wet signal that does not follow the dry one, gives 0.
+ * How many frames of the part's rate the chain delays a hit by: the first arrival of the chain's response to a click, compared with the
+ * click's own. A block whose mix is below 1 passes part of the hit with no delay, so the first arrival is at the start and the chain
+ * delays nothing, whatever its room does later. A wet IR gives its direct sound's delay and a capture gives its own latency. The click is
+ * rendered through the same blocks with the same chain as the part. The result is at most MAX_CHAIN_LATENCY_MS.
  */
-export function chainLatency(dry: Float32Array, wet: Float32Array, sampleRate: number): number {
-  const maxLag = Math.round((MAX_CHAIN_LATENCY_MS / 1000) * sampleRate);
-  const length = Math.min(dry.length, Math.round(LATENCY_WINDOW_SECONDS * sampleRate));
-  if (length < COARSE_STEP * 2) return 0;
-  const start = loudestStart(dry, length, Math.round(sampleRate / 2));
-  // A lag only counts when it is clearly better than a shorter one, so rounding noise never moves a tie to a later copy.
-  const better = (value: number, best: number) => Math.abs(value) > Math.abs(best) * (1 + 1e-6);
-
-  const coarseLength = Math.floor(length / COARSE_STEP);
-  const coarseDry = averaged(dry, start, coarseLength, COARSE_STEP);
-  const coarseWet = averaged(wet, start, coarseLength + Math.ceil(maxLag / COARSE_STEP) + 1, COARSE_STEP);
-  let coarseBest = 0;
-  let coarseValue = 0;
-  for (let lag = 0; lag <= Math.floor(maxLag / COARSE_STEP); lag++) {
-    const value = correlation(coarseDry, coarseWet, 0, coarseLength, lag);
-    if (better(value, coarseValue)) {
-      coarseValue = value;
-      coarseBest = lag;
-    }
-  }
-  if (coarseValue === 0) return 0;
-
-  let best = 0;
-  let bestValue = 0;
-  const from = Math.max(0, coarseBest * COARSE_STEP - COARSE_STEP);
-  const to = Math.min(maxLag, coarseBest * COARSE_STEP + COARSE_STEP);
-  for (let lag = from; lag <= to; lag++) {
-    const value = correlation(dry, wet, start, length, lag);
-    if (better(value, bestValue)) {
-      bestValue = value;
-      best = lag;
-    }
-  }
-  return best;
+export async function chainLatency(blocks: LoadedBlock[], chain: PartChain, fast: boolean, sampleRate: number): Promise<number> {
+  const click = new Float32Array(Math.round(PROBE_SECONDS * CHAIN_RATE));
+  const width = Math.round((CLICK_MILLISECONDS / 1000) * CHAIN_RATE);
+  for (let i = 0; i < width; i++) click[i] = PROBE_LEVEL * Math.sin((Math.PI * (i + 0.5)) / width);
+  const frames = firstArrival(await chain(blocks, click, fast)) - firstArrival(click);
+  const atPartRate = Math.round((Math.max(0, frames) * sampleRate) / CHAIN_RATE);
+  return Math.min(atPartRate, Math.round((MAX_CHAIN_LATENCY_MS / 1000) * sampleRate));
 }
 
 /** Runs of blocks of one kind: captures play on the mid signal, IRs play on each channel. */
@@ -378,8 +328,8 @@ export async function renderPartTone(audio: PcmAudio, tone: LoadedPartTone, chai
     wets = [toRate(await chain(tone.blocks, toRate(padded(dry), audio.sampleRate, CHAIN_RATE), tone.fast), CHAIN_RATE, audio.sampleRate)];
   }
   // The chain delays the part (a room IR's direct sound arrives at about 20 ms), which would put every hit behind the beat grid, so the wet
-  // part moves earlier by the delay measured against the dry one. Every channel moves by the same amount, which keeps the stereo image.
-  const latency = tone.blocks.length > 0 ? chainLatency(dry, monoOf(wets), audio.sampleRate) : 0;
+  // part moves earlier by the chain's delay, which is the first arrival of its response to a click (a chain that mixes dry in has none). Every channel moves by the same amount, which keeps the stereo image.
+  const latency = tone.blocks.length > 0 ? await chainLatency(tone.blocks, chain, tone.fast, audio.sampleRate) : 0;
   wets = wets.map((wet) => fit(wet.subarray(latency), frames));
   const gain = irLevelGain(dry, monoOf(wets));
   for (const wet of wets) for (let i = 0; i < frames; i++) wet[i] *= gain;
