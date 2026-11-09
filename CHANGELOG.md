@@ -78,6 +78,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **Window and file safety.** The main window runs sandboxed, and MIDI, SysEx and audio capture are granted only to Tone Studio's own pages.
 
 ### Fixed
+- **Doubled drums and bass no longer play.** A song set to play its generated drums or bass could also play the original part underneath, which made a playlist sound stuttery. The original now stays off whenever its generated part plays, including for the next song in a playlist from its very first beat.
 - **Generated bass plays in an outro after the drums stop.** The beat grid ends where the drums stop, so a section after that got no generated parts. The band now carries the beat on through any section that starts after the grid's last beat, so an outro with no drums still gets its bass.
 - **A bass note you set by hand always plays.** A lead-in into the next section, a fill or a pedal no longer plays over it, and a note whose time is a few milliseconds off its beat (as song maps round them) still lands on that beat.
 - **A part split no longer cuts a song short.** Splitting only part of a song for Tone Match left Performance and the Band panel with stems just that long. Performance now plays the whole song without them and says why, and the part's stems are never saved.
