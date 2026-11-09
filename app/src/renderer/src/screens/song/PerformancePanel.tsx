@@ -47,7 +47,7 @@ import { TrackImport } from "./TrackImport";
 import { SongLoudnessControl } from "./SongLoudnessControl";
 import { loudnessFromOptions, normalisingGain, type SongLoudness } from "@/song/audio/loudness";
 import { busDefaults, mixDefaults, type TrackInfo } from "@/song/tracks";
-import { applyPartChoices, defaultPartChoices, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
+import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
@@ -516,8 +516,12 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     }
   }, [session, key, bpm, tempoSource]);
   useEffect(() => {
-    setMix(withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
-    setCountsAs(readCountsAs(options));
+    // Read the saved options again. `options` holds what was saved when the song opened, so after a change here (choosing the generated
+    // drums, say) it would bring the old mix back and the next save would write it over the new one.
+    const saved = readOptions(key, { mix: defaultMix(), partChoice: undefined as PartChoices | undefined });
+    const base = { ...mixDefaults(tracks), ...saved.mix };
+    setMix(saved.partChoice === undefined ? applyPartChoices(base, partChoiceNow.current, partKeysOf(tracks, stems)) : base);
+    setCountsAs(readCountsAs(readOptions(key, {})));
   }, [player]);
   // A normalised song is raised or lowered as a whole: every track gets the same gain, so the balance stays as it was mixed.
   const [loudness, setLoudness] = useState<SongLoudness>(() => loudnessFromOptions(getSetting(key, ":options")));
@@ -527,7 +531,11 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     () => ({ keys: player?.names ?? [], info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs }),
     [player, tracks, stems, countsAs],
   );
-  const playedMix = useMemo(() => effectiveMute(mix, practiceSet(practiceKinds), practiceTracks), [mix, practiceKinds, practiceTracks]);
+  // A track the drums and bass choice turns off never plays, whatever its saved mute says, so the player matches the mixer's badges.
+  const playedMix = useMemo(
+    () => effectiveMute(muteSilencedParts(mix, partChoice, partKeysOf(tracks, stems)), practiceSet(practiceKinds), practiceTracks),
+    [mix, partChoice, tracks, stems, practiceKinds, practiceTracks],
+  );
   useEffect(() => {
     player?.setMix(playedMix, songGain);
   }, [player, playedMix, songGain]);
