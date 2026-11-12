@@ -353,6 +353,22 @@ function cloneBlob(): Uint8Array {
   return b;
 }
 
+describe("Gp200Driver SnapTone / User IR rename", () => {
+  it("is offered on the GP-200 only, the model it was tested on", async () => {
+    const { d, dev } = await connected("gp200");
+    expect(d.features).toContain("renameToneSlots");
+    expect(await d.renameToneSlot("snaptone", 4, "My Capture")).toBe("My Capture");
+    expect(dev.snapTone[4].name).toBe("My Capture");
+    expect((await d.readSnapTones())[4].name).toBe("My Capture");
+    for (const model of ["gp200lt", "gp200jr"] as const) {
+      const { d: other, dev: otherDev } = await connected(model);
+      expect(other.features, model).not.toContain("renameToneSlots");
+      await expect(other.renameToneSlot("ir", 0, "My Cab IR")).rejects.toThrow(/only available on the GP-200/);
+      expect(otherDev.userIr[0].name, model).toBe("User IR 1");
+    }
+  });
+});
+
 describe("Gp200Driver uploads", () => {
   it("uploads a User IR (int32 LE samples) and reports the stored name", async () => {
     const { d, dev } = await connected();

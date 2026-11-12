@@ -200,7 +200,9 @@ export type DeviceFeature =
   /** Move a slot in the list, the ones in between shift (GP-50 11 5A) */
   | "movePreset"
   /** Global EQ values set one at a time (GP-200 family 0x1005) */
-  | "globalEq";
+  | "globalEq"
+  /** Rename a stored SnapTone or User IR, verified by reading the name back (GP-200 0x1015 / 0x100c) */
+  | "renameToneSlots";
 
 /**
  * Global EQ of the GP-200 family: the 31 values in the order of gp200/lib protocol GLOBAL_EQ_INDEX (ranges:
@@ -403,6 +405,11 @@ export interface DeviceState {
    * with the user first. Resolves with the name as stored on the pedal.
    */
   uploadUserIr(slot: number, name: string, data: Uint8Array, opts?: WriteOptions): Promise<string>;
+  /**
+   * Feature "renameToneSlots": rename a stored SnapTone or User IR (0-based table index), then re-read that list.
+   * Only the name changes. Resolves with the name as stored on the pedal.
+   */
+  renameToneSlot(kind: "snaptone" | "ir", slot: number, name: string): Promise<string>;
   /**
    * Write several presets (a backup) slot by slot, each acknowledged and verified by read-back (3 attempts).
    * Callers MUST confirm with the user first. Throws RestoreError naming done / failed / not started slots.
