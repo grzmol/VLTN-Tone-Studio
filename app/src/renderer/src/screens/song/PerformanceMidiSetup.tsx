@@ -1,3 +1,6 @@
+import { PreparationSequencePreview } from "./PreparationSequencePreview";
+import { SongPreparationSettings } from "./SongPreparationSettings";
+import { moveCueToPreparation, movePreparationLine, setPreparationRepeat, setPreparationWait } from "@/song/performance/start-preparation";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -56,6 +59,7 @@ export function SessionMidiHealth({ session }: { session: PerformanceSession }) 
 /** Output and input selection, arming, setup presets and the command library. */
 export function PerformanceMidiSetup({
   session,
+  songKey,
   chart,
   onSaveChart,
   onShowChart,
@@ -65,6 +69,7 @@ export function PerformanceMidiSetup({
   onTimecodeOffset,
 }: {
   session: PerformanceSession;
+  songKey?: string;
   chart: string;
   onSaveChart: (chart: string) => void;
   /** Goes to the Lyrics & chords view. */
@@ -87,6 +92,7 @@ export function PerformanceMidiSetup({
   const armed = useSession(session, selectArmed);
   const remembered = useSession(session, (s) => s.armedByPreference);
   const playing = useSession(session, (s) => s.playing);
+  const starting = useSession(session, (s) => s.starting);
   const latestChart = useRef(chart);
   latestChart.current = chart;
   useSession(session, (s) => s.portsVersion);
@@ -284,6 +290,8 @@ export function PerformanceMidiSetup({
           and TRS clock output On. Continuous app clock fluctuated in real GP-180 USB and Bluetooth tests with a TimeLine and caused audible delay changes.
         </p>
       </HelpNote>
+      {songKey && <SongPreparationSettings songKey={songKey} locked={playing || starting} session={session} />}
+      <PreparationSequencePreview session={session} />
       <TimecodeSettings session={session} offset={timecodeOffset} onOffset={onTimecodeOffset} bluetooth={portId === BLUETOOTH_PORT_ID} />
       <MidiFileField file={midiFile} onChange={onMidiFile} />
       {midiConfig.showCommands && (
@@ -292,7 +300,31 @@ export function PerformanceMidiSetup({
           sections={sections}
           canTest={output?.state === "connected" && armed}
           onAdd={(line) => onSaveChart([chart.trimEnd(), line].filter(Boolean).join("\n"))}
-          locked={armed && playing}
+          locked={armed && (playing || starting)}
+          onPrepare={(cue) => {
+            const next = moveCueToPreparation(chart, cue);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
+          onPreparationWait={(cue, milliseconds) => {
+            const next = setPreparationWait(chart, cue, milliseconds);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
+          onPreparationRepeat={(cue, repeat) => {
+            const next = setPreparationRepeat(chart, cue, repeat);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
+          onMovePreparation={(cue, direction) => {
+            const next = movePreparationLine(chart, cue, direction);
+            if (next === null) return false;
+            onSaveChart(next);
+            return true;
+          }}
           onShowChart={onShowChart}
           onRemove={(cue) => {
             const next = removeCueToken(chart, cue);

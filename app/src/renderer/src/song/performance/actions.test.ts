@@ -5,6 +5,7 @@ import { ACTION_IDS, ACTIONS, actionLabel, isActionId, runAction, type ActionHos
 function recordingHost(pdf = false): ActionHost & { calls: [string, ...unknown[]][] } {
   const calls: [string, ...unknown[]][] = [];
   const names: (keyof ActionHost)[] = [
+    "prepare",
     "play",
     "playPause",
     "stop",

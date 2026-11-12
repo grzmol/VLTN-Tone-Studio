@@ -1,8 +1,14 @@
+import { usePreparationDefaults, PREPARATION_DEFAULTS } from "@/song/performance/start-preparation";
+import { useMidiConfiguration, readMidiConfiguration } from "@/song/performance/midi-configuration";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PlaylistPreflight } from "./PlaylistPreflight";
 const api = vi.hoisted(() => ({ preflight: vi.fn() }));
 vi.mock("@/host", () => ({ host: { song: { library: api } } }));
+beforeEach(() => {
+  usePreparationDefaults.setState({ settings: { ...PREPARATION_DEFAULTS } });
+  useMidiConfiguration.setState(readMidiConfiguration());
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -25,12 +31,45 @@ it("ignores a late result when the playlist changes and reports request failures
   );
   const view = render(<PlaylistPreflight ids={["old"]} disabled={false} revision={1} songs={[]} />);
   fireEvent.click(screen.getByText("Check playlist"));
+  await waitFor(() => expect(api.preflight).toHaveBeenCalledWith(["old"]));
+  api.preflight.mockRejectedValueOnce(new Error("Disk unavailable"));
   view.rerender(<PlaylistPreflight ids={["new"]} disabled={false} revision={2} songs={[]} />);
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Disk unavailable"));
   await act(async () => {
     finish([{ id: "old", errors: ["Old failure"] }]);
   });
   expect(screen.queryByText(/Old failure/)).toBeNull();
-  api.preflight.mockRejectedValueOnce(new Error("Disk unavailable"));
+  expect(screen.getByRole("alert").textContent).toBe("Disk unavailable");
+});
+
+it("shows per-entry sequences and totals, then refreshes automatically when preparation defaults change", async () => {
+  usePreparationDefaults.setState({ settings: { enabled: true, settleMs: 100, openingPresets: true } });
+  api.preflight.mockResolvedValue([
+    {
+      id: "one",
+      errors: [],
+      song: {
+        id: "one",
+        title: "Opening",
+        artist: "",
+        sourceName: "song",
+        duration: 10,
+        updated: "",
+        audio: [{ name: "source", sampleRate: 44100, frames: 441000, channels: 1 }],
+        settings: { ":bpm": "140", ":options": '{"tempoSource":"manual","analysis":{}}', "": "{label:Patch} {midi@prepare-once wait=0.5:pc 1 5}" },
+      },
+    },
+  ]);
+  render(<PlaylistPreflight ids={["one", "one"]} disabled={false} revision={1} songs={[]} />);
   fireEvent.click(screen.getByText("Check playlist"));
-  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Disk unavailable"));
+  await waitFor(() => expect(screen.getByLabelText("Playlist preparation total").textContent).toContain("1.2 s across 2 entries"));
+  expect(screen.getAllByText("Before song: 0.6 s · 1 command group")).toHaveLength(2);
+  const table = screen.getByRole("table", { name: "Preparation steps for entry 1", hidden: true });
+  expect(table.textContent).toContain("Ch 1 · PC 5");
+  expect(table.textContent).toContain("Wait after Patch");
+  await act(async () => {
+    usePreparationDefaults.setState({ settings: { enabled: true, settleMs: 300, openingPresets: true } });
+  });
+  await waitFor(() => expect(screen.getByLabelText("Playlist preparation total").textContent).toContain("1.6 s across 2 entries"));
+  expect(api.preflight).toHaveBeenCalledTimes(2);
 });
