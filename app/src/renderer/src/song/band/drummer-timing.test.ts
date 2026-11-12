@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bandOf, drumOnsets, followDrummer, type DrumOnsets } from "./drummer-timing";
-import { CLOSED_HAT, KICK, SNARE, type NoteEvent } from "./note";
+import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, SNARE, type NoteEvent } from "./note";
 import type { PcmAudio } from "../types";
 
 const RATE = 44100;
@@ -155,3 +155,15 @@ describe("followDrummer", () => {
     expect(result.velocity).toBe(100);
   });
 });
+
+it.each([[CLOSED_HAT, CRASH, "high"], [SNARE, HIGH_TOM, "mid"]] as const)(
+  "keeps simultaneous pitches %i and %i together while distinct beats compete",
+  (first, second, band) => {
+    const onsets: DrumOnsets = { kick: [], mid: [], high: [] };
+    onsets[band] = [0.98, 1.035];
+    const drums = [note(1, first), note(1, second), note(1.04, first)];
+    const result = followDrummer(drums, [], onsets).drums;
+    expect(result.map((n) => n.time)).toEqual([0.98, 0.98, 1.035]);
+    expect(drums.map((n) => n.time)).toEqual([1, 1, 1.04]);
+  },
+);
