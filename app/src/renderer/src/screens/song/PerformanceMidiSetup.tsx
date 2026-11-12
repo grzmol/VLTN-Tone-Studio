@@ -1,3 +1,4 @@
+import { preRollStart } from "@/song/performance/rhythm";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,13 @@ import { HelpNote } from "@/components/ui/help-note";
 const field = "rounded border border-seam bg-transparent p-2";
 
 /** MIDI preflight and timing for the current song and output. */
-export function SessionMidiHealth({ session }: { session: PerformanceSession }) {
+export function SessionMidiHealth({ session, firstBeat = 0 }: { session: PerformanceSession; firstBeat?: number }) {
   const cues = useSession(session, (s) => s.cues);
   const parseError = useSession(session, (s) => s.parseError);
   const sections = useSession(session, (s) => s.sections);
   const player = useSession(session, (s) => s.player);
+  const bpm = useSession(session, (s) => s.bpm);
+  const timing = useSession(session, (s) => s.timing);
   const clock = useSession(session, (s) => s.clock);
   const tempoOnStart = useSession(session, (s) => s.tempoOnStart);
   const portId = useSession(session, (s) => s.portId);
@@ -42,8 +45,12 @@ export function SessionMidiHealth({ session }: { session: PerformanceSession }) 
     <MidiHealth
       cues={cues}
       sections={sections}
-      duration={player?.duration ?? 0}
+      duration={player?.length ?? 0}
       range={range}
+      playbackStart={player ? preRollStart(player.start, timing.preRollBeats, bpm) : undefined}
+      bpm={bpm}
+      beats={timing.beatsPerBar}
+      firstBeat={firstBeat}
       clock={clock}
       tempoChannel={tempoOnStart ? midiConfig.tempoChannel : undefined}
       timecode={timecode}
