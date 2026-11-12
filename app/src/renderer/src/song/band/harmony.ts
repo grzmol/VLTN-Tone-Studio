@@ -8,7 +8,7 @@ import { chordPattern } from "../performance/reader";
 import type { BassLineBeat } from "../analysis/bass-line";
 import { BASS_LINE_CONFIDENT } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
-import { bassOverrideAt, type BassOverride, type OverrideOctave } from "./bass-overrides";
+import type { BassOverride, OverrideOctave } from "./bass-overrides";
 
 /** A chord on a chart line that has no following timed line lasts this many seconds, per chord on the line. */
 export const LAST_CHORD_SECONDS = 2;
@@ -27,6 +27,8 @@ export interface ParsedChord {
   name: string;
   /** The octave the performer nudged the bass note by (bass-overrides.ts). Absent when the note is not set by hand. */
   bassOctave?: OverrideOctave;
+  /** True when the performer set the bass note by hand (bass-overrides.ts). The bass then plays that note, never a lead-in over it. */
+  byHand?: boolean;
 }
 
 /** A chord name and the time it starts, from the chart or from detection. */
@@ -219,13 +221,24 @@ export function chordChangeTimes(perBeat: readonly ChordAtBeat[]): number[] {
 export function withBassOverrides(perBeat: readonly ChordAtBeat[], overrides: readonly BassOverride[]): ChordAtBeat[] {
   if (overrides.length === 0) return [...perBeat];
   return perBeat.map((entry) => {
-    const override = bassOverrideAt(overrides, entry.time);
+    const override = overrideOnBeat(overrides, entry.time);
     if (!override) return entry;
     const base: ParsedChord = entry.chord ?? { root: override.pc, quality: "power", seventh: "none", bass: override.pc, name: `${NOTE_LETTERS[override.pc]}5` };
-    const chord: ParsedChord = { ...base, bass: override.pc };
+    const chord: ParsedChord = { ...base, bass: override.pc, byHand: true };
     if (override.octave !== undefined) chord.bassOctave = override.octave;
     return { ...entry, chord };
   });
+}
+
+/**
+ * How far a beat may fall before an override's start, or before its end, and still count as on it, in seconds. Override times written by
+ * hand or in a song map are rounded, so a beat a few milliseconds early would otherwise miss its note and the next beat would take it.
+ */
+export const OVERRIDE_BEAT_TOLERANCE_S = 0.02;
+
+/** The override a beat plays, allowing for times rounded a little after the beat (see OVERRIDE_BEAT_TOLERANCE_S). */
+function overrideOnBeat(overrides: readonly BassOverride[], time: number): BassOverride | undefined {
+  return overrides.find((entry) => time >= entry.start - OVERRIDE_BEAT_TOLERANCE_S && time < entry.end - OVERRIDE_BEAT_TOLERANCE_S);
 }
 
 /** Sharp spellings for a chord made from a bass note alone. */

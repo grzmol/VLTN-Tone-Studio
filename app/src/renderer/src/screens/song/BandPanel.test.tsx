@@ -251,6 +251,14 @@ describe("Band panel", () => {
     expect(savedOptions().band.followPlaying).toBe(false);
   });
 
+  it("the drummer's timing switch is on by default and saves the setting", () => {
+    renderPanel();
+    const timing = screen.getByRole("switch", { name: "Play with the drummer's timing" });
+    expect(timing.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(timing);
+    expect(savedOptions().band.followDrummer).toBe(false);
+  });
+
   it("says after Generate whether the parts followed the playing, or why they did not", async () => {
     useSong.setState({ stems: { guitar: song().audio } as never });
     stored({ beatGrid: grid, bandOutOfDate: true });
@@ -442,7 +450,8 @@ describe("Band panel", () => {
     expect(saved.drums.channels).toHaveLength(2);
     expect(saved.drums.channels[0][20000]).toBeCloseTo(0.5, 2);
     expect(saved.drums.channels[1][20000]).toBeCloseTo(0.5, 2);
-    expect(mocks.chain).toHaveBeenCalledTimes(2);
+    // Each part is rendered once and then a click goes through the same chain to measure its delay: two parts, four calls.
+    expect(mocks.chain).toHaveBeenCalledTimes(4);
     expect(mocks.tones.readNam).toHaveBeenCalledWith(42, 7);
   });
 

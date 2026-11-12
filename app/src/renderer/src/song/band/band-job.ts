@@ -5,11 +5,12 @@
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
 import { endBeforeNext, generateBass } from "./bass";
+import { drumOnsets, followDrummer } from "./drummer-timing";
 import { generateDrums } from "./drums";
 import { beatLevelsDb, followFeel, type Feel } from "./feel";
 import type { ChordAtBeat } from "./harmony";
 import { humanise } from "./humanise";
-import { loudnessOf, matchLoudness, targetLoudness, type LevelKind, type LevelReport, type PartLevels } from "./level";
+import { loudnessOf, matchLoudness, STEM_SILENT_LUFS, targetLoudness, type LevelKind, type LevelReport, type PartLevels } from "./level";
 import type { NoteEvent } from "./note";
 import { RENDER_RATE, renderPart } from "./render";
 import type { SampleSet } from "./samples";
@@ -105,6 +106,16 @@ function feelFor(request: BandRequest): { feel?: Feel; follow?: FollowReport } {
 }
 
 /**
+ * Moves the drum notes onto the original drummer's hits, and the bass notes locked to a kick with it (drummer-timing.ts), when the setting
+ * is on and the song has a drums stem that is not silent. Otherwise the notes are returned as they are.
+ */
+function snapToDrummer(request: BandRequest, drums: NoteEvent[], bass: NoteEvent[]): Notes {
+  const stem = request.originals?.drums;
+  if (!request.settings.followDrummer || !stem || !(loudnessOf(stem) > STEM_SILENT_LUFS)) return { drums, bass };
+  return followDrummer(drums, bass, drumOnsets(stem));
+}
+
+/**
  * The notes of the parts the request asks for, humanised (humanise.ts). Drums are always generated, even when only the bass is wanted,
  * because the bass locks to the kick; the bass locks to the drums as generated, before humanising. Drums that were not asked for are not
  * returned.
@@ -114,8 +125,11 @@ function generate(request: BandRequest): Generated {
   const { grid, plans, settings, seed } = request;
   const drums = generateDrums(grid, plans, settings, seed, feel);
   const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel) : [];
-  const drumNotes = humanise(drums, "drums", grid, plans, settings.humanise, seed);
-  const bassNotes = endBeforeNext(humanise(bass, "bass", grid, plans, settings.humanise, seed));
+  const humanDrums = humanise(drums, "drums", grid, plans, settings.humanise, seed);
+  const humanBass = humanise(bass, "bass", grid, plans, settings.humanise, seed);
+  const snapped = snapToDrummer(request, humanDrums, humanBass);
+  const drumNotes = snapped.drums;
+  const bassNotes = endBeforeNext(snapped.bass);
   return { notes: { drums: request.parts.drums ? drumNotes : [], bass: bassNotes }, follow };
 }
 

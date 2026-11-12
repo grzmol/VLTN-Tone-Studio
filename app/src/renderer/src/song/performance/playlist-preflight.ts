@@ -5,7 +5,7 @@ import type { MidiMacro } from "./midi-macros";
 import { parseSections } from "./sections";
 import { midiFileFromOptions } from "./smf";
 import { songCues } from "./song-cues";
-import { storedShape } from "./song-shape";
+import { playedTrimStart, storedShape } from "./song-shape";
 import { playRange } from "./transition";
 import { clampSpeed, effectiveBpm } from "./speed";
 import { orderedKeys } from "../tracks";
@@ -15,7 +15,8 @@ import { bindingClaiming, triggerClashes, type SongEntry } from "./song-triggers
 
 /** The part of a song that plays, when its stored options trim it. Null for a song that plays whole. */
 function trimRange(duration: number, options: object): { start: number; end: number } | undefined {
-  const shape = storedShape(options as Record<string, unknown>);
+  const raw = options as Record<string, unknown>;
+  const shape = { ...storedShape(raw), trimStart: playedTrimStart(raw) };
   if (shape.trimStart === undefined && shape.trimEnd === undefined) return undefined;
   return playRange(duration, shape);
 }
