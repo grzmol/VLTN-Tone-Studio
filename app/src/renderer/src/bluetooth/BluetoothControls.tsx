@@ -1,12 +1,28 @@
+import { host } from "@/host";
+import { SystemBluetoothControls } from "./SystemBluetoothControls";
 import { Button } from "@/components/ui/button";
 import { connectBluetooth, stopBluetoothReconnect, useBluetooth, type BleMidiConnection } from "./connection";
 
-export function BluetoothControls({ editor = false, onConnected }: { editor?: boolean; onConnected?: (connection: BleMidiConnection) => void }) {
+export function BluetoothControls({
+  editor = false,
+  onConnected,
+  locked = false,
+  onSetupOpening,
+  onSystemReady,
+}: {
+  editor?: boolean;
+  onConnected?: (connection: BleMidiConnection) => void;
+  locked?: boolean;
+  onSetupOpening?: () => void;
+  onSystemReady?: () => Promise<unknown> | void;
+}) {
   const { connection, connecting, error, diagnostics, reconnect } = useBluetooth();
   return (
     <div className="flex max-w-xl flex-col gap-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        {!connection && reconnect ? (
+        {host.bluetoothMidi ? (
+          <SystemBluetoothControls locked={locked} onOpening={onSetupOpening} onReady={onSystemReady} />
+        ) : !connection && reconnect ? (
           <>
             <span role="status">Reconnecting… (attempt {reconnect.attempt})</span>
             <Button variant="outline" onClick={() => stopBluetoothReconnect()}>
@@ -16,7 +32,7 @@ export function BluetoothControls({ editor = false, onConnected }: { editor?: bo
         ) : !connection ? (
           <Button
             variant="outline"
-            disabled={connecting}
+            disabled={connecting || locked}
             onClick={() =>
               void connectBluetooth()
                 .then((connection) => onConnected?.(connection))

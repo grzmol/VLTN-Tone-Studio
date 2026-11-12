@@ -35,4 +35,6 @@ export interface HostApi {
   clickSamples: ClickSamplesApi;
   /** Band sync (spec 44) is in the desktop app only. The browser build has no server to start. */
   bandSync?: BandSyncHostApi;
+  /** Native macOS pairing uses CoreMIDI ports and keeps discovery outside the app process. */
+  bluetoothMidi?: { openSetup(): Promise<void>; cancelSetup(): Promise<void> };
 }
