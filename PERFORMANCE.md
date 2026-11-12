@@ -169,6 +169,8 @@ To send cues, pick an output, then switch on **Send cues**. This is called armin
 
 **MIDI preflight & timing** (collapsible) lists cues beyond the audio, conflicting or dense commands, missing note-offs and channel clashes. Warnings are advice; they never change or disable a cue. The app cannot read a pedal's receive channel, so check those yourself.
 
+Playlist and song MIDI checks show playback errors and performance warnings first. Optional section navigation and intentional trim advice appear separately under **Arrangement advice**. Configured loop, repeat, skip and pause risks remain warnings. Checks include pre-roll and allow 10 ms for rounded boundaries without changing playback times.
+
 ### Tempo and clock
 
 For the GP-180, send the tempo once and let the pedal generate the clock. Apply the **GP-150 / GP-180 + pedals** setup preset (below), or add **Valeton GP-180 → Set tempo (BPM)** at time zero. On the pedal, set Clock Source to Internal and TRS clock output to On. Update a saved tempo cue by hand if you change the Song BPM. The preset uses the current BPM (40–300) automatically.
