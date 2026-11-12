@@ -13,7 +13,7 @@ const parse = (text: string): number | undefined => (text.trim() === "" ? undefi
 
 /**
  * The song's trim, fades and end behaviour. They are saved in the song's options, and the player takes them on the next change of
- * the song's settings. Auto trims to the audible part of the song, at −60 dBFS. A song with no trim start skips the silence at its start.
+ * the song's settings. Auto trims to the audible part of the song. A song with no trim start skips the silence at its start.
  */
 export function SongShapeControls({
   songKey,
@@ -23,7 +23,7 @@ export function SongShapeControls({
 }: {
   songKey: string;
   audio: PcmAudio | null;
-  /** The silence the analysis found at the ends of the song. Offered as a trim while no trim is set. */
+  /** The silence the analysis found at the ends of the song. Start silence is skipped by default; end silence is offered as a trim. */
   silence?: SilenceEnds | null;
   onChange: () => void;
 }) {
@@ -50,7 +50,7 @@ export function SongShapeControls({
   };
   const duration = audio ? (audio.channels[0]?.length ?? 0) / audio.sampleRate : 0;
   const trailing = silence ? duration - silence.end : 0;
-  const offer = silence && (silence.start > 0 || trailing > 0) && shape.trimStart === undefined && shape.trimEnd === undefined ? silence : null;
+  const offer = silence && trailing > 0 && shape.trimEnd === undefined ? silence : null;
   const fade = (text: string) => Math.max(0, Math.min(CROSSFADE_MAX_S, Number(text) || 0));
   // With no trim start of its own, the song starts after the silence the analysis found (see playerShapeFromOptions). 0 plays from the very start.
   const autoStart = shape.trimStart === undefined && silence && silence.start > 0 ? silence.start : undefined;
@@ -59,10 +59,9 @@ export function SongShapeControls({
       {offer && (
         <Button
           variant="outline"
-          onClick={() => save({ trimStart: offer.start > 0 ? offer.start : undefined, trimEnd: trailing > 0 ? offer.end : undefined })}
+          onClick={() => save({ trimEnd: offer.end })}
         >
-          Trim the silence ({offer.start > 0 ? `${offer.start.toFixed(1)} s at the start` : "none at the start"}
-          {trailing > 0 ? `, ${trailing.toFixed(1)} s at the end` : ", none at the end"})
+          Trim end silence ({trailing.toFixed(1)} s)
         </Button>
       )}
       <label className="flex flex-col gap-1">
@@ -78,11 +77,24 @@ export function SongShapeControls({
           onChange={(e) => save({ trimStart: parse(e.target.value) })}
         />
       </label>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={shape.trimStart === 0} onChange={(e) => save({ trimStart: e.target.checked ? 0 : undefined })} />
+        Play from the very start
+      </label>
+      <p className="w-full text-sm text-silkscreen-3">
+        {autoStart !== undefined
+          ? `Automatically skipping ${autoStart.toFixed(1)} s of detected start silence. Quiet intros may be included; select Play from the very start to keep them.`
+          : shape.trimStart === 0
+            ? "Playing from the very start, including any silence or quiet intro."
+            : shape.trimStart !== undefined
+              ? `Starting at ${shape.trimStart.toFixed(1)} s (manual trim).`
+              : "Playing from the very start; no start silence detected."}
+      </p>
       <label className="flex flex-col gap-1">
         Trim end (s)
         <input type="number" min={0} step={0.1} className={field} value={shape.trimEnd ?? ""} onChange={(e) => save({ trimEnd: parse(e.target.value) })} />
       </label>
-      <Button variant="outline" disabled={!audio} title="Trim to the audible part of the song (above −60 dBFS)." onClick={auto}>
+      <Button variant="outline" disabled={!audio} title="Trim to the audible part of the song." onClick={auto}>
         Auto
       </Button>
       <Button
