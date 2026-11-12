@@ -183,13 +183,21 @@ function lowerBound(sorted: readonly number[], value: number): number {
 }
 
 /**
- * The time each note moves to. A note takes the nearest hit of its band within SNAP_REACH_SECONDS. A hit goes to one note only: the pairs
- * are settled nearest first, so a note that loses its hit to a nearer note takes its next nearest, or stays.
+ * The time each note moves to. A note takes the nearest hit of its band within SNAP_REACH_SECONDS. Simultaneous notes in the same band share a hit.
+ * Pairs are settled nearest first; distinct times compete for each hit.
  */
 function snappedTimes(notes: readonly NoteEvent[], onsets: DrumOnsets): number[] {
+  const groups = new Map<string, number[]>();
+  notes.forEach((note, index) => {
+    const key = `${bandOf(note.pitch)}:${note.time}`;
+    const group = groups.get(key);
+    if (group) group.push(index);
+    else groups.set(key, [index]);
+  });
   const pairs: { note: number; hit: number; distance: number; band: DrumBand }[] = [];
   notes.forEach((note, index) => {
     const band = bandOf(note.pitch);
+    if (groups.get(`${band}:${note.time}`)![0] !== index) return;
     const hits = onsets[band];
     for (let hit = lowerBound(hits, note.time - SNAP_REACH_SECONDS); hit < hits.length && hits[hit] <= note.time + SNAP_REACH_SECONDS; hit++) {
       pairs.push({ note: index, hit, distance: Math.abs(hits[hit] - note.time), band });
@@ -204,7 +212,7 @@ function snappedTimes(notes: readonly NoteEvent[], onsets: DrumOnsets): number[]
     if (moved.has(pair.note) || taken.has(key)) continue;
     moved.add(pair.note);
     taken.add(key);
-    times[pair.note] = onsets[pair.band][pair.hit];
+    for (const index of groups.get(`${pair.band}:${notes[pair.note].time}`)!) times[index] = onsets[pair.band][pair.hit];
   }
   return times;
 }
