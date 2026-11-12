@@ -806,6 +806,13 @@ export const useDevice = create<DeviceState>((set, get) => {
       return upload("userir", `Writing User IR ${slot + 1}`, send, () => get().readUserIRs(), opts?.onProgress);
     },
 
+    async renameToneSlot(kind, slot, name) {
+      const d = requireDriver();
+      if (!get().features.includes("renameToneSlots") || !d.renameToneSlot) throw new Error("This pedal can't rename SnapTones or User IRs from Tone Studio.");
+      const label = kind === "snaptone" ? `Renaming SnapTone ${slot}` : `Renaming User IR ${slot + 1}`;
+      return upload(kind === "snaptone" ? "snaptone" : "userir", label, () => d.renameToneSlot!(kind, slot, name), () => (kind === "snaptone" ? get().readSnapTones() : get().readUserIRs()));
+    },
+
     async restoreAll(entries, opts) {
       const d = requireDriver();
       requireIdle();
