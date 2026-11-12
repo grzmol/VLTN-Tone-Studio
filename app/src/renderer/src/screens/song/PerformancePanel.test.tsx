@@ -1,3 +1,4 @@
+import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { usePracticeMute } from "@/song/performance/practice-mute";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -41,6 +42,7 @@ vi.mock("@/song/performance/midi-scheduler-client", async () => {
   };
 });
 beforeEach(() => {
+  usePreparationDefaults.setState({ settings: { enabled: false, settleMs: 1000, openingPresets: true } });
   localStorage.clear();
   clearSettingsCache();
   useMidiConfiguration.setState(readMidiConfiguration());
@@ -131,7 +133,7 @@ const playlist = vi.hoisted(() => ({
   preparedNext: (): unknown => null,
   playlistPlaying: true,
   busy: false,
-  index: { songs: [] },
+  index: { songs: [], playlists: [] },
   midiSession: null as { access: MIDIAccess | null; portId: string; inputId: string; armed: boolean; output: unknown } | null,
   rememberMidi: vi.fn(),
   pausePlaylist: vi.fn(),
@@ -141,21 +143,27 @@ const playlist = vi.hoisted(() => ({
   takeAutoplay: (): boolean => false,
 }));
 vi.mock("@/song/library", () => ({
-  useSongLibrary: Object.assign(() => (playlist.active ? playlist : { queue: [], queueOverrides: [], position: -1, index: { songs: [] } }), {
-    getState: () =>
-      playlist.active
-        ? playlist
-        : {
-            queue: [],
-            queueOverrides: [],
-            position: -1,
-            playlistPlaying: false,
-            rememberMidi: vi.fn(),
-            preparedNext: (): unknown => null,
-            claimHandover: (): unknown => null,
-            takeAutoplay: (): boolean => false,
-          },
-  }),
+  useSongLibrary: Object.assign(
+    (select?: (state: unknown) => unknown) => {
+      const state = playlist.active ? playlist : { queue: [], queueOverrides: [], position: -1, index: { songs: [], playlists: [] } };
+      return select ? select(state) : state;
+    },
+    {
+      getState: () =>
+        playlist.active
+          ? playlist
+          : {
+              queue: [],
+              queueOverrides: [],
+              position: -1,
+              playlistPlaying: false,
+              rememberMidi: vi.fn(),
+              preparedNext: (): unknown => null,
+              claimHandover: (): unknown => null,
+              takeAutoplay: (): boolean => false,
+            },
+    },
+  ),
 }));
 vi.mock("@/song/audio/playback-engine", () => ({ sharedPlaybackEngine: () => ({}) }));
 vi.mock("@/host", () => ({ host: { song: {} } }));
@@ -203,7 +211,8 @@ vi.mock("@/song/stems/player", () => ({
     setMetronome(value: unknown) {
       mocks.metronome(value);
     }
-    setShape() {}
+    start = 0;
+    setShape(shape: { trimStart?: number; trimEnd?: number }) { this.start = shape.trimStart ?? 0; this.duration = shape.trimEnd ?? 60; }
     setCustomClickSamples() {}
     setClickListener() {}
     async dispose() {}
@@ -940,4 +949,132 @@ it("shows the practice mute banner and never mutes a song that has no split", ()
   expect(screen.getByRole("status", { name: "Practice mute" }).textContent).toContain("Guitar muted in every song. This song has no guitar track to mute");
   fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
   expect(screen.queryByRole("status", { name: "Practice mute" })).toBeNull();
+});
+
+it("prepares an opening preset before audio and does not repeat it at song time zero", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  localStorage.setItem(key, "[00:00] {midi:pc 1 5}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation: { enabled: true, settleMs: 200, openingPresets: true } }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => {
+    fireEvent.click(screen.getByText("Play song"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(screen.getByText("Cancel start")).toBeTruthy();
+  expect(screen.getByText(/Preparing pedals:/)).toBeTruthy();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 5]]);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 230));
+  });
+  expect(screen.getByText("Pause")).toBeTruthy();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 5]]);
+});
+
+it("shows preparation in stage mode and allows cancelling before the music starts", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  localStorage.setItem(key, "{midi@prepare:pc 1 7}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation: { enabled: true, settleMs: 200, openingPresets: true } }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  fireEvent.click(screen.getByText("Enter stage mode"));
+  const stage = within(screen.getByRole("dialog", { name: "Stage mode" }));
+  await act(async () => {
+    fireEvent.click(stage.getByText("Play song"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(stage.getByText(/Preparing pedals:/)).toBeTruthy();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 7]]);
+  await act(async () => {
+    fireEvent.click(stage.getByText("Cancel start"));
+    await new Promise((resolve) => setTimeout(resolve, 230));
+  });
+  expect(stage.getByText("Play song")).toBeTruthy();
+  expect(stage.queryByText(/Preparing pedals:/)).toBeNull();
+  expect(stage.queryByText("Pause")).toBeNull();
+});
+
+it("prepares in stage mode, shows Ready, and Play starts without repeating the custom command", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  localStorage.setItem(key, "{midi@prepare:pc 1 7}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation: { enabled: true, settleMs: 100, openingPresets: true } }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  fireEvent.click(screen.getByText("Enter stage mode"));
+  const stage = within(screen.getByRole("dialog", { name: "Stage mode" }));
+  await act(async () => {
+    fireEvent.click(stage.getByText("Prepare pedals"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  expect(stage.getByText(/Ready to play/)).toBeTruthy();
+  expect(stage.getByText("Play song")).toBeTruthy();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 7]]);
+  await act(async () => {
+    fireEvent.click(stage.getByText("Play song"));
+  });
+  expect(stage.getByText("Pause")).toBeTruthy();
+  expect(stage.queryByText(/Ready to play/)).toBeNull();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 7]]);
+});
+
+it("clears Ready when the song trim changes while stopped", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  const preparation = { enabled: true, settleMs: 100, openingPresets: true };
+  localStorage.setItem(key, "{midi@prepare:pc 1 7}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => {
+    fireEvent.click(screen.getByText("Prepare pedals"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+  expect(screen.getByText(/Ready to play/)).toBeTruthy();
+  await act(async () => setSetting(key, ":options", JSON.stringify({ preparation, trimStart: 0.2 })));
+  expect(screen.queryByText(/Ready to play/)).toBeNull();
+  expect(screen.getByText("Prepare pedals")).toBeTruthy();
+  expect(screen.getByText("Play song")).toBeTruthy();
+});
+
+it("respects once commands on Prepare again and exposes an explicit reset without sending MIDI", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  localStorage.setItem(key, "{midi@prepare-once:pc 1 99}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation: { enabled: true, settleMs: 0, openingPresets: true } }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  await act(async () => fireEvent.click(screen.getByText("Prepare pedals")));
+  expect(screen.getByText(/1 once command line used/)).toBeTruthy();
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 99]]);
+  await act(async () => fireEvent.click(screen.getByText("Prepare again")));
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByText("Reset once commands"));
+  expect(screen.queryByText(/Ready to play/)).toBeNull();
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  await act(async () => fireEvent.click(screen.getByText("Prepare pedals")));
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([
+    [0xc0, 99],
+    [0xc0, 99],
+  ]);
+});
+
+it("previews automatic/custom command order and total waits without sending, and updates when a wait changes", async () => {
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  localStorage.setItem(key, "[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{label:Effect} {midi@prepare wait=0.5:cc 3 20 64}");
+  localStorage.setItem(key + ":options", JSON.stringify({ preparation: { enabled: true, settleMs: 200, commandGapMs: 100, openingPresets: true } }));
+  useMidiConfiguration.setState({ tempoOnStart: true, tempoChannel: 16 });
+  render(<PerformancePanel />);
+  fireEvent.click(screen.getByRole("tab", { name: "MIDI" }));
+  const preview = within(screen.getByRole("region", { name: "Preparation sequence preview" }));
+  expect(preview.getByText("Opening preset")).toBeTruthy();
+  expect(preview.getByText("Effect")).toBeTruthy();
+  expect(preview.getByText("Song tempo")).toBeTruthy();
+  expect(preview.getByText(/Configured preparation time/).textContent).toContain("0.9 s");
+  expect(mocks.send).not.toHaveBeenCalled();
+  await act(async () => fireEvent.change(screen.getByLabelText("Wait after Effect"), { target: { value: "1" } }));
+  expect(preview.getByText(/Configured preparation time/).textContent).toContain("1.4 s");
+  expect(mocks.send).not.toHaveBeenCalled();
 });

@@ -35,6 +35,30 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   const add = (code: string, text: string) => {
     if (issues.length < 100) issues.push({ code, text });
   };
+  const preparation = cues.filter((cue) => cue.trigger === "prepare");
+  if (
+    options.tempoChannel &&
+    preparation.some((cue) =>
+      cue.messages.some((bytes) => (bytes[0] & 240) === 176 && (bytes[0] & 15) + 1 === options.tempoChannel && [73, 74].includes(bytes[1])),
+    )
+  )
+    add(
+      "preparation-tempo",
+      "Before song commands set GP tempo, but automatic song BPM runs afterwards. Turn off automatic BPM if the preparation tempo should win.",
+    );
+  for (const cue of preparation)
+    for (const bytes of cue.messages) {
+      if (bytes[0] < 240) {
+        const channel = (bytes[0] & 15) + 1;
+        channels.set(channel, (channels.get(channel) ?? 0) + 1);
+        const pedal = options.pedals.find((pedal) => cue.label?.startsWith(pedal.name + ":"));
+        if (pedal && pedal.channel !== channel)
+          add(
+            "saved-channel",
+            `${pedal.name} Before song cue uses channel ${channel}; its current profile is channel ${pedal.channel}. Existing cue bytes are unchanged.`,
+          );
+      }
+    }
   for (const cue of unmatchedSectionCues(chartCues, options.sections ?? []))
     add("section-cue", `On section ${cue.section!.name}: there is no section called ${cue.section!.name}. The cue never fires.`);
   // Triggers have no time, so they are checked below rather than on the timeline.
@@ -51,9 +75,9 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       "transport-conflict",
       "A Start, Continue or Stop cue conflicts with app MIDI clock, which already sends Start and Stop. Turn clock off or remove the cue.",
     );
-  if (events.length && !options.outputName)
+  if ((events.length || preparation.some((cue) => cue.messages.length)) && !options.outputName)
     add("output", "No MIDI output selected. Connect the intended output and explicitly enable Send cues before performing.");
-  const referenced = options.pedals.filter((p) => events.some((c) => c.label?.startsWith(p.name + ":")));
+  const referenced = options.pedals.filter((p) => [...events, ...preparation].some((c) => c.label?.startsWith(p.name + ":")));
   const labels = new Map<number, string[]>();
   for (const pedal of referenced) {
     const names = labels.get(pedal.channel) || [];
@@ -189,5 +213,5 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     add(issue.code, issue.text);
   for (const [note, time] of notes)
     add("note-off", `Note ${note.split(":")[1]} on channel ${note.split(":")[0]} at ${time.toFixed(2)} s has no later note-off before the audio ends.`);
-  return { issues, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: events.reduce((n, c) => n + c.messages.length, 0) };
+  return { issues, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: [...events, ...preparation].reduce((n, c) => n + c.messages.length, 0) };
 }

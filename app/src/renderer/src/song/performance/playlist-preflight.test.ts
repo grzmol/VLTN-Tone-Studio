@@ -119,3 +119,81 @@ it("does not warn about a 120 BPM the performer set", () => {
   const [result] = playlistPreflight(["one"], [{ ...saved, song }], config);
   expect(result.warnings).toEqual([]);
 });
+
+it("previews fresh-load preparation for each repeated entry, with effective tempo and grouped waits", () => {
+  const song = {
+    ...saved.song!,
+    settings: {
+      ":bpm": "100",
+      ":options": JSON.stringify({ speed: 1.4, tempoSource: "manual", analysis: {}, preparation: { settleMs: 100, commandGapMs: 200 } }),
+      "": "[00:00] {midi:cc 1 0 2} {midi:pc 1 4}\n{midi@prepare-once wait=0.5:$INIT}",
+    },
+  };
+  const before = JSON.stringify(song);
+  const results = playlistPreflight(["one", "one"], [{ ...saved, song }], {
+    ...config,
+    macros: [{ code: "INIT", label: "Init", commands: ["cc 3 20 1", "cc 3 21 0"] }],
+  });
+  expect(results[0].preparation?.totalWaitMs).toBe(900);
+  expect(results[0].preparation).toEqual(results[1].preparation);
+  expect(results[0].preparation?.steps.filter((step) => step.kind === "send").map((step) => step.commands.map((command) => command.bytes))).toEqual([
+    [
+      [176, 0, 2],
+      [192, 4],
+    ],
+    [
+      [178, 20, 1],
+      [178, 21, 0],
+    ],
+    [
+      [191, 73, 1],
+      [191, 74, 12],
+    ],
+  ]);
+  expect(JSON.stringify(song)).toBe(before);
+});
+it("reports disabled preparation with explicit commands, including when disabled in defaults", () => {
+  const song = { ...saved.song!, settings: { ...saved.song!.settings, "": "{midi@prepare:pc 1 5}" } };
+  const defaults = { enabled: false, settleMs: 100, openingPresets: true };
+  const [result] = playlistPreflight(["one"], [{ ...saved, song }], { ...config, preparationDefaults: defaults });
+  expect(result.errors.join(" ")).toContain("Enable Before song preparation");
+  expect(result.preparation).toBeUndefined();
+  const disabled = { ...song, settings: { ...song.settings, "": "" } };
+  expect(playlistPreflight(["one"], [{ ...saved, song: disabled }], { ...config, preparationDefaults: defaults })[0].preparation).toBeUndefined();
+});
+it("uses trimmed beginning, global pre-roll, section presets and current preparation defaults", () => {
+  const song = {
+    ...saved.song!,
+    settings: {
+      ":bpm": "120",
+      ":options": JSON.stringify({
+        trimStart: 4,
+        tempoSource: "manual",
+        analysis: {},
+        sections: [{ id: "s", name: "Verse", start: 3, end: 8, mode: "continue" }],
+      }),
+      "": "{midi@section Verse:pc 1 7}\n{midi@prepare-beginning wait=0.4:cc 3 10 1}",
+    },
+  };
+  const [result] = playlistPreflight(["one"], [{ ...saved, song }], {
+    ...config,
+    leadInDefaults: { preRollBeats: 2, countInBars: 0, startDelay: 0 },
+    preparationDefaults: { enabled: true, settleMs: 200, commandGapMs: 100, openingPresets: true },
+  });
+  expect(result.preparation?.totalWaitMs).toBe(800);
+  expect(result.preparation?.steps.filter((step) => step.kind === "send")[0].commands[0].bytes).toEqual([192, 7]);
+});
+it("flags early trigger actions and conflicting recalls, and handles songs with no audio without aborting the playlist", () => {
+  const song = { ...saved.song!, settings: { ...saved.song!.settings, "": "[00:00] {midi:pc 2 0}\n{midi@prepare:pc 2 3}\n{midi@prepare:cc 2 80 127}" } };
+  const [result, missing] = playlistPreflight(
+    ["one", "empty"],
+    [
+      { ...saved, song },
+      { id: "empty", errors: [], song: { ...song, audio: [] } },
+    ],
+    { ...config, pedals: [{ name: "BOSS RC-10R", channel: 2, triggers: [[2, 80]] }] },
+  );
+  expect(result.warnings.join(" ")).toContain("last recall wins");
+  expect(result.warnings.join(" ")).toContain("matching a configured trigger");
+  expect(missing.errors).toContain("Song has no playable audio tracks.");
+});

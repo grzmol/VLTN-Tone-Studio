@@ -1,3 +1,5 @@
+import { PreparePedalsButton } from "./PreparePedalsButton";
+import { SongPreparationStatus } from "./SongPreparationStatus";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -206,7 +208,9 @@ export function PerformanceTransport({
         </p>
       )}
       {queued && library.notice === "Playlist finished." && <p role="status">Playlist finished.</p>}
+      <SongPreparationStatus session={session} />
       <div className="flex flex-wrap items-center gap-3">
+        <PreparePedalsButton session={session} />
         <Button
           disabled={!player || !!parseError || library.busy}
           onClick={() => (playing ? session.pause() : starting ? session.cancelStart() : session.startPlayback())}

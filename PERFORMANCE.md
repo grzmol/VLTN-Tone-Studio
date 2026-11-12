@@ -169,6 +169,18 @@ To send cues, pick an output, then switch on **Send cues**. This is called armin
 
 **MIDI preflight & timing** (collapsible) lists cues beyond the audio, conflicting or dense commands, missing note-offs and channel clashes. Warnings are advice; they never change or disable a cue. The app cannot read a pedal's receive channel, so check those yourself.
 
+### Before song preparation
+
+**Prepare pedals** sends the opening presets and your **Before song** MIDI commands, waits for loading, sets automatic song BPM, and stops at **Ready to play**. **Play** reuses valid preparation without sending it twice, then starts the count-in and music. Play on its own can prepare automatically. Ready confirms sending and waiting, not a pedal acknowledgement.
+
+In **Song MIDI cues**, choose **When → Before song** for named commands, raw MIDI or macros. Move existing commands with **Before song** and reorder whole command lines with the arrow buttons. Bank-select and program-change groups stay together. Song settings control a loading wait and a gap between command groups; individual lines also have **Wait after**, each from zero to ten seconds. Automatic opening preparation only moves presets early; notes and transport actions retain their times unless explicitly made preparation commands.
+
+Choose **Every start**, **Only from beginning**, or **Once per song load** for each preparation line. Once commands are consumed when sending starts, even if cancellation or a failure follows; **Reset once commands** explicitly permits them again without sending anything. Chart syntax includes `{midi@prepare:pc 1 5}`, `{midi@prepare-beginning:pc 1 5}` and `{midi@prepare-once wait=0.5:$INIT}`.
+
+**Next preparation sequence** previews the send order, waits, skipped repeat commands and total configured time without sending MIDI. **Check playlist** previews each saved entry and totals its preparation waits, assuming fresh song loads. Reports refresh after settings changes. Conflicting recalls and early trigger commands produce advice without changing intentional sequences.
+
+Preparation progress and **Cancel start** are available in the transport and stage view. Cancellation prevents the remaining commands and music; it cannot undo commands already received by a pedal. Output or setup changes cancel pending preparation and invalidate Ready. Preparation runs between playlist songs; disable it to use crossfades.
+
 ### Tempo and clock
 
 For the GP-180, send the tempo once and let the pedal generate the clock. Apply the **GP-150 / GP-180 + pedals** setup preset (below), or add **Valeton GP-180 → Set tempo (BPM)** at time zero. On the pedal, set Clock Source to Internal and TRS clock output to On. Update a saved tempo cue by hand if you change the Song BPM. The preset uses the current BPM (40–300) automatically.
