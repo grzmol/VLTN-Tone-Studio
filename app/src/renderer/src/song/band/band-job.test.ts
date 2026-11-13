@@ -28,7 +28,7 @@ const constant = (value: number, length: number): PcmAudio => ({
 /** Stub samples for every drum piece the styles use, and three bass roots. The audio is constant, so the tests look at timing and level. */
 function stubSamples(): SampleSet {
   const drums = new Map<number, DrumLayer[]>();
-  for (const pitch of DRUM_PITCHES) drums.set(pitch, [{ velocity: [1, 127], nominal: 100, transpose: 0, audio: constant(0.1, RATE / 4) }]);
+  for (const pitch of DRUM_PITCHES) drums.set(pitch, [{ velocity: [1, 127], nominal: 100, transpose: 0, takes: [constant(0.1, RATE / 4)] }]);
   const bass: BassSample[] = [36, 48, 60].map((root) => ({ root, layer: "p", velocity: [1, 127], audio: constant(0.1, RATE) }));
   return { drums, bass };
 }

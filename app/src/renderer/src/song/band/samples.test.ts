@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { PcmAudio } from "../types";
-import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumSample, readSampleMap, sampleSetFrom, type SampleSet } from "./samples";
+import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumSample, readSampleMap, sampleSetFrom, takeFiles, type SampleSet } from "./samples";
 import { ENERGIES, STYLES } from "./styles";
 
 const SAMPLES = join(dirname(fileURLToPath(import.meta.url)), "samples");
@@ -31,7 +31,7 @@ function stubSet(): { set: SampleSet; audio: (file: string) => PcmAudio } {
 
 /** Every file path in map.json, in drum and bass order. */
 function mappedFiles(): string[] {
-  const drums = Object.values(SAMPLE_MAP.drums).flatMap((entry) => entry.layers.map((layer) => layer.file));
+  const drums = Object.values(SAMPLE_MAP.drums).flatMap((entry) => entry.layers.flatMap(takeFiles));
   return [...drums, ...SAMPLE_MAP.bass.map((sample) => sample.file)];
 }
 
@@ -71,7 +71,7 @@ describe("map.json", () => {
   });
 
   it("gives the mid tom the low tom files, transposed up 3 semitones", () => {
-    expect(SAMPLE_MAP.drums["47"].layers.map((layer) => layer.file)).toEqual(SAMPLE_MAP.drums["45"].layers.map((layer) => layer.file));
+    expect(SAMPLE_MAP.drums["47"].layers.map(takeFiles)).toEqual(SAMPLE_MAP.drums["45"].layers.map(takeFiles));
     expect(SAMPLE_MAP.drums["47"].layers.every((layer) => layer.transpose === 3)).toBe(true);
   });
 
@@ -103,6 +103,21 @@ describe("map.json", () => {
     expect(onDisk.sort()).toEqual([...new Set(files)].sort());
   });
 
+  it("keeps the drum samples under 12 MB", () => {
+    const total = readdirSync(join(SAMPLES, "drums"))
+      .map((name) => statSync(join(SAMPLES, "drums", name)).size)
+      .reduce((sum, size) => sum + size, 0);
+    expect(total).toBeLessThan(12_000_000);
+  });
+
+  it("accepts a layer with one file or with several", () => {
+    const map = (layer: object): unknown => ({ sampleRate: 44100, drums: { "36": { name: "kick", layers: [layer] } }, bass: [] });
+    expect(readSampleMap(map({ file: "a.flac", velocity: [1, 127], nominal: 80 })).drums["36"].layers.map(takeFiles)).toEqual([["a.flac"]]);
+    expect(readSampleMap(map({ files: ["a.flac", "b.flac"], velocity: [1, 127], nominal: 80 })).drums["36"].layers.map(takeFiles)).toEqual([["a.flac", "b.flac"]]);
+    expect(() => readSampleMap(map({ files: [], velocity: [1, 127], nominal: 80 }))).toThrow(/Invalid sample map/);
+    expect(() => readSampleMap(map({ velocity: [1, 127], nominal: 80 }))).toThrow(/Invalid sample map/);
+  });
+
   it("keeps samples/ under 30 MB", () => {
     const total = readdirSync(SAMPLES, { recursive: true })
       .map((path) => join(SAMPLES, String(path)))
@@ -113,39 +128,44 @@ describe("map.json", () => {
 });
 
 describe("pickDrumSample", () => {
-  it("picks the soft layer up to velocity 62, and scales by velocity / nominal", () => {
+  it("picks the lowest layer for a quiet hit, and scales by velocity / nominal", () => {
     const { set, audio } = stubSet();
-    expect(pickDrumSample(set, 36, 40)).toEqual({ audio: audio("drums/kick-soft.flac"), gain: 1, transpose: 0 });
-    expect(pickDrumSample(set, 36, 20).gain).toBeCloseTo(0.5);
-    expect(pickDrumSample(set, 36, 62).audio).toBe(audio("drums/kick-soft.flac"));
+    expect(pickDrumSample(set, 36, 31)).toEqual({ audio: audio("drums/kick-v1-rr1.flac"), gain: 1, transpose: 0 });
+    expect(pickDrumSample(set, 36, 20).gain).toBeCloseTo(20 / 31);
   });
 
-  it("picks the medium layer from 63 to 100", () => {
+  it("picks the layer whose range holds the velocity", () => {
     const { set, audio } = stubSet();
-    expect(pickDrumSample(set, 36, 63).audio).toBe(audio("drums/kick-medium.flac"));
-    expect(pickDrumSample(set, 36, 85).gain).toBeCloseTo(1);
-    expect(pickDrumSample(set, 36, 100).audio).toBe(audio("drums/kick-medium.flac"));
+    expect(pickDrumSample(set, 36, 48).audio).toBe(audio("drums/kick-v2-rr1.flac"));
+    expect(pickDrumSample(set, 36, 79).audio).toBe(audio("drums/kick-v2-rr1.flac"));
+    expect(pickDrumSample(set, 36, 80).audio).toBe(audio("drums/kick-v3-rr1.flac"));
+    expect(pickDrumSample(set, 36, 85).gain).toBeCloseTo(85 / 95);
   });
 
-  it("picks the hard layer from 101 to 127, and lets it rise above its nominal", () => {
+  it("picks the top layer from its range up, and lets the gain rise above 1 at 127", () => {
     const { set, audio } = stubSet();
-    const hard = pickDrumSample(set, 36, 127);
-    expect(hard.audio).toBe(audio("drums/kick-hard.flac"));
-    expect(hard.gain).toBeCloseTo(127 / 115);
+    expect(pickDrumSample(set, 38, 127).audio).toBe(audio("drums/snare-v5-rr1.flac"));
+    expect(pickDrumSample(set, 38, 127).gain).toBeCloseTo(127 / 120);
+  });
+
+  it("cycles a layer's takes by the take counter", () => {
+    const { set, audio } = stubSet();
+    const files = [1, 2, 3].map((n) => audio(`drums/kick-v3-rr${n}.flac`));
+    expect([0, 1, 2, 3, 4].map((take) => pickDrumSample(set, 36, 90, take).audio)).toEqual([files[0], files[1], files[2], files[0], files[1]]);
   });
 
   it("plays the mid tom from the low tom files, transposed up 3 semitones", () => {
     const { set, audio } = stubSet();
-    const mid = pickDrumSample(set, 47, 85);
-    expect(mid.audio).toBe(audio("drums/tom-low-medium.flac"));
+    const mid = pickDrumSample(set, 47, 79);
+    expect(mid.audio).toBe(audio("drums/tom-low-v3.flac"));
     expect(mid.transpose).toBe(3);
-    expect(pickDrumSample(set, 45, 85).transpose).toBe(0);
+    expect(pickDrumSample(set, 45, 79).transpose).toBe(0);
   });
 
   it("clamps the velocity into 1 to 127", () => {
     const { set, audio } = stubSet();
-    expect(pickDrumSample(set, 38, 0).audio).toBe(audio("drums/snare-soft.flac"));
-    expect(pickDrumSample(set, 38, 300).gain).toBeCloseTo(127 / 115);
+    expect(pickDrumSample(set, 38, 0).audio).toBe(audio("drums/snare-v1-rr1.flac"));
+    expect(pickDrumSample(set, 38, 300).gain).toBeCloseTo(127 / 120);
   });
 
   it("throws for a pitch with no sample", () => {
