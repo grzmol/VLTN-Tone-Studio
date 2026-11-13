@@ -8,7 +8,7 @@ import { DEFAULT_PEDAL_CHANNELS, usePedalLibrary } from "@/song/performance/peda
 import { saveMacro, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { macroCodeFor } from "@/song/performance/midi-macros";
 import { HelpNote } from "@/components/ui/help-note";
-import { nameSource, presetLabel, presetModelOf } from "@/song/performance/pedal-preset-names";
+import { nameSource, presetCueLabel, presetLabel, presetModelOf } from "@/song/performance/pedal-preset-names";
 import { usePresetNames } from "./use-preset-names";
 
 export function PedalMidiPicker({
@@ -86,7 +86,14 @@ export function PedalMidiPicker({
       const messages = commands.map(midiCommand);
       if (send) messages.forEach(onTest);
       else {
-        const label = `${profile.name}: ${action.label}${action.value ? ` — ${action.value.label} ${value}` : ""} (ch ${channel})`.replace(/[{}\r\n]/g, " ");
+        const memory = presetModel && presetNames ? /^memory-(\d+)$/.exec(action.id) : null;
+        const name = memory ? presetNames!.names[Number(memory[1]) - 1]?.trim() : "";
+        // A named preset is labelled "GP-180: 069 Crunch Lead", which preflight reads back to notice a changed slot.
+        const label = (
+          memory && name
+            ? presetCueLabel(presetModel!, Number(memory[1]) - 1, name)
+            : `${profile.name}: ${action.label}${action.value ? ` — ${action.value.label} ${value}` : ""} (ch ${channel})`
+        ).replace(/[{}\r\n]/g, " ");
         onAdd(`${lrcTime(time)} {label:${label}}${action.momentary ? " {nochase}" : ""} ${commands.map((c) => `{midi:${c}}`).join(" ")}`);
       }
       setError("");
