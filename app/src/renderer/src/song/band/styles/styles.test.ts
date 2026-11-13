@@ -1,16 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { DRUM_PITCHES } from "../note";
-import { ENERGIES, STYLE_IDS, type DrumPattern, type Style } from "./types";
+import { ENERGIES, LEGACY_FILLS, STYLE_IDS, type DrumPattern, type Style } from "./types";
+import { ramp } from "./notation";
 import { STYLES, findStyle } from "./index";
 
 const styles = STYLE_IDS.map((id) => STYLES[id]);
 
 /** Every pattern a style holds: grooves at each energy, then the fills. */
 function patternsOf(style: Style): { label: string; pattern: DrumPattern }[] {
-  const grooves = ENERGIES.flatMap((energy) => style.grooves[energy].map((groove) => ({ label: `${energy} ${groove.name}`, pattern: groove })));
+  const grooves = ENERGIES.flatMap((energy) =>
+    style.grooves[energy].map((groove) => ({
+      label: `${energy} ${groove.name}`,
+      pattern: groove,
+    })),
+  );
   const fills = [
-    ...style.fills.half.map((pattern, i) => ({ label: `half fill ${i}`, pattern })),
-    ...style.fills.bar.map((pattern, i) => ({ label: `bar fill ${i}`, pattern })),
+    ...style.fills.short.map((pattern, i) => ({
+      label: `short fill ${i}`,
+      pattern,
+    })),
+    ...style.turnarounds.map((pattern, i) => ({
+      label: `turnaround ${i}`,
+      pattern,
+    })),
+    ...style.fills.half.map((pattern, i) => ({
+      label: `half fill ${i}`,
+      pattern,
+    })),
+    ...style.fills.bar.map((pattern, i) => ({
+      label: `bar fill ${i}`,
+      pattern,
+    })),
   ];
   return [...grooves, ...fills];
 }
@@ -58,6 +78,37 @@ describe("style data", () => {
     }
   });
 
+  it.each(styles.map((style) => [style.id, style] as const))("%s has the fills and turnarounds the drum phrases draw from", (_id, style) => {
+    expect(style.turnarounds.length).toBeGreaterThanOrEqual(3);
+    expect(style.fills.short.length).toBeGreaterThanOrEqual(3);
+    expect(style.fills.half.length).toBeGreaterThanOrEqual(4);
+    expect(style.fills.bar.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it.each(styles.map((style) => [style.id, style] as const))("%s keeps short fills and turnarounds in the last beat", (_id, style) => {
+    const lastBeat = style.meter.beatsPerBar * style.meter.stepsPerBeat - style.meter.stepsPerBeat;
+    for (const [label, patterns] of [
+      ["short fill", style.fills.short],
+      ["turnaround", style.turnarounds],
+    ] as const) {
+      for (const [i, pattern] of patterns.entries()) {
+        expect(pattern.hits.length, `${label} ${i} has hits`).toBeGreaterThan(0);
+        for (const hit of pattern.hits) expect(hit.step, `${label} ${i}`).toBeGreaterThanOrEqual(lastBeat);
+      }
+    }
+  });
+
+  it.each(styles.map((style) => [style.id, style] as const))("%s has no flat fill of four hits or more", (_id, style) => {
+    // The first LEGACY_FILLS half and bar fills are the ones songs on drum engine 2 were made with, and they stay as they were. The drums
+    // shape them when they play (drum-phrases.ts), so only the newer ones are held to the rule here.
+    const fills = [...style.fills.short, ...style.fills.half.slice(LEGACY_FILLS), ...style.fills.bar.slice(LEGACY_FILLS)];
+    for (const [i, fill] of fills.entries()) {
+      if (fill.hits.length < 4) continue;
+      const velocities = fill.hits.filter((hit) => !hit.ghost).map((hit) => hit.velocity);
+      expect(Math.max(...velocities) - Math.min(...velocities), `fill ${i}`).toBeGreaterThanOrEqual(15);
+    }
+  });
+
   it.each(styles.map((style) => [style.id, style] as const))("%s has bass rhythms for every energy", (_id, style) => {
     const stepsPerBar = style.meter.beatsPerBar * style.meter.stepsPerBeat;
     for (const energy of ENERGIES) {
@@ -75,6 +126,11 @@ describe("style data", () => {
       return grooves.reduce((sum, groove) => sum + groove.hits.length, 0) / grooves.length;
     };
     expect(average(1)).toBeLessThan(average(5));
+  });
+
+  it("ramps velocities evenly", () => {
+    expect(ramp(38, [0, 1, 2, 3], 60, 108).map((hit) => hit.velocity)).toEqual([60, 76, 92, 108]);
+    expect(ramp(38, [5], 60, 108)).toEqual([{ step: 5, pitch: 38, velocity: 108 }]);
   });
 
   it("gives every style a unique id and name", () => {

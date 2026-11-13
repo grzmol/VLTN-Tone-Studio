@@ -1,8 +1,8 @@
 // Half-time: the backbeat sits on beat 3 only, so the groove feels half as fast as the tempo. Kicks move around the bar as energy rises.
 
 import { figure } from "../bass-figures";
-import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
+import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, ramp } from "./notation";
 import type { Style } from "./types";
 
 export const HALF_TIME: Style = {
@@ -99,9 +99,23 @@ export const HALF_TIME: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, ramp(SNARE, [12, 13, 14, 15], 66, 106)),
+      bar(16, lane(HIGH_TOM, 76, [12]), lane(MID_TOM, 86, [13]), lane(LOW_TOM, 96, [14]), lane(SNARE, VEL.accent, [15])),
+      bar(16, lane(KICK, VEL.normal, [12]), lane(LOW_TOM, 88, [14]), lane(SNARE, VEL.accent, [15])),
+    ],
     half: [
       bar(16, lane(SNARE, VEL.normal, [8, 10, 12, 13]), lane(MID_TOM, VEL.normal, [14]), lane(LOW_TOM, VEL.normal, [15])),
       bar(16, lane(HIGH_TOM, VEL.normal, [8]), lane(MID_TOM, VEL.normal, [10]), lane(LOW_TOM, VEL.normal, [12]), lane(SNARE, VEL.normal, [14, 15])),
+      bar(16, ramp(SNARE, [8, 10, 11, 12, 13, 14, 15], 62, 110)),
+      bar(
+        16,
+        lane(KICK, VEL.normal, [8]),
+        ramp(HIGH_TOM, [10, 11], 72, 78),
+        ramp(MID_TOM, [12, 13], 84, 90),
+        lane(LOW_TOM, 98, [14]),
+        lane(SNARE, VEL.accent, [15]),
+      ),
     ],
     bar: [
       bar(
@@ -113,8 +127,18 @@ export const HALF_TIME: Style = {
         lane(SNARE, VEL.normal, [14]),
       ),
       bar(16, lane(KICK, VEL.accent, [0, 8]), lane(SNARE, VEL.normal, [8, 10, 12, 13, 14, 15]), lane(SNARE, VEL.ghost, [9, 11], { ghost: true })),
+      bar(16, lane(KICK, VEL.accent, [0, 8]), ramp(SNARE, [8, 10, 11, 12, 13, 14, 15], 62, 112)),
+      bar(
+        16,
+        lane(KICK, VEL.accent, [0]),
+        ramp(HIGH_TOM, [4, 6], 68, 74),
+        ramp(MID_TOM, [8, 10], 80, 86),
+        ramp(LOW_TOM, [12, 14], 94, 100),
+        lane(SNARE, VEL.accent, [15]),
+      ),
     ],
   },
+  turnarounds: [bar(16, lane(OPEN_HAT, VEL.hat, [14])), bar(16, lane(KICK, VEL.normal, [14])), bar(16, ramp(SNARE, [14, 15], 70, 100))],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },

@@ -3,7 +3,7 @@
 
 import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane } from "./notation";
+import { VEL, bar, groove, lane, ramp } from "./notation";
 import type { Style } from "./types";
 
 /** Ride on the first and third step of each triplet beat: "ding, ding-a, ding, ding-a". */
@@ -107,9 +107,16 @@ export const SHUFFLE: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(12, ramp(SNARE, [9, 10, 11], 70, 104)),
+      bar(12, lane(HIGH_TOM, 78, [9]), lane(MID_TOM, 88, [10]), lane(LOW_TOM, 98, [11])),
+      bar(12, lane(KICK, VEL.normal, [9]), lane(SNARE, 84, [10]), lane(SNARE, VEL.accent, [11])),
+    ],
     half: [
       bar(12, lane(HIGH_TOM, VEL.normal, [6]), lane(MID_TOM, VEL.normal, [8]), lane(LOW_TOM, VEL.normal, [9]), lane(SNARE, VEL.normal, [10, 11])),
       bar(12, lane(SNARE, VEL.normal, [6, 8, 9, 11]), lane(KICK, VEL.normal, [6])),
+      bar(12, ramp(SNARE, [6, 8, 9, 10, 11], 62, 106)),
+      bar(12, lane(KICK, VEL.normal, [6]), ramp(HIGH_TOM, [7, 8], 72, 78), ramp(MID_TOM, [9, 10], 84, 90), lane(LOW_TOM, 98, [11])),
     ],
     bar: [
       bar(
@@ -121,8 +128,22 @@ export const SHUFFLE: Style = {
         lane(SNARE, VEL.normal, [11]),
       ),
       bar(12, lane(KICK, VEL.accent, [0, 6]), lane(SNARE, VEL.normal, [3, 6, 9]), lane(SNARE, VEL.ghost, [2, 5, 8, 11], { ghost: true })),
+      bar(12, lane(KICK, VEL.accent, [0, 6]), ramp(SNARE, [2, 3, 5, 6, 8, 9, 10, 11], 60, 110)),
+      bar(
+        12,
+        lane(KICK, VEL.accent, [0]),
+        ramp(HIGH_TOM, [2, 3], 68, 74),
+        ramp(MID_TOM, [5, 6], 80, 86),
+        ramp(LOW_TOM, [8, 9], 92, 98),
+        lane(SNARE, VEL.accent, [11]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(12, lane(OPEN_HAT, VEL.hat, [11])),
+    bar(12, lane(KICK, VEL.normal, [11])),
+    bar(12, lane(SNARE, VEL.normal, [9]), ramp(SNARE, [11], 80, 96)),
+  ],
   bass: {
     walking: true,
     techniques: { slides: false, deadNotes: false, pickups: true },

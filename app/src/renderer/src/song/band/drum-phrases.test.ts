@@ -34,28 +34,21 @@ describe("barRoles", () => {
   it("marks bars 4 and 8 of a section of eight", () => {
     expect(endsOf(8, "phraseEnd")).toEqual([3, 7]);
     expect(endsOf(8, "pairEnd")).toEqual([7]);
-    expect(barRoles(8).map((role) => role.inPhrase)).toEqual([
-      0, 1, 2, 3, 0, 1, 2, 3,
-    ]);
+    expect(barRoles(8).map((role) => role.inPhrase)).toEqual([0, 1, 2, 3, 0, 1, 2, 3]);
   });
 
   it("marks the end of every second phrase in a section of sixteen", () => {
     expect(endsOf(16, "phraseEnd")).toEqual([3, 7, 11, 15]);
     expect(endsOf(16, "pairEnd")).toEqual([7, 15]);
     const roles = barRoles(16);
-    expect(
-      roles.filter((role) => role.sectionStart).map((role) => role.bar),
-    ).toEqual([0]);
+    expect(roles.filter((role) => role.sectionStart).map((role) => role.bar)).toEqual([0]);
     expect(roles[15].phrase).toBe(3);
   });
 
   it("agrees with the bass about where a phrase ends", () => {
     for (const bars of [1, 2, 3, 4, 5, 7, 8, 12, 16]) {
-      expect(barRoles(bars).map((role) => role.phraseEnd)).toEqual(
-        Array.from({ length: bars }, (_, bar) => isPhraseEnd(bar, bars)),
-      );
-      for (const role of barRoles(bars))
-        expect(role.inPhrase).toBeLessThan(phraseBars(bars));
+      expect(barRoles(bars).map((role) => role.phraseEnd)).toEqual(Array.from({ length: bars }, (_, bar) => isPhraseEnd(bar, bars)));
+      for (const role of barRoles(bars)) expect(role.inPhrase).toBeLessThan(phraseBars(bars));
     }
   });
 });

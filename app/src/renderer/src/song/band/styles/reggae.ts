@@ -2,7 +2,7 @@
 
 import { figure } from "../bass-figures";
 import { CLOSED_HAT, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, ramp } from "./notation";
 import type { Style } from "./types";
 
 /** The off-beats, the skank that the hat or the guitar plays. */
@@ -105,6 +105,11 @@ export const REGGAE: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, ramp(SNARE, [12, 13, 14, 15], 60, 100)),
+      bar(16, lane(HIGH_TOM, 72, [12]), lane(MID_TOM, 82, [13]), lane(LOW_TOM, 92, [14]), lane(SNARE, VEL.accent, [15])),
+      bar(16, lane(KICK, VEL.normal, [12]), lane(MID_TOM, 84, [14]), lane(LOW_TOM, 96, [15])),
+    ],
     half: [
       bar(16, lane(SNARE, VEL.normal, [8, 10, 12, 14]), lane(MID_TOM, VEL.normal, [13]), lane(LOW_TOM, VEL.normal, [15])),
       bar(
@@ -115,6 +120,8 @@ export const REGGAE: Style = {
         lane(LOW_TOM, VEL.normal, [14]),
         lane(SNARE, VEL.normal, [15]),
       ),
+      bar(16, lane(KICK, VEL.normal, [8]), ramp(SNARE, [10, 12, 13, 14, 15], 60, 104)),
+      bar(16, ramp(HIGH_TOM, [8, 10], 66, 74), ramp(MID_TOM, [12, 13], 82, 88), lane(LOW_TOM, 96, [14]), lane(SNARE, VEL.accent, [15])),
     ],
     bar: [
       bar(
@@ -126,8 +133,22 @@ export const REGGAE: Style = {
         lane(SNARE, VEL.normal, [12, 14]),
       ),
       bar(16, lane(KICK, VEL.normal, [8]), lane(SNARE, VEL.normal, EIGHTHS), lane(SNARE, VEL.ghost, ODD_SIXTEENTHS, { ghost: true })),
+      bar(16, lane(KICK, VEL.normal, [8]), ramp(SNARE, [0, 2, 4, 6, 8, 10, 12, 14, 15], 56, 108)),
+      bar(
+        16,
+        lane(KICK, VEL.normal, [0, 8]),
+        ramp(HIGH_TOM, [2, 4], 66, 72),
+        ramp(MID_TOM, [6, 8], 80, 86),
+        ramp(LOW_TOM, [10, 12], 92, 98),
+        lane(SNARE, VEL.accent, [14, 15]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(16, lane(OPEN_HAT, VEL.hat, [14])),
+    bar(16, lane(KICK, VEL.normal, [12])),
+    bar(16, lane(SIDE_STICK, VEL.normal, [12]), ramp(SNARE, [14, 15], 62, 88)),
+  ],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
