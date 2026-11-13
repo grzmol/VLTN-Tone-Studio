@@ -24,7 +24,7 @@ export const DRUM_KITS = ["standard", "rock"] as const;
 /** The styles whose generated drums use the heavier kit when the song has not chosen a kit. */
 export const HEAVY_KIT_STYLES: readonly StyleId[] = ["metal", "rock", "half-time"];
 export const BASS_SOUNDS = ["finger", "pick"] as const;
-export const BASS_RANGES = ["low", "normal", "high"] as const;
+export const BASS_RANGES = ["low", "normal", "high", "extended"] as const;
 export const BASS_MODES = ["roots", "fifths", "octaves", "melodic", "walking"] as const;
 /** Where the generated bass's notes come from: the bass the song's own bassist played (when the song has a bass stem), or the chords. */
 export const BASS_FROM = ["original", "chords"] as const;

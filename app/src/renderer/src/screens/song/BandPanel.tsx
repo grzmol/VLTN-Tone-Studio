@@ -32,7 +32,7 @@ import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/be
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import type { BassOverride } from "@/song/band/bass-overrides";
-import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, keysFromOptions, previewMix } from "@/song/band/request";
+import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, extendedRangeNote, keysFromOptions, previewMix } from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
 import { automaticUpdateBlock, cleanFallbackQuestion, generatedLabel, missingToneFiles } from "@/song/band/tone-check";
@@ -426,6 +426,8 @@ function BandBody({
       let request = bandRequest(input);
       const notes: (string | BandNotice)[] = [];
       if (playsThreeFourDefault(request)) notes.push(info(THREE_FOUR_NOTE));
+      const lowKeyNote = using.parts.bass ? extendedRangeNote(request) : null;
+      if (lowKeyNote) notes.push(info(lowKeyNote));
       if (using.parts.bass && !request.harmony.some((entry) => entry.chord)) {
         // Neither the chart nor the screen's analysis has chords, so the bass would rest all song. Detect them from the audio first.
         let found: Chord[] | null = [];
