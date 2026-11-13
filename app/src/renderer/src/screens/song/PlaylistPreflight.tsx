@@ -1,3 +1,4 @@
+import { withToneWarnings } from "@/song/performance/tone-preflight";
 import { ArrangementAdvice } from "./ArrangementAdvice";
 import { PlaylistPreflightIssues } from "./PlaylistPreflightIssues";
 import { useEffect, useRef, useState } from "react";
@@ -34,18 +35,20 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
     try {
       const snapshot = await host.song.library!.preflight(ids);
       if (request !== generation.current) return;
-      setReport(
-        playlistPreflight(ids, snapshot, {
-          tempoOnStart: config.tempoOnStart,
-          tempoChannel: config.tempoChannel,
-          outputName: config.output?.name,
-          renderReady: isRenderedAhead,
-          macros: config.macros,
-          songs: songEntries(songs),
-          bindings: config.bindings,
-          pedals: configuredPedals(pedals),
-        }),
-      );
+      const checks = playlistPreflight(ids, snapshot, {
+        tempoOnStart: config.tempoOnStart,
+        tempoChannel: config.tempoChannel,
+        outputName: config.output?.name,
+        renderReady: isRenderedAhead,
+        macros: config.macros,
+        songs: songEntries(songs),
+        bindings: config.bindings,
+        pedals: configuredPedals(pedals),
+      });
+      // Reading the tone files is asynchronous, so the song's own checks are done first and the tone warnings are added to them.
+      const withTones = await withToneWarnings(checks, ids, snapshot, host.tones);
+      if (request !== generation.current) return;
+      setReport(withTones);
     } catch (e) {
       if (request === generation.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -73,7 +76,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
             Snapshot of saved files and current MIDI preferences. Recheck after external file changes. File presence and size are checked, not audio contents or
             physical pedal response. Warnings are advisory.
           </p>
-          <PlaylistPreflightIssues report={report} />
+          <PlaylistPreflightIssues report={report} onDownloaded={() => void check()} />
           <ol className="max-h-80 space-y-2 overflow-auto">
             {report.map((r) => (
               <li key={r.entry} className="rounded border border-seam p-2">
