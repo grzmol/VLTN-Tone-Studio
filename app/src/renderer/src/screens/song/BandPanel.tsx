@@ -26,6 +26,7 @@ import {
   type SectionBandHint,
   type SectionOverride,
 } from "@/song/band/arrangement";
+import { hasExtras, type ExitAudio } from "@/song/band/extras";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import type { NoteEvent } from "@/song/band/note";
 import { encodeSmf } from "@/song/performance/smf";
@@ -484,6 +485,17 @@ function BandBody({
         renderedTone.bass = toned.tone;
         if (toned.notice) notes.push(toned.notice);
       }
+      // A vamp's exit bar goes through the same tone as its part, so the swap on the last pass has no change of sound.
+      const exits: Record<"drums" | "bass", Record<string, ExitAudio>> = { drums: {}, bass: {} };
+      for (const [id, exit] of Object.entries(result.exits ?? {})) {
+        for (const kind of ["drums", "bass"] as const) {
+          let audio = exit[kind];
+          if (!audio) continue;
+          const tone = kind === "drums" ? using.drumTone : using.bassTone;
+          if (tone.kind !== "clean" && renderedTone[kind] === "chain") audio = (await applyPartTone(audio, tone, host.tones, renderPartChain, kind)).audio;
+          exits[kind][id] = { audio, from: exit.from, to: exit.to };
+        }
+      }
       if (result.follow) notes.push(info(followStatus(result.follow)));
       const levels = levelStatus(result.levels);
       if (levels) notes.push(info(levels));
@@ -491,10 +503,15 @@ function BandBody({
       if (!active.current || playingNow.current || useSong.getState().source !== current) return;
       if (requestedInputs.current !== null && requestedInputs.current !== startedInputs) return;
       const turnedOff = only ? [] : (["drums", "bass"] as const).filter((kind) => !using.parts[kind]);
-      const applied = useSong.getState().applyGeneratedParts(
-        { drums, bass, extras: drums && countIn ? { drums: { countIn, exits: {} } } : undefined },
-        { playing: playingNow.current, remove: turnedOff },
-      );
+      // The drummer's count and the vamps' exit bars travel with their part. Nothing is passed for a song that has none.
+      const partExtras = { drums: { countIn, exits: exits.drums }, bass: { exits: exits.bass } };
+      const withExtras = {
+        ...(drums && hasExtras(partExtras.drums) ? { drums: partExtras.drums } : {}),
+        ...(bass && hasExtras(partExtras.bass) ? { bass: partExtras.bass } : {}),
+      };
+      const applied = useSong
+        .getState()
+        .applyGeneratedParts({ drums, bass, ...(Object.keys(withExtras).length > 0 ? { extras: withExtras } : {}) }, { playing: playingNow.current, remove: turnedOff });
       if (applied.length === 0) {
         if (current.libraryId) await useSongLibrary.getState().saveBeforePlayback(true);
         if (!active.current || useSong.getState().source !== current || requestedInputs.current !== startedInputs) return;

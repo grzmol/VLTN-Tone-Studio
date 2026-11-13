@@ -699,7 +699,8 @@ function buildSlots(
       plan.fills >= 1 &&
       nextPlan.play.bass &&
       nextPlan.bassPart !== "rest" &&
-      !lead
+      !lead &&
+      !plan.vamp
     ) {
       const firstBeat = starts[planOf.indexOf(planIndex + 1)] ?? -1;
       const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
@@ -710,7 +711,7 @@ function buildSlots(
     if (leadTarget !== null) {
       rhythm = rhythm.filter((step) => step < steps / 2);
       for (const note of leadSteps(plan.busy, steps)) variants.set(note.step, { kind: "lead", offset: note.offset, target: leadTarget, quality, chromatic, key: leadKey, plan: planIndex + 1 });
-    } else if (!lead && plan.fills > 0 && isPhraseEnd(barInPlan, planBars)) {
+    } else if (!lead && plan.fills > 0 && isPhraseEnd(barInPlan, planBars) && !(plan.vamp && barInPlan === planBars - 1)) {
       const phrase = Math.floor(barInPlan / phraseBars(planBars));
       const variation = chooseVariation(plan.fills, part, phrase, phraseRandom, plan.pickups);
       if (variation) {

@@ -59,6 +59,22 @@ interface PreparedJump {
   restore: { rate: number; buffers: Partial<Record<string, AudioBuffer>> } | null;
 }
 
+/** A vamp's exit bar (band/vamp.ts): for each track that has one, its audio, and the span of song time it plays in place of. */
+export interface ExitBar {
+  from: number;
+  to: number;
+  tracks: Record<string, PcmAudio>;
+}
+
+/** An exit bar that is waiting on the audio clock or playing: the sources it uses, per track, and when it begins on the audio clock. */
+interface PendingExit {
+  when: number;
+  /** The audio time the song's own end was due, which a cancelled exit puts back */
+  end: number;
+  parts: { name: string; main: AudioBufferSourceNode; exit: AudioBufferSourceNode; resume: AudioBufferSourceNode }[];
+  timer: ReturnType<typeof setTimeout>;
+}
+
 /** A render of the song: the rate its buffers play at, and one buffer per stem, holding song time divided by the rate. */
 export interface RenderedBuffers {
   rate: number;
@@ -163,6 +179,8 @@ export class StemPlayer {
   /** The song's timeline on the audio clock. A jump appends a segment. Empty until something has been started. */
   private segments: Segment[] = [];
   private prepared: PreparedJump | null = null;
+  /** The exit bar of a vamp that is on its way or playing. At most one at a time. */
+  private exit: PendingExit | null = null;
   private offset = 0;
   /** The position the last start asked for. A pause during the count-in returns here, not to the pre-roll start. */
   private resumeAt = 0;
@@ -468,6 +486,8 @@ export class StemPlayer {
   chainNext(next: StemPlayer, join: Join): boolean {
     if (!this.playing || this.next || next.ctx !== this.ctx || join.startAt < this.ctx.currentTime) return false;
     this.next = next;
+    // An exit bar that has not begun is taken back; one that has begun ends with the hand-over.
+    if (!this.cancelExit()) this.dropExit(join.stopAt);
     this.stopMetronome();
     for (const name of this.names) {
       const { fade, source } = this.voice(name);
@@ -522,6 +542,9 @@ export class StemPlayer {
    */
   prepareJump(to: number, at: number, render?: RenderedBuffers): number | null {
     if (!this.playing || this.prepared) return null;
+    // An exit bar that has not begun is taken back, so a jump that is cancelled later finds the tracks as they were. One that has begun is cut at
+    // the jump (dropExit below).
+    this.cancelExit();
     const last = this.segments[this.segments.length - 1];
     const when = Math.max(this.ctx.currentTime + JUMP_MIN_S, audioTimeOf(this.segments, at));
     // A render swap plays the new buffers from the jump on, at their rate. The old buffers stay with the record for a cancel.
@@ -541,6 +564,7 @@ export class StemPlayer {
     }
     if (render) this.rate = render.rate;
     for (const old of previous) old.stop(when);
+    this.dropExit(when);
     this.watchEnd();
     const end = last.songEnd;
     last.songEnd = at;
@@ -554,6 +578,96 @@ export class StemPlayer {
     );
     this.prepared = { when, previous, end, timer, restore };
     return when;
+  }
+
+  /**
+   * Plays a vamp's exit bar in place of the vamp's last bar, for the tracks that have one: at song time `bar.from` each such track's own
+   * audio stops and its exit audio plays, and at `bar.to` the track's own audio carries on from there. The other tracks, the timeline and the
+   * metronome are not touched, so MIDI cues and clicks stay where they were. Scheduled on the audio clock, so the swap is sample-accurate.
+   * Returns the audio time the exit begins, or null when it cannot be placed: nothing is playing, a jump or another exit is waiting, the song
+   * is at another speed than the exit was rendered at, or the bar is less than JUMP_MIN_S away. The song then plays on as it is.
+   */
+  scheduleExit(bar: ExitBar): number | null {
+    if (!this.playing || this.next || this.prepared || this.exit || this.rate !== 1) return null;
+    const names = this.names.filter((name) => bar.tracks[name]);
+    const last = this.segments[this.segments.length - 1];
+    if (!names.length || !last || bar.from < last.songStart || bar.to > this.duration || !(bar.to > bar.from)) return null;
+    const when = audioTimeOf(this.segments, bar.from);
+    if (when < this.ctx.currentTime + JUMP_MIN_S) return null;
+    const resumeAt = when + (bar.to - bar.from);
+    const end = audioTimeOf(this.segments, this.duration);
+    const parts: PendingExit["parts"] = names.map((name) => {
+      const v = this.voice(name);
+      const pcm = bar.tracks[name];
+      const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+      pcm.channels.forEach((channel, c) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, c));
+      const exit = this.ctx.createBufferSource();
+      exit.buffer = buffer;
+      exit.connect(v.gain);
+      exit.start(when);
+      const main = v.source!;
+      main.stop(when);
+      const resume = this.ctx.createBufferSource();
+      resume.buffer = v.buffer;
+      resume.connect(v.gain);
+      resume.start(resumeAt, bar.to);
+      resume.stop(end);
+      v.source = resume;
+      return { name, main, exit, resume };
+    });
+    this.watchEnd();
+    // The record is forgotten once the exit has played, so the next pass of a loop can have its own.
+    const timer = setTimeout(() => {
+      if (this.exit?.when === when) this.exit = null;
+    }, (resumeAt - this.ctx.currentTime) * 1000 + 100);
+    this.exit = { when, end, parts, timer };
+    return when;
+  }
+
+  /** The audio time an exit bar begins at, or null when none is waiting or playing. */
+  get exitAt(): number | null {
+    return this.exit?.when ?? null;
+  }
+
+  /**
+   * Takes back an exit bar that has not begun: the track goes on playing its own audio. Returns false when the exit is too close to begin to
+   * take back cleanly, and it then plays. True when there was nothing to take back.
+   */
+  cancelExit(): boolean {
+    const exit = this.exit;
+    if (!exit) return true;
+    if (this.ctx.currentTime > exit.when - JUMP_CANCEL_S) return false;
+    clearTimeout(exit.timer);
+    this.exit = null;
+    for (const { name, main, exit: audio, resume } of exit.parts) {
+      audio.onended = null;
+      audio.stop(0);
+      audio.disconnect();
+      resume.onended = null;
+      resume.stop(0);
+      resume.disconnect();
+      main.stop(exit.end);
+      this.voice(name).source = main;
+    }
+    this.watchEnd();
+    return true;
+  }
+
+  /**
+   * A jump at audio time `when` ends an exit bar with it: what the exit bar plays and what follows it stop there, and an exit bar that
+   * had not begun is dropped. The track's own audio before the exit is stopped by the jump itself, as it is for any track.
+   */
+  private dropExit(when: number): void {
+    const exit = this.exit;
+    if (!exit) return;
+    clearTimeout(exit.timer);
+    this.exit = null;
+    for (const { main, exit: audio, resume } of exit.parts) {
+      // A stop later than the one the exit gave would let the track's own audio play again beside the exit.
+      if (when < exit.when) main.stop(when);
+      audio.stop(when);
+      resume.stop(when);
+    }
   }
 
   /**
@@ -954,6 +1068,17 @@ export class StemPlayer {
       v.source.stop();
       v.source.disconnect();
       v.source = null;
+    }
+    if (this.exit) {
+      clearTimeout(this.exit.timer);
+      for (const { main, exit, resume } of this.exit.parts) {
+        for (const source of [main, exit, resume]) {
+          source.onended = null;
+          source.stop();
+          source.disconnect();
+        }
+      }
+      this.exit = null;
     }
     if (this.prepared) {
       clearTimeout(this.prepared.timer);
