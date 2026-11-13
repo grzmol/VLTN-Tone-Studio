@@ -4,7 +4,13 @@ import type { Cue } from "./chart";
 import { barAndBeat, barsUntil, patchCues, patchNext, patchNow, patchText, steadyGrid } from "./position";
 
 /** 120 BPM in 4/4: a bar every 2 s, 40 beats (20 s). */
-const grid: BeatGrid = { beatsPerBar: 4, beats: Array.from({ length: 40 }, (_, i) => i * 0.5), downbeat: 0, bpm: 120, steady: null };
+const grid: BeatGrid = {
+  beatsPerBar: 4,
+  beats: Array.from({ length: 40 }, (_, i) => i * 0.5),
+  downbeat: 0,
+  bpm: 120,
+  steady: null,
+};
 
 describe("barsUntil", () => {
   it("is 8 at the start of a section of 8 bars", () => {
