@@ -13,6 +13,7 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { clearResumePoint, holdResumePoint, loadResumePoint } from "./resume-point";
 import { registerBandRefresh } from "@/song/band/refresh";
 import { clearSettingsCache, performanceKey } from "./settings";
 
@@ -2634,6 +2635,87 @@ describe("individual preparation waits", () => {
       session.pause();
       unload();
       session.dispose();
+    }
+  });
+});
+describe("resume point", () => {
+  const saved = () => loadResumePoint(Date.now());
+  beforeEach(() => {
+    clearResumePoint();
+    useNav.getState().go("song", "performance");
+    mocks.library.queue = ["a", "b", "c"];
+    mocks.library.position = 0;
+    mocks.library.playingSet = "set-1";
+    mocks.library.queueOverrides = [];
+  });
+  afterEach(() => {
+    clearResumePoint();
+    mocks.library.playingSet = null;
+  });
+
+  it("is written as soon as a song plays, and again every two seconds", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      expect(saved()).toMatchObject({ playlistId: "set-1", queue: ["a", "b", "c"], position: 0, songId: "a", playing: true, sendCues: true });
+      clearResumePoint();
+      await new Promise((resolve) => setTimeout(resolve, 2100));
+      expect(saved()?.songId).toBe("a");
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+
+  it("follows the song when the set moves on", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    await session.play();
+    unload();
+    mocks.library.position = 1;
+    const next = joinedSession(output(), session.state.access as MIDIAccess, {});
+    try {
+      await next.session.play();
+      await vi.waitFor(() => expect(next.session.state.playing).toBe(true));
+      expect(saved()).toMatchObject({ position: 1, songId: "b", playing: true });
+    } finally {
+      next.session.pause();
+      next.unload();
+      next.session.dispose();
+      session.dispose();
+    }
+  });
+
+  it("is not replaced while a resume is on offer", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      const before = saved();
+      holdResumePoint(true);
+      session.pause();
+      expect(saved()).toEqual(before);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+
+  it("is forgotten when the performer leaves the Performance tab", async () => {
+    vi.useFakeTimers();
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      expect(saved()).not.toBeNull();
+      useNav.getState().go("rig");
+      unload();
+      vi.advanceTimersByTime(1);
+      expect(saved()).toBeNull();
+    } finally {
+      useNav.getState().go("song", "performance");
+      session.dispose();
+      vi.useRealTimers();
     }
   });
 });

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearResumePoint } from "./performance/resume-point";
 import { pedalDrumMix, usePedalDrums } from "./performance/pedal-drums";
 import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
@@ -983,6 +984,8 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         if (!playlistPlaying) return;
         if (position + 1 >= queue.length) {
           set({ playlistPlaying: false, notice: "Playlist finished." });
+          // The set ran to its end, so a crash afterwards has nothing to resume.
+          clearResumePoint();
           return;
         }
         const nextId = queue[position + 1];

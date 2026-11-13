@@ -9,13 +9,14 @@ import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
+import { clearResumePoint, saveResumePoint } from "./resume-point";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
 import { expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
-import { setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
+import { clockPosition, setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
 import { beatSeconds, countInBeats, preRollStart } from "@/song/performance/rhythm";
 import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/performance/transition";
 import { readCrossfade } from "@/song/performance/crossfade";
@@ -89,6 +90,8 @@ export const BLUETOOTH_PORT_ID = "bluetooth-midi";
 
 /** How often the session checks whether the next playlist song can be chained onto this one */
 const CHAIN_CHECK_MS = 250;
+/** How often the place in the song is kept for a renderer crash while it plays (spec 120). */
+const RESUME_SAVE_MS = 2000;
 // Output queues outlive a song session during playlist handovers; their controller state must too.
 const rc10rPulses = new TriggerPulses();
 /** The next song is chained this far before its join, so that a pause in between has time to undo it */
@@ -593,7 +596,10 @@ export class PerformanceSession {
       const id = source.libraryId;
       setTimeout(() => {
         const library = useSongLibrary.getState();
-        if (leftPerformance() && library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
+        if (!leftPerformance()) return;
+        if (library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
+        // Leaving the screen stopped the music, so there is nothing to resume after a crash.
+        clearResumePoint();
       }, 0);
     };
   }
@@ -1174,6 +1180,27 @@ export class PerformanceSession {
   preparePedals = () => this.start(true);
   play = () => this.start(false);
 
+  /** Keeps the place in the song for a renderer crash: the playlist entry, the time, and whether cues are armed. Library songs only. */
+  private saveResume = (): void => {
+    const { player, queued } = this.state;
+    const library = useSongLibrary.getState();
+    const songId = library.queue[library.position];
+    if (!player || !queued || !songId) return;
+    saveResumePoint({
+      version: 1,
+      savedAt: Date.now(),
+      playlistId: library.playingSet,
+      queue: [...library.queue],
+      position: library.position,
+      songId,
+      songTime: clockPosition(),
+      playing: this.state.playing,
+      sendCues: this.armed,
+      stageMode: this.locked,
+      overrides: [...library.queueOverrides],
+    });
+  };
+
   private start = async (prepareOnly: boolean) => {
     const loopPass = this.restartingLoop;
     this.restartingLoop = false;
@@ -1350,6 +1377,7 @@ export class PerformanceSession {
     this.pause();
     await this.state.player?.seek(value);
     setClockPosition(value);
+    this.saveResume();
     if (hasPedalRhythm(this.state.cues)) this.set({ rhythmRestart: !canStartRhythm(this.state.cues, value) });
   };
 
@@ -2144,6 +2172,17 @@ export class PerformanceSession {
   private createEffects(): Effect[] {
     const armedOf = (s: SessionState) => selectArmed(s);
     return [
+      // The place in the song is kept every two seconds while it plays, and at once when a song loads, plays or pauses.
+      {
+        deps: (s) => [s.playing, s.player],
+        run: (s) => {
+          if (!s.player) return;
+          this.saveResume();
+          if (!s.playing) return;
+          const timer = setInterval(this.saveResume, RESUME_SAVE_MS);
+          return () => clearInterval(timer);
+        },
+      },
       // A song a MIDI trigger loaded starts once its player is ready and the library is no longer loading.
       {
         deps: (s) => [s.player, s.busy],
