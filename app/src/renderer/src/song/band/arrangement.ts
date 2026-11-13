@@ -188,6 +188,11 @@ export interface SectionPlan {
   /** A fill on the section's last bar. */
   fill: boolean;
   play: PartToggles;
+  /**
+   * The section's own seed, when the performer tried another for this section or kept it. The section then draws its groove, fills, figure and
+   * variations from it, so a new seed for the song leaves it alone. Left out, the section draws from the song's seed.
+   */
+  seed?: number;
 }
 
 /** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
@@ -354,6 +359,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
     deadNotes: override.deadNotes ?? technique.deadNotes,
     pickups: override.pickups ?? technique.pickups,
     play: override.play ? { ...override.play } : { ...settings.parts },
+    ...(override.seed !== undefined ? { seed: override.seed } : {}),
   };
 }
 
@@ -479,7 +485,8 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.pickups, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isBool) &&
-    optional(value.play, isPartToggles)
+    optional(value.play, isPartToggles) &&
+    optional(value.seed, isSeed)
   );
 }
 
@@ -695,6 +702,7 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
+  if (isSeed(value.seed)) override.seed = value.seed;
   return override;
 }
 

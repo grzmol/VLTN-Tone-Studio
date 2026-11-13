@@ -88,6 +88,9 @@ export function stageText(stage: BandStage): string {
 }
 
 /** The id of the Band entry button, which gets the focus back when the panel closes. */
+/** A new seed for the song or for one section: any whole number from 1 up to 2^32 - 2. */
+export const newSeed = (): number => 1 + Math.floor(Math.random() * 0xfffffffe);
+
 export const BAND_ENTRY_ID = "band-entry-button";
 
 /** The one line that says the song has its own drums or bass and where to choose between them, or null when the split found neither. */

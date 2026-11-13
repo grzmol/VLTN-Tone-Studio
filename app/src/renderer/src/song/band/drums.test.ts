@@ -489,9 +489,12 @@ describe("generateDrums with a section that starts near a bar line", () => {
 describe("generateDrums endings", () => {
   // Sixteen beats at 0.5 s: four bars starting at 0, 2, 4 and 6 s. The song's own end is at 8 s.
   const grid = steady(16);
-  const ended = (kind: EndingSettings["kind"], extra: Partial<EndingSettings> = {}) =>
-    settingsFor({ ending: { kind, ...extra } });
-  const at = (notes: NoteEvent[], time: number) => notes.filter((note) => Math.abs(note.time - time) < 1e-9).map((note) => note.pitch).sort((a, b) => a - b);
+  const ended = (kind: EndingSettings["kind"], extra: Partial<EndingSettings> = {}) => settingsFor({ ending: { kind, ...extra } });
+  const at = (notes: NoteEvent[], time: number) =>
+    notes
+      .filter((note) => Math.abs(note.time - time) < 1e-9)
+      .map((note) => note.pitch)
+      .sort((a, b) => a - b);
 
   it("hits on the last bar's downbeat and plays nothing else in that bar", () => {
     const notes = generateDrums(grid, [plan(0, 16)], ended("hit"), 1);
@@ -651,11 +654,52 @@ describe("generateDrums with marks", () => {
 
   it("hit plays a kick and a crash on the downbeat only", () => {
     const marked = generate([{ time: 4, kind: "hit" }]);
-    expect(barOf(marked, 2).map((note) => [note.time, note.pitch].join(":")).sort()).toEqual(["4:36", "4:49"]);
+    expect(
+      barOf(marked, 2)
+        .map((note) => [note.time, note.pitch].join(":"))
+        .sort(),
+    ).toEqual(["4:36", "4:49"]);
     expect(outside(marked, [2])).toEqual(outside(plain, [2]));
   });
 
   it("a mark that falls on no bar changes nothing", () => {
     expect(generate([{ time: 500, kind: "drums-out" }])).toEqual(plain);
+  });
+});
+
+describe("generateDrums with a seed for one section", () => {
+  // Three sections of 16 bars (32 s each), one after the other.
+  const grid = steady(193);
+  const section = (index: number, name: string, seed?: number) =>
+    plan(index * 64, (index + 1) * 64 + (index === 2 ? 1 : 0), { name, fill: true, ...(seed === undefined ? {} : { seed }) });
+  const plansWith = (seed?: number) => [section(0, "Verse"), section(1, "Chorus", seed), section(2, "Bridge")];
+  const settings = settingsFor();
+  const inSection = (notes: readonly NoteEvent[], index: number) => notes.filter((note) => note.time >= index * 32 && note.time < (index + 1) * 32);
+
+  it("plays the same notes when no section has a seed of its own as before", () => {
+    expect(generateDrums(grid, plansWith(), settings, 5)).toEqual(generateDrums(grid, plansWith(), settings, 5));
+  });
+
+  it("a new seed for the song leaves a section with its own seed alone and changes the others", () => {
+    const first = generateDrums(grid, plansWith(9), settings, 1);
+    const second = generateDrums(grid, plansWith(9), settings, 2);
+    expect(inSection(second, 1)).toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).not.toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).not.toEqual(inSection(first, 2));
+  });
+
+  it("a new seed for one section changes only that section", () => {
+    const first = generateDrums(grid, plansWith(9), settings, 1);
+    const second = generateDrums(grid, plansWith(10), settings, 1);
+    expect(inSection(second, 1)).not.toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).toEqual(inSection(first, 2));
+  });
+
+  it("giving a section a seed leaves the sections after it as they were", () => {
+    const without = generateDrums(grid, plansWith(), settings, 1);
+    const seeded = generateDrums(grid, plansWith(9), settings, 1);
+    expect(inSection(seeded, 0)).toEqual(inSection(without, 0));
+    expect(inSection(seeded, 2)).toEqual(inSection(without, 2));
   });
 });

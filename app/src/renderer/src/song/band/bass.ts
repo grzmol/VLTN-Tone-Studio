@@ -527,7 +527,7 @@ function buildSlots(
       // A pedal holds the chord the section starts on, whatever the chords do after it.
       const first = planIndex >= 0 ? starts[k] : -1;
       pedalChord = first >= 0 ? chordAt(first) : null;
-      if (planIndex >= 0) phraseRandom = createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex]));
+      if (planIndex >= 0) phraseRandom = createRandom(variationSeed(plans[planIndex].seed ?? seed, plans[planIndex].name, occurrence[planIndex]));
     } else {
       barInPlan += 1;
     }
@@ -605,12 +605,18 @@ function buildSlots(
 
     const variations = style.bass.rhythms[plan.busy];
     if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
-      const repeat: { rhythm: number; barsLeft: number } | undefined = occurrence[planIndex] > 0 ? firstSegment.get(plan.name) : undefined;
+      // A section with its own seed does not repeat its first time round: it draws its own variations.
+      const repeat: { rhythm: number; barsLeft: number } | undefined = occurrence[planIndex] > 0 && plan.seed === undefined ? firstSegment.get(plan.name) : undefined;
       if (repeat) {
         segment = { plan: planIndex, rhythm: repeat.rhythm, barsLeft: repeat.barsLeft };
       } else {
+        // The song's stream draws as it always did; a section with its own seed takes its choice from its own stream instead.
         segment = { plan: planIndex, rhythm: random.int(variations.length), barsLeft: random.pick(VARIATION_BARS) };
-        if (occurrence[planIndex] === 0 && plan.name !== "" && !firstSegment.has(plan.name)) {
+        if (plan.seed !== undefined) {
+          const mine = createRandom(variationSeed(plan.seed, `rhythm ${plan.name}`, occurrence[planIndex] * 4096 + k));
+          segment = { plan: planIndex, rhythm: mine.int(variations.length), barsLeft: mine.pick(VARIATION_BARS) };
+        }
+        if (occurrence[planIndex] === 0 && plan.seed === undefined && plan.name !== "" && !firstSegment.has(plan.name)) {
           firstSegment.set(plan.name, { rhythm: segment.rhythm, barsLeft: segment.barsLeft });
         }
       }
@@ -650,7 +656,7 @@ function buildSlots(
       if (figured) {
         let chosen = figureOf.get(planIndex);
         if (!chosen) {
-          chosen = chooseFigure(style.bass.figures[plan.busy], part as "groove" | "melodic", seed, plan.name === "" ? `#${planIndex}` : plan.name, isAccented(accent) ? (covered) => rhythmScore(covered, accent.weights) : undefined);
+          chosen = chooseFigure(style.bass.figures[plan.busy], part as "groove" | "melodic", plan.seed ?? seed, plan.name === "" ? `#${planIndex}` : plan.name, isAccented(accent) ? (covered) => rhythmScore(covered, accent.weights) : undefined);
           figureOf.set(planIndex, chosen);
         }
         let notes: BarNote[] = chosen.notes[barInPlan % chosen.bars];
@@ -866,11 +872,14 @@ export function generateBass(
   for (const slot of slots) slot.home = homes?.get(slot.plan) ?? null;
   let previous = range.centre;
   const streams = new Map<string, { occurrence: number; random: Random }>();
+  const byPlace = settings.marks.length > 0 || plans.some((plan) => plan.seed !== undefined);
   const jitter = (slot: Slot): number => {
     let source = random;
-    if (slot.variant) source = createRandom(variationSeed(seed, "variant", slot.beat * 128 + slot.index));
-    // With marks, each note's jitter comes from its own place, so a mark that adds or takes away notes in one bar moves no velocity in another.
-    else if (settings.marks.length > 0) source = createRandom(variationSeed(seed, "place", slot.beat * 128 + slot.index));
+    const own = plans[slot.plan]?.seed;
+    if (slot.variant) source = createRandom(variationSeed(own ?? seed, "variant", slot.beat * 128 + slot.index));
+    // With marks, or a section with a seed of its own, each note's jitter comes from its own place, so a bar that gains or loses notes moves no
+    // velocity in another bar.
+    else if (byPlace) source = createRandom(variationSeed(own ?? seed, "place", slot.beat * 128 + slot.index));
     else if (slot.repeats) {
       const stream = streams.get(slot.name);
       if (!stream || stream.occurrence !== slot.occurrence) {

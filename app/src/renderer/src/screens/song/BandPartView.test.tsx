@@ -157,6 +157,27 @@ describe("BandPartView", () => {
     expect((screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("tries another draw for the section, and keeps or lets go of its seed", () => {
+    const onTryAnother = vi.fn();
+    const onKeep = vi.fn();
+    view({ sectionSeed: { kept: false, onTryAnother, onKeep } });
+    fireEvent.click(screen.getByRole("button", { name: "Try another for this section" }));
+    expect(onTryAnother).toHaveBeenCalledOnce();
+    const keep = screen.getByRole("button", { name: "Keep this section" });
+    expect(keep.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(keep);
+    expect(onKeep).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a kept section as kept, and unkeeping it says so", () => {
+    const onKeep = vi.fn();
+    view({ sectionSeed: { kept: true, onTryAnother: vi.fn(), onKeep } });
+    const keep = screen.getByRole("button", { name: "Keep this section" });
+    expect(keep.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(keep);
+    expect(onKeep).toHaveBeenCalledWith(false);
+  });
+
   it("does nothing when a bar is clicked where the song cannot be played from, as in stage mode", () => {
     view({ selected: 1, onPlayFrom: undefined });
     expect((screen.getAllByRole("button", { name: /^Bar/ })[0] as HTMLButtonElement).disabled).toBe(true);

@@ -11,6 +11,7 @@ import { accentPushes, hitSteps, isAccented, rankGrooves, type AccentProfile, ty
 import { CLOSED_HAT, CRASH, DRUM_DURATION, KICK, SNARE, type NoteEvent } from "./note";
 import { endingBar, endingShape, type EndingShape } from "./ending";
 import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
+import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
@@ -132,7 +133,23 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
   const ending = endingBar(grid, plans, settings.ending, endTime);
   const shape = ending >= 0 ? endingShape(grid, ending, settings.ending) : null;
 
+  // A section with its own seed draws from a stream of its own, named by its place in the song. The song's stream still draws what it always
+  // drew in that section, so the sections after it keep their notes.
+  const seen = new Map<string, number>();
+  const occurrence = plans.map((plan) => {
+    const before = seen.get(plan.name) ?? 0;
+    seen.set(plan.name, before + 1);
+    return before;
+  });
+  const own = new Map<number, Random>();
+  const ownRandom = (planIndex: number): Random | undefined => {
+    const seed = plans[planIndex].seed;
+    if (seed === undefined) return undefined;
+    if (!own.has(planIndex)) own.set(planIndex, createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex])));
+    return own.get(planIndex);
+  };
   let segment: Segment | null = null;
+  let ownSegment: Segment | null = null;
   let previousPlan = -2;
   let afterFill = false;
   let endingPlan: SectionPlan | undefined;
@@ -164,15 +181,29 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
       segment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, random);
     }
     segment.barsLeft -= 1;
-    const groove = style.grooves[plan.energy][segment.groove];
+    // A section with its own seed plays its own variation, which lasts as long as its own draw says. The song's segment runs on beside it.
+    let played = segment;
+    const mine = ownRandom(planIndex);
+    if (mine) {
+      if (!ownSegment || ownSegment.plan !== planIndex || ownSegment.barsLeft === 0) {
+        ownSegment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, mine);
+      }
+      ownSegment.barsLeft -= 1;
+      played = ownSegment;
+    }
+    const groove = style.grooves[plan.energy][played.groove];
 
     let hits: DrumHit[] =
-      segment.pushes.length > 0 ? [...groove.hits, ...segment.pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
+      played.pushes.length > 0 ? [...groove.hits, ...played.pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
     let filled = false;
     const holdBar = shape?.fill === true && k === ending;
     const endsPlan = planOf[k + 1] !== planIndex;
-    const halfChoice = random.int(style.fills.half.length);
-    const barChoice = random.int(style.fills.bar.length);
+    let halfChoice = random.int(style.fills.half.length);
+    let barChoice = random.int(style.fills.bar.length);
+    if (mine) {
+      halfChoice = mine.int(style.fills.half.length);
+      barChoice = mine.int(style.fills.bar.length);
+    }
     const fillMark = markOf(marked, k, "fill");
     if (holdBar) {
       // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.

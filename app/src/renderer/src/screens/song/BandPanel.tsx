@@ -80,6 +80,7 @@ import {
   PLAYHEAD,
   PLAYHEAD_BARS,
   PLAY_OFFER_MS,
+  newSeed,
   ownParts,
   PLAYING_TEXT,
   pendingLineUp,
@@ -368,6 +369,9 @@ function BandBody({
       bars: grid ? Math.max(1, Math.round(((plan.end - plan.start) * grid.bpm) / 60 / barBeats(grid))) : null,
     };
   });
+
+  /** The row the part view shows: the selected one, or the first. */
+  const shownRow = rows[Math.min(selected ?? 0, Math.max(0, rows.length - 1))];
 
   /** Finds the beat in the song's audio. The drums stem is read when present, else the pitched stems, else the mix. */
   const findBeat = async () => {
@@ -704,7 +708,7 @@ function BandBody({
   };
 
   const tryAnother = () => {
-    const next = { ...settings, seed: 1 + Math.floor(Math.random() * 0xfffffffe) };
+    const next = { ...settings, seed: newSeed() };
     save(next);
     void generateOrAsk(next);
   };
@@ -977,6 +981,11 @@ function BandBody({
                 marks: settings.marks,
                 onMarks: (marks) => change({ marks }),
                 disabled: blocked,
+                sectionSeed: shownRow && {
+                  kept: shownRow.override.seed !== undefined,
+                  onTryAnother: () => changeRow(shownRow.plan.sectionId, { seed: newSeed() }),
+                  onKeep: (keep) => changeRow(shownRow.plan.sectionId, { seed: keep ? settings.seed : undefined }),
+                },
               }}
               blocked={blocked}
               busy={false}
