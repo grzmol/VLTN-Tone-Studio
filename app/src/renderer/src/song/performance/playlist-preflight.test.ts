@@ -197,3 +197,12 @@ it("flags early trigger actions and conflicting recalls, and handles songs with 
   expect(result.warnings.join(" ")).toContain("matching a configured trigger");
   expect(missing.errors).toContain("Song has no playable audio tracks.");
 });
+it("passes the preset names on, so a recalled preset that changed is a warning for its song", () => {
+  const chart = "[00:01] {label:GP-180: 069 Crunch Lead} {midi:cc 1 0 0} {midi:pc 1 68}";
+  const song = { ...saved.song!, settings: { ...saved.song!.settings, "": chart } };
+  const names = Array.from({ length: 200 }, (_, i) => (i === 68 ? "Clean Verb" : ""));
+  const warnings = (presetNames?: { names: string[]; source: "live" }) =>
+    playlistPreflight(["one"], [{ ...saved, song }], { ...config, presetNames })[0].warnings;
+  expect(warnings({ names, source: "live" }).some((w) => w.includes('saved as "Crunch Lead"'))).toBe(true);
+  expect(warnings().some((w) => w.includes("saved as"))).toBe(false);
+});
