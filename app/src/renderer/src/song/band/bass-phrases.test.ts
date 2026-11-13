@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings, type SectionOverride } from "./arrangement";
 import type { BeatGrid } from "./beat-grid";
-import { generateBass } from "./bass";
+import { BASS_NOTE_RANGES, generateBass, melodicApproach } from "./bass";
 import { chooseVariation, chordScale, fillScale, scaleNeighbours, isPhraseEnd, leadSteps, phraseBars, variationSeed, variationSteps, walkDown } from "./bass-phrases";
 import type { Feel } from "./feel";
 import { parseChordName, withBassOverrides, type ChordAtBeat } from "./harmony";
@@ -46,23 +46,27 @@ function generate(sections: Section[], names: readonly string[], overrides: Reco
 }
 
 describe("approach notes in a known key", () => {
-  /** The last bass note of bar 3 of G, G, G, G, E, E, E, E, played melodically at complexity 0.4, which approaches E from a whole tone. */
-  function approachInto(keys: { start: number; end: number; tonic: number; mode: "major" | "minor" }[], engine: number): number {
-    const settings = { ...settingsWith({ a: { bassPart: "melodic", fills: 0 } }), complexity: 0.4, engine };
-    const names = ["G", "G", "G", "G", "E", "E", "E", "E", "E"];
-    const plans = planSections([section("a", "Verse", 0, 16)], 18, settings);
-    const notes = generateBass(gridOf(names.length), harmonyOf(names), plans, settings, [], 9, undefined, undefined, keys);
-    return barOf(notes, 3).at(-1)!.pitch % 12;
-  }
+  const cMajor = { start: 0, end: 100, tonic: 0, mode: "major" as const };
+  /** E is 40 in the normal range, and the note before it is a G (43), so F sharp and F are both close. */
+  const into = (key: typeof cMajor | null, semitones: number): number | null => melodicApproach(key, 40, 43, BASS_NOTE_RANGES.normal, semitones);
 
   it("takes the scale note below or above the target instead of a whole tone: F, not F sharp, into E in C major", () => {
-    const cMajor = [{ start: 0, end: 18, tonic: 0, mode: "major" as const }];
-    expect(approachInto([], 2)).toBe(6);
-    expect(approachInto(cMajor, 2)).toBe(5);
+    expect(into(null, 2)).toBe(42);
+    expect(into(cMajor, 2)).toBe(41);
+  });
+
+  it("keeps the semitone approach at complexity 2/3 and up, and outside the key", () => {
+    expect(into(cMajor, 1)).toBe(41);
+    // E flat is not in C major, so the whole tone applies: D flat or F, and F is the nearer to the G.
+    expect(melodicApproach(cMajor, 39, 43, BASS_NOTE_RANGES.normal, 2)).toBe(41);
   });
 
   it("ignores the key at engine 1", () => {
-    expect(approachInto([{ start: 0, end: 18, tonic: 0, mode: "major" }], 1)).toBe(6);
+    const settings = { ...settingsWith({ a: { bassPart: "melodic", fills: 0 } }), complexity: 0.4, engine: 1 };
+    const names = ["G", "G", "G", "G", "E", "E", "E", "E", "E"];
+    const plans = planSections([section("a", "Verse", 0, 16)], 18, settings);
+    const notes = generateBass(gridOf(names.length), harmonyOf(names), plans, settings, [], 9, undefined, undefined, [{ start: 0, end: 18, tonic: 0, mode: "major" }]);
+    expect(barOf(notes, 3).at(-1)!.pitch % 12).toBe(6);
   });
 });
 

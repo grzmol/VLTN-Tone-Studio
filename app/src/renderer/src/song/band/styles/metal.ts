@@ -1,5 +1,6 @@
 // Metal: double kick. Pairs of kicks on the eighths and sixteenths, a snare on 2 and 4 and tom fills that use the whole kit.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, SIXTEENTHS } from "./notation";
 import type { Style } from "./types";
@@ -133,6 +134,13 @@ export const METAL: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . 1 . . ."), figure(16, "1 . . . . . . ."), figure(16, "1 . . . 1 . 5 .")],
+      2: [figure(16, "1 . 1 . 1 . . ."), figure(16, "1 . . . 1 . 1 ."), figure(16, "1 . 1 . . . 5 .")],
+      3: [figure(16, "1 1 1 1 1 1 1 1"), figure(16, "1 . 1 . 1 . 1 1"), figure(16, "1 1 1 . 1 1 1 .")],
+      4: [figure(16, "1 1 1 1 1 1 1 1", "1 1 1 1 1 1 5 app"), figure(16, "1 . 1 1 . 1 1 1"), figure(16, "1 1 . 1 1 . 5 5")],
+      5: [figure(16, "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"), figure(16, "1 1 1 1 1 1 1 1 1 1 1 1 5 5 5 5"), figure(16, "1 . 1 1 . 1 1 1 . 1 1 1 . 1 5 5")],
+    },
     rhythms: {
       1: [
         [0, 8],

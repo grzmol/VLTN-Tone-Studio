@@ -21,7 +21,7 @@ function gridOf(beatsPerBar: number): BeatGrid {
   return { beatsPerBar, beats, downbeat: 0, bpm: 120, steady: null };
 }
 
-function notesFor(style: StyleId, beatsPerBar: number) {
+function notesFor(style: StyleId, beatsPerBar: number, engine = 1) {
   const grid = gridOf(beatsPerBar);
   const bar = beatsPerBar * 0.5;
   const sections: Section[] = [
@@ -30,6 +30,8 @@ function notesFor(style: StyleId, beatsPerBar: number) {
   ];
   const settings: BandSettings = {
     ...DEFAULT_BAND_SETTINGS,
+    // The golden notes are the earlier bass (engine 1). Its figures at engine 2 are covered in bass.test.ts.
+    engine,
     style,
     complexity: 1,
     swing: 0,
@@ -57,4 +59,21 @@ describe("notes of styles whose meter differs from the grid's", () => {
     if (process.env.UPDATE_GOLDEN) writeFileSync(join(__dirname, "meter-golden.snapshot.json"), JSON.stringify(actual));
     expect(JSON.parse(JSON.stringify(actual))).toEqual(golden);
   });
+});
+
+describe("figures (engine 2) in styles whose meter differs from the grid's", () => {
+  for (const [style, beats] of [...CASES, ["three-four", 3] as [StyleId, number]]) {
+    it(`plays ${style} on ${beats} beats inside the bar, in range, with a note on every bar's downbeat`, () => {
+      const { bass } = notesFor(style, beats, 2);
+      const bar = beats * 0.5;
+      expect(bass.length).toBeGreaterThan(BARS);
+      for (const note of bass) {
+        expect(note.pitch).toBeGreaterThanOrEqual(28);
+        expect(note.pitch).toBeLessThanOrEqual(55);
+        expect(note.time).toBeLessThan(BARS * bar);
+      }
+      // The second half is the chorus, a groove that plays a figure: its bars keep a note on the downbeat.
+      for (let k = 8; k < BARS - 1; k++) expect(bass.some((note) => Math.abs(note.time - k * bar) < 1e-6)).toBe(true);
+    });
+  }
 });

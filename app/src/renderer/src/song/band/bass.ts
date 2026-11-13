@@ -25,8 +25,10 @@ import {
   type VariantNote,
 } from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
-import { bassRhythmFromAccents, hitSteps, isAccented, type Feel } from "./feel";
-import type { ChordQuality, ChordSeventh, ChordAtBeat, ParsedChord } from "./harmony";
+import { chooseFigure, degreePitchClass, lockToKick, type BarNote, type Figure } from "./bass-figures";
+import { SEVENTH, THIRD, fifthInterval, pitchClass } from "./chord-tones";
+import { bassRhythmFromAccents, hitSteps, isAccented, rhythmScore, type Feel } from "./feel";
+import type { ChordQuality, ChordAtBeat, ParsedChord } from "./harmony";
 import { endingBar, endingShape } from "./ending";
 import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
@@ -83,6 +85,8 @@ export const LOUD_VELOCITY: Readonly<Record<Energy, number>> = { 1: 45, 2: 60, 3
 const DOWNBEAT_ACCENT = 8;
 /** A note locked to the kick is played this much harder. */
 const KICK_ACCENT = 5;
+/** A figure note marked with an accent is played this much harder. */
+const FIGURE_ACCENT = 6;
 /** An approach note is played this much softer, so it leads in without taking the line. */
 const APPROACH_DIP = -10;
 const VELOCITY_JITTER = 4;
@@ -96,10 +100,6 @@ const DEAD_CHANCE = 0.4;
 const DEAD_BUSY_FROM = 3;
 const DEAD_VELOCITY = 30;
 const DEAD_DURATION = 0.04;
-
-/** Intervals above the root, in semitones. A missing third or seventh is null. */
-const THIRD: Record<ChordQuality, number | null> = { major: 4, minor: 3, dim: 3, aug: 4, sus2: 2, sus4: 5, power: null };
-const SEVENTH: Record<ChordSeventh, number | null> = { none: null, dom7: 10, maj7: 11, min7: 10, dim7: 9, "half-dim": 10 };
 
 /** The variation a plan is playing, and how many bars it has left. */
 interface Segment {
@@ -156,6 +156,8 @@ interface Slot {
   forced: boolean;
   /** An off-beat step that takes the fifth in roots-fifths. The off-beat steps alternate fifth and root. */
   fifth: boolean;
+  /** The figure note the step plays (bass-figures.ts), when the section plays a figure. Its degree decides the pitch. */
+  figure?: BarNote;
   /** The part's role for this step: a root, or the fifth (a passing note in a ring bar). */
   role: "root" | "fifth";
   /** The song's key at the step, when the bass plays by engine 2 and the song's key is known. Fills and approach notes stay in it. */
@@ -180,21 +182,14 @@ interface Variant {
 }
 
 interface Picked {
+  /** The root of the bar's chord that a figure note was placed from, so the next root is picked from it and not from a fifth or an octave. */
+  root?: number;
   pitch: number;
   /** An approach note, which plays a little softer. */
   approach: boolean;
 }
 
 type Range = (typeof BASS_NOTE_RANGES)[keyof typeof BASS_NOTE_RANGES];
-
-const pitchClass = (note: number): number => ((note % 12) + 12) % 12;
-
-/** Semitones from the root to the fifth. A diminished chord has a flat fifth, an augmented one a sharp fifth. */
-function fifthInterval(quality: ChordQuality): number {
-  if (quality === "dim") return 6;
-  if (quality === "aug") return 8;
-  return 7;
-}
 
 /** The chord's tones as pitch classes: root, third, fifth and seventh where the chord has them. */
 function chordTones(chord: ParsedChord): number[] {
@@ -235,7 +230,7 @@ function approachNote(target: number, from: number, range: Range, semitones: num
  * The approach note into a melodic bar's next root. In a known key, below 2/3 complexity, it is the scale note just below or above the
  * target (a whole tone or a semitone, as the key has it), when the target is in the key. Otherwise it is `semitones` away.
  */
-function melodicApproach(key: BandKey | null, target: number, from: number, range: Range, semitones: number): number | null {
+export function melodicApproach(key: BandKey | null, target: number, from: number, range: Range, semitones: number): number | null {
   const scale = key ? keyScale(key) : null;
   if (!scale || semitones === 1 || !scale.includes(pitchClass(target))) return approachNote(target, from, range, semitones);
   const options = scaleNeighbours(target, scale).filter((note) => note >= range.low && note <= range.high);
@@ -273,6 +268,31 @@ function plainPitch(slot: Slot, chord: ParsedChord, previous: number, method: Ba
   return nearestOctave(slot.fifth ? fifth : chord.bass, previous, range, false);
 }
 
+/**
+ * The note for a figure step: its degree placed above the chord's bass note, which is picked from the last root. A fifth, third or
+ * seventh that would leave the range moves an octave down. An approach is the scale note (or the semitone, or whole tone) below the next
+ * bar's root, and falls back to the fifth when there is no next bar.
+ */
+function figurePitch(slot: Slot, note: BarNote, chord: ParsedChord, previous: number, range: Range, complexity: number): Picked {
+  const root = nearestOctave(chord.bass, previous, range, slot.strong);
+  const place = (pc: number): number => {
+    const pitch = root + ((pc - chord.bass + 12) % 12);
+    return pitch > range.high ? pitch - 12 : pitch;
+  };
+  if (note.degree === "app") {
+    if (slot.nextBarBass !== null) {
+      const target = nearestOctave(slot.nextBarBass, root, range, false);
+      const scale = slot.key ? keyScale(slot.key) : null;
+      const below = scale && scale.includes(pitchClass(target)) ? scaleNeighbours(target, scale)[0] : target - (complexity < CHROMATIC_FROM ? 2 : 1);
+      if (below >= range.low) return { pitch: below, approach: true, root };
+    }
+    return { pitch: place(pitchClass(chord.bass + fifthInterval(chord.quality))), approach: false, root };
+  }
+  if (note.degree === "8") return { pitch: root + 12 <= range.high ? root + 12 : root, approach: false, root };
+  const pc = degreePitchClass(note.degree, chord, slot.key);
+  return { pitch: pc === null ? root : place(pc), approach: false, root };
+}
+
 /** The note for a walking step. Beat one is the bass note, the last beat is a chromatic approach, and the beats between are chord tones. */
 function walkingPitch(slot: Slot, chord: ParsedChord, next: Slot | undefined, previous: number, range: Range): Picked {
   if (slot.index === 0 || slot.forced) return { pitch: nearestOctave(chord.bass, previous, range, slot.strong), approach: false };
@@ -290,6 +310,8 @@ function pitchOf(slot: Slot, chord: ParsedChord, next: Slot | undefined, previou
   if (slot.ending) return { pitch: nearestOctave(chord.bass, previous, range, true), approach: false };
   // A note the performer set by hand is played as set: no approach, walking tone or fifth takes its place.
   if (chord.byHand) return { pitch: nearestOctave(chord.bass, previous, range, slot.strong), approach: false };
+  // A figure note is its degree on the chord. A step that strikes a new chord plays the chord's root, so a figure restarts on the chord.
+  if (slot.figure && !slot.forced) return figurePitch(slot, slot.figure, chord, previous, range, settings.complexity);
   if (slot.method === "walking" && slot.walking) return walkingPitch(slot, chord, next, previous, range);
   if (slot.method === "melodic" && approachApplies(slot, chord, next)) {
     const target = nearestOctave(next.chord.bass, previous, range, false);
@@ -428,6 +450,7 @@ function buildSlots(
   let barInPlan = 0;
   let pedalChord: ParsedChord | null = null;
   let phraseRandom = createRandom(0);
+  const figureOf = new Map<number, Figure>();
 
   for (let k = 0; k < starts.length; k++) {
     if (ending >= 0 && k > ending) break;
@@ -549,10 +572,26 @@ function buildSlots(
         length,
       ).map((entry) => entry.step);
     let locked = new Set<number>();
+    let figureNotes = new Map<number, BarNote>();
+    // A groove or melodic section plays one figure, chosen once for its name (engine 2). The figure takes the place of the style's rhythm.
+    const figured = settings.engine >= 2 && !own && !walking && (part === "groove" || part === "melodic");
     if (grooveLike) {
       const kicks = settings.lockToKick ? kick.filter((note) => note.time >= beats[start] - LOCK_WINDOW && note.time < end - LOCK_WINDOW) : [];
       const accent = feel ? feel.profiles[planIndex] : undefined;
-      if (kicks.length > 0) {
+      if (figured) {
+        let chosen = figureOf.get(planIndex);
+        if (!chosen) {
+          chosen = chooseFigure(style.bass.figures[plan.busy], part as "groove" | "melodic", seed, plan.name === "" ? `#${planIndex}` : plan.name, isAccented(accent) ? (covered) => rhythmScore(covered, accent.weights) : undefined);
+          figureOf.set(planIndex, chosen);
+        }
+        let notes: BarNote[] = chosen.notes[barInPlan % chosen.bars];
+        if (!stretchesToBar(style) && style.meter.beatsPerBar !== length) notes = fitStepsToBar(notes, steps, style.meter.beatsPerBar, length);
+        // With the kick locked, every figure note stays: one within a step of a kick moves onto it, and a kick the figure misses gets a root.
+        if (kicks.length > 0) notes = lockToKick(notes, kickSteps(kicks, points));
+        figureNotes = new Map(notes.map((note) => [note.step, note]));
+        rhythm = notes.map((note) => note.step);
+        locked = new Set(notes.filter((note) => note.locked).map((note) => note.step));
+      } else if (kicks.length > 0) {
         locked = kickSteps(kicks, points);
         rhythm = [...new Set([0, ...locked])].sort((a, b) => a - b);
       } else if (isAccented(accent) && !walking) rhythm = bassRhythmFromAccents(accent.weights, style.meter.stepsPerBeat, perBar);
@@ -650,6 +689,7 @@ function buildSlots(
         fifth: !strong && !forced && offBeat % 2 === 1,
         role: roles.get(step) ?? "root",
         key: keyAt(point.time),
+        figure: byHand || variants.has(step) ? undefined : figureNotes.get(step),
         variant: byHand ? undefined : variants.get(step),
         ending: false,
         barEnd: end,
@@ -721,7 +761,7 @@ export function generateBass(
     // A note the performer set by hand (bass-overrides.ts) moves by its octave nudge, on a chord note and not on an approach.
     const approach = chosen.approach;
     const pitch = approach || slot.variant ? chosen.pitch : nudgedPitch(chosen.pitch, slot.chord.bassOctave, range);
-    const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0) + (slot.hitOne ? HIT_ONE_ACCENT : 0);
+    const accent = (slot.downbeat ? DOWNBEAT_ACCENT : 0) + (slot.locked ? KICK_ACCENT : 0) + (approach ? APPROACH_DIP : 0) + (slot.hitOne ? HIT_ONE_ACCENT : 0) + (slot.figure?.accent ? FIGURE_ACCENT : 0);
     const nextTime = next ? next.time : slot.barEnd;
     picked.push({
       slot,
@@ -731,7 +771,7 @@ export function generateBass(
       time: slot.time,
     });
     // A variant note does not move the voice leading, so the bars after it play as they would without it.
-    if (!slot.variant) previous = pitch;
+    if (!slot.variant) previous = chosen.root ?? pitch;
   });
 
   // An octave shift is all or nothing per section: if any of its notes would leave the range, the section keeps its own octave.

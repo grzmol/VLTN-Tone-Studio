@@ -1,3 +1,5 @@
+import type { Figure } from "../bass-figures";
+
 // Style data: a meter, a step grid, drum grooves per energy level, fills and bass rhythms. Styles are plain data so they can be
 // read, tested and tuned without running any generator. The rules that play them live in ../drums.ts and ../bass.ts.
 
@@ -72,6 +74,8 @@ export interface BassStyle {
   walking: boolean;
   /** The bass techniques this style plays unless a section says otherwise. */
   techniques: BassTechniques;
+  /** Three or four figures for each energy level, one or two bars long (bass-figures.ts). A groove or melodic section plays one. */
+  figures: Record<Energy, Figure[]>;
 }
 
 export interface Style {

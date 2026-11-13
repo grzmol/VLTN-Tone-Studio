@@ -1,5 +1,6 @@
 // Half-time: the backbeat sits on beat 3 only, so the groove feels half as fast as the tempo. Kicks move around the bar as energy rises.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -117,6 +118,13 @@ export const HALF_TIME: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . ."), figure(16, "1 . . . . 1 . ."), figure(16, "1 . . . . . . .", "1 . . . . 5 . .")],
+      2: [figure(16, "1 . . . . 1 . ."), figure(16, "1 . . 1 . . . ."), figure(16, "1 . . . . 1 . 5")],
+      3: [figure(16, "1 . . 1 . 1 . ."), figure(16, "1 . . . . 1 . 5"), figure(16, "1 . . 1 . 1 . .", "1 . . 1 . 5 . app")],
+      4: [figure(16, "1 . . 1 . 1 . 5"), figure(16, "1 . 1 . . 1 . 5"), figure(16, "1 . . 1 . 1 5 .")],
+      5: [figure(16, "1 . 1 1 . 1 . 5"), figure(16, "1 . . 1 . 1 1 5", "1 . . 1 . 1 5 app"), figure(16, "1 1 . 1 . 1 1 5")],
+    },
     rhythms: {
       1: [[0], [0, 10]],
       2: [

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type BassMode, type BassRange, type SectionPlan } from "./arrangement";
 import { generateBass } from "./bass";
+import { chooseFigure, type Figure } from "./bass-figures";
+import { findStyle } from "./styles";
 import type { EndingSettings } from "./ending";
 import type { BeatGrid } from "./beat-grid";
 import type { Feel } from "./feel";
@@ -50,7 +52,8 @@ function planFor(endBeat: number, overrides: Partial<SectionPlan> = {}): Section
 
 /** Settings with every choice fixed: roots, normal range, no kick lock, full complexity, no swing. */
 function settingsFor(overrides: Partial<BandSettings> = {}): BandSettings {
-  return { ...DEFAULT_BAND_SETTINGS, complexity: 1, swing: 0, lockToKick: false, bassMode: "roots", bassRange: "normal", ...overrides };
+  // The tests here are for the earlier bass (engine 1) unless one sets engine 2: a groove or melodic section plays a figure at engine 2.
+  return { ...DEFAULT_BAND_SETTINGS, engine: 1, complexity: 1, swing: 0, lockToKick: false, bassMode: "roots", bassRange: "normal", ...overrides };
 }
 
 /** The pitch class of a MIDI note. */
@@ -539,5 +542,131 @@ describe("generateBass endings", () => {
     const notes = bass({ kind: "hit" }, 6.9);
     expect(notes.filter((note) => note.time >= 4)).toHaveLength(1);
     expect(notes.filter((note) => note.time >= 4)[0].time).toBe(4);
+  });
+});
+
+describe("generateBass with a figure (engine 2)", () => {
+  const rock = findStyle("rock")!;
+  /** The first seed whose figure for `name` has the shape the test needs, so a test does not depend on which figure a seed happens to pick. */
+  const seedFor = (figures: readonly Figure[], part: "groove" | "melodic", name: string, wanted: (figure: Figure) => boolean): number => {
+    const seed = Array.from({ length: 200 }, (_, i) => i + 1).find((candidate) => wanted(chooseFigure(figures, part, candidate, name)));
+    if (seed === undefined) throw new Error("no seed gives the figure the test needs");
+    return seed;
+  };
+  const engine2 = (overrides: Partial<BandSettings> = {}): BandSettings => settingsFor({ engine: 2, ...overrides });
+  /** A bar as (step, interval above its first note's pitch class), so a bar on another chord with the same figure compares equal. */
+  const shapeOf = (notes: readonly NoteEvent[], bar: number): [number, number][] => {
+    const own = inBar(notes, bar);
+    return own.map((note) => [Math.round(((note.time - bar * 2) / 2) * 16), (note.pitch - own[0].pitch + 120) % 12]);
+  };
+  const stepsOf = (notes: readonly NoteEvent[], bar: number): number[] => shapeOf(notes, bar).map(([step]) => step);
+
+  it("plays the same figure in bars 1 to 3 of each phrase and changes the fourth", () => {
+    const chords = barsOf(...["C", "G", "Am", "F"].flatMap((name) => [name, name, name, name]));
+    const figures = rock.bass.figures[4];
+    const seed = seedFor(figures, "groove", "Chorus", (figure) => figure.bars === 1);
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Chorus", energy: 4, fills: 3 })],
+      engine2(),
+      [],
+      seed,
+    );
+    for (let phrase = 0; phrase < 4; phrase++) {
+      const first = phrase * 4;
+      expect(shapeOf(notes, first + 1)).toEqual(shapeOf(notes, first));
+      expect(shapeOf(notes, first + 2)).toEqual(shapeOf(notes, first));
+    }
+    // The last bar of a phrase varies, in at least all but the phrase that leads into the ending.
+    const varied = [0, 1, 2].filter((phrase) => JSON.stringify(shapeOf(notes, phrase * 4 + 3)) !== JSON.stringify(shapeOf(notes, phrase * 4)));
+    expect(varied.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("plays the same figure in Chorus 1 and Chorus 2", () => {
+    const chords = barsOf(...Array<string>(12).fill("A"));
+    const plans = [
+      planFor(16, { name: "Chorus", energy: 4, end: 8 }),
+      planFor(32, { name: "Verse", energy: 4, start: 8, end: 16 }),
+      planFor(48, { name: "Chorus", energy: 4, start: 16, end: 24 }),
+    ];
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), plans, engine2(), [], 7);
+    expect(shapeOf(notes, 0)).toEqual(shapeOf(notes, 8));
+    expect(stepsOf(notes, 0).length).toBeGreaterThan(1);
+  });
+
+  it("plays the key's third above a power chord that has none: A, not A sharp, over F sharp in A major", () => {
+    const ballad = findStyle("ballad")!;
+    const seed = seedFor(ballad.bass.figures[4], "melodic", "Verse", (figure) => figure.notes.some((bar) => bar.some((note) => note.degree === "3")));
+    const chords = barsOf(...Array<string>(4).fill("F#5"));
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Verse", style: "ballad", energy: 4, bassPart: "melodic" })],
+      engine2(),
+      [],
+      seed,
+      undefined,
+      undefined,
+      [{ start: 0, end: 8, tonic: 9, mode: "major" }],
+    );
+    const classes = new Set(notes.slice(0, -1).map((note) => pc(note.pitch)));
+    expect(classes.has(9)).toBe(true);
+    expect(classes.has(10)).toBe(false);
+  });
+
+  it("keeps every figure note when the kick is locked, and gives every kick a bass note within two steps", () => {
+    const chords = barsOf("C", "C", "C", "C");
+    const seed = seedFor(rock.bass.figures[4], "groove", "Verse", (figure) => figure.bars === 1);
+    const figure = chooseFigure(rock.bass.figures[4], "groove", seed, "Verse");
+    // A step is an eighth of a half-second beat: 0.125 s. These kicks are on steps 0, 5 (one from a figure note on 6 or 4), 10 and 14.
+    const kickSteps = [0, 5, 10, 14];
+    const kick: NoteEvent[] = [0, 1, 2, 3].flatMap((bar) =>
+      kickSteps.map((step) => ({ time: bar * 2 + step * 0.125, pitch: 36, velocity: 100, duration: 0.1 })),
+    );
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Verse", energy: 4 })],
+      engine2({ lockToKick: true }),
+      kick,
+      seed,
+    );
+    for (let bar = 0; bar < 3; bar++) {
+      const played = stepsOf(notes, bar);
+      for (const note of figure.notes[0]) expect(played.some((step) => Math.abs(step - note.step) <= 1)).toBe(true);
+      for (const step of kickSteps) expect(played.some((at) => Math.abs(at - step) <= 2)).toBe(true);
+    }
+  });
+
+  it("plays a note the performer set by hand as set, whatever the figure", () => {
+    const grid = gridOf(16);
+    const harmony = harmonyFor(barsOf("C", "C", "C", "C"));
+    const set = harmony.map((entry) => ({ ...entry, chord: { ...entry.chord!, bass: 4, byHand: true } }));
+    const notes = generateBass(grid, set, [planFor(16, { name: "Chorus", energy: 4, bassPart: "melodic" })], engine2(), [], 3);
+    for (const note of notes.slice(0, -1)) expect(pc(note.pitch)).toBe(4);
+  });
+
+  it("keeps every note inside the range, for every style and energy", () => {
+    const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
+    for (const id of ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "half-time"] as const) {
+      for (const energy of [1, 3, 5] as const) {
+        for (const part of ["groove", "melodic"] as const) {
+          const notes = generateBass(
+            gridOf(progression.length),
+            progression,
+            [planFor(progression.length, { style: id, energy, bassPart: part })],
+            engine2({ complexity: 0.5 }),
+            [],
+            4,
+          );
+          expect(notes.length).toBeGreaterThan(0);
+          for (const note of notes) {
+            expect(note.pitch).toBeGreaterThanOrEqual(28);
+            expect(note.pitch).toBeLessThanOrEqual(55);
+          }
+        }
+      }
+    }
   });
 });

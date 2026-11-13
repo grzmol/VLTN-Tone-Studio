@@ -1,6 +1,7 @@
 // Shuffle: a triplet grid of three steps to a beat. The swing is in the pattern itself, so the first and third triplet steps carry
 // the ride and the middle one is left out. Walking bass fits this style.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane } from "./notation";
 import type { Style } from "./types";
@@ -125,6 +126,13 @@ export const SHUFFLE: Style = {
   bass: {
     walking: true,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(12, "1 . . . . . . . . . . ."), figure(12, "1 . . . . . 5 . . . . ."), figure(12, "1 . . . . . . . . . . .", "1 . . . . . 5 . . . . .")],
+      2: [figure(12, "1 . . . . . 5 . . . . ."), figure(12, "1 . . . . . 1 . . 5 . ."), figure(12, "1 . . 1 . . 5 . . . . .")],
+      3: [figure(12, "1 . . 1 . . 5 . . 1 . ."), figure(12, "1 . . . . . 1 . . 5 . 3"), figure(12, "1 . . 1 . . 5 . . 8 . .")],
+      4: [figure(12, "1 . . 1 . . 5 . . 1 . .", "1 . . 1 . . 5 . . 8 . ."), figure(12, "1 . 1 1 . 1 5 . 5 1 . ."), figure(12, "1 . . 5 . . 1 . . 5 . 3")],
+      5: [figure(12, "1 . 1 1 . 1 5 . 5 1 . 1"), figure(12, "1 . 1 1 . 1 1 . 1 5 . 5"), figure(12, "1 1 . 1 1 . 5 5 . 1 1 .")],
+    },
     rhythms: {
       1: [
         [0, 6],

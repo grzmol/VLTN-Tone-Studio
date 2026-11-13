@@ -1,5 +1,6 @@
 // Funk: sixteenth-note grooves, with kick and snare placed on the off-beats and ghost notes between the backbeats.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -124,6 +125,23 @@ export const FUNK: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: true, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . . . . . 5 . . . ."), figure(16, "1 . . . . . . . . . . . . . . ."), figure(16, "1 . . . . . . . . . . . . . 8s .")],
+      2: [figure(16, "1 . . 1s . . . . . . 5 . . . . ."), figure(16, "1 . . . . . 8s . . . 1 . . . . ."), figure(16, "1 . . . . . 1s . . . . . 5 . . .")],
+      3: [figure(16, "1 . . 1s . . 5 . . . 1s . . . 8s ."), figure(16, "1 . . 1s . . . . 8 . 1s . . . 5 ."), figure(16, "1 . . 1 . . 8s . . . 7 . . . 5 .")],
+      4: [
+        figure(16, "1 . . 1s . . 8 . . . 7 5 . . . ."),
+        figure(16, "1 . . 1s . . 7 . 8 . 5 . . . 1s ."),
+        figure(16, "1 . 1s . . 8s . . 1 . . 7 . 5 . ."),
+        figure(16, "1 . . 1s . . 8 . . . 1 . . . 5 ."),
+      ],
+      5: [
+        figure(16, "1 . 1s 1s . . 8s . 1 . 7 5 . . 8s ."),
+        figure(16, "1 . . 1s . . 8s 7 . . 1s . . 5 8s ."),
+        figure(16, "1 . 1s . 1s . 5 8s . 1s . 7 . 5 . ."),
+        figure(16, "1 . 1s 1s . . 8s . 1 . 1 5 . . 8s ."),
+      ],
+    },
     rhythms: {
       1: [[0, 11], [0]],
       2: [
