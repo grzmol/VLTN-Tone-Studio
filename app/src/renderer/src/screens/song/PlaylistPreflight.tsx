@@ -1,3 +1,4 @@
+import { knownPresetNames } from "./use-preset-names";
 import { ArrangementAdvice } from "./ArrangementAdvice";
 import { PlaylistPreflightIssues } from "./PlaylistPreflightIssues";
 import { useEffect, useRef, useState } from "react";
@@ -44,6 +45,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
           songs: songEntries(songs),
           bindings: config.bindings,
           pedals: configuredPedals(pedals),
+          presetNames: knownPresetNames(),
         }),
       );
     } catch (e) {
