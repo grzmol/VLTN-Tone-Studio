@@ -5,6 +5,7 @@ import type { BandStage } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
 import { fitToLength, shiftAudio, type LineUp } from "@/song/band/rendered";
 import type { MissingParts } from "@/song/band/detect";
+import type { BandNotice } from "./band-status";
 import type { PendingLineUp } from "./RenderedPartRow";
 
 /** The preview target that is not a section: the song position now. */
@@ -18,7 +19,7 @@ export interface PendingRendered {
   /** The decoded file, before it is fitted to the song, so a shift does not lose its end twice. */
   decoded: PcmAudio;
   line: LineUp;
-  notices: string[];
+  notices: BandNotice[];
 }
 /** The title of the prompt before Generate replaces rendered audio. */
 export function replaceTitle(kinds: readonly RenderedKind[]): string {
@@ -29,6 +30,8 @@ export function replaceTitle(kinds: readonly RenderedKind[]): string {
 export const BASS_TONE_TEXT = "Bass tone…";
 /** The step the drum tone takes after the render (spec 104), before the bass tone. */
 export const DRUM_TONE_TEXT = "Applying the drum tone…";
+/** How long Play from the start stays in Preview's place after a Generate. */
+export const PLAY_OFFER_MS = 5000;
 export const PLAYING_TEXT = "Stop playback to generate parts.";
 export const NO_SONG_TEXT = "Open a song to generate parts.";
 
@@ -63,7 +66,7 @@ export function pendingLineUp(
   pending: PendingRendered | null,
   kind: RenderedKind,
   dismiss: () => void,
-  apply: (kind: RenderedKind, name: string, audio: PcmAudio, notices: string[]) => void,
+  apply: (kind: RenderedKind, name: string, audio: PcmAudio, notices: BandNotice[]) => void,
   frames: number,
 ): PendingLineUp | null {
   if (!pending || pending.kind !== kind) return null;

@@ -74,7 +74,7 @@ export function BandGridSection({
   }
   return (
     <section aria-label="Beat grid" className="flex min-w-0 flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" disabled={blocked} onClick={onFind}>
           Find the beat
         </Button>

@@ -23,7 +23,16 @@ export function BandTabParts({
 }) {
   return (
     <section aria-label="Sections" className="flex flex-col gap-2">
-      <BandSections rows={rows} disabled={disabled} selected={selected} onSelect={onSelect} onChange={onChange} onCopyToSameKind={onCopyToSameKind} onReset={onReset} beatsPerBar={beatsPerBar} />
+      <BandSections
+        rows={rows}
+        disabled={disabled}
+        selected={selected}
+        onSelect={onSelect}
+        onChange={onChange}
+        onCopyToSameKind={onCopyToSameKind}
+        onReset={onReset}
+        beatsPerBar={beatsPerBar}
+      />
     </section>
   );
 }
