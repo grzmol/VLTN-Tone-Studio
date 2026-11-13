@@ -47,6 +47,10 @@ export function SessionTimeline({
       jumpTargetId={live.jump ?? (next?.kind === "jump" ? next.target : null)}
       barSeconds={barSeconds}
       locked={stage || session.locked}
+      jumpable={stage}
+      large={stage}
+      showNext={stage}
+      className={stage ? "h-[72px] [@media(max-height:719px)]:h-12" : undefined}
       onSeek={(seconds) => void session.seek(seconds)}
       onSection={session.tapSection}
     />

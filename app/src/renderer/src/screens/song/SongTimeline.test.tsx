@@ -103,3 +103,17 @@ it("shades a trimmed start and end and ticks each cue with its label", () => {
   expect(tick.style.left).toBe("50%");
   expect(tick.getAttribute("title")).toBe("Clean tone");
 });
+
+it("keeps section labels pressable while seeking is locked when they are jumpable, and outlines the next section", () => {
+  const onSeek = vi.fn();
+  const onSection = vi.fn();
+  const { container } = render(<SongTimeline duration={300} sections={sections} locked jumpable showNext onSeek={onSeek} onSection={onSection} />);
+  sized(slider());
+  fireEvent.pointerDown(slider(), { clientX: 500, pointerId: 1 });
+  fireEvent.click(screen.getByRole("button", { name: /Chorus 1/ }));
+  expect(onSeek).not.toHaveBeenCalled();
+  expect(onSection).toHaveBeenCalledWith("chorus");
+  // The playhead is in the intro, so the verse is next.
+  expect(container.querySelector('[data-section="verse"]')?.hasAttribute("data-next")).toBe(true);
+  expect(container.querySelector('[data-section="chorus"]')?.hasAttribute("data-next")).toBe(false);
+});

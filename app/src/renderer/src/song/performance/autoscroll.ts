@@ -79,9 +79,9 @@ export function autoscrollTarget(mode: AutoscrollMode, position: number, rows: r
   return rows[index].top + ((rows[index + 1].top - rows[index].top) * (virtual - index));
 }
 
-/** The scroll position that puts the target line at the reading position, never above the top. */
-export function scrollTopFor(target: number, viewportHeight: number): number {
-  return Math.max(0, target - viewportHeight * READING_LINE);
+/** The scroll position that puts the target line at the reading position (`anchor`, the share of the height from the top), never above the top. */
+export function scrollTopFor(target: number, viewportHeight: number, anchor: number = READING_LINE): number {
+  return Math.max(0, target - viewportHeight * anchor);
 }
 
 /** How long a manual scroll or a remote scroll pauses autoscroll, in milliseconds. */
