@@ -154,3 +154,28 @@ it("uses the names cached from the last connection, and says to connect when the
   expect(screen.getByRole("option", { name: "Recall memory 001" })).toBeTruthy();
   expect(screen.getByRole("note").textContent).toBe("Connect the pedal in the editor to see preset names");
 });
+
+it("writes the preset name into the cue's label, with the same bytes as an unnamed recall", () => {
+  const add = vi.fn();
+  useDevice.setState({
+    device: "gp180",
+    status: "connected",
+    names: [
+      { slot: 0, name: "Clean Verb" },
+      { slot: 1, name: "Crunch Lead" },
+    ],
+  });
+  render(<PedalMidiPicker time={8} onAdd={add} onTest={vi.fn()} canTest={false} />);
+  fireEvent.change(screen.getByLabelText("MIDI pedal"), { target: { value: "valeton-gp180" } });
+  fireEvent.change(screen.getByLabelText("Pedal MIDI channel"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("Pedal command preset"), { target: { value: "memory-2" } });
+  fireEvent.click(screen.getByText("Add pedal command"));
+  expect(add.mock.calls[0][0]).toContain("{label:GP-180: 002 Crunch Lead}");
+  expect(parseChart(add.mock.calls[0][0])[0]).toMatchObject({
+    label: "GP-180: 002 Crunch Lead",
+    messages: [
+      [0xb2, 0, 0],
+      [0xc2, 1],
+    ],
+  });
+});
