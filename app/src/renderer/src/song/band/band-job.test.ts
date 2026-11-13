@@ -192,6 +192,35 @@ describe("runBandJob humanising", () => {
   });
 });
 
+describe("runBandJob bass techniques", () => {
+  it("keeps the slides and dead notes the bass generator makes when humanising is on", () => {
+    const settings: BandSettings = {
+      ...DEFAULT_BAND_SETTINGS,
+      humanise: { amount: 0.5, feel: "style" },
+      bassMode: "roots",
+      complexity: 1,
+      sections: {
+        funk: { style: "funk", bassPart: "ring", busy: 3, deadNotes: true, slides: false, fills: 0 },
+        ballad: { style: "ballad", bassPart: "pulse", busy: 2, loud: 1, deadNotes: false, slides: true, fills: 0 },
+      },
+    };
+    const sections: Section[] = [
+      { id: "funk", name: "Verse", start: 0, end: 16, mode: "continue" },
+      { id: "ballad", name: "Chorus", start: 16, end: 64, mode: "continue" },
+    ];
+    const seconds = 64;
+    const grid = steadyGrid(seconds);
+    const chord = parseChordName("C");
+    const harmony: ChordAtBeat[] = grid.beats.map((time, beat) => ({ beat, time, chord }));
+    const result = runBandJob(
+      request({ grid, harmony, settings, plans: planSections(sections, seconds, settings), lengthFrames: seconds * RATE, parts: { drums: false, bass: true } }),
+      stubSamples(),
+    );
+    expect(result.notes.bass.some((note) => note.dead)).toBe(true);
+    expect(result.notes.bass.some((note) => note.slideFrom !== undefined)).toBe(true);
+  });
+});
+
 describe("runBandJob levels", () => {
   /** A steady stereo tone of SONG_SECONDS. Its loudness follows its amplitude, so a test can know the song's level. */
   const tone = (amplitude: number): PcmAudio => {
