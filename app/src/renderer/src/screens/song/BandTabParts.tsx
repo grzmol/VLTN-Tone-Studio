@@ -11,6 +11,7 @@ export function BandTabParts({
   onCopyToSameKind,
   onReset,
   beatsPerBar,
+  drumPhrases,
 }: {
   rows: readonly BandSectionRow[];
   disabled: boolean;
@@ -20,6 +21,7 @@ export function BandTabParts({
   onCopyToSameKind(sectionId: string | null): void;
   onReset(sectionId: string | null): void;
   beatsPerBar?: number;
+  drumPhrases?: boolean;
 }) {
   return (
     <section aria-label="Sections" className="flex flex-col gap-2">
@@ -32,6 +34,7 @@ export function BandTabParts({
         onCopyToSameKind={onCopyToSameKind}
         onReset={onReset}
         beatsPerBar={beatsPerBar}
+        drumPhrases={drumPhrases}
       />
     </section>
   );

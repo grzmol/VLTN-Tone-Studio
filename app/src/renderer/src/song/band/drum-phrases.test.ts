@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { barRoles, FILL_RANGE, overlay, shapeFill } from "./drum-phrases";
+import { autoFillSize, barRoles, choked, FILL_RANGE, fillSizeOf, overlay, shapeFill } from "./drum-phrases";
 import { CLOSED_HAT, KICK, OPEN_HAT, SNARE } from "./note";
-import type { DrumHit } from "./styles/types";
+import type { DrumHit, Energy } from "./styles/types";
 import { isPhraseEnd, phraseBars } from "./bass-phrases";
 
 const endsOf = (bars: number, key: "phraseEnd" | "pairEnd" | "sectionEnd") =>
@@ -102,5 +102,47 @@ describe("shapeFill", () => {
   it("does not scale ghost notes", () => {
     const hits: DrumHit[] = [...flat([12, 13, 14, 15]), { step: 13, pitch: SNARE, velocity: 38, ghost: true }];
     expect(shapeFill(hits, 108)[4].velocity).toBe(38);
+  });
+});
+
+describe("autoFillSize", () => {
+  const section = (name: string, energy: Energy, drums = true) => ({ name, energy, play: { drums, bass: true } });
+
+  it("sizes the fill by the change into the next section", () => {
+    expect(autoFillSize(section("Verse", 3), undefined)).toBe(0);
+    // The same section continuing, or a drop of two levels or more: the last beat, or nothing from energy 1.
+    expect(autoFillSize(section("Verse", 3), section("Verse", 3))).toBe(1);
+    expect(autoFillSize(section("Chorus", 5), section("Verse", 2))).toBe(1);
+    expect(autoFillSize(section("Intro", 1), section("Intro", 1))).toBe(0);
+    expect(autoFillSize(section("Intro", 2), section("Verse", 1))).toBe(1);
+    // Equal, or one level lower.
+    expect(autoFillSize(section("Verse", 3), section("Bridge", 3))).toBe(1);
+    expect(autoFillSize(section("Bridge", 3), section("Verse", 2))).toBe(1);
+    // One level higher: half a bar.
+    expect(autoFillSize(section("Verse", 2), section("Bridge", 3))).toBe(2);
+    // Two or more levels higher, or a chorus after another kind of section: the whole bar.
+    expect(autoFillSize(section("Verse", 2), section("Bridge", 4))).toBe(3);
+    expect(autoFillSize(section("Verse", 4), section("Chorus", 4))).toBe(3);
+    expect(autoFillSize(section("Chorus", 4), section("Chorus 2", 4))).toBe(1);
+    // The next section has no drums.
+    expect(autoFillSize(section("Verse", 3), section("Break", 2, false))).toBe(0);
+  });
+
+  it("reads a size the performer set, and the old on and off", () => {
+    const verse = section("Verse", 2);
+    const chorus = section("Chorus", 4);
+    expect(fillSizeOf({ ...verse, fill: 2 }, chorus)).toBe(2);
+    expect(fillSizeOf({ ...verse, fill: 0 }, chorus)).toBe(0);
+    expect(fillSizeOf({ ...verse, fill: false }, chorus)).toBe(0);
+    expect(fillSizeOf({ ...verse, fill: true }, chorus)).toBe(3);
+    expect(fillSizeOf({ ...verse, fill: 3 }, undefined)).toBe(3);
+  });
+
+  it("chokes only before a section with no drums, from energy 4, and only when automatic", () => {
+    const quiet = section("Break", 1, false);
+    expect(choked({ ...section("Chorus", 4), fill: true }, quiet)).toBe(true);
+    expect(choked({ ...section("Verse", 3), fill: true }, quiet)).toBe(false);
+    expect(choked({ ...section("Chorus", 4), fill: 0 }, quiet)).toBe(false);
+    expect(choked({ ...section("Chorus", 4), fill: true }, section("Verse", 3))).toBe(false);
   });
 });

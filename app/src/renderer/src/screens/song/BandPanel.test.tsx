@@ -687,19 +687,30 @@ describe("Band panel", () => {
   it("writes the section overrides, and a row's drums and fill", () => {
     renderPanel({ sections: SECTIONS });
     expect(screen.getByRole("button", { name: "Verse" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Fill at the end of Verse" }));
-    expect(savedOptions().band.sections.verse.fill).toBe(false);
+    pick(screen.getByRole("combobox", { name: "Fill at the end of Verse" }), "None");
+    expect(savedOptions().band.sections.verse.fill).toBe(0);
+    pick(screen.getByRole("combobox", { name: "Fill at the end of Verse" }), "Half bar");
+    expect(savedOptions().band.sections.verse.fill).toBe(2);
+    pick(screen.getByRole("combobox", { name: "Fill at the end of Verse" }), "Auto");
+    expect(savedOptions().band.sections.verse.fill).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "Drums in Chorus" }));
     expect(savedOptions().band.sections.chorus.play).toEqual({ drums: false, bass: true });
     pick(screen.getByRole("combobox", { name: "Energy of Chorus" }), "5");
     expect(savedOptions().band.sections.chorus.energy).toBe(5);
   });
 
+  it("keeps the fill a checkbox for a song on the earlier drums", () => {
+    stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, engine: 2 } });
+    renderPanel({ sections: SECTIONS });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Fill at the end of Verse" }));
+    expect(savedOptions().band.sections.verse.fill).toBe(false);
+  });
+
   it("edits the one row of a song without sections, and saves it under the whole-song key", () => {
     renderPanel();
     expect(screen.getByRole("button", { name: "Whole song" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Fill at the end of Whole song" }));
-    expect(savedOptions().band.sections.song.fill).toBe(false);
+    pick(screen.getByRole("combobox", { name: "Fill at the end of Whole song" }), "Whole bar");
+    expect(savedOptions().band.sections.song.fill).toBe(3);
     pick(screen.getByRole("combobox", { name: "Energy of Whole song" }), "5");
     expect(savedOptions().band.sections.song.energy).toBe(5);
     pick(screen.getByRole("combobox", { name: "Style of Whole song" }), "Metal");

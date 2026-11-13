@@ -4,6 +4,7 @@
 
 import { CLOSED_HAT, OPEN_HAT, PEDAL_HAT, RIDE } from "./note";
 import { isPhraseEnd, phraseBars } from "./phrases";
+import { isChorusName, type FillSize, type SectionPlan } from "./arrangement";
 import type { DrumHit } from "./styles/types";
 
 /** Where a bar sits in its section's phrases. Phrases are 4 bars, or 2 in a section shorter than 4 bars (the same rule as the bass). */
@@ -74,4 +75,39 @@ export function shapeFill(hits: readonly DrumHit[], accent: number): DrumHit[] {
     const scaled = Math.round(hit.velocity * (FILL_START + (FILL_RISE * rank) / (order.length - 1)));
     return { ...hit, velocity: rank === order.length - 1 ? Math.max(scaled, accent) : scaled };
   });
+}
+
+/** The fill size an automatic fill takes when the section after is this much louder (2 or more levels). */
+const BIG_CHANGE = 2;
+/** A section's last bar ends with a kick and a crash before a section with the drums off, from this energy up. */
+export const CHOKE_FROM_ENERGY = 4;
+
+/** What an automatic fill reads from the section it ends and the section after it. */
+type FillSection = Pick<SectionPlan, "name" | "energy" | "play">;
+
+/**
+ * The size of the fill that ends `plan`, when the performer has left it automatic, from this section's energy and the next one's:
+ * into a quieter or the same section a last-beat fill (none from energy 1), into a section one level louder half a bar, and into
+ * one two or more levels louder, or a chorus after another kind of section, the whole bar. Before a section with the drums off there is no
+ * fill. At the song's end (no next section) the ending decides, so none.
+ */
+export function autoFillSize(plan: FillSection, next: FillSection | undefined): FillSize {
+  if (!next || !next.play.drums) return 0;
+  if (isChorusName(next.name) && !isChorusName(plan.name)) return 3;
+  const change = next.energy - plan.energy;
+  if (next.name === plan.name || change <= -BIG_CHANGE) return plan.energy === 1 ? 0 : 1;
+  if (change <= 0) return 1;
+  return change === 1 ? 2 : 3;
+}
+
+/** The size of the fill that ends `plan`: a size the performer set, none, or the automatic one. */
+export function fillSizeOf(plan: Pick<SectionPlan, "fill"> & FillSection, next: FillSection | undefined): FillSize {
+  if (plan.fill === false) return 0;
+  if (plan.fill === true) return autoFillSize(plan, next);
+  return plan.fill;
+}
+
+/** Whether the last bar before a section with the drums off ends with a kick and a crash: only for an automatic fill, from energy 4 up. */
+export function choked(plan: Pick<SectionPlan, "fill"> & FillSection, next: FillSection | undefined): boolean {
+  return plan.fill === true && next !== undefined && !next.play.drums && plan.energy >= CHOKE_FROM_ENERGY;
 }

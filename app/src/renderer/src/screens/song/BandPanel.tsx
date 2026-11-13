@@ -903,6 +903,7 @@ function BandBody({
               onCopyToSameKind={copyToSameKind}
               onReset={resetRow}
               beatsPerBar={grid?.beatsPerBar}
+              drumPhrases={settings.engine >= 3}
             />
           </TabsContent>
           <TabsContent forceMount value="feel" className="min-w-0 data-[state=inactive]:hidden">

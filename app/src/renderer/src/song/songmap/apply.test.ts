@@ -139,6 +139,13 @@ describe("planSongMap: the values", () => {
     expect(band.sections["map-2"]).toEqual({ play: { drums: false, bass: false }, energy: 4, loud: 5 });
   });
 
+  it("writes a section's fill size with its band", () => {
+    const map = mapWith({ sections: [{ ...verse, fill: 2 }, { ...chorus, fill: true }], style: "pop" });
+    const band = optionsOf(planSongMap(blank, map).values(["sections", "band"])).band as { sections: Record<string, { fill?: unknown }> };
+    expect(band.sections["map-1"].fill).toBe(2);
+    expect(band.sections["map-2"].fill).toBe(true);
+  });
+
   it("writes the song style with the band, and no section overrides, when the song has no sections yet", () => {
     const band = optionsOf(planSongMap(blank, full).values(["band"])).band as { style: string; sections: Record<string, unknown> };
     expect(band.style).toBe("pop");
