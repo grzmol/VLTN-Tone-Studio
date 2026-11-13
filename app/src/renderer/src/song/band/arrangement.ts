@@ -16,6 +16,7 @@ import {
 } from "./bass-parts";
 import { DEFAULT_ENDING, isEnding, parseEnding, type EndingSettings } from "./ending";
 import { parseBassOverrides, type BassOverride } from "./bass-overrides";
+import { parseBarMarks, type BarMark } from "./marks";
 import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
@@ -226,6 +227,8 @@ export interface BandSettings {
   bassFrom: BassFrom;
   /** Bass notes the performer set by hand, over stretches of the song. They win over the original bass and the chords (bass-overrides.ts). */
   bassOverrides: BassOverride[];
+  /** Marks the performer put on single bars: a fill, a stop, a crash, a rest. They win over the section's settings (marks.ts). */
+  marks: BarMark[];
   /** The bass part a section plays when it is on Auto and Auto has no rule of its own. A song saved before this existed takes it from bassMode. */
   defaultBassPart: BassPart;
   lockToKick: boolean;
@@ -277,6 +280,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassMode: "roots",
   bassFrom: "original",
   bassOverrides: [],
+  marks: [],
   defaultBassPart: "pulse",
   bassFeel: 0.5,
   lockToKick: true,
@@ -646,6 +650,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBassMode(value.bassMode) &&
     isBassFrom(value.bassFrom) &&
     Array.isArray(value.bassOverrides) &&
+    Array.isArray(value.marks) &&
     DEFAULT_BASS_PARTS.includes(value.defaultBassPart as BassPart) &&
     isBool(value.lockToKick) &&
     isBool(value.followPlaying) &&
@@ -725,6 +730,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassMode: isBassMode(source.bassMode) ? source.bassMode : defaults.bassMode,
     bassFrom: isBassFrom(source.bassFrom) ? source.bassFrom : defaults.bassFrom,
     bassOverrides: parseBassOverrides(source.bassOverrides),
+    marks: parseBarMarks(source.marks),
     defaultBassPart: DEFAULT_BASS_PARTS.includes(source.defaultBassPart as BassPart)
       ? (source.defaultBassPart as BassPart)
       : isBassMode(source.bassMode)

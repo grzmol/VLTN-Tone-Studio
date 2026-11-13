@@ -43,7 +43,17 @@ const SECTIONS = [
 ];
 
 function view(patch: Partial<BandPartViewProps> = {}) {
-  const props: BandPartViewProps = { notes: NOTES, grid, harmony: [], sections: SECTIONS, selected: 0, onSelect: vi.fn(), onPlayFrom: vi.fn(), ...patch };
+  const props: BandPartViewProps = {
+    notes: NOTES,
+    grid,
+    harmony: [],
+    sections: SECTIONS,
+    selected: 0,
+    onSelect: vi.fn(),
+    onPlayFrom: vi.fn(),
+    marks: [],
+    ...patch,
+  };
   render(<BandPartView {...props} />);
   return props;
 }
@@ -77,6 +87,74 @@ describe("BandPartView", () => {
     // The chorus starts at 4 s, so its second bar starts at 6 s.
     fireEvent.click(screen.getAllByRole("button", { name: /^Bar/ })[1]);
     expect(props.onPlayFrom).toHaveBeenCalledWith(6);
+  });
+
+  it("opens a menu with the eight marks when a bar is clicked, and a Stop puts a mark at the bar's time", () => {
+    const onMarks = vi.fn();
+    const props = view({ selected: 1, onMarks });
+    // The chorus starts at 4 s, so its second bar starts at 6 s.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bar/ })[1]);
+    const menu = screen.getByRole("group", { name: "Marks for Bar 2" });
+    for (const name of ["Fill", "No fill", "Stop", "Crash", "No crash", "Drums out", "Bass out", "Hit"]) {
+      expect(within(menu).getByRole("button", { name })).toBeTruthy();
+    }
+    fireEvent.click(within(menu).getByRole("button", { name: "Stop" }));
+    expect(onMarks).toHaveBeenCalledWith([{ time: 6, kind: "stop" }]);
+    expect(props.onPlayFrom).not.toHaveBeenCalled();
+  });
+
+  it("puts the chosen length on a stop, and takes a mark off when it is chosen again", () => {
+    const onMarks = vi.fn();
+    view({ selected: 1, onMarks, marks: [{ time: 6, kind: "crash" }] });
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bar 2/ })[0]);
+    const menu = screen.getByRole("group", { name: "Marks for Bar 2" });
+    fireEvent.click(within(menu).getByRole("button", { name: "4" }));
+    fireEvent.click(within(menu).getByRole("button", { name: "Stop" }));
+    expect(onMarks).toHaveBeenLastCalledWith([
+      { time: 6, kind: "crash" },
+      { time: 6, kind: "stop", beats: 4 },
+    ]);
+    fireEvent.click(within(menu).getByRole("button", { name: "Crash" }));
+    expect(onMarks).toHaveBeenLastCalledWith([]);
+  });
+
+  it("marks a bar by its time even when the mark was saved a little off the bar line, and moves it onto the line when it changes", () => {
+    const onMarks = vi.fn();
+    view({ selected: 1, onMarks, marks: [{ time: 6.1, kind: "crash" }] });
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bar 2/ })[0]);
+    fireEvent.click(within(screen.getByRole("group", { name: "Marks for Bar 2" })).getByRole("button", { name: "Hit" }));
+    expect(onMarks).toHaveBeenCalledWith([
+      { time: 6, kind: "crash" },
+      { time: 6, kind: "hit" },
+    ]);
+  });
+
+  it("lists the marks with where they are, and removes one or all", () => {
+    const onMarks = vi.fn();
+    const marks = [
+      { time: 6, kind: "stop" as const, beats: 2 },
+      { time: 4, kind: "fill" as const },
+    ];
+    view({ selected: 1, onMarks, marks });
+    const list = screen.getByRole("region", { name: "Your marks" });
+    expect(within(list).getByText("Your marks (2)")).toBeTruthy();
+    expect(within(list).getByText("Chorus, bar 1: Fill, 2 beats")).toBeTruthy();
+    expect(within(list).getByText("Chorus, bar 2: Stop, 2 beats")).toBeTruthy();
+    fireEvent.click(within(list).getByRole("button", { name: "Remove Fill, 2 beats at Chorus, bar 1" }));
+    expect(onMarks).toHaveBeenLastCalledWith([marks[0]]);
+    fireEvent.click(within(list).getByRole("button", { name: "Remove all" }));
+    expect(onMarks).toHaveBeenLastCalledWith([]);
+  });
+
+  it("says a mark that is on no bar is not on the song, and can still remove it", () => {
+    view({ selected: 1, onMarks: vi.fn(), marks: [{ time: 900, kind: "fill" }] });
+    expect(screen.getByText("Not on a bar of this song: Fill, 2 beats")).toBeTruthy();
+  });
+
+  it("leaves the marks alone while the band is busy", () => {
+    view({ selected: 1, onMarks: vi.fn(), disabled: true });
+    fireEvent.click(screen.getAllByRole("button", { name: /^Bar/ })[0]);
+    expect((screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does nothing when a bar is clicked where the song cannot be played from, as in stage mode", () => {

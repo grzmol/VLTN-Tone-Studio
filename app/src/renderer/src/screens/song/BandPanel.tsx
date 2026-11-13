@@ -974,6 +974,9 @@ function BandBody({
                   : undefined,
                 getPosition,
                 playing: audioPlaying,
+                marks: settings.marks,
+                onMarks: (marks) => change({ marks }),
+                disabled: blocked,
               }}
               blocked={blocked}
               busy={false}
