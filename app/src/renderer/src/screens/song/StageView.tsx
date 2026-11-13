@@ -7,6 +7,7 @@ import { host } from "@/host";
 import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
 import type { Chord } from "@/song/performance/chords";
+import { readStoredBand } from "@/song/band/stored";
 import { steadyGrid } from "@/song/performance/position";
 import { usePlaybackClock } from "@/song/performance/playback-clock";
 import { sortedSections } from "@/song/performance/sections";
@@ -38,6 +39,7 @@ export function StageView({
   speedNote,
   pdf,
   soloScale,
+  settingsKey,
 }: {
   session: PerformanceSession;
   stage: boolean;
@@ -57,6 +59,8 @@ export function StageView({
   pdf?: PdfReaderState;
   /** For the reader's Solo scale button */
   soloScale?: { storageKey: string; capo: number; onChange?: () => void };
+  /** The song's settings key: its saved band beat grid, when it has one, gives the strip the song's real bar lines. */
+  settingsKey?: string;
 }) {
   const library = useSongLibrary();
   const source = useSong((s) => s.source);
@@ -78,7 +82,12 @@ export function StageView({
   const title = entry?.title ?? source?.name ?? "Performance";
   // Off by default: a full-screen flash is for performers who cannot look at the beat light.
   const [edgeFlash, setEdgeFlash] = useState(false);
-  const grid = useMemo(() => steadyGrid(beat.bpm, beat.beats, beat.firstBeat, duration), [beat.bpm, beat.beats, beat.firstBeat, duration]);
+  // The saved grid follows the song's own tempo and bar lines; the steady one is the fallback. Stage mode locks editing, so it is read on entry.
+  const saved = useMemo(() => (stage && settingsKey ? readStoredBand(settingsKey).grid : null), [stage, settingsKey, source]);
+  const grid = useMemo(
+    () => (saved && saved.beats.length > 1 ? saved : steadyGrid(beat.bpm, beat.beats, beat.firstBeat, duration)),
+    [saved, beat.bpm, beat.beats, beat.firstBeat, duration],
+  );
   // Between songs of a set the chart gives way to the card of the song that plays next.
   const card = stage && queued && !playing && !starting && atStart;
   const notices = [powerError, library.error, library.notice, parseError].filter(Boolean).join(" · ");

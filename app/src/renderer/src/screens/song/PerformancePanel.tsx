@@ -882,6 +882,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
             speedNote={speedNote(speed)}
             pdf={pdfState}
+            settingsKey={key}
             soloScale={{ storageKey: key, capo, onChange: () => setSoloVersion((v) => v + 1) }}
           />
         </div>

@@ -8,6 +8,7 @@ import { NO_LIVE } from "@/song/performance/sections";
 import type { PerformanceSession, SessionState } from "@/song/performance/session";
 import { useSongLibrary } from "@/song/library";
 import { useSong } from "@/song/store";
+import { clearSettingsCache, setSetting } from "@/song/performance/settings";
 import { StageView } from "./StageView";
 
 const NAMES = ["Intro", "Verse 1", "Pre-chorus 1", "Chorus 1", "Verse 2", "Pre-chorus 2", "Chorus 2", "Bridge", "Solo", "Chorus 3", "Chorus 4", "Outro", "Tag"];
@@ -65,13 +66,14 @@ function fakeSession(patch: Partial<SessionState> = {}) {
   return session as unknown as PerformanceSession & typeof session;
 }
 
-function mount(session: PerformanceSession, chart = "") {
+function mount(session: PerformanceSession, chart = "", settingsKey?: string) {
   return render(
     <StageView
       session={session}
       stage
       onExitStage={vi.fn()}
       chart={chart}
+      settingsKey={settingsKey}
       lyrics=""
       chords={[]}
       shift={0}
@@ -83,6 +85,8 @@ function mount(session: PerformanceSession, chart = "") {
 }
 
 beforeEach(() => {
+  localStorage.clear();
+  clearSettingsCache();
   HTMLElement.prototype.scrollTo = vi.fn();
   setClockPosition(0);
   useSong.setState({
@@ -232,4 +236,17 @@ it("keeps cue chips off the chart until Show MIDI commands is on, and shows the 
   const chip = screen.getByLabelText("MIDI cue");
   expect(chip.textContent).toBe("Clean");
   expect(screen.getByRole("dialog", { name: "Stage mode" }).textContent).not.toContain("PC");
+});
+
+it("counts bars and bars left on the song's saved bar lines when they move", () => {
+  // Beats every 0.5 s. Bars of 4 beats until beat 60, then one of 3 beats: from there the bar lines are on beats 63, 67, 71 and so on.
+  const starts = [...Array.from({ length: 16 }, (_, i) => i * 4), ...Array.from({ length: 80 }, (_, i) => 63 + i * 4)];
+  const beats = Array.from({ length: 660 }, (_, i) => i * 0.5);
+  setSetting("moving-bars", ":options", JSON.stringify({ beatGrid: { beatsPerBar: 4, downbeat: 0, beats, barStarts: starts } }));
+  mount(fakeSession(), "", "moving-bars");
+  act(() => setClockPosition(66));
+  // Beat 132 is the second beat of the bar that starts on beat 131: the 34th. A steady grid would say bar 34, beat 1.
+  expect(screen.getByLabelText("Stage status").textContent).toContain("Bar 34 · 2");
+  // Verse 2 ends at 80 s: bar lines at 67.5 s, 69.5 s and so on, seven of them before the end, and a last bar of half a second.
+  expect(screen.getByLabelText("Left in the section").textContent).toBe("8 bars");
 });
