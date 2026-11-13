@@ -16,8 +16,8 @@ import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { addKickEighths, barRoles, choked, dropBar, fillSizeOf, overlay, riseHats, shapeFill, snareBuild } from "./drum-phrases";
 import { VEL } from "./styles/notation";
-import { LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
-import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
+import { BUSY_FROM, LEAN_FROM, LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
+import { barBeats, barEnd, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
@@ -63,6 +63,37 @@ function pickSegment(plan: number, energy: Energy, style: Style, accent: AccentP
     barsLeft: random.pick(VARIATION_BARS),
     pushes: accentPushes(accent.weights, grooves[groove], complexity, style.meter.stepsPerBeat),
   };
+}
+
+/** Above this tempo one hand cannot keep sixteenths: the busy hits drop. */
+const BUSY_LIMIT_BPM = 150;
+/** Above this tempo the lean hits drop too (for the snare; the kick keeps them). */
+const LEAN_LIMIT_BPM = 190;
+/** Below this tempo a bar has room, so the complexity is raised. */
+const SLOW_BPM = 80;
+const SLOW_BOOST = 0.2;
+/** A cap just under a tier's threshold, so the tier is out and the one below is not. */
+const JUST_UNDER = 1e-6;
+/** The metal style's kick may play its busy sixteenths up to this tempo: double kick is the style. */
+const METAL_KICK_LIMIT_BPM = 200;
+
+/**
+ * The complexity a bar can physically play at this tempo: sixteenths with one hand stop being playable around 150 BPM. At four steps to
+ * the beat, above 150 BPM the busy hits drop (the complexity is capped just under their tier) and above 190 the lean ones too; below 80 BPM
+ * a bar has room, and the complexity rises by 0.2 (up to 1). Other grids are as they are.
+ */
+export function tempoLimitedComplexity(complexity: number, bpm: number, stepsPerBeat: number): number {
+  if (stepsPerBeat !== 4) return complexity;
+  if (bpm > LEAN_LIMIT_BPM) return Math.min(complexity, LEAN_FROM - JUST_UNDER);
+  if (bpm > BUSY_LIMIT_BPM) return Math.min(complexity, BUSY_FROM - JUST_UNDER);
+  if (bpm < SLOW_BPM) return Math.min(1, complexity + SLOW_BOOST);
+  return complexity;
+}
+
+/** The complexity the kick plays at: it keeps its lean hits above 190 BPM, and the metal style keeps its busy ones up to 200. */
+function kickComplexity(complexity: number, bpm: number, style: Style): number {
+  const felt = style.id === "metal" ? (bpm > METAL_KICK_LIMIT_BPM ? BUSY_LIMIT_BPM + 1 : Math.min(bpm, BUSY_LIMIT_BPM)) : Math.min(bpm, LEAN_LIMIT_BPM);
+  return tempoLimitedComplexity(complexity, felt, style.meter.stepsPerBeat);
 }
 
 /** The style a section plays: its own, or at drum engine 3 the half-time style's grooves for a half-time shape, when the two share a bar. */
@@ -447,9 +478,13 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     afterFill = filled;
     if (k === ending) endingPlan = plan;
 
+    // Under the drum phrases a bar plays what its own tempo allows, so a song that speeds up thins out.
+    const bpm = (60 * spans[k].beats) / Math.max(1e-6, barEnd(beats, start, spans[k].beats) - beats[start]);
+    const barComplexity = phrased ? tempoLimitedComplexity(settings.complexity, bpm, style.meter.stepsPerBeat) : settings.complexity;
+    const kickPlays = phrased ? kickComplexity(settings.complexity, bpm, style) : settings.complexity;
     for (const hit of resting ? [] : hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
-      if (!playsAt(hit, settings.complexity)) continue;
+      if (!playsAt(hit, hit.pitch === KICK ? kickPlays : barComplexity)) continue;
 
       const at = stepAt(beats, style, start, hit.step, perBar, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
