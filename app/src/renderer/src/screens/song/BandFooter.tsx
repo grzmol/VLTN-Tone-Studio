@@ -65,7 +65,7 @@ export function BandFooter(props: BandFooterProps) {
   const infos = notices.filter((notice) => notice.level === "info");
   const needsGrid = blocked || !hasGrid;
   return (
-    <footer aria-label="Band actions" className="flex h-14 shrink-0 items-center gap-3 border-t border-seam pt-3 text-sm">
+    <footer aria-label="Band actions" className="flex h-14 shrink-0 items-center gap-3 border-t border-seam pt-2 text-sm">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" aria-label="More actions">

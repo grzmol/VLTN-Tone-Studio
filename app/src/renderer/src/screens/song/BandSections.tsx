@@ -219,7 +219,7 @@ export function BandSections({
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-silkscreen-3">
+      <p className="text-xs text-silkscreen-3">
         Energy shapes the drums. Busy and Loud shape the bass, and Loud also softens or hardens the drums. Muted values are automatic.
       </p>
     </>
