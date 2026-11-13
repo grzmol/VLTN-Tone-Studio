@@ -76,3 +76,17 @@ it("still reads right away when nothing is playing", async () => {
   expect(useDevice.getState().slot).toBe(5);
   expect(useDevice.getState().stale).toBe(false);
 }, 30_000);
+
+it("holds back a read that was armed just before the performance started", async () => {
+  const mock = mockOf();
+  await mock.selectOnPedal(5);
+  const before = mock.received.length;
+  useStageActivity.setState({ busy: true });
+  await wait(900);
+  expect(mock.received.length).toBe(before);
+  expect(useDevice.getState().stale).toBe(true);
+  useStageActivity.setState({ busy: false });
+  await wait(1200);
+  expect(useDevice.getState().stale).toBe(false);
+  expect(useDevice.getState().slot).toBe(5);
+}, 30_000);
