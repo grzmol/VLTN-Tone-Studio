@@ -14,6 +14,7 @@ import {
   type BassPartChoice,
   type OctaveShift,
 } from "./bass-parts";
+import { DEFAULT_COUNT_IN, isCountIn, parseCountIn, type CountInSettings } from "./count-in";
 import { DEFAULT_ENDING, isEnding, parseEnding, type EndingSettings } from "./ending";
 import { parseBassOverrides, type BassOverride } from "./bass-overrides";
 import { parseBarMarks, type BarMark } from "./marks";
@@ -250,6 +251,8 @@ export interface BandSettings {
   kit?: DrumKit;
   /** How the song ends (ending.ts, spec 136). A song saved before this existed ends with a hit. */
   ending: EndingSettings;
+  /** The drummer's count before the song starts (count-in.ts, spec 136). A song saved before this existed has none. */
+  countIn: CountInSettings;
   bassSound: BassSound;
   bassRange: BassRange;
   bassMode: BassMode;
@@ -311,6 +314,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   ghostNotes: true,
   crashOnSections: true,
   ending: { ...DEFAULT_ENDING },
+  countIn: { ...DEFAULT_COUNT_IN },
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
@@ -692,6 +696,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isSwing(value.swing) &&
     isBool(value.ghostNotes) &&
     isBool(value.crashOnSections) &&
+    isCountIn(value.countIn) &&
     (value.kit === undefined || isDrumKit(value.kit)) &&
     isEnding(value.ending) &&
     isBassSound(value.bassSound) &&
@@ -776,6 +781,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     ghostNotes: isBool(source.ghostNotes) ? source.ghostNotes : defaults.ghostNotes,
     crashOnSections: isBool(source.crashOnSections) ? source.crashOnSections : defaults.crashOnSections,
     ending: parseEnding(source.ending),
+    countIn: parseCountIn(source.countIn),
     kit: isDrumKit(source.kit) ? source.kit : defaults.kit,
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,

@@ -466,6 +466,7 @@ function BandBody({
       // leaves the clean bass and a notice.
       let bass = result.bass;
       let drums = result.drums;
+      let countIn = result.countIn;
       const renderedTone: BandSettings["renderedTone"] = {};
       if (drums && using.drumTone.kind === "chain") {
         setWork(DRUM_TONE_TEXT);
@@ -473,6 +474,8 @@ function BandBody({
         drums = toned.audio;
         renderedTone.drums = toned.tone;
         if (toned.notice) notes.push(toned.notice);
+        // The drummer's count goes through the same kit tone, so it sounds like the drums it leads into.
+        if (countIn && toned.tone === "chain") countIn = { ...countIn, audio: (await applyPartTone(countIn.audio, using.drumTone, host.tones, renderPartChain, "drums")).audio };
       }
       if (bass && using.bassTone.kind !== "clean") {
         setWork(BASS_TONE_TEXT);
@@ -488,7 +491,10 @@ function BandBody({
       if (!active.current || playingNow.current || useSong.getState().source !== current) return;
       if (requestedInputs.current !== null && requestedInputs.current !== startedInputs) return;
       const turnedOff = only ? [] : (["drums", "bass"] as const).filter((kind) => !using.parts[kind]);
-      const applied = useSong.getState().applyGeneratedParts({ drums, bass }, { playing: playingNow.current, remove: turnedOff });
+      const applied = useSong.getState().applyGeneratedParts(
+        { drums, bass, extras: drums && countIn ? { drums: { countIn, exits: {} } } : undefined },
+        { playing: playingNow.current, remove: turnedOff },
+      );
       if (applied.length === 0) {
         if (current.libraryId) await useSongLibrary.getState().saveBeforePlayback(true);
         if (!active.current || useSong.getState().source !== current || requestedInputs.current !== startedInputs) return;

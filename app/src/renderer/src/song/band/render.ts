@@ -8,6 +8,7 @@
 import type { PcmAudio } from "../types";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, PEDAL_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
 import { ATTACK_ENVELOPE_SAMPLES } from "./beat-grid";
+import { STICK_SECONDS, STICK_TRANSPOSE, STICK_CLICK } from "./count-in";
 import { pickBassLayers, pickDrumLayers, type SampleSet } from "./samples";
 
 /** The sample rate of a rendered part: the song's rate. */
@@ -187,10 +188,12 @@ function drumVoices(notes: readonly NoteEvent[], samples: SampleSet, sampleRate:
     const take = hitsOf.get(note.pitch) ?? 0;
     hitsOf.set(note.pitch, take + 1);
     const [left, right] = panGains(DRUM_PAN[note.pitch] ?? 0);
-    const cutAt = note.pitch === OPEN_HAT ? nextAfter(chokes, start) : Infinity;
-    return pickDrumLayers(samples, note.pitch, note.velocity, take).map(({ pick, weight }) => ({
+    // A stick click is the cross-stick sample moved up and cut short: the kit has no sample of its own for it (count-in.ts).
+    const stick = note.pitch === STICK_CLICK;
+    const cutAt = stick ? start + Math.round(STICK_SECONDS * sampleRate) : note.pitch === OPEN_HAT ? nextAfter(chokes, start) : Infinity;
+    return pickDrumLayers(samples, stick ? SIDE_STICK : note.pitch, note.velocity, take).map(({ pick, weight }) => ({
       sample: pick.audio,
-      rate: rateOf(pick.transpose, pick.audio.sampleRate, sampleRate),
+      rate: rateOf(pick.transpose + (stick ? STICK_TRANSPOSE : 0), pick.audio.sampleRate, sampleRate),
       gain: pick.gain * weight,
       left,
       right,

@@ -1,4 +1,5 @@
 import type { PcmAudio, Stems } from "../types";
+import { countApplies, countLeadSeconds, type DrummerCount } from "../performance/drummer-count";
 import { orderedKeys } from "../tracks";
 import { beatSeconds, clicksWhilePlaying, clicksWhileStopped, preRollStart, type MetronomeMode } from "../performance/rhythm";
 import { audioTimeOf, beatAtOrAfter, gridClicks, gridStart, songTimeAt, type GridCursor, type Segment } from "../performance/timeline";
@@ -86,6 +87,11 @@ export interface Lead {
   preRollBeats?: number;
   /** Seconds from the call until the audio clock starts the song, so the MIDI chase can go out first. Missing means none. */
   startDelay?: number;
+  /**
+   * The drummer's count. It plays beside the metronome's count-in, each ending where the song begins, and only when the start is from the
+   * beginning of the song. A join does not pass it: a count-in makes no sense under a crossfade.
+   */
+  drummer?: DrummerCount;
 }
 
 /** One click as it is scheduled: `when` is on the main audio clock, and `beat` counts from 0 on the downbeat of a bar of `beats`. */
@@ -347,7 +353,9 @@ export class StemPlayer {
     const bpm = lead.bpm ?? this.metronome.bpm;
     // The count-in is counted at the song's tempo times its rate, so it is as long as the audio it leads.
     const interval = beatInterval(bpm) / this.rate;
-    const start = clickAt + (lead.countInBeats ?? 0) * interval;
+    const clicks = (lead.countInBeats ?? 0) * interval;
+    const drummer = this.voices[lead.drummer?.track ?? ""] && countApplies(lead.drummer, from) ? lead.drummer : undefined;
+    const start = clickAt + Math.max(clicks, countLeadSeconds(drummer, from, this.rate));
     for (const name of this.names) {
       const v = this.voice(name);
       const source = this.ctx.createBufferSource();
@@ -361,9 +369,31 @@ export class StemPlayer {
     this.watchEnd();
     this.segments = [{ ctxStart: start, songStart: from, songEnd: this.duration, rate: this.rate }];
     this.playing = true;
-    if (lead.countInBeats) this.scheduleCountIn(clickAt, lead.countInBeats, interval);
+    // Each count ends where the song starts, so the longer of the two begins at clickAt.
+    if (lead.countInBeats) this.scheduleCountIn(start - clicks, lead.countInBeats, interval);
+    if (drummer) this.scheduleDrummer(drummer, start);
     this.startPlayingGrid();
     this.updateLoop();
+  }
+
+  /**
+   * Plays the drummer's count through its track's voice so that it follows the song's rate: a song at another speed is counted at that
+   * speed, with the pitch moving with it (the count is a click, not a stretched render).
+   */
+  private scheduleDrummer(count: DrummerCount, songStart: number): void {
+    const pcm = count.audio;
+    const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+    pcm.channels.forEach((channel, c) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, c));
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = this.rate;
+    source.connect(this.voice(count.track).gain);
+    source.start(songStart + count.start / this.rate);
+    this.countInClicks.add(source);
+    source.onended = () => {
+      this.countInClicks.delete(source);
+      source.disconnect();
+    };
   }
 
   /** Keeps the loop timer running while a looping song plays, and stops it otherwise. */

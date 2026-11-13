@@ -5,6 +5,7 @@
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
 import { endBeforeNext, generateBass } from "./bass";
+import { countInOf } from "./count-in";
 import type { BandKey } from "./bass-phrases";
 import { drumOnsets, followDrummer } from "./drummer-timing";
 import { generateDrums } from "./drums";
@@ -81,6 +82,11 @@ export interface BandResult {
   follow?: FollowReport;
   /** How far under the song each generated part was set. Present for the parts that were matched. */
   levels?: PartLevels;
+  /**
+   * The drummer's count (count-in.ts), rendered like the drums and set to their level, when the settings ask for one. `start` is the song time
+   * its first frame plays at: negative when the song has no room before its first downbeat, so the session plays it ahead of the song.
+   */
+  countIn?: { audio: PcmAudio; start: number };
 }
 
 /** A span of the song, in seconds. */
@@ -195,7 +201,24 @@ function render(request: BandRequest, generated: Generated, samples: SampleSet, 
     if (leveled.report) levels[kind] = leveled.report;
   }
   if (levels.drums || levels.bass) result.levels = levels;
+  const count = request.parts.drums ? renderCountIn(request, samples, levels.drums?.gainDb ?? 0) : undefined;
+  if (count) result.countIn = count;
   return result;
+}
+
+/** Scales every channel of a buffer by `gainDb`. The count is short, so a copy is cheap. */
+function withGain(audio: PcmAudio, gainDb: number): PcmAudio {
+  const gain = 10 ** (gainDb / 20);
+  return { sampleRate: audio.sampleRate, channels: audio.channels.map((channel) => channel.map((value) => value * gain)) };
+}
+
+/** The drummer's count as audio: the drums' own render, room and level, so it sits with them. Undefined when the song has no count. */
+function renderCountIn(request: BandRequest, samples: SampleSet, drumsGainDb: number): BandResult["countIn"] {
+  const count = countInOf(request.grid, request.settings.countIn);
+  if (!count) return undefined;
+  const dry = renderPart(count.notes, "drums", samples, Math.ceil(count.length * RENDER_RATE), RENDER_RATE).audio;
+  const rendered = hasOwnSpace(request.settings.drumTone) ? dry : addRoom(dry, samples.room, Math.min(1, request.settings.drumRoom * (samples.roomScale ?? 1)));
+  return { audio: withGain(rendered, drumsGainDb), start: count.start };
 }
 
 /** Generates and renders the whole song's parts. `onStage` is told when each step starts. */
@@ -266,10 +289,12 @@ export function runBandPreview(request: BandRequest, samples: SampleSet, fromTim
   const result: BandResult = { ...full, notes: { drums: inWindow(generated.notes.drums), bass: inWindow(generated.notes.bass) } };
   if (full.drums) result.drums = sliceAudio(full.drums, from, frames);
   if (full.bass) result.bass = sliceAudio(full.bass, from, frames);
+  // A preview plays a window of the song, which has no count before it.
+  delete result.countIn;
   return result;
 }
 
 /** The buffers of a result, so the worker can transfer them to the window instead of copying them. */
 export function transferables(result: BandResult): ArrayBuffer[] {
-  return [result.drums, result.bass].flatMap((part) => (part ? part.channels.map((channel) => channel.buffer as ArrayBuffer) : []));
+  return [result.drums, result.bass, result.countIn?.audio].flatMap((part) => (part ? part.channels.map((channel) => channel.buffer as ArrayBuffer) : []));
 }
