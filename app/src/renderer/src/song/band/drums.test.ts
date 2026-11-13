@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type SectionPlan } from "./arrangement";
 import type { BeatGrid } from "./beat-grid";
 import { generateDrums, playsAt } from "./drums";
+import type { EndingSettings } from "./ending";
 import { rankGrooves, type Feel } from "./feel";
 import { CLOSED_HAT, CRASH, DRUM_DURATION, KICK, OPEN_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
 import { findStyle, STYLES } from "./styles";
@@ -385,7 +386,8 @@ describe("generateDrums with follow-my-playing", () => {
     const grid = steady(33);
     const feel = feelOf({ profiles: [accents([2])] });
     const pushedAt = (complexity: number) => {
-      const notes = generateDrums(grid, [plan(0, 33)], settingsFor({ complexity }), 11, feel);
+      // The plan covers the last bar too, so the song ends there and the bars before it keep their grooves.
+      const notes = generateDrums(grid, [plan(0, 36)], settingsFor({ complexity }), 11, feel);
       return [0, 1, 2, 3, 4, 5, 6, 7].map((bar) => kickSteps(notes, grid, bar).includes(2));
     };
     expect(pushedAt(1).every(Boolean)).toBe(true);
@@ -397,7 +399,7 @@ describe("generateDrums with follow-my-playing", () => {
     const verse = accents([0, 10]);
     const chorus = accents([0, 6, 12]);
     const feel = feelOf({ profiles: [verse, chorus] });
-    const notes = generateDrums(grid, [plan(0, 16), plan(16, 33)], settingsFor({ complexity: 0.5 }), 13, feel);
+    const notes = generateDrums(grid, [plan(0, 16), plan(16, 36)], settingsFor({ complexity: 0.5 }), 13, feel);
     const grooves = STYLES.rock.grooves[2];
     const best = (weights: Float64Array) =>
       rankGrooves(grooves, weights, 0.5)
@@ -480,5 +482,92 @@ describe("generateDrums with a section that starts near a bar line", () => {
     expect(notes.some((note) => note.time >= 6 && note.time < 8 && [45, 47, 50].includes(note.pitch))).toBe(true);
     // The same notes as for a section that starts exactly on the bar line.
     expect(notes).toEqual(withSplit(0));
+  });
+});
+
+describe("generateDrums endings", () => {
+  // Sixteen beats at 0.5 s: four bars starting at 0, 2, 4 and 6 s. The song's own end is at 8 s.
+  const grid = steady(16);
+  const ended = (kind: EndingSettings["kind"], extra: Partial<EndingSettings> = {}) =>
+    settingsFor({ ending: { kind, ...extra } });
+  const at = (notes: NoteEvent[], time: number) => notes.filter((note) => Math.abs(note.time - time) < 1e-9).map((note) => note.pitch).sort((a, b) => a - b);
+
+  it("hits on the last bar's downbeat and plays nothing else in that bar", () => {
+    const notes = generateDrums(grid, [plan(0, 16)], ended("hit"), 1);
+    expect(at(notes, 6)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time > 6)).toEqual([]);
+    expect(notes.filter((note) => note.time >= 6)).toHaveLength(2);
+  });
+
+  it("plays a bar fill and then a hard crash and kick on the next downbeat for a hold", () => {
+    const notes = generateDrums(grid, [plan(0, 16)], ended("hold"), 1);
+    expect(notes.filter((note) => note.time >= 6 && note.time < 8).length).toBeGreaterThan(2);
+    expect(at(notes, 8)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time === 8).every((note) => note.velocity === 127)).toBe(true);
+    expect(notes.filter((note) => note.time > 8)).toEqual([]);
+  });
+
+  it("plays three unison hits and a last one on the next downbeat for three hits", () => {
+    const notes = generateDrums(grid, [plan(0, 16)], ended("hits"), 1);
+    for (const time of [6, 6.5, 7, 8]) expect(at(notes, time)).toEqual([KICK, SNARE, CRASH]);
+    expect(notes.filter((note) => note.time >= 6)).toHaveLength(12);
+  });
+
+  it("slows down over the bars after the last beat and ends on a hold", () => {
+    const notes = generateDrums(grid, [plan(0, 16)], ended("slow", { bars: 1 }), 1);
+    const hats = notes.filter((note) => note.pitch === CLOSED_HAT && note.time >= 8).map((note) => note.time);
+    expect(hats).toHaveLength(4);
+    expect(hats[0]).toBe(8);
+    // Each beat of the slow-down is longer than the one before it.
+    const gaps = hats.slice(1).map((time, i) => time - hats[i]);
+    expect(gaps[0]).toBeGreaterThan(0.5);
+    expect(gaps[1]).toBeGreaterThan(gaps[0]);
+    expect(gaps[2]).toBeGreaterThan(gaps[1]);
+    const last = notes.filter((note) => note.pitch === CRASH && note.time > 8);
+    expect(last).toHaveLength(1);
+    expect(last[0].velocity).toBe(127);
+    expect(last[0].time).toBeGreaterThan(hats[3]);
+    expect(notes.filter((note) => note.time > last[0].time)).toEqual([]);
+  });
+
+  it("holds instead of slowing down where the recording is still playing", () => {
+    // The plan ends two bars before the grid does, so the ending is not on the grid's last bar.
+    const notes = generateDrums(grid, [plan(0, 8)], ended("slow"), 1);
+    expect(at(notes, 4)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time > 4)).toEqual([]);
+  });
+
+  it("plays to the end of the last section with no special ending for none", () => {
+    const notes = generateDrums(grid, [plan(0, 16)], ended("none"), 1);
+    expect(notes.filter((note) => note.time >= 6 && note.time < 8).length).toBeGreaterThan(2);
+    expect(notes.every((note) => note.time < 8)).toBe(true);
+    expect(notes.some((note) => note.time >= 6 && note.pitch === CRASH && note.velocity === 127)).toBe(false);
+  });
+
+  it("puts the ending at the end of the section it is asked for", () => {
+    const plans = [plan(0, 8, { sectionId: "verse" }), plan(8, 16, { sectionId: "outro" })];
+    const notes = generateDrums(grid, plans, ended("hit", { atSection: "verse" }), 1);
+    // The verse's last bar starts at beat 4, 2 s in.
+    expect(at(notes, 2)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time > 2)).toEqual([]);
+  });
+
+  it("ends at the last section that has drums on, and not at the grid's end", () => {
+    const plans = [plan(0, 12), plan(12, 16, { play: { drums: false, bass: true } })];
+    const notes = generateDrums(grid, plans, ended("hit"), 1);
+    expect(at(notes, 4)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time > 4)).toEqual([]);
+  });
+
+  it("puts the ending on the last full bar before the trim end", () => {
+    // The bars end at 2, 4, 6 and 8 s. A trim end of 6.9 s leaves three full bars, so the ending is on the third, at 4 s.
+    const notes = generateDrums(grid, [plan(0, 16)], ended("hit"), 1, undefined, 6.9);
+    expect(at(notes, 4)).toEqual([KICK, CRASH]);
+    expect(notes.filter((note) => note.time > 4)).toEqual([]);
+  });
+
+  it("keeps the last bar a hit when no ending is set, as saved songs have always had", () => {
+    const saved = generateDrums(grid, [plan(0, 16)], settingsFor(), 1);
+    expect(saved).toEqual(generateDrums(grid, [plan(0, 16)], ended("hit"), 1));
   });
 });

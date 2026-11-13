@@ -14,6 +14,7 @@ import {
   type BassPartChoice,
   type OctaveShift,
 } from "./bass-parts";
+import { DEFAULT_ENDING, isEnding, parseEnding, type EndingSettings } from "./ending";
 import { parseBassOverrides, type BassOverride } from "./bass-overrides";
 import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
@@ -207,6 +208,8 @@ export interface BandSettings {
   swing: number;
   ghostNotes: boolean;
   crashOnSections: boolean;
+  /** How the song ends (ending.ts, spec 136). A song saved before this existed ends with a hit. */
+  ending: EndingSettings;
   kit: DrumKit;
   bassSound: BassSound;
   bassRange: BassRange;
@@ -248,6 +251,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   swing: 0,
   ghostNotes: true,
   crashOnSections: true,
+  ending: { ...DEFAULT_ENDING },
   kit: "standard",
   bassSound: "finger",
   bassRange: "normal",
@@ -600,6 +604,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isSwing(value.swing) &&
     isBool(value.ghostNotes) &&
     isBool(value.crashOnSections) &&
+    isEnding(value.ending) &&
     isDrumKit(value.kit) &&
     isBassSound(value.bassSound) &&
     isBassRange(value.bassRange) &&
@@ -676,6 +681,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     swing: isSwing(source.swing) ? source.swing : defaults.swing,
     ghostNotes: isBool(source.ghostNotes) ? source.ghostNotes : defaults.ghostNotes,
     crashOnSections: isBool(source.crashOnSections) ? source.crashOnSections : defaults.crashOnSections,
+    ending: parseEnding(source.ending),
     kit: isDrumKit(source.kit) ? source.kit : defaults.kit,
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type BassMode, type BassRange, type SectionPlan } from "./arrangement";
 import { generateBass } from "./bass";
+import type { EndingSettings } from "./ending";
 import type { BeatGrid } from "./beat-grid";
 import type { Feel } from "./feel";
 import { parseChordName, type ChordAtBeat } from "./harmony";
@@ -479,5 +480,64 @@ describe("generateBass with a section that starts near a bar line", () => {
     const first = notes.find((note) => note.time >= 8 - 1e-9);
     expect(first?.time).toBeCloseTo(8, 9);
     expect(notes).toEqual(withSplit(0));
+  });
+});
+
+describe("generateBass endings", () => {
+  // Four bars of two seconds, C F G C. The song's own end is at 8 s.
+  const names = barsOf("C", "F", "G", "C");
+  const bass = (ending: EndingSettings, endTime?: number, plans = [planFor(names.length)]) =>
+    generateBass(gridOf(names.length), harmonyFor(names), plans, settingsFor({ ending }), [], 1, undefined, endTime);
+
+  it("holds one note on the last downbeat for a hit, and nothing after", () => {
+    const notes = bass({ kind: "hit" });
+    const last = notes.filter((note) => note.time >= 6);
+    expect(last).toHaveLength(1);
+    expect(last[0].duration).toBeCloseTo(2, 9);
+  });
+
+  it("plays the last bar and then a root that rings for two bars for a hold", () => {
+    const notes = bass({ kind: "hold" });
+    expect(notes.filter((note) => note.time >= 6 && note.time < 8).length).toBeGreaterThan(0);
+    const last = notes.filter((note) => note.time >= 8);
+    expect(last).toHaveLength(1);
+    expect(last[0].time).toBe(8);
+    expect(pc(last[0].pitch)).toBe(0);
+    // Two bars of two seconds.
+    expect(last[0].duration).toBeCloseTo(4, 9);
+  });
+
+  it("plays three roots on the last bar's beats and a last one on the next downbeat for three hits", () => {
+    const notes = bass({ kind: "hits" });
+    expect(notes.filter((note) => note.time >= 6).map((note) => note.time)).toEqual([6, 6.5, 7, 8]);
+    expect(notes.filter((note) => note.time >= 6).every((note) => pc(note.pitch) === 0)).toBe(true);
+  });
+
+  it("plays a root on each bar of a slow-down and a last note after it", () => {
+    const notes = bass({ kind: "slow", bars: 1 });
+    const after = notes.filter((note) => note.time >= 8);
+    expect(after).toHaveLength(2);
+    expect(after[0].time).toBe(8);
+    // The bar of the slow-down is longer than a normal bar of two seconds.
+    expect(after[1].time).toBeGreaterThan(10);
+  });
+
+  it("plays to the end of the last section with no special ending for none", () => {
+    const notes = bass({ kind: "none" });
+    expect(notes.filter((note) => note.time >= 6).length).toBeGreaterThan(1);
+    expect(notes.every((note) => note.time < 8)).toBe(true);
+  });
+
+  it("puts the ending at the end of the section it is asked for", () => {
+    const plans = [planFor(8, { sectionId: "verse" }), { ...planFor(16, { sectionId: "outro" }), start: 4 }];
+    const notes = bass({ kind: "hit", atSection: "verse" }, undefined, plans);
+    expect(notes.filter((note) => note.time >= 2)).toHaveLength(1);
+    expect(notes.filter((note) => note.time >= 2)[0].time).toBe(2);
+  });
+
+  it("puts the ending on the last full bar before the trim end", () => {
+    const notes = bass({ kind: "hit" }, 6.9);
+    expect(notes.filter((note) => note.time >= 4)).toHaveLength(1);
+    expect(notes.filter((note) => note.time >= 4)[0].time).toBe(4);
   });
 });
