@@ -363,6 +363,9 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
           hits = [...hits.filter((hit) => hit.step < cutoff), ...shapeFill(style.fills.half[draw.half].hits, VEL.accent).filter((hit) => hit.step >= cutoff)];
           filled = true;
         }
+      } else if (role.sectionEnd && plan.vamp) {
+        // A vamp's last bar leads nowhere: at most a turnaround, so the section repeats cleanly. Its fill into the next section is the exit bar's.
+        hits = plan.shape === "drop" ? dropBar(hits, style.meter.stepsPerBeat) : overlay(hits, style.turnarounds[draw.turn].hits, lastBeat);
       } else if (role.sectionEnd) {
         // The last bar of a drop is kick and hats, then a half-bar fill, whatever size the change asks for.
         if (plan.shape === "drop") hits = dropBar(hits, style.meter.stepsPerBeat);
@@ -395,7 +398,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
             hits = addKickEighths(hits, groove.steps, style.meter.stepsPerBeat);
             barLoud = Math.min(5, plan.loud + 1) as Energy;
           }
-          if (role.sectionEnd && !fillMark && !noFill && !hold && fillSize !== 0) {
+          if (role.sectionEnd && !plan.vamp && !fillMark && !noFill && !hold && fillSize !== 0) {
             hits = snareBuild(groove.steps, style.meter.stepsPerBeat);
             filled = true;
           }
@@ -471,7 +474,8 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
       role.phrase > 0 &&
       role.phrase % 2 === 0 &&
       role.inPhrase === 0;
-    if ((sectionCrash || crashAfterFill || phraseCrash) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
+    // The first bar of a vamp has no crash, whatever led into it: it would sound on every pass of the loop.
+    if (!(plan.vamp && newPlan) && (sectionCrash || crashAfterFill || phraseCrash) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
     if (markOf(marked, k, "crash") && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];

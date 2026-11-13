@@ -201,6 +201,12 @@ export interface SectionPlan {
   shape?: SectionShape;
   play: PartToggles;
   /**
+   * True for a section that loops or repeats (its mode is Loop until released or Repeat once) in a song on drum engine 3: a vamp (spec 136).
+   * The generator plays a vamp so that it repeats cleanly: no fill and no lead-in on its last bar, no crash on its first. The fill and lead-in into
+   * the next section are rendered apart as the vamp's exit bar (vamp.ts). Left out for every other section, and for songs on an earlier engine.
+   */
+  vamp?: true;
+  /**
    * The section's own seed, when the performer tried another for this section or kept it. The section then draws its groove, fills, figure and
    * variations from it, so a new seed for the song leaves it alone. Left out, the section draws from the song's seed.
    */
@@ -478,6 +484,7 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
       // Drum engine 3 sizes the fill to the change (automatic); the earlier engines fill before a chorus, and at the end of the song.
       fill: override.fill ?? (settings.engine >= 3 ? true : next ? isChorusName(next.name) : true),
       hitTheOne: override.hitTheOne ?? (isChorusName(section.name) && followsOther),
+      ...(settings.engine >= 3 && (section.mode === "loop" || section.mode === "repeat-once") ? { vamp: true as const } : {}),
       ...playFields(section.name, override, settings, chorusGroove),
     };
   });
