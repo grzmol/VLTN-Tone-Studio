@@ -791,4 +791,89 @@ describe("generateDrums with drum phrases (engine 3)", () => {
       expect(section(second, 1)).toEqual(section(first, 1));
     });
   });
+
+  describe("fills sized to the change", () => {
+    /** The first beat of the bar at which it plays other notes than a plain bar of its section (bar 1), or 4 when it does not. */
+    const firstChange = (notes: readonly NoteEvent[], bar: number): number => {
+      for (let beat = 0; beat < 4; beat++) {
+        const inBeat = (n: readonly NoteEvent[], at: number) => signature(n, at, beat + 1).filter((hit) => Number(hit.split(":")[0]) >= beat * 4);
+        if (inBeat(notes, bar).join() !== inBeat(notes, 1).join()) return beat;
+      }
+      return 4;
+    };
+    const lastBar = (first: Partial<SectionPlan>, second: Partial<SectionPlan>, secondName = "Next") => {
+      const plans = [bars(0, 8, { name: "First", energy: 3, fill: true, ...first }), bars(8, 16, { name: secondName, energy: 3, ...second })];
+      return generateDrums(grid, plans, settings3(), 3);
+    };
+
+    // The rows of the size table. `from` is the first beat that differs from the groove: 3 for a last-beat fill, 2 for half a bar, 4 for no fill, and 0
+    // or 1 for a whole bar (a bar fill may keep a first kick that the groove has too).
+    const rows: [string, Partial<SectionPlan>, Partial<SectionPlan> | undefined, number][] = [
+      ["the song's end", {}, undefined, 4],
+      ["the same name continuing", { name: "Verse" }, { name: "Verse" }, 3],
+      ["a drop of two levels", { energy: 4, loud: 4 }, { energy: 2 }, 3],
+      ["an energy one lower", { energy: 4 }, { energy: 3 }, 3],
+      ["an equal energy", { energy: 3 }, { energy: 3 }, 3],
+      ["an energy one higher", { energy: 3 }, { energy: 4 }, 2],
+      ["an energy two higher", { energy: 2 }, { energy: 4 }, 0],
+      ["a chorus after another kind of section", { energy: 4, name: "Bridge" }, { name: "Chorus", energy: 4 }, 0],
+    ];
+    it.each(rows)("takes the size from %s", (_label, first, second, from) => {
+      const plans = [bars(0, 8, { name: "First", energy: 3, fill: true, ...first }), ...(second ? [bars(8, 16, { name: "Next", energy: 3, ...second })] : [])];
+      const changed = firstChange(generateDrums(grid, plans, settings3(), 3), 7);
+      if (from === 0) expect(changed).toBeLessThanOrEqual(1);
+      else expect(changed).toBe(from);
+    });
+
+    it("plays no fill from energy 1 into the same section, and none before a section with no drums", () => {
+      const intro = lastBar({ name: "Intro", energy: 1, loud: 1 }, { name: "Intro", energy: 1, loud: 1 });
+      expect(firstChange(intro, 7)).toBe(4);
+      const mute = { play: { drums: false, bass: true } };
+      const quiet = lastBar({ energy: 3 }, mute);
+      expect(firstChange(quiet, 7)).toBe(4);
+    });
+
+    it("ends a loud section before a section with no drums on a kick and a crash on its last beat only", () => {
+      const notes = lastBar({ energy: 4, loud: 4 }, { play: { drums: false, bass: true } });
+      const lastBeat = signature(notes, 7).filter((hit) => Number(hit.split(":")[0]) >= 12);
+      expect(lastBeat.filter((hit) => hit.split(":")[1] === String(KICK))).toHaveLength(1);
+      expect(lastBeat.filter((hit) => hit.split(":")[1] === String(CRASH))).toHaveLength(1);
+      expect(lastBeat.filter((hit) => ![KICK, CRASH].includes(Number(hit.split(":")[1])))).toEqual([]);
+    });
+
+    it.each([
+      [0, 4],
+      [1, 3],
+      [2, 2],
+      [3, 0],
+    ] as const)("plays a size %i fill the section sets itself", (fill, from) => {
+      const notes = lastBar({ fill }, { energy: 3 });
+      expect(firstChange(notes, 7)).toBeGreaterThanOrEqual(from === 0 ? 0 : from);
+      if (from > 0) expect(firstChange(notes, 7)).toBeLessThanOrEqual(from === 4 ? 4 : from);
+    });
+
+    it("changes only the last bar of the section when its fill size changes", () => {
+      const sized = (fill: 2 | 3) => generateDrums(grid, [bars(0, 8, { name: "First", energy: 3, fill }), bars(8, 16, { name: "Next", energy: 3 })], settings3(), 3);
+      const half = sized(2);
+      const whole = sized(3);
+      const outside = (notes: readonly NoteEvent[]) => notes.filter((note) => note.time < 7 * BAR_SECONDS || note.time >= 8 * BAR_SECONDS);
+      expect(outside(whole)).toEqual(outside(half));
+      expect(signature(whole, 7)).not.toEqual(signature(half, 7));
+    });
+
+    it("crashes on the downbeat after a half or a whole bar fill, and not after a short one", () => {
+      const crashAt = (fill: 0 | 1 | 2 | 3) => lastBar({ fill }, {}).some((note) => note.pitch === CRASH && Math.abs(note.time - 8 * BAR_SECONDS) < 1e-9);
+      expect([0, 1, 2, 3].map((fill) => crashAt(fill as 0 | 1 | 2 | 3))).toEqual([false, false, true, true]);
+    });
+
+    it("draws different fills of one size at two section ends in a row", () => {
+      const plans = [0, 1, 2, 3, 4, 5].map((i) => bars(i * 8, i * 8 + 8, { name: `S${i}`, energy: 3, fill: 2 }));
+      const notes = generateDrums(grid, plans, settings3(), 3);
+      for (let i = 0; i < 5; i++) {
+        expect(signature(notes, i * 8 + 7).filter((hit) => Number(hit.split(":")[0]) >= 8).join(), `end of S${i}`).not.toBe(
+          signature(notes, (i + 1) * 8 + 7).filter((hit) => Number(hit.split(":")[0]) >= 8).join(),
+        );
+      }
+    });
+  });
 });

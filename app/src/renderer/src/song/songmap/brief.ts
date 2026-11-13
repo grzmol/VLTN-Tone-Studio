@@ -43,7 +43,8 @@ const INTRO = [
   "- Front matter between `---` lines: `songmap: 1`, then `key`, `bpm`, `meter` (such as 4/4), `first_beat` and `style` when they are known.",
   "- Times are `m:ss.xx`, such as `1:02.50`, or plain seconds.",
   "- `## Sections`: a table with the columns Start, End, Section, Drums (on or off), Bass, Style, Energy, Busy, Loud and Notes. Bass is off, " +
-    `or one of ${BASS_PART_CHOICES.join(", ")}. Style is one of ${STYLE_IDS.join(", ")}. Energy, Busy and Loud are 1 to 5. Leave a cell empty to keep the default.`,
+    `or one of ${BASS_PART_CHOICES.join(", ")}. Style is one of ${STYLE_IDS.join(", ")}. Energy, Busy and Loud are 1 to 5. Leave a cell empty to keep the default. ` +
+    "An optional Fill column sets the drum fill at the end of a section: auto (sized to the change into the next section), none, short (the last beat), half (half a bar) or whole (the whole bar).",
   "- `## Bass notes`: a table with the columns Start, End, Note (C, C#, D … B) and Octave (up, down or empty).",
   "- `## Marks`: a table with the columns Bar, Time, Mark and Beats. Put a mark on one bar: Bar is the section and the bar counted from the section's " +
     "start, such as `Chorus 2:8`, or leave it empty and give the bar's Time. Mark is fill, no-fill, stop, crash, no-crash, drums-out, bass-out or hit. " +
@@ -183,6 +184,7 @@ function sectionOf(section: Section, band: ReturnType<typeof parseBandSettings>)
     ...(override.energy ? { energy: override.energy } : {}),
     ...(override.busy ? { busy: override.busy } : {}),
     ...(override.loud ? { loud: override.loud } : {}),
+    ...(override.fill !== undefined ? { fill: override.fill } : {}),
   };
 }
 

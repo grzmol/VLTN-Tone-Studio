@@ -14,7 +14,7 @@ import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
-import { barRoles, overlay, shapeFill } from "./drum-phrases";
+import { barRoles, choked, fillSizeOf, overlay, shapeFill } from "./drum-phrases";
 import { VEL } from "./styles/notation";
 import { LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
 import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
@@ -210,13 +210,40 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
   const barIndex = planOf.map((index) => (index >= 0 ? counted[index]++ : -1));
   const roles = barsOf.map((bars) => barRoles(bars));
   const sections = new Map<number, PhraseSection>();
-  const sectionFor = (planIndex: number, style: Style, accent: AccentProfile | undefined): PhraseSection => {
+  const sectionFor = (planIndex: number): PhraseSection => {
     let found = sections.get(planIndex);
     if (!found) {
-      found = phraseSection(plans[planIndex], seed, occurrence[planIndex], barsOf[planIndex], style, accent, settings.complexity);
+      const accented = feel?.profiles[planIndex];
+      found = phraseSection(
+        plans[planIndex],
+        seed,
+        occurrence[planIndex],
+        barsOf[planIndex],
+        findStyle(plans[planIndex].style) ?? findStyle("rock")!,
+        isAccented(accented) ? accented : undefined,
+        settings.complexity,
+      );
       sections.set(planIndex, found);
     }
     return found;
+  };
+  // The fill a section's end draws, of a kind. Two section ends in a row draw different fills of the same kind, unless one of the sections has
+  // a seed of its own: a kept section does not depend on its neighbours. Every kind is drawn whether it is used or not, so the fill's size
+  // changes nothing but the notes of that bar.
+  const fillDraws = new Map<string, number>();
+  const sectionFill = (planIndex: number, kind: "short" | "half" | "bar"): number => {
+    const key = `${planIndex}/${kind}`;
+    const known = fillDraws.get(key);
+    if (known !== undefined) return known;
+    const last = sectionFor(planIndex).draws[barsOf[planIndex] - 1];
+    const style = findStyle(plans[planIndex].style);
+    let choice = last[kind];
+    const before = planIndex > 0 ? plans[planIndex - 1] : undefined;
+    if (before && style && before.style === plans[planIndex].style && before.seed === undefined && plans[planIndex].seed === undefined) {
+      if (sectionFill(planIndex - 1, kind) === choice) choice = (choice + 1) % style.fills[kind].length;
+    }
+    fillDraws.set(key, choice);
+    return choice;
   };
   let segment: Segment | null = null;
   let ownSegment: Segment | null = null;
@@ -251,9 +278,14 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     let hits: DrumHit[];
     let filled = false;
     if (phrased) {
-      const section = sectionFor(planIndex, style, accent);
+      const section = sectionFor(planIndex);
       const role = roles[planIndex][barIndex[k]];
-      const draw = section.draws[role.bar];
+      const next = plans[planIndex + 1];
+      const fillSize = fillSizeOf(plan, next);
+      // The bar at the end of a section draws its fills from the section's end draws; the other bars from their own.
+      const draw = role.sectionEnd
+        ? { ...section.draws[role.bar], short: sectionFill(planIndex, "short"), half: sectionFill(planIndex, "half"), bar: sectionFill(planIndex, "bar") }
+        : section.draws[role.bar];
       // A repeat of a section (Verse 2) plays the section's other groove in its second half, so it is the same part with a lift.
       const lifted = occurrence[planIndex] % 2 === 1 && role.bar >= Math.floor(barsOf[planIndex] / 2) ? 1 : 0;
       groove = style.grooves[plan.energy][section.grooves[lifted]];
@@ -283,7 +315,15 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
           filled = true;
         }
       } else if (role.sectionEnd) {
-        if (plan.fill) asFill(plan.energy <= HALF_FILL_MAX_ENERGY ? 2 : 3);
+        if (fillSize !== 0) asFill(fillSize);
+        // Before a section with the drums off the last bar ends with a kick and a crash, if the section is loud.
+        if (choked(plan, next)) {
+          hits = [
+            ...hits.filter((hit) => hit.step < lastBeat),
+            { step: lastBeat, pitch: KICK, velocity: HIT_KICK_VELOCITY },
+            { step: lastBeat, pitch: CRASH, velocity: CRASH_VELOCITY },
+          ];
+        }
       } else if (role.pairEnd) {
         asFill(1);
       } else if (role.phraseEnd) {

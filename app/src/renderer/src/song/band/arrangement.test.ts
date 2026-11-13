@@ -86,13 +86,29 @@ describe("planSections", () => {
     const plans = planSections(
       [section("a", "Verse", 0, 10), section("b", "Chorus", 10, 20), section("c", "Bridge", 20, 30), section("d", "Outro", 30, 40)],
       40,
-      settings(),
+      settings({ engine: 2 }),
     );
     expect(plans.map((plan) => plan.fill)).toEqual([true, false, false, true]);
   });
 
+  it("leaves the fill automatic for every section at drum engine 3", () => {
+    const plans = planSections([section("a", "Verse", 0, 10), section("b", "Chorus", 10, 20), section("c", "Bridge", 20, 30)], 30, settings({ engine: 3 }));
+    expect(plans.map((plan) => plan.fill)).toEqual([true, true, true]);
+  });
+
+  it("reads a fill as on, off or a size from a saved song, and drops anything else", () => {
+    const read = (fill: unknown) => parseBandSettings({ sections: { a: { fill } } }).sections.a?.fill;
+    expect([true, false, 0, 1, 2, 3].map(read)).toEqual([true, false, 0, 1, 2, 3]);
+    expect([4, -1, "half", null].map(read)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("lets a section's fill size win over the default", () => {
+    const plans = planSections([section("a", "Verse", 0, 10), section("b", "Chorus", 10, 20)], 20, settings({ sections: { a: { fill: 3 } } }));
+    expect(plans[0].fill).toBe(3);
+  });
+
   it("does not fill before a pre-chorus", () => {
-    const plans = planSections([section("a", "Verse", 0, 10), section("b", "Pre-chorus", 10, 20), section("c", "Chorus", 20, 30)], 30, settings());
+    const plans = planSections([section("a", "Verse", 0, 10), section("b", "Pre-chorus", 10, 20), section("c", "Chorus", 20, 30)], 30, settings({ engine: 2 }));
     expect(plans.map((plan) => plan.fill)).toEqual([false, true, true]);
   });
 

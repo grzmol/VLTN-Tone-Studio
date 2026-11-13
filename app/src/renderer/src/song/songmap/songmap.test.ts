@@ -415,3 +415,40 @@ describe("the Marks table", () => {
     expect(parseSongMap(writeSongMap(map)).map).toEqual(map);
   });
 });
+
+describe("the Fill column of the Sections table", () => {
+  const read = (cells: string[]) => {
+    const text = `---\nsongmap: 1\n---\n## Sections\n\n| Start | End | Section | Fill |\n|---|---|---|---|\n${cells.map((fill, i) => `| ${i * 10} | ${i * 10 + 10} | S${i} | ${fill} |`).join("\n")}\n`;
+    return parseSongMap(text);
+  };
+
+  it("reads the words and the sizes", () => {
+    const { map, problems } = read(["auto", "none", "Short", "half bar", "Whole-bar", "3", "0", ""]);
+    expect(problems).toEqual([]);
+    expect(map?.sections.map((section) => section.fill)).toEqual([true, 0, 1, 2, 3, 3, 0, undefined]);
+  });
+
+  it("refuses a fill it does not know and keeps the other rows", () => {
+    const { map, problems } = read(["huge", "half"]);
+    expect(problems[0].message).toContain('"huge" is not a fill');
+    expect(map?.sections.map((section) => section.name)).toEqual(["S1"]);
+  });
+
+  it("writes the column only when a section sets a fill, and reads its own writing back", () => {
+    const plain = writeSongMap({ sections: [{ start: 0, end: 10, name: "A" }], bassNotes: [], extra: {}, ignored: [] });
+    expect(plain).not.toContain("Fill");
+    const map: SongMap = {
+      sections: [
+        { start: 0, end: 10, name: "A", fill: true },
+        { start: 10, end: 20, name: "B", fill: 3 },
+        { start: 20, end: 30, name: "C" },
+      ],
+      bassNotes: [],
+      extra: {},
+      ignored: [],
+    };
+    const text = writeSongMap(map);
+    expect(text).toContain("| Loud | Fill | Notes |");
+    expect(parseSongMap(text).map?.sections.map((section) => section.fill)).toEqual([true, 3, undefined]);
+  });
+});

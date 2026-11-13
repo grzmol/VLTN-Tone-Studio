@@ -188,8 +188,11 @@ export interface SectionPlan {
   hitTheOne: boolean;
   /** The octave the section's bass is moved by, within the range. */
   octave: OctaveShift;
-  /** A fill on the section's last bar. */
-  fill: boolean;
+  /**
+   * The fill on the section's last bar: a size (0 none, 1 the last beat, 2 half a bar, 3 the whole bar), or `true` for automatic, which at drum
+   * engine 3 is sized to the change into the next section (drum-phrases.ts). `false` is none. Songs on an earlier engine read it as on or off.
+   */
+  fill: boolean | FillSize;
   play: PartToggles;
   /**
    * The section's own seed, when the performer tried another for this section or kept it. The section then draws its groove, fills, figure and
@@ -200,6 +203,10 @@ export interface SectionPlan {
 
 /** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
 export type SectionOverride = Partial<Omit<SectionPlan, "name" | "bassPart" | "bassLead" | "bassRamp">> & { bassPart?: BassPartChoice };
+
+/** The size of the drum fill that ends a section: none, the last beat, half a bar, the whole bar. */
+export type FillSize = 0 | 1 | 2 | 3;
+export const FILL_SIZES: readonly FillSize[] = [0, 1, 2, 3];
 
 /** The bass fills a section can have: 0 (none) to 3 (a variation in every phrase). */
 export type Fills = 0 | 1 | 2 | 3;
@@ -445,7 +452,8 @@ export function planSections(sections: readonly Section[], songEnd: number, sett
       sectionId: section.id,
       start: i === 0 ? 0 : section.start,
       end,
-      fill: override.fill ?? (next ? isChorusName(next.name) : true),
+      // Drum engine 3 sizes the fill to the change (automatic); the earlier engines fill before a chorus, and at the end of the song.
+      fill: override.fill ?? (settings.engine >= 3 ? true : next ? isChorusName(next.name) : true),
       hitTheOne: override.hitTheOne ?? (isChorusName(section.name) && followsOther),
       ...playFields(section.name, override, settings, chorusGroove),
     };
@@ -463,6 +471,8 @@ const isEngine = (value: unknown): value is number => typeof value === "number" 
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
 const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
 const isFills = (value: unknown): value is Fills => FILLS.includes(value as Fills);
+/** A fill is on or off (the earlier way, and `true` is automatic), or a size. */
+const isFillChoice = (value: unknown): value is boolean | FillSize => isBool(value) || FILL_SIZES.includes(value as FillSize);
 const isBassPartChoice = (value: unknown): value is BassPartChoice => BASS_PART_CHOICES.includes(value as BassPartChoice);
 const isStyleId = (value: unknown): value is StyleId => STYLE_IDS.includes(value as StyleId);
 const isOneOf =
@@ -495,7 +505,7 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.deadNotes, isBool) &&
     optional(value.pickups, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
-    optional(value.fill, isBool) &&
+    optional(value.fill, isFillChoice) &&
     optional(value.play, isPartToggles) &&
     optional(value.seed, isSeed)
   );
@@ -712,7 +722,7 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isBool(value.deadNotes)) override.deadNotes = value.deadNotes;
   if (isBool(value.pickups)) override.pickups = value.pickups;
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
-  if (isBool(value.fill)) override.fill = value.fill;
+  if (isFillChoice(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
   if (isSeed(value.seed)) override.seed = value.seed;
   return override;

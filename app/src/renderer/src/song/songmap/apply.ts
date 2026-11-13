@@ -114,6 +114,7 @@ function overrideOf(section: SongMapSection, parts: BandSettings["parts"], previ
   if (section.style) next.style = section.style;
   if (section.energy) next.energy = section.energy;
   if (section.loud) next.loud = section.loud;
+  if (section.fill !== undefined) next.fill = section.fill;
   if (section.busy) next.busy = section.busy;
   if (section.drums !== undefined || section.bass !== undefined) {
     next.play = {

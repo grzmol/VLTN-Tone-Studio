@@ -2,6 +2,7 @@
 // and writes the text. It never throws. When a row is wrong it says which line it skipped and why, and the rest of the map is kept, so
 // one slip does not cost the whole song.
 
+import type { FillSize } from "@/song/band/arrangement";
 import { BASS_PART_CHOICES, type BassPartChoice } from "@/song/band/bass-parts";
 import { MAX_BASS_OVERRIDES, type OverrideOctave } from "@/song/band/bass-overrides";
 import { BAR_MARK_KINDS, FILL_BEATS, MAX_BAR_MARKS, STOP_BEATS, hasBeats, type BarMarkKind } from "@/song/band/marks";
@@ -52,6 +53,8 @@ export interface SongMapSection {
   energy?: Energy;
   busy?: Energy;
   loud?: Energy;
+  /** The fill at the section's end: `true` is automatic (sized to the change into the next section), or a size from 0 (none) to 3 (a whole bar). */
+  fill?: boolean | FillSize;
   notes?: string;
 }
 
@@ -439,6 +442,32 @@ function readLevel(raw: string, label: string): Read<Energy> {
   return match === undefined ? { ok: false, message: `"${label}" must be a number from 1 to 5, not "${value}".` } : { ok: true, value: match };
 }
 
+/** The words a Fill cell may hold, and the fill each one means. A number from 0 to 3 is a size too. */
+const FILL_WORDS: Record<string, boolean | FillSize> = {
+  auto: true,
+  none: 0,
+  off: 0,
+  no: 0,
+  short: 1,
+  "last beat": 1,
+  half: 2,
+  "half bar": 2,
+  whole: 3,
+  "whole bar": 3,
+  bar: 3,
+};
+
+/** Reads a Fill cell: auto, none, short, half (bar), whole (bar), or a size from 0 to 3. */
+function readFill(raw: string): Read<boolean | FillSize> {
+  const value = raw.trim().toLowerCase().replace(/[-_\s]+/g, " ");
+  if (!value) return { ok: true, value: undefined };
+  if (/^[0-3]$/.test(value)) return { ok: true, value: Number(value) as FillSize };
+  const word = FILL_WORDS[value];
+  return word === undefined
+    ? { ok: false, message: `"${raw.trim()}" is not a fill. Use auto, none, short, half, whole, or a size from 0 to 3.` }
+    : { ok: true, value: word };
+}
+
 /** Reads a time cell. Empty reads as nothing, and anything else must parse as a time. */
 function readTimeCell(raw: string): Read<number> {
   const value = raw.trim();
@@ -489,6 +518,7 @@ function readSectionRow(row: TableRow, table: Table, problems: SongMapProblem[])
     energy: readLevel(cell(row, table, "energy"), "Energy"),
     busy: readLevel(cell(row, table, "busy"), "Busy"),
     loud: readLevel(cell(row, table, "loud"), "Loud"),
+    fill: readFill(cell(row, table, "fill")),
   };
   const failed = Object.values(reads).find((read) => !read.ok);
   if (failed && !failed.ok) {
@@ -513,6 +543,7 @@ function readSectionRow(row: TableRow, table: Table, problems: SongMapProblem[])
     energy: reads.energy.ok ? reads.energy.value : undefined,
     busy: reads.busy.ok ? reads.busy.value : undefined,
     loud: reads.loud.ok ? reads.loud.value : undefined,
+    fill: reads.fill.ok ? reads.fill.value : undefined,
     notes: notes || undefined,
   });
   const start = reads.start.ok ? reads.start.value : undefined;
@@ -807,6 +838,8 @@ function tableBlock(heading: string, header: string[], rows: string[][]): string
 
 /** The Sections table. Each row is one section; its End is always written. */
 function sectionsBlock(sections: SongMapSection[]): string {
+  // The Fill column is written only when a section sets one, so a map without fills keeps the table it always had.
+  const withFill = sections.some((section) => section.fill !== undefined);
   const rows = sections.map((section) => [
     formatTime(section.start),
     formatTime(section.end),
@@ -817,9 +850,18 @@ function sectionsBlock(sections: SongMapSection[]): string {
     section.energy === undefined ? "" : String(section.energy),
     section.busy === undefined ? "" : String(section.busy),
     section.loud === undefined ? "" : String(section.loud),
+    ...(withFill ? [fillText(section.fill)] : []),
     cellText(section.notes),
   ]);
-  return tableBlock("Sections", ["Start", "End", "Section", "Drums", "Bass", "Style", "Energy", "Busy", "Loud", "Notes"], rows);
+  const header = ["Start", "End", "Section", "Drums", "Bass", "Style", "Energy", "Busy", "Loud", ...(withFill ? ["Fill"] : []), "Notes"];
+  return tableBlock("Sections", header, rows);
+}
+
+/** A fill as the Fill column writes it. */
+function fillText(fill: boolean | FillSize | undefined): string {
+  if (fill === undefined) return "";
+  if (fill === true) return "auto";
+  return ["none", "short", "half", "whole"][fill === false ? 0 : fill];
 }
 
 /** The Bass notes table. The note is written with sharps, and the octave as up, down or nothing. */

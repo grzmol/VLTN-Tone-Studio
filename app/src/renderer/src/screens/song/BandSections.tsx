@@ -7,7 +7,7 @@ import { ENERGIES, STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
 import { BASS_PART_CHOICES, type BassPartChoice } from "@/song/band/bass-parts";
 import type { SectionOverride, SectionPlan } from "@/song/band/arrangement";
 import { BandSectionMore } from "./BandSectionMore";
-import { BASS_PART_LABELS } from "./band-labels";
+import { BASS_PART_LABELS, FILL_CHOICES, FILL_LABELS, fillChoiceOf, fillOfChoice, type FillChoice } from "./band-labels";
 
 export interface BandSectionRow {
   plan: SectionPlan;
@@ -52,6 +52,7 @@ export function BandSections({
   onCopyToSameKind,
   onReset,
   beatsPerBar,
+  drumPhrases = true,
 }: {
   rows: readonly BandSectionRow[];
   disabled: boolean;
@@ -65,6 +66,8 @@ export function BandSections({
   onReset(sectionId: string | null): void;
   /** The song's beats per bar, to list the styles written for it first. */
   beatsPerBar?: number;
+  /** False for a song on the earlier drums, whose fill is on or off: the column is a checkbox then, not a menu of sizes. */
+  drumPhrases?: boolean;
 }) {
   const head = "sticky top-0 z-10 bg-popover py-1 pr-2 font-normal";
   return (
@@ -142,13 +145,32 @@ export function BandSections({
                   </td>
                   <td className="py-0 pr-2">{levelSelect("energy", "Energy", "")}</td>
                   <td className="py-0 pr-2">
-                    <Checkbox
-                      aria-label={`Fill at the end of ${name}`}
-                      className={"fill" in override ? "" : "opacity-60"}
-                      disabled={disabled}
-                      checked={plan.fill}
-                      onCheckedChange={(checked) => onChange(plan.sectionId, { fill: checked === true })}
-                    />
+                    {drumPhrases ? (
+                      <Select
+                        value={fillChoiceOf(plan.fill)}
+                        disabled={disabled}
+                        onValueChange={(value) => onChange(plan.sectionId, { fill: fillOfChoice(value as FillChoice) })}
+                      >
+                        <SelectTrigger size="sm" aria-label={`Fill at the end of ${name}`} className={`w-28 ${muted("fill")}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FILL_CHOICES.map((choice) => (
+                            <SelectItem key={choice} value={choice}>
+                              {FILL_LABELS[choice]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Checkbox
+                        aria-label={`Fill at the end of ${name}`}
+                        className={"fill" in override ? "" : "opacity-60"}
+                        disabled={disabled}
+                        checked={plan.fill !== false && plan.fill !== 0}
+                        onCheckedChange={(checked) => onChange(plan.sectionId, { fill: checked === true })}
+                      />
+                    )}
                   </td>
                   <td className="py-0 pr-2">
                     <Checkbox
