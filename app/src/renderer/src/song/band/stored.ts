@@ -26,7 +26,9 @@ export interface BandPatch {
 export function readStoredBand(key: string): StoredBand {
   const options = readOptions<Record<string, unknown>>(key, {});
   return {
-    settings: parseBandSettings(options.band),
+    // A song that has never had band settings saved starts on the built-in Warm bass tone, which needs no download. A song saved before
+    // that keeps the tone it has (clean when it has none).
+    settings: options.band === undefined ? { ...parseBandSettings(undefined), bassTone: { kind: "builtin", id: "warm" } } : parseBandSettings(options.band),
     grid: parseBeatGrid(options.beatGrid),
     outOfDate: options.bandOutOfDate === true,
     noticeDismissed: options.bandNoticeDismissed === true,

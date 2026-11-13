@@ -11,6 +11,7 @@ export function BandTabSound({
   hasSong,
   partChoices,
   partKeys,
+  generatedNotes,
   onPartChoice,
   busy,
   blocked,
@@ -25,6 +26,8 @@ export function BandTabSound({
   hasSong: boolean;
   partChoices: PartChoices;
   partKeys: PartKeys;
+  /** What each generated part says about itself: "Generated · clean (tone missing)" where its tone files were missing. */
+  generatedNotes?: Partial<Record<"drums" | "bass", string>>;
   onPartChoice(patch: Partial<PartChoices>): void;
   busy: boolean;
   blocked: boolean;
@@ -35,7 +38,7 @@ export function BandTabSound({
 }) {
   return (
     <div className="flex flex-col gap-5">
-      {hasSong && <PartChoiceRows choices={partChoices} keys={partKeys} disabled={busy} onChange={onPartChoice} />}
+      {hasSong && <PartChoiceRows choices={partChoices} keys={partKeys} notes={generatedNotes} disabled={busy} onChange={onPartChoice} />}
       {hasSong && (
         <section aria-label="Rendered parts" className="flex flex-col gap-3">
           {RENDERED_KINDS.map((kind) => (

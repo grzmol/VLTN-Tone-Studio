@@ -161,7 +161,10 @@ beforeEach(() => {
   mocks.startBandRender.mockReset();
   mocks.renderPreview.mockReset();
   mocks.chain.mockClear();
-  mocks.tones.readNam.mockClear();
+  mocks.tones.readNam.mockReset();
+  mocks.tones.readNam.mockImplementation(async () => {
+    throw new Error("Bass amp isn't there anymore");
+  });
   // By default the detector finds nothing, so the bass rests unless a test gives it chords.
   mocks.startChordDetection.mockReset();
   mocks.startChordDetection.mockReturnValue({ done: Promise.resolve([]), cancel: vi.fn() });
@@ -449,6 +452,8 @@ describe("Band panel", () => {
     mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, bass, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    // Only an explicit Generate may fall back to a clean part, and it asks first.
+    fireEvent.click(await screen.findByRole("button", { name: "Generate clean" }));
     await waitFor(() => expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledWith({ drums, bass }, { playing: false, remove: [] }));
     expect(mocks.tones.readNam).toHaveBeenCalledWith(42, 7);
     expect(mocks.chain).not.toHaveBeenCalled();
@@ -458,7 +463,8 @@ describe("Band panel", () => {
   it("renders the bass through the capture at Generate, shows the Bass tone step, and saves the toned bass", async () => {
     const bassTone = { kind: "nam", capture: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" }, ir: null, inputDb: 0, outputDb: 0, blend: 1 };
     stored({ beatGrid: grid, bandOutOfDate: true, band: { ...DEFAULT_BAND_SETTINGS, bassTone } });
-    mocks.tones.readNam.mockResolvedValueOnce("capture-text");
+    // The first read is the check that the file is there, the second is Generate loading it.
+    mocks.tones.readNam.mockResolvedValueOnce("capture-text").mockResolvedValueOnce("capture-text");
     const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
     const bass = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS).fill(0.5)] };
     mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, bass, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
@@ -537,14 +543,63 @@ describe("Band panel", () => {
       bandOutOfDate: true,
       band: { ...DEFAULT_BAND_SETTINGS, drumTone: { kind: "chain", blocks: [outboard], dryWet: 1, fast: false } },
     });
-    mocks.tones.readNam.mockRejectedValueOnce(new Error("Bus comp isn't there anymore"));
+    mocks.tones.readNam.mockRejectedValue(new Error("Bus comp isn't there anymore"));
     const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS), new Float32Array(44100 * SECONDS)] };
     const bass = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
     mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, bass, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Generate clean" }));
     await waitFor(() => expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledWith({ drums, bass }, { playing: false, remove: [] }));
     expect(screen.getByText(/The drums play clean, because Bus comp couldn't be loaded/)).toBeTruthy();
+  });
+
+  it("passes the song's saved Trim end to the generator, so the ending lands before it", async () => {
+    stored({ beatGrid: grid, trimEnd: 6.5 });
+    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ drums, notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(mocks.startBandRender).toHaveBeenCalledTimes(1));
+    expect(mocks.startBandRender.mock.calls[0][0].trimEnd).toBe(6.5);
+  });
+
+  it("saves the ending and the section it goes after from the Feel tab", () => {
+    stored({ beatGrid: grid });
+    renderPanel({ sections: SECTIONS });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Feel" }), { button: 0 });
+    pick(screen.getByRole("combobox", { name: "Ending" }), "Fill and hold");
+    pick(screen.getByRole("combobox", { name: "End after" }), "Verse");
+    expect(savedOptions().band.ending).toEqual({ kind: "hold", atSection: "verse" });
+  });
+
+  it("does not replace good audio automatically when a tone file is missing, and says so", async () => {
+    const amp = {
+      type: "capture",
+      role: "amp",
+      file: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" },
+      inputDb: 0,
+      outputDb: 0,
+      mix: 1,
+      on: true,
+    };
+    stored({
+      beatGrid: grid,
+      generatedParts: { drums: "track0" },
+      band: { ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: [amp], dryWet: 1, fast: false }, renderedTone: { bass: "chain" } },
+    });
+    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel();
+    act(() => useBandPanel.getState().show(false));
+    act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), band: { ...savedOptions().band, complexity: 0.9 } })));
+    await waitFor(() => expect(mocks.tones.readNam).toHaveBeenCalledWith(42, 7));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    act(() => useBandPanel.getState().show(true));
+    expect(await screen.findByText(/Not updated: the bass tone's amp capture is missing/)).toBeTruthy();
+    expect(mocks.startBandRender).not.toHaveBeenCalled();
+    expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
+    expect(savedOptions().band.renderedTone).toEqual({ bass: "chain" });
   });
 
   it("asks before removing the generated parts, and removes them only on confirm", async () => {

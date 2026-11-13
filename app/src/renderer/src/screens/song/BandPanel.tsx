@@ -44,6 +44,8 @@ import {
 } from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
+import { automaticUpdateBlock, cleanFallbackQuestion, generatedLabel, missingToneFiles } from "@/song/band/tone-check";
+import { storedShape } from "@/song/performance/song-shape";
 import { renderPartChain } from "@/song/band/bass-chain";
 import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
@@ -167,6 +169,7 @@ function BandBody({
   // The latest settings for the steps that finish later (a render, a rendered file), which would otherwise write the settings they started with.
   const settingsRef = useRef<BandSettings>(stored.settings);
   const [pendingRendered, setPendingRendered] = useState<PendingRendered | null>(null);
+  const [confirmClean, setConfirmClean] = useState<{ question: string; run(): void } | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<{ kinds: RenderedKind[]; run(): void } | null>(null);
   const [grid, setGrid] = useState<BeatGrid | null>(stored.grid);
   const settingsVersion = useSongSettingsRevision(songKey);
@@ -250,7 +253,8 @@ function BandBody({
   const blocked = busy || playing || source === null;
   // Audio bookkeeping changes after Generate are not musical edits. Everything that determines the notes belongs to this key.
   const generationInputs = (using: BandSettings) => {
-    const { firstNote: _firstNote, rendered: _rendered, ...musical } = using;
+    // What a part was rendered with is a result of Generate, not an input to it.
+    const { firstNote: _firstNote, rendered: _rendered, renderedTone: _renderedTone, ...musical } = using;
     const originalAudio = Object.entries(stems ?? {})
       .filter(([key]) => tracks?.[key]?.kind !== "user")
       .map(([key, audio]) => [key, audio ? bandAudioId(audio) : null]);
@@ -401,6 +405,9 @@ function BandBody({
    * Generates the parts. With `only`, just that part is generated and the other part's track is left alone: Back to generated uses this,
    * since the generated audio is not kept, so the part is rendered again.
    */
+  /** The song's saved Trim end, so the ending lands on the last full bar before it. */
+  const savedTrimEnd = (): number | undefined => storedShape(readOptions<Record<string, unknown>>(songKey, {})).trimEnd;
+
   const generate = async (requested: BandSettings, only?: RenderedKind) => {
     const using: BandSettings = only ? { ...requested, parts: { drums: only === "drums", bass: only === "bass" } } : requested;
     const current = useSong.getState().source;
@@ -417,6 +424,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
+        trimEnd: savedTrimEnd(),
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
@@ -454,16 +462,19 @@ function BandBody({
       // leaves the clean bass and a notice.
       let bass = result.bass;
       let drums = result.drums;
+      const renderedTone: BandSettings["renderedTone"] = {};
       if (drums && using.drumTone.kind === "chain") {
         setWork(DRUM_TONE_TEXT);
         const toned = await applyPartTone(drums, using.drumTone, host.tones, renderPartChain, "drums");
         drums = toned.audio;
+        renderedTone.drums = toned.tone;
         if (toned.notice) notes.push(toned.notice);
       }
-      if (bass && using.bassTone.kind === "chain") {
+      if (bass && using.bassTone.kind !== "clean") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyPartTone(bass, using.bassTone, host.tones, renderPartChain, "bass");
         bass = toned.audio;
+        renderedTone.bass = toned.tone;
         if (toned.notice) notes.push(toned.notice);
       }
       if (result.follow) notes.push(info(followStatus(result.follow)));
@@ -496,13 +507,19 @@ function BandBody({
       const latest = settingsRef.current;
       const firstNote = { ...latest.firstNote };
       const rendered = { ...latest.rendered };
+      // What each generated part was rendered with, so the Sound tab can say when a part is clean because its tone files were missing.
+      const toneNow: BandSettings["renderedTone"] = { ...latest.renderedTone };
+      for (const part of ["drums", "bass"] as const) {
+        if (!using.parts[part]) continue;
+        toneNow[part] = renderedTone[part] ?? "clean";
+      }
       for (const kind of RENDERED_KINDS) {
         const times = (result.notes[kind] ?? []).map((note) => note.time);
         if (using.parts[kind] && times.length) firstNote[kind] = Math.min(...times);
         else if (using.parts[kind]) delete firstNote[kind];
         if (applied.length === 0 && (using.parts[kind] || turnedOff.includes(kind))) delete rendered[kind];
       }
-      commitBand({ ...latest, firstNote, rendered });
+      commitBand({ ...latest, firstNote, rendered, ...(applied.length === 0 ? { renderedTone: toneNow } : {}) });
       if (applied.length === 0) {
         setOutOfDate(false);
         writeStoredBand(songKey, { bandOutOfDate: false, bandTempoChanged: false });
@@ -557,6 +574,9 @@ function BandBody({
       return; // Imported rendered parts belong to the performer and are never replaced automatically.
     }
     const run = (async () => {
+      // An automatic update never swaps good audio for a clean part: with a tone file missing it stops and says so.
+      const blocked = await automaticUpdateBlock(settings, host.tones);
+      if (blocked) throw new Error(blocked);
       const protectsRendered = RENDERED_KINDS.some((kind) => settings.parts[kind] && settings.rendered[kind]);
       const ok = protectsRendered ? await generate(settings, kinds[0]) : await generate(settings);
       if (!ok) throw new Error("Automatic band update could not finish. Open Drums & bass for the reason; playback will wait.");
@@ -590,10 +610,17 @@ function BandBody({
   }, [musicalInputs, outOfDate, audioPlaying, busy, generated, needsSnapshot]);
 
   /** Generate replaces a part that is the performer's rendered audio, so it asks first. */
-  const generateOrAsk = (next: BandSettings) => {
+  const generateOrAsk = async (next: BandSettings) => {
     const replacing = RENDERED_KINDS.filter((kind) => next.parts[kind] && settingsRef.current.rendered[kind]);
-    if (replacing.length) setConfirmReplace({ kinds: replacing, run: () => void generate(next) });
-    else void generate(next);
+    const go = () => {
+      if (replacing.length) setConfirmReplace({ kinds: replacing, run: () => void generate(next) });
+      else void generate(next);
+    };
+    // Only an explicit Generate may fall back to a clean part, and it asks first.
+    if (next.bassTone.kind !== "chain" && next.drumTone.kind !== "chain") return go();
+    const question = cleanFallbackQuestion(await missingToneFiles(next, host.tones));
+    if (question) setConfirmClean({ question, run: go });
+    else go();
   };
 
   /** Puts a rendered file in place of a part's generated audio, or offers the line-up first when the file's first hit is off the first note. */
@@ -650,7 +677,7 @@ function BandBody({
   const tryAnother = () => {
     const next = { ...settings, seed: 1 + Math.floor(Math.random() * 0xfffffffe) };
     save(next);
-    generateOrAsk(next);
+    void generateOrAsk(next);
   };
 
   /**
@@ -672,6 +699,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
+        trimEnd: savedTrimEnd(),
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
@@ -693,7 +721,7 @@ function BandBody({
         drums = toned.audio;
         if (toned.notice) toneNotices.push(toned.notice);
       }
-      if (bass && settings.bassTone.kind === "chain") {
+      if (bass && settings.bassTone.kind !== "clean") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyPartTone(bass, settings.bassTone, host.tones, renderPartChain, "bass");
         bass = toned.audio;
@@ -856,7 +884,14 @@ function BandBody({
             />
           </TabsContent>
           <TabsContent forceMount value="feel" className="min-w-0 data-[state=inactive]:hidden">
-            <BandTabFeel settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} beatsPerBar={grid?.beatsPerBar} />
+            <BandTabFeel
+              settings={settings}
+              followSources={followSources}
+              onChange={change}
+              onStyle={changeStyle}
+              beatsPerBar={grid?.beatsPerBar}
+              sections={rows.flatMap((row) => (row.plan.sectionId === null ? [] : [{ id: row.plan.sectionId, name: row.name }]))}
+            />
           </TabsContent>
           <TabsContent forceMount value="sound" className="min-w-0 data-[state=inactive]:hidden">
             <BandTabSound
@@ -865,6 +900,7 @@ function BandBody({
               hasSong={source !== null}
               partChoices={partChoices}
               partKeys={partKeys}
+              generatedNotes={{ drums: generatedLabel(settings, "drums"), bass: generatedLabel(settings, "bass") }}
               onPartChoice={onPartChoice}
               busy={busy}
               blocked={blocked}
@@ -936,7 +972,7 @@ function BandBody({
         onPreviewLength={setPreviewLength}
         onFromPlayhead={(on) => setPreviewAt(on ? PLAYHEAD : null)}
         onCancel={cancelWork}
-        onGenerate={() => generateOrAsk(settings)}
+        onGenerate={() => void generateOrAsk(settings)}
         onTryAnother={tryAnother}
         onPreview={() => void preview()}
         onStopPreview={() => stopPreview.current?.()}
@@ -945,6 +981,29 @@ function BandBody({
       />
 
 
+
+      <AlertDialog open={confirmClean !== null} onOpenChange={(open) => !open && setConfirmClean(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmClean?.question}</AlertDialogTitle>
+            <AlertDialogDescription>
+              A tone file is missing on this computer, so the part is rendered without its tone. Download the file or switch the tone to Clean to avoid this.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep what I have</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const run = confirmClean?.run;
+                setConfirmClean(null);
+                run?.();
+              }}
+            >
+              Generate clean
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmReplace !== null} onOpenChange={(open) => !open && setConfirmReplace(null)}>
         <AlertDialogContent>
