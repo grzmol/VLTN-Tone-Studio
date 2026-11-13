@@ -148,3 +148,14 @@ export function snareBuild(steps: number, stepsPerBeat: number): DrumHit[] {
 export function dropBar(hits: readonly DrumHit[], stepsPerBeat: number): DrumHit[] {
   return hits.filter((hit) => hit.pitch === KICK || hit.pitch === CRASH || (TIME_KEEPERS.includes(hit.pitch) && hit.step % stepsPerBeat === 0));
 }
+
+/**
+ * A crash on the downbeat takes the place of the hat or ride there, and the kick under it is at least `accent`, so the crash lands. Whether a
+ * crash plays is decided by `plays` (a groove's busy crash may not play at the song's complexity). Without a crash the bar is as it was.
+ */
+export function crashOnDownbeat(hits: readonly DrumHit[], plays: (hit: DrumHit) => boolean, accent: number): DrumHit[] {
+  if (!hits.some((hit) => hit.step === 0 && hit.pitch === CRASH && plays(hit))) return [...hits];
+  return hits
+    .filter((hit) => !(hit.step === 0 && TIME_KEEPERS.includes(hit.pitch)))
+    .map((hit) => (hit.step === 0 && hit.pitch === KICK ? { ...hit, velocity: Math.max(hit.velocity, accent) } : hit));
+}

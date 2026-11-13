@@ -747,6 +747,14 @@ describe("generateDrums with drum phrases (engine 3)", () => {
       expect(signature(notes, 7)).not.toEqual(signature(notes, 1));
     });
 
+    it("gives a section of four to seven bars at least three distinct bars", () => {
+      for (const length of [4, 5, 6, 7]) {
+        const short = generateDrums(grid, [bars(0, length, { name: "Intro", energy: 3, fill: true }), bars(length, length + 8, { name: "Verse", energy: 4 })], settings3(), 3);
+        const distinct = new Set(Array.from({ length }, (_, bar) => signature(short, bar).join(",")));
+        expect(distinct.size, `${length} bars`).toBeGreaterThanOrEqual(3);
+      }
+    });
+
     it("plays the groove as written on the bars between", () => {
       for (const bar of [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]) expect(signature(notes, bar), `bar ${bar + 1}`).toEqual(signature(notes, 1));
     });
@@ -1029,6 +1037,101 @@ describe("generateDrums with drum phrases (engine 3)", () => {
         return generateDrums(tempo, [barsOn(tempo, 0, 8, { name: "Verse", energy: 3 })], settings3({ engine: 2 }), 3).map((note) => `${note.pitch}:${note.velocity}`);
       };
       expect(earlier(170)).toEqual(earlier(120));
+    });
+  });
+
+  describe("crashes", () => {
+    const at = (notes: readonly NoteEvent[], bar: number) => notes.filter((note) => Math.abs(note.time - bar * BAR_SECONDS) < 1e-9);
+    const pitchesAt = (notes: readonly NoteEvent[], bar: number) => at(notes, bar).map((note) => note.pitch);
+    const sectionSong = (engine: 2 | 3) =>
+      generateDrums(grid, [bars(0, 8, { name: "Verse", energy: 3 }), bars(8, 24, { name: "Chorus", energy: 4, loud: 3 })], settings3({ engine, crashOnSections: true }), 3);
+
+    it("plays no hat or ride under a crash on a downbeat, where the earlier drums played both", () => {
+      const phrased = pitchesAt(sectionSong(3), 8);
+      expect(phrased).toContain(CRASH);
+      expect(phrased.filter((pitch) => [CLOSED_HAT, OPEN_HAT, RIDE].includes(pitch))).toEqual([]);
+      const earlier = pitchesAt(sectionSong(2), 8);
+      expect(earlier).toContain(CRASH);
+      expect(earlier.some((pitch) => [CLOSED_HAT, OPEN_HAT, RIDE].includes(pitch))).toBe(true);
+    });
+
+    it("plays the kick under a crash at least as loud as an accent", () => {
+      const kick = at(sectionSong(3), 8).find((note) => note.pitch === KICK)!;
+      expect(kick.velocity).toBeGreaterThanOrEqual(108);
+    });
+
+    it("keeps the hat under a crash that its complexity does not play", () => {
+      const song = generateDrums(grid, [bars(0, 8, { name: "Verse", energy: 5, style: "rock" })], settings3({ complexity: 0.1, crashOnSections: false }), 3);
+      expect(pitchesAt(song, 0).some((pitch) => [CLOSED_HAT, RIDE].includes(pitch))).toBe(true);
+    });
+
+    it("crashes at the start of every second phrase of a loud chorus, from a lean complexity", () => {
+      const crashes = (settings: BandSettings, name = "Chorus", energy: 3 | 4 | 5 = 4) =>
+        [4, 8, 12, 16].map((bar) => pitchesAt(generateDrums(grid, [bars(0, 20, { name, energy })], settings, 3), bar).includes(CRASH));
+      expect(crashes(settings3({ crashOnSections: false }))).toEqual([false, true, false, true]);
+      expect(crashes(settings3({ crashOnSections: false, complexity: 0.2 }))).toEqual([false, false, false, false]);
+      expect(crashes(settings3({ crashOnSections: false }), "Verse")).toEqual([false, false, false, false]);
+      expect(crashes(settings3({ crashOnSections: false }), "Chorus", 3)).toEqual([false, false, false, false]);
+    });
+  });
+
+  describe("bar marks", () => {
+    const marked = (marks: BarMark[], plans?: SectionPlan[]) =>
+      generateDrums(grid, plans ?? [bars(0, 16, { name: "Verse", energy: 3, fill: true }), bars(16, 24, { name: "Chorus", energy: 4 })], settings3({ marks }), 3);
+    const bare = marked([]);
+    const bar = (notes: readonly NoteEvent[], index: number) => signature(notes, index);
+    const pitchesAtBar = (notes: readonly NoteEvent[], index: number) => notes.filter((note) => Math.abs(note.time - index * BAR_SECONDS) < 1e-9).map((note) => note.pitch);
+    const markAt = (index: number, kind: BarMark["kind"], beats?: number): BarMark => ({ time: index * BAR_SECONDS, kind, ...(beats ? { beats } : {}) });
+
+    it("plays the groove on a bar marked No fill, where a turnaround, a small fill or the section fill would be", () => {
+      const plain = bar(bare, 1);
+      for (const index of [3, 7, 15]) {
+        expect(bar(bare, index), `bar ${index + 1} plays something else`).not.toEqual(plain);
+        expect(bar(marked([markAt(index, "no-fill")]), index), `bar ${index + 1} marked`).toEqual(plain);
+      }
+    });
+
+    it("plays a marked fill over the last beats of any bar, and the whole bar for four beats", () => {
+      const one = marked([markAt(1, "fill", 1)]);
+      expect(signature(one, 1, 3)).toEqual(signature(bare, 1, 3));
+      expect(bar(one, 1)).not.toEqual(bar(bare, 1));
+      const two = marked([markAt(1, "fill", 2)]);
+      expect(signature(two, 1, 2)).toEqual(signature(bare, 1, 2));
+      expect(bar(two, 1)).not.toEqual(bar(bare, 1));
+      const whole = marked([markAt(1, "fill", 4)]);
+      expect(bar(whole, 1)).not.toEqual(bar(bare, 1));
+      // A fill of two beats or more is led out of by a crash.
+      expect(marked([markAt(1, "fill", 2)]).some((note) => note.pitch === CRASH && Math.abs(note.time - 2 * BAR_SECONDS) < 1e-9)).toBe(true);
+    });
+
+    it("changes only the marked bar, and the crash after a big fill", () => {
+      const withMark = marked([markAt(5, "fill", 4)]);
+      const outside = (notes: readonly NoteEvent[]) => notes.filter((note) => note.time < 5 * BAR_SECONDS || note.time >= 7 * BAR_SECONDS);
+      expect(outside(withMark)).toEqual(outside(bare));
+    });
+
+    it("puts a crash on a bar's downbeat, and takes one away", () => {
+      expect(pitchesAtBar(marked([markAt(2, "crash")]), 2)).toContain(CRASH);
+      expect(pitchesAtBar(bare, 2)).not.toContain(CRASH);
+      expect(pitchesAtBar(bare, 16)).toContain(CRASH);
+      expect(pitchesAtBar(marked([markAt(16, "no-crash")]), 16)).not.toContain(CRASH);
+    });
+
+    it("stabs on a hit, rests on drums-out and stops on a stop", () => {
+      expect(bar(marked([markAt(2, "hit")]), 2).map((hit) => hit.split(":")[1]).sort()).toEqual([String(KICK), String(CRASH)].sort());
+      const resting = marked([markAt(2, "drums-out")]);
+      expect(resting.filter((note) => note.time >= 2 * BAR_SECONDS && note.time < 3 * BAR_SECONDS)).toEqual([]);
+      expect(bar(resting, 3)).toEqual(bar(bare, 3));
+      const stopped = marked([markAt(2, "stop", 2)]);
+      expect(stopped.filter((note) => note.time >= 2 * BAR_SECONDS + BAR_SECONDS / 2 && note.time < 3 * BAR_SECONDS)).toEqual([]);
+      expect(signature(stopped, 2, 2)).toEqual(signature(bare, 2, 2));
+    });
+
+    it("keeps a kept section's drums with a mark in another section", () => {
+      const seeded = (marks: BarMark[]) =>
+        marked(marks, [bars(0, 8, { name: "Verse", energy: 3, fill: true, seed: 9 }), bars(8, 16, { name: "Chorus", energy: 4, fill: true })]);
+      const section = (notes: readonly NoteEvent[]) => notes.filter((note) => note.time < 8 * BAR_SECONDS);
+      expect(section(seeded([markAt(10, "fill", 4), markAt(12, "hit")]))).toEqual(section(seeded([])));
     });
   });
 });

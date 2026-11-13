@@ -4,6 +4,8 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 ## [Unreleased]
 
+- Generated drums use section grooves, phrase turnarounds and fills shaped by the next section.
+
 ### Added
 - **Drum kit layers and room.** Generated drums rotate recorded takes and blend velocity layers, with a built-in Room control and Standard / Standard, heavier kit choices.
 - **Solo scales.** See where to solo on the neck for the song's key. It opens on the minor pentatonic (the relative minor in a major key), with other scales, a root, box positions, and fret numbers or note names. It follows the pitch shift and the capo, shows in **This song** and from a **Solo scale** button in Lyrics & chords, and is saved with the song ([Solo scales](PERFORMANCE.md#solo-scales)).

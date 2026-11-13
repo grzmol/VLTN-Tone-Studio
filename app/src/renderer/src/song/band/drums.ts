@@ -14,8 +14,9 @@ import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
-import { addKickEighths, barRoles, choked, dropBar, fillSizeOf, overlay, riseHats, shapeFill, snareBuild } from "./drum-phrases";
+import { addKickEighths, barRoles, choked, crashOnDownbeat, dropBar, fillSizeOf, overlay, riseHats, shapeFill, snareBuild } from "./drum-phrases";
 import { VEL } from "./styles/notation";
+import { isChorusName } from "./arrangement";
 import { BUSY_FROM, LEAN_FROM, LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
 import { barBeats, barEnd, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
@@ -31,6 +32,8 @@ const HIT_KICK_VELOCITY = 110;
 const FOLLOW_TOP = 2;
 /** A section start gets a crash from this energy up, when crashOnSections is on. */
 const CRASH_MIN_ENERGY = 3;
+/** A chorus of this energy or more crashes at the start of every second phrase. */
+const CHORUS_CRASH_ENERGY = 4;
 /** Up to this energy a fill is a half-bar fill. Above it the whole bar is a fill. */
 const HALF_FILL_MAX_ENERGY = 3;
 /** A variation lasts this many bars, picked at random each time one ends. */
@@ -328,7 +331,10 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
         ? { ...section.draws[role.bar], short: sectionFill(planIndex, "short"), half: sectionFill(planIndex, "half"), bar: sectionFill(planIndex, "bar") }
         : section.draws[role.bar];
       // A repeat of a section (Verse 2) plays the section's other groove in its second half, so it is the same part with a lift.
-      const lifted = occurrence[planIndex] % 2 === 1 && role.bar >= Math.floor(barsOf[planIndex] / 2) ? 1 : 0;
+      // A section of four to seven bars has only one phrase, so its bar before the last plays the lift as well, and the section has a third bar.
+      const sectionBars = barsOf[planIndex];
+      const secondHalf = occurrence[planIndex] % 2 === 1 && role.bar >= Math.floor(sectionBars / 2);
+      const lifted = secondHalf || (sectionBars >= 4 && sectionBars < 8 && role.bar === sectionBars - 2) ? 1 : 0;
       groove = style.grooves[plan.energy][section.grooves[lifted]];
       const pushes = section.pushes[lifted];
       hits = pushes.length > 0 ? [...groove.hits, ...pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
@@ -455,7 +461,17 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     }
 
     const sectionCrash = newPlan && settings.crashOnSections && plan.energy >= CRASH_MIN_ENERGY;
-    if ((sectionCrash || crashAfterFill) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
+    // In a loud chorus a crash also marks the start of every second phrase (bar 9, 17 and on), from a lean complexity up.
+    const role = phrased ? roles[planIndex][barIndex[k]] : undefined;
+    const phraseCrash =
+      role !== undefined &&
+      isChorusName(plan.name) &&
+      plan.energy >= CHORUS_CRASH_ENERGY &&
+      settings.complexity >= LEAN_FROM &&
+      role.phrase > 0 &&
+      role.phrase % 2 === 0 &&
+      role.inPhrase === 0;
+    if ((sectionCrash || crashAfterFill || phraseCrash) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
     if (markOf(marked, k, "crash") && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
@@ -472,16 +488,18 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     // A bar the drums rest in is still drawn from the same random numbers, so the bars after it keep their notes.
     const resting = markOf(marked, k, "drums-out") !== undefined;
     if (resting) filled = false;
+    // Under the drum phrases a bar plays what its own tempo allows, so a song that speeds up thins out.
+    const bpm = (60 * spans[k].beats) / Math.max(1e-6, barEnd(beats, start, spans[k].beats) - beats[start]);
+    const barComplexity = phrased ? tempoLimitedComplexity(settings.complexity, bpm, style.meter.stepsPerBeat) : settings.complexity;
+    const kickPlays = phrased ? kickComplexity(settings.complexity, bpm, style) : settings.complexity;
+    // A crash on the downbeat takes the place of the hat or ride there (the earlier drums played both).
+    if (phrased) hits = crashOnDownbeat(hits, (hit) => playsAt(hit, barComplexity), VEL.accent);
     // A bar that is shorter or longer than the style's bar (a 3/4 song with a 4/4 style, or where the bar lines move) plays the part of
     // the pattern that fits it.
     hits = fitStepsToBar(hits, groove.steps, patternBeats(style, perBar), spans[k].beats);
     afterFill = filled;
     if (k === ending) endingPlan = plan;
 
-    // Under the drum phrases a bar plays what its own tempo allows, so a song that speeds up thins out.
-    const bpm = (60 * spans[k].beats) / Math.max(1e-6, barEnd(beats, start, spans[k].beats) - beats[start]);
-    const barComplexity = phrased ? tempoLimitedComplexity(settings.complexity, bpm, style.meter.stepsPerBeat) : settings.complexity;
-    const kickPlays = phrased ? kickComplexity(settings.complexity, bpm, style) : settings.complexity;
     for (const hit of resting ? [] : hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
       if (!playsAt(hit, hit.pitch === KICK ? kickPlays : barComplexity)) continue;
