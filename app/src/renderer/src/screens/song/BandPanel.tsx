@@ -808,7 +808,7 @@ function BandBody({
 
   return (
     <DialogContent
-      className="flex h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] min-w-0 flex-col gap-3 overflow-hidden sm:max-w-none"
+      className="flex h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] min-w-0 flex-col gap-1.5 overflow-hidden px-4 pb-2.5 pt-4 sm:max-w-none"
       onCloseAutoFocus={(event) => {
         // The panel is opened from the store, not from a trigger, so Radix has nothing to return focus to: give it back to the entry button.
         const entry = document.getElementById(BAND_ENTRY_ID);
@@ -824,13 +824,13 @@ function BandBody({
           Generated parts update automatically after musical changes while playback is stopped. Generate also makes new parts on demand.
         </DialogDescription>
       </DialogHeader>
-      <section aria-label="Band status" className="flex flex-col gap-0.5 text-sm">
+      <section aria-label="Band status" className="flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
         {ownParts(missing) && <p>{ownParts(missing)}</p>}
         {(["drums", "bass"] as const).map((kind) => missing?.[kind] !== "present" && <p key={kind}>{partLine(kind)}</p>)}
         <p className="text-silkscreen-3">{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
         {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
       </section>
-      <Tabs value={tab} onValueChange={(value) => isBandTab(value) && setTab(value)} className="min-h-0 flex-1 gap-3">
+      <Tabs value={tab} onValueChange={(value) => isBandTab(value) && setTab(value)} className="min-h-0 flex-1 gap-2">
         <TabsList aria-label="Band sections">
           {BAND_TABS.map((id) => (
             <TabsTrigger key={id} value={id}>
