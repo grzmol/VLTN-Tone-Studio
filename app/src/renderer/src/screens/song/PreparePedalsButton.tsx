@@ -3,7 +3,7 @@ import { useSongLibrary } from "@/song/library";
 import { selectArmed, useSession, type PerformanceSession } from "@/song/performance/session";
 
 /** Preparation deliberately stops before count-in or audio; ordinary Play can still do both. */
-export function PreparePedalsButton({ session }: { session: PerformanceSession }) {
+export function PreparePedalsButton({ session, compact = false }: { session: PerformanceSession; compact?: boolean }) {
   const player = useSession(session, (s) => s.player);
   const ready = useSession(session, (s) => s.pedalsReady);
   const playing = useSession(session, (s) => s.playing);
@@ -15,6 +15,8 @@ export function PreparePedalsButton({ session }: { session: PerformanceSession }
   return (
     <Button
       variant="outline"
+      size={compact ? "sm" : undefined}
+      aria-label={compact ? (ready ? "Prepare pedals again" : "Prepare pedals now") : undefined}
       disabled={!player || playing || starting || !enabled || !armed || !!parseError || !!busy}
       title="Load pedal presets and tempo, wait for loading, then stop at Ready. Play starts the count-in and music."
       onClick={() => {
@@ -22,7 +24,7 @@ export function PreparePedalsButton({ session }: { session: PerformanceSession }
         void session.preparePedals();
       }}
     >
-      {ready ? "Prepare again" : "Prepare pedals"}
+      {compact ? (ready ? "Ready" : "Prepare") : ready ? "Prepare again" : "Prepare pedals"}
     </Button>
   );
 }
