@@ -63,6 +63,7 @@ import { parseChart, type Cue } from "@/song/performance/chart";
 import type { Chord } from "@/song/performance/chords";
 import type { Section } from "@/song/performance/sections";
 import { readStoredBand, writeStoredBand } from "@/song/band/stored";
+import { updatedBandNotes, type BandNotes } from "@/song/band/stored-notes";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { registerBandRefresh, useBandRefreshStatus } from "@/song/band/refresh";
 import { readOptions } from "@/song/performance/settings";
@@ -206,6 +207,8 @@ function BandBody({
   const setTab = useBandPanel((s) => s.setTab);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The notes of the last Generate, kept so they can be exported as a MIDI file.
+  // The notes saved with the song at the last Generate, for the part view. Songs generated before they were kept have none.
+  const [savedNotes, setSavedNotes] = useState<BandNotes | null>(stored.notes);
   const [lastNotes, setLastNotes] = useState<{ drums: NoteEvent[]; bass: NoteEvent[] } | null>(null);
   const job = useRef<{ cancel(): void } | null>(null);
   const active = useRef(true);
@@ -531,6 +534,9 @@ function BandBody({
       }
       commitBand({ ...latest, firstNote, rendered, ...(applied.length === 0 ? { renderedTone: toneNow } : {}) });
       if (applied.length === 0) {
+        const bandNotes = updatedBandNotes(savedNotes, result.notes, using.parts, latest.parts, using.engine, using.seed);
+        setSavedNotes(bandNotes);
+        writeStoredBand(songKey, { bandNotes });
         setOutOfDate(false);
         writeStoredBand(songKey, { bandOutOfDate: false, bandTempoChanged: false });
 
@@ -810,6 +816,8 @@ function BandBody({
       const refused = useSong.getState().removeGeneratedParts({ playing: playingNow.current });
       setNotices(refused);
       if (refused.length === 0) {
+        setSavedNotes(null);
+        writeStoredBand(songKey, { bandNotes: undefined });
         // The rendered audio went with the generated tracks.
         commitBand({ ...settingsRef.current, rendered: {} });
         onPartChoice(ORIGINAL_PARTS);
