@@ -12,7 +12,7 @@ import { CRASH, DRUM_DURATION, KICK, type NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
-import { barBeats, barSpans, clampVelocity, fitStepsToBar, planOfBar, stepAt } from "./timing";
+import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
@@ -148,17 +148,17 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     if ((sectionCrash || crashAfterFill) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
-    if (feel) hits = hitBeatHits(hits, feel, start, perBar, style.meter.stepsPerBeat);
+    if (feel) hits = hitBeatHits(hits, feel, start, perBar, stepsPerGridBeat(style, perBar));
     // A bar that is shorter or longer than the style's bar (a 3/4 song with a 4/4 style, or where the bar lines move) plays the part of
     // the pattern that fits it.
-    hits = fitStepsToBar(hits, groove.steps, style.meter.beatsPerBar, spans[k].beats);
+    hits = fitStepsToBar(hits, groove.steps, patternBeats(style, perBar), spans[k].beats);
     afterFill = filled;
 
     for (const hit of hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
       if (!playsAt(hit, settings.complexity)) continue;
 
-      const at = stepAt(beats, style, start, hit.step, settings.swing);
+      const at = stepAt(beats, style, start, hit.step, perBar, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
       let velocity = hit.velocity * LOUD_DRUM_SCALE[plan.loud];
       if (hit.ghost) velocity = Math.min(velocity, GHOST_CEILING);

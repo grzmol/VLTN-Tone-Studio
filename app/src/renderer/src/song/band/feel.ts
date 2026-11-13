@@ -142,7 +142,7 @@ export function accentProfile(onset: ArrayLike<number>, frameRate: number, grid:
         if (planOf[k] !== index) return;
         const bar = new Float64Array(steps);
         for (let step = 0; step < steps; step++) {
-          const point = stepAt(beats, style, start, step, 0);
+          const point = stepAt(beats, style, start, step, style.meter.beatsPerBar, 0);
           if (point.beat < beats.length) bar[step] = peakNear(onset, frameRate, point.time);
           sums[step] += bar[step];
         }
@@ -227,11 +227,12 @@ export function isAccented(profile: AccentProfile | undefined): profile is Accen
   return profile !== undefined && profile.weights.some((weight) => weight > 0);
 }
 
-/** The steps of one bar that open a hit beat, on the style's step grid. `start` is the bar's first beat. */
+/** The steps of one bar that open a hit beat, on the style's step grid. `stepsPerBeat` is per grid beat (see stepsPerGridBeat). `start` is the bar's first beat. */
 export function hitSteps(feel: Feel, start: number, perBar: number, stepsPerBeat: number): number[] {
   const out: number[] = [];
   for (let beat = 0; beat < perBar; beat++) {
-    if (feel.hits.has(start + beat)) out.push(beat * stepsPerBeat);
+    const step = beat * stepsPerBeat;
+    if (feel.hits.has(start + beat) && Number.isInteger(step)) out.push(step);
   }
   return out;
 }
