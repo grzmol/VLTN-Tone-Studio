@@ -8,6 +8,8 @@
 
 import { decodeTrack } from "../codec/flac-client";
 import type { PcmAudio } from "../types";
+import { brightSnare, thumpKick } from "./kit-voicing";
+import { KICK, SNARE } from "./note";
 import sampleMapJson from "./samples/map.json";
 
 /** A velocity range, inclusive at both ends. */
@@ -37,6 +39,8 @@ export interface SampleSet {
   bass: BassSample[];
   /** The built-in room's impulse response (room.ts). A set without one has no room. */
   room?: PcmAudio;
+  /** How much more room the kit wants than the Room setting says. The heavier kit has 1.6, so a room of 25% is 40%. Default 1. */
+  roomScale?: number;
 }
 
 /** One drum layer in map.json: `file` for a single take, or `files` for round-robin takes. */
@@ -53,12 +57,25 @@ export function takeFiles(layer: DrumLayerEntry): string[] {
   return layer.files ?? (layer.file ? [layer.file] : []);
 }
 
+/** One drum kit in map.json: its layers by GM pitch, and how it is voiced when it loads. */
+export interface KitEntry {
+  name: string;
+  drums: Record<string, { name: string; layers: DrumLayerEntry[] }>;
+  /** The kit wants this many times the Room setting. */
+  roomScale?: number;
+  /** Processing applied to the kit's recordings as it loads (kit-voicing.ts): a thump and click for the kick, a shelf in dB for the snare. */
+  voicing?: { kickThump?: boolean; snareShelfDb?: number };
+}
+
+/** The kit the metronome and the tests fall back on. Arrangement's DRUM_KITS lists the kit ids of map.json; a test keeps the two together. */
+export const DEFAULT_KIT = "standard";
+
 /** What samples/map.json holds. File paths are relative to samples/. */
 export interface SampleMap {
   sampleRate: number;
   /** The room impulse response, relative to samples/. */
   room?: string;
-  drums: Record<string, { name: string; layers: DrumLayerEntry[] }>;
+  kits: Record<string, KitEntry>;
   bass: { file: string; root: number; layer: "p" | "f"; velocity: VelocityRange }[];
 }
 
@@ -82,16 +99,19 @@ export function readSampleMap(value: unknown): SampleMap {
   const map = value as Partial<SampleMap> | null;
   if (!map || typeof map !== "object") fail("not an object");
   if (!Number.isFinite(map.sampleRate) || (map.sampleRate ?? 0) <= 0) fail("sampleRate");
-  if (!map.drums || typeof map.drums !== "object") fail("drums");
+  if (!map.kits || typeof map.kits !== "object" || Object.keys(map.kits).length === 0) fail("kits");
   if (!Array.isArray(map.bass)) fail("bass");
   if (map.room !== undefined && typeof map.room !== "string") fail("room");
   const isRange = (r: unknown): r is VelocityRange => Array.isArray(r) && r.length === 2 && r.every(Number.isInteger);
   const isTakeList = (layer: DrumLayerEntry): boolean =>
     layer.files !== undefined ? Array.isArray(layer.files) && layer.files.length > 0 && layer.files.every((f) => typeof f === "string") : typeof layer.file === "string";
-  for (const [pitch, entry] of Object.entries(map.drums ?? {})) {
-    if (!/^\d+$/.test(pitch) || !Array.isArray(entry.layers) || entry.layers.length === 0) fail(`drum ${pitch}`);
-    for (const layer of entry.layers)
-      if (!isTakeList(layer) || !isRange(layer.velocity) || !Number.isFinite(layer.nominal)) fail(`drum ${pitch} layer`);
+  for (const [kit, kitEntry] of Object.entries(map.kits ?? {})) {
+    if (!kitEntry || typeof kitEntry.name !== "string" || !kitEntry.drums || typeof kitEntry.drums !== "object") fail(`kit ${kit}`);
+    for (const [pitch, entry] of Object.entries(kitEntry.drums)) {
+      if (!/^\d+$/.test(pitch) || !Array.isArray(entry.layers) || entry.layers.length === 0) fail(`kit ${kit} drum ${pitch}`);
+      for (const layer of entry.layers)
+        if (!isTakeList(layer) || !isRange(layer.velocity) || !Number.isFinite(layer.nominal)) fail(`kit ${kit} drum ${pitch} layer`);
+    }
   }
   for (const sample of map.bass ?? []) {
     if (typeof sample.file !== "string" || !Number.isInteger(sample.root) || (sample.layer !== "p" && sample.layer !== "f") || !isRange(sample.velocity)) {
@@ -227,14 +247,21 @@ export function pickBassLayers(set: SampleSet, midi: number, velocity: number): 
  * Builds the set from the map and a decoded audio file for each path. Kept apart from the fetching so it runs in tests with stub audio.
  * Drum layers are sorted by velocity, and the transpose defaults to 0.
  */
-export function sampleSetFrom(map: SampleMap, audioFor: (file: string) => PcmAudio): SampleSet {
+export function sampleSetFrom(map: SampleMap, kit: string, audioFor: (file: string) => PcmAudio): SampleSet {
+  const entry = map.kits[kit];
+  if (!entry) throw new Error(`No drum kit "${kit}" in the sample map.`);
+  const voice = (pitch: number, audio: PcmAudio): PcmAudio => {
+    if (pitch === KICK && entry.voicing?.kickThump) return thumpKick(audio);
+    if (pitch === SNARE && entry.voicing?.snareShelfDb) return brightSnare(audio, entry.voicing.snareShelfDb);
+    return audio;
+  };
   const drums = new Map<number, DrumLayer[]>();
-  for (const [pitch, entry] of Object.entries(map.drums)) {
-    const layers = entry.layers.map((layer) => ({
+  for (const [pitch, piece] of Object.entries(entry.drums)) {
+    const layers = piece.layers.map((layer) => ({
       velocity: layer.velocity,
       nominal: layer.nominal,
       transpose: layer.transpose ?? 0,
-      takes: takeFiles(layer).map(audioFor),
+      takes: takeFiles(layer).map((file) => voice(Number(pitch), audioFor(file))),
     }));
     drums.set(
       Number(pitch),
@@ -242,7 +269,7 @@ export function sampleSetFrom(map: SampleMap, audioFor: (file: string) => PcmAud
     );
   }
   const bass = map.bass.map((sample) => ({ root: sample.root, layer: sample.layer, velocity: sample.velocity, audio: audioFor(sample.file) }));
-  return { drums, bass, room: map.room ? audioFor(map.room) : undefined };
+  return { drums, bass, room: map.room ? audioFor(map.room) : undefined, roomScale: entry.roomScale };
 }
 
 // Vite emits each FLAC as an asset and gives its URL (the same pattern as the Gp5 fixtures and the capture clips).
@@ -258,9 +285,10 @@ export function sampleFileUrls(): Map<string, string> {
 /** Decodes the files a few at a time, so the codec does not start every worker at once. */
 const DECODE_BATCH = 8;
 
-/** Every sample file the map names, once each. */
-function sampleFiles(): string[] {
-  return [...new Set([...Object.values(SAMPLE_MAP.drums).flatMap((e) => e.layers.flatMap(takeFiles)), ...SAMPLE_MAP.bass.map((s) => s.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])])];
+/** Every sample file one kit needs, once each: its drums, the bass and the room. The other kit's files are not read (memory, spec 127). */
+function sampleFiles(kit: string): string[] {
+  const drums = Object.values(SAMPLE_MAP.kits[kit]?.drums ?? {}).flatMap((e) => e.layers.flatMap(takeFiles));
+  return [...new Set([...drums, ...SAMPLE_MAP.bass.map((s) => s.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])])];
 }
 
 async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>): Promise<Map<string, PcmAudio>> {
@@ -285,24 +313,32 @@ async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, dec
  * Fetches and decodes every sample from `urls`, without caching. `decode` is the codec: the renderer passes `decodeTrack`, which runs a
  * worker, and the band worker passes `decodeFlac`, which it can call directly. Either way the caller decides what to keep.
  */
-export async function loadSampleSetWith(urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>): Promise<SampleSet> {
-  const decoded = await decodeAll(sampleFiles(), urls, decode);
-  return sampleSetFrom(SAMPLE_MAP, (file) => {
+export async function loadSampleSetWith(
+  urls: ReadonlyMap<string, string>,
+  decode: (file: ArrayBuffer) => Promise<PcmAudio>,
+  kit: string = DEFAULT_KIT,
+): Promise<SampleSet> {
+  const decoded = await decodeAll(sampleFiles(kit), urls, decode);
+  return sampleSetFrom(SAMPLE_MAP, kit, (file) => {
     const audio = decoded.get(file);
     if (!audio) throw new Error(`Sample ${file} was not decoded.`);
     return audio;
   });
 }
 
-let loaded: Promise<SampleSet> | undefined;
+const loaded = new Map<string, Promise<SampleSet>>();
 
-/** Loads and decodes every sample once, then returns the same set on every call. A failed load is retried on the next call. */
-export function loadSampleSet(): Promise<SampleSet> {
-  loaded ??= loadSampleSetWith(sampleFileUrls(), decodeTrack).catch((error: unknown) => {
-    loaded = undefined;
-    throw error;
-  });
-  return loaded;
+/** Loads and decodes a kit's samples once, then returns the same set on every call. A failed load is retried on the next call. */
+export function loadSampleSet(kit: string = DEFAULT_KIT): Promise<SampleSet> {
+  let set = loaded.get(kit);
+  if (!set) {
+    set = loadSampleSetWith(sampleFileUrls(), decodeTrack, kit).catch((error: unknown) => {
+      loaded.delete(kit);
+      throw error;
+    });
+    loaded.set(kit, set);
+  }
+  return set;
 }
 
 /** The velocity a metronome hit is played at: the medium layer of every drum sample. */
@@ -317,7 +353,7 @@ const clickSamples = new Map<number, Promise<PcmAudio>>();
 export function loadDrumSample(pitch: number): Promise<PcmAudio> {
   const cached = clickSamples.get(pitch);
   if (cached) return cached;
-  const layers = SAMPLE_MAP.drums[String(pitch)]?.layers ?? [];
+  const layers = SAMPLE_MAP.kits[DEFAULT_KIT].drums[String(pitch)]?.layers ?? [];
   const layer = layers.find((l) => CLICK_VELOCITY >= l.velocity[0] && CLICK_VELOCITY <= l.velocity[1]) ?? layers[0];
   const file = layer && takeFiles(layer)[0];
   if (!file) return Promise.reject(new Error(`No drum sample for note ${pitch}.`));

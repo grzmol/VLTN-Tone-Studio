@@ -52,6 +52,16 @@ describe("Band sliders", () => {
   });
 });
 
+describe("Kit", () => {
+  it("shows Automatic until the song chooses a kit, then the kit's name", () => {
+    expect(renderWith(DEFAULT_BAND_SETTINGS).container.querySelector('[aria-label="Drum kit"]')?.textContent).toContain("Automatic");
+    cleanup();
+    expect(renderWith({ ...DEFAULT_BAND_SETTINGS, kit: "rock" }).container.querySelector('[aria-label="Drum kit"]')?.textContent).toContain("Standard, heavier");
+    cleanup();
+    expect(renderWith({ ...DEFAULT_BAND_SETTINGS, kit: "standard" }).container.querySelector('[aria-label="Drum kit"]')?.textContent).toBe("Standard");
+  });
+});
+
 describe("Room", () => {
   it("shows the drum room amount as a percentage, on a full-track slider", () => {
     const { container } = renderWith({ ...DEFAULT_BAND_SETTINGS, drumRoom: 0.25 });

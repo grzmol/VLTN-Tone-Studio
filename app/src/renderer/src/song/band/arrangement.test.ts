@@ -5,6 +5,7 @@ import {
   defaultFills,
   energyForName,
   isBandSettings,
+  kitFor,
   parseBandSettings,
   parseBassTone,
   planSections,
@@ -141,6 +142,26 @@ describe("bass notes from", () => {
     expect(parseBandSettings({ bassFrom: "chords" }).bassFrom).toBe("chords");
     expect(parseBandSettings({ bassFrom: "piano" }).bassFrom).toBe("original");
     expect(parseBandSettings({}).bassFrom).toBe("original");
+  });
+});
+
+describe("kitFor", () => {
+  it("uses the heavier kit for metal, rock and half-time and the standard kit for the rest, when the song has not chosen", () => {
+    expect(DEFAULT_BAND_SETTINGS.kit).toBeUndefined();
+    for (const style of ["metal", "rock", "half-time"] as const) expect(kitFor({ kit: undefined, style }), style).toBe("rock");
+    for (const style of ["pop", "ballad", "funk", "shuffle", "country", "reggae", "six-eight", "three-four"] as const) expect(kitFor({ kit: undefined, style }), style).toBe("standard");
+  });
+
+  it("keeps a chosen kit, so a song saved with the standard kit keeps it under a rock style", () => {
+    expect(kitFor({ kit: "standard", style: "metal" })).toBe("standard");
+    expect(kitFor({ kit: "rock", style: "pop" })).toBe("rock");
+    expect(kitFor(parseBandSettings({ kit: "standard", style: "rock" }))).toBe("standard");
+  });
+
+  it("reads a saved kit and ignores an unknown one", () => {
+    expect(parseBandSettings({ kit: "rock" }).kit).toBe("rock");
+    expect(parseBandSettings({ kit: "jazz" }).kit).toBeUndefined();
+    expect(parseBandSettings({}).kit).toBeUndefined();
   });
 });
 
