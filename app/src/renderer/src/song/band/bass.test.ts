@@ -700,6 +700,27 @@ describe("generateBass with a figure (engine 2)", () => {
     expect(notes[0].pitch).toBe(26);
   });
 
+  it("plays a short figure note for a third of its step, and the other notes for their usual share", () => {
+    const funk = findStyle("funk")!;
+    const hasShort = (figure: Figure): boolean => figure.notes[0].some((note) => note.short);
+    const seed = seedFor(funk.bass.figures[3], "melodic", "Verse", hasShort);
+    const figure = chooseFigure(funk.bass.figures[3], "melodic", seed, "Verse");
+    const chords = barsOf("C", "C");
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { name: "Verse", style: "funk", energy: 3, bassPart: "melodic" })], engine2(), [], seed);
+    const bar = notes.filter((note) => note.time < 2 - 1e-9);
+    let checked = 0;
+    for (const note of figure.notes[0]) {
+      const at = bar.findIndex((played) => Math.abs(played.time - note.step * 0.125) < 1e-6);
+      expect(at).toBeGreaterThanOrEqual(0);
+      const gap = (bar[at + 1]?.time ?? 2) - bar[at].time;
+      if (note.short) {
+        expect(bar[at].duration).toBeCloseTo(gap / 3, 6);
+        checked++;
+      } else expect(bar[at].duration).toBeGreaterThan(gap / 3);
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
   it("keeps every note inside the range, for every style and energy", () => {
     const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
     for (const id of ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "half-time"] as const) {
