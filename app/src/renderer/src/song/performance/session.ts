@@ -10,6 +10,7 @@ import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/l
 import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
 import { clearResumePoint, saveResumePoint } from "./resume-point";
+import { useResumeOffer } from "./resume-offer";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
@@ -598,8 +599,8 @@ export class PerformanceSession {
         const library = useSongLibrary.getState();
         if (!leftPerformance()) return;
         if (library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
-        // Leaving the screen stopped the music, so there is nothing to resume after a crash.
-        clearResumePoint();
+        // Leaving the screen stopped the music, so there is nothing to resume after a crash. A resume still on offer keeps its point.
+        if (!useResumeOffer.getState().point) clearResumePoint();
       }, 0);
     };
   }
@@ -1186,6 +1187,8 @@ export class PerformanceSession {
     const library = useSongLibrary.getState();
     const songId = library.queue[library.position];
     if (!player || !queued || !songId) return;
+    // A song that stopped at its end is a finished set or song, not a place to come back to.
+    if (!this.state.playing && player.duration > 0 && clockPosition() >= player.duration) return;
     saveResumePoint({
       version: 1,
       savedAt: Date.now(),

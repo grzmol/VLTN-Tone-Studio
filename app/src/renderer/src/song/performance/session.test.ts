@@ -14,6 +14,8 @@ import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
 import { clearResumePoint, holdResumePoint, loadResumePoint } from "./resume-point";
+import { useResumeOffer } from "./resume-offer";
+import { setClockPosition } from "./playback-clock";
 import { registerBandRefresh } from "@/song/band/refresh";
 import { clearSettingsCache, performanceKey } from "./settings";
 
@@ -2716,6 +2718,42 @@ describe("resume point", () => {
       useNav.getState().go("song", "performance");
       session.dispose();
       vi.useRealTimers();
+    }
+  });
+
+  it("keeps the point of a resume on offer when the performer leaves the tab", async () => {
+    vi.useFakeTimers();
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      const before = saved();
+      expect(before).not.toBeNull();
+      useResumeOffer.setState({ point: before });
+      useNav.getState().go("rig");
+      unload();
+      vi.advanceTimersByTime(1);
+      expect(saved()).toEqual(before);
+    } finally {
+      useResumeOffer.setState({ point: null });
+      useNav.getState().go("song", "performance");
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not save a song that stopped at its end", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      clearResumePoint();
+      setClockPosition(60);
+      session.pause();
+      expect(saved()).toBeNull();
+    } finally {
+      setClockPosition(0);
+      unload();
+      session.dispose();
     }
   });
 });

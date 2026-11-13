@@ -6,6 +6,8 @@ import { notifyError } from "./notify";
 export function useResumeAfterCrash(): void {
   useEffect(() => {
     const recovered = new URLSearchParams(location.search).get("recovered") === "1";
+    // Drop the flag so a later manual reload is not taken for a crash.
+    if (recovered) history.replaceState(null, "", location.pathname + location.search.replace(/[?&]recovered=1/, "").replace(/^&/, "?") + location.hash);
     void startResumeOffer(recovered).catch((e) => notifyError("Couldn't reload the set", e));
   }, []);
 }
