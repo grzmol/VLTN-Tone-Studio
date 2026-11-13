@@ -2,9 +2,10 @@
 // the last bar of a phrase turns around, the last bar of every second phrase has a small fill, and the section's last bar leads into the
 // next section. Pure.
 
-import { CLOSED_HAT, OPEN_HAT, PEDAL_HAT, RIDE } from "./note";
+import { CLOSED_HAT, CRASH, KICK, OPEN_HAT, PEDAL_HAT, RIDE, SNARE } from "./note";
 import { isPhraseEnd, phraseBars } from "./phrases";
 import { isChorusName, type FillSize, type SectionPlan } from "./arrangement";
+import { ramp } from "./styles/notation";
 import type { DrumHit } from "./styles/types";
 
 /** Where a bar sits in its section's phrases. Phrases are 4 bars, or 2 in a section shorter than 4 bars (the same rule as the bass). */
@@ -110,4 +111,40 @@ export function fillSizeOf(plan: Pick<SectionPlan, "fill"> & FillSection, next: 
 /** Whether the last bar before a section with the drums off ends with a kick and a crash: only for an automatic fill, from energy 4 up. */
 export function choked(plan: Pick<SectionPlan, "fill"> & FillSection, next: FillSection | undefined): boolean {
   return plan.fill === true && next !== undefined && !next.play.drums && plan.energy >= CHOKE_FROM_ENERGY;
+}
+
+/** How much the hats rise from one bar to the next of a build, in velocity. */
+export const HAT_RISE = 4;
+/** The snare roll that ends a build rises from this velocity to the next. */
+const BUILD_FROM = 60;
+const BUILD_TO = 115;
+const BUILD_KICK = 90;
+
+/** The hat and the ride play louder by `HAT_RISE` for every bar of a build that has gone by (`bar` counts from 0). */
+export function riseHats(hits: readonly DrumHit[], bar: number): DrumHit[] {
+  return hits.map((hit) => (TIME_KEEPERS.includes(hit.pitch) ? { ...hit, velocity: Math.min(127, hit.velocity + HAT_RISE * bar) } : hit));
+}
+
+/** The steps of a bar's eighths: every other sixteenth, or every beat on a grid that does not split in two. */
+function eighthSteps(steps: number, stepsPerBeat: number): number[] {
+  const eighth = stepsPerBeat % 2 === 0 ? stepsPerBeat / 2 : stepsPerBeat;
+  return Array.from({ length: Math.ceil(steps / eighth) }, (_, i) => i * eighth);
+}
+
+/** A kick on every eighth the bar lacks one on. A build plays its last two bars this way. */
+export function addKickEighths(hits: readonly DrumHit[], steps: number, stepsPerBeat: number): DrumHit[] {
+  const missing = eighthSteps(steps, stepsPerBeat).filter((step) => !hits.some((hit) => hit.pitch === KICK && hit.step === step));
+  return [...hits, ...missing.map((step) => ({ step, pitch: KICK, velocity: BUILD_KICK }))];
+}
+
+/** The last bar of a build: the snare on every step, rising from soft to loud, a kick on every beat, and no hats. */
+export function snareBuild(steps: number, stepsPerBeat: number): DrumHit[] {
+  const all = Array.from({ length: steps }, (_, step) => step);
+  const kicks = all.filter((step) => step % stepsPerBeat === 0).map((step) => ({ step, pitch: KICK, velocity: BUILD_KICK }));
+  return [...kicks, ...ramp(SNARE, all, BUILD_FROM, BUILD_TO)].sort((a, b) => a.step - b.step || a.pitch - b.pitch);
+}
+
+/** A bar of a drop: the kick and the hats, the hats on the beats only. The snare, the cross-stick and the toms are left out. */
+export function dropBar(hits: readonly DrumHit[], stepsPerBeat: number): DrumHit[] {
+  return hits.filter((hit) => hit.pitch === KICK || hit.pitch === CRASH || (TIME_KEEPERS.includes(hit.pitch) && hit.step % stepsPerBeat === 0));
 }

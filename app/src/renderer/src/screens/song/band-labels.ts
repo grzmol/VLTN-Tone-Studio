@@ -1,4 +1,4 @@
-import type { FillSize } from "@/song/band/arrangement";
+import { SECTION_SHAPES, type FillSize, type SectionShape } from "@/song/band/arrangement";
 import type { BassPartChoice } from "@/song/band/bass-parts";
 import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
 
@@ -50,3 +50,7 @@ export function fillOfChoice(choice: FillChoice): boolean | FillSize {
   if (choice === "auto") return true;
   return (FILL_CHOICES.indexOf(choice) - 1) as FillSize;
 }
+
+/** The shapes a section's drums can take, as the Shape menu names them. */
+export const SHAPE_LABELS: Record<SectionShape, string> = { steady: "Steady", build: "Build", drop: "Drop", half: "Half-time" };
+export const SHAPE_CHOICES: readonly SectionShape[] = SECTION_SHAPES;

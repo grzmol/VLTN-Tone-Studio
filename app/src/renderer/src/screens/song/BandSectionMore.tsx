@@ -2,10 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { defaultFills, FILLS, type Fills, type SectionOverride, type SectionPlan } from "@/song/band/arrangement";
+import { defaultFills, FILLS, type Fills, type SectionOverride, type SectionPlan, type SectionShape } from "@/song/band/arrangement";
 import { OCTAVE_SHIFTS, type OctaveShift } from "@/song/band/bass-parts";
 import { ENERGIES, findStyle, type StyleId } from "@/song/band/styles";
-import { styleChoices } from "./band-labels";
+import { SHAPE_CHOICES, SHAPE_LABELS, styleChoices } from "./band-labels";
 
 const OCTAVE_LABELS: Record<string, string> = { "-1": "−1 octave", "0": "Same", "1": "+1 octave" };
 
@@ -19,6 +19,7 @@ export function BandSectionMore({
   disabled,
   onChange,
   beatsPerBar,
+  drumPhrases = true,
 }: {
   name: string;
   plan: SectionPlan;
@@ -26,6 +27,8 @@ export function BandSectionMore({
   onChange(patch: SectionOverride): void;
   /** The song's beats per bar, to list the styles written for it first. */
   beatsPerBar?: number;
+  /** False for a song on the earlier drums, which have no shapes. */
+  drumPhrases?: boolean;
 }) {
   const technique = findStyle(plan.style)?.bass.techniques;
   const styleDefault = (on: boolean | undefined) => (on === undefined ? "" : `Style: ${on ? "on" : "off"}`);
@@ -83,6 +86,25 @@ export function BandSectionMore({
             </SelectContent>
           </Select>
         </label>
+        {drumPhrases && (
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span>
+              Shape <span className="text-xs text-silkscreen-3">(the drums)</span>
+            </span>
+            <Select value={plan.shape ?? "steady"} disabled={disabled} onValueChange={(value) => onChange({ shape: value as SectionShape })}>
+              <SelectTrigger size="sm" aria-label={`Shape of ${name}`} className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SHAPE_CHOICES.map((shape) => (
+                  <SelectItem key={shape} value={shape}>
+                    {SHAPE_LABELS[shape]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        )}
         <label className="flex items-center justify-between gap-2 text-sm">
           Fills
           <span className="flex items-center gap-2">

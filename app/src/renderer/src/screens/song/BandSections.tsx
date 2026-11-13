@@ -216,6 +216,7 @@ export function BandSections({
                         plan={plan}
                         disabled={disabled}
                         beatsPerBar={beatsPerBar}
+                        drumPhrases={drumPhrases}
                         onChange={(patch) => onChange(plan.sectionId, patch)}
                       />
                       <DropdownMenu>

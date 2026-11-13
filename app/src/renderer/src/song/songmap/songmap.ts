@@ -2,7 +2,7 @@
 // and writes the text. It never throws. When a row is wrong it says which line it skipped and why, and the rest of the map is kept, so
 // one slip does not cost the whole song.
 
-import type { FillSize } from "@/song/band/arrangement";
+import { SECTION_SHAPES, type FillSize, type SectionShape } from "@/song/band/arrangement";
 import { BASS_PART_CHOICES, type BassPartChoice } from "@/song/band/bass-parts";
 import { MAX_BASS_OVERRIDES, type OverrideOctave } from "@/song/band/bass-overrides";
 import { BAR_MARK_KINDS, FILL_BEATS, MAX_BAR_MARKS, STOP_BEATS, hasBeats, type BarMarkKind } from "@/song/band/marks";
@@ -55,6 +55,8 @@ export interface SongMapSection {
   loud?: Energy;
   /** The fill at the section's end: `true` is automatic (sized to the change into the next section), or a size from 0 (none) to 3 (a whole bar). */
   fill?: boolean | FillSize;
+  /** How the section's drums move: steady, a build, a drop, or the half-time style's groove. */
+  shape?: SectionShape;
   notes?: string;
 }
 
@@ -519,6 +521,7 @@ function readSectionRow(row: TableRow, table: Table, problems: SongMapProblem[])
     busy: readLevel(cell(row, table, "busy"), "Busy"),
     loud: readLevel(cell(row, table, "loud"), "Loud"),
     fill: readFill(cell(row, table, "fill")),
+    shape: readChoice<SectionShape>(cell(row, table, "shape"), SECTION_SHAPES, "shape"),
   };
   const failed = Object.values(reads).find((read) => !read.ok);
   if (failed && !failed.ok) {
@@ -544,6 +547,7 @@ function readSectionRow(row: TableRow, table: Table, problems: SongMapProblem[])
     busy: reads.busy.ok ? reads.busy.value : undefined,
     loud: reads.loud.ok ? reads.loud.value : undefined,
     fill: reads.fill.ok ? reads.fill.value : undefined,
+    shape: reads.shape.ok ? reads.shape.value : undefined,
     notes: notes || undefined,
   });
   const start = reads.start.ok ? reads.start.value : undefined;
@@ -838,8 +842,9 @@ function tableBlock(heading: string, header: string[], rows: string[][]): string
 
 /** The Sections table. Each row is one section; its End is always written. */
 function sectionsBlock(sections: SongMapSection[]): string {
-  // The Fill column is written only when a section sets one, so a map without fills keeps the table it always had.
+  // The Fill and Shape columns are written only when a section sets one, so a map without them keeps the table it always had.
   const withFill = sections.some((section) => section.fill !== undefined);
+  const withShape = sections.some((section) => section.shape !== undefined);
   const rows = sections.map((section) => [
     formatTime(section.start),
     formatTime(section.end),
@@ -851,9 +856,10 @@ function sectionsBlock(sections: SongMapSection[]): string {
     section.busy === undefined ? "" : String(section.busy),
     section.loud === undefined ? "" : String(section.loud),
     ...(withFill ? [fillText(section.fill)] : []),
+    ...(withShape ? [section.shape ?? ""] : []),
     cellText(section.notes),
   ]);
-  const header = ["Start", "End", "Section", "Drums", "Bass", "Style", "Energy", "Busy", "Loud", ...(withFill ? ["Fill"] : []), "Notes"];
+  const header = ["Start", "End", "Section", "Drums", "Bass", "Style", "Energy", "Busy", "Loud", ...(withFill ? ["Fill"] : []), ...(withShape ? ["Shape"] : []), "Notes"];
   return tableBlock("Sections", header, rows);
 }
 

@@ -876,4 +876,78 @@ describe("generateDrums with drum phrases (engine 3)", () => {
       }
     });
   });
+
+  describe("shapes", () => {
+    const hits = (notes: readonly NoteEvent[], bar: number) => notes.filter((note) => note.time >= bar * BAR_SECONDS - 1e-9 && note.time < (bar + 1) * BAR_SECONDS - 1e-9);
+    const section = (shape: SectionPlan["shape"], extra: Partial<SectionPlan> = {}) => [
+      bars(0, 8, { name: "Part", energy: 3, loud: 3, fill: true, shape, ...extra }),
+      bars(8, 16, { name: "Chorus", energy: 4, loud: 4 }),
+    ];
+
+    it("builds: the hats rise over the last four bars, and the last bar is a snare roll that rises", () => {
+      const notes = generateDrums(grid, section("build"), settings3(), 3);
+      const hatAtDownbeat = (bar: number) => hits(notes, bar).find((note) => note.pitch === CLOSED_HAT && Math.abs(note.time - bar * BAR_SECONDS) < 1e-9)!.velocity;
+      const rising = [4, 5, 6].map(hatAtDownbeat);
+      expect(rising).toEqual([...rising].sort((a, b) => a - b));
+      expect(hatAtDownbeat(5)).toBeGreaterThan(hatAtDownbeat(1));
+      expect(hatAtDownbeat(5)).toBeGreaterThan(hatAtDownbeat(4));
+      expect(hatAtDownbeat(6)).toBeGreaterThan(hatAtDownbeat(5));
+      const last = hits(notes, 7);
+      const snares = last.filter((note) => note.pitch === SNARE);
+      expect(snares).toHaveLength(16);
+      expect(snares.map((note) => note.velocity)).toEqual([...snares.map((note) => note.velocity)].sort((a, b) => a - b));
+      expect(snares[15].velocity).toBeGreaterThan(snares[0].velocity + 40);
+      expect(last.filter((note) => note.pitch === KICK)).toHaveLength(4);
+      expect(last.some((note) => note.pitch === CLOSED_HAT)).toBe(false);
+    });
+
+    it("adds the eighths the kick lacks in the last two bars of a build, and lifts their loud level", () => {
+      const steady = generateDrums(grid, section("steady"), settings3(), 3);
+      const build = generateDrums(grid, section("build"), settings3(), 3);
+      const kicks = (notes: readonly NoteEvent[], bar: number) => hits(notes, bar).filter((note) => note.pitch === KICK).length;
+      expect(kicks(build, 5)).toBe(kicks(steady, 5));
+      expect(kicks(build, 6)).toBeGreaterThan(kicks(steady, 6));
+      const loudest = (notes: readonly NoteEvent[], bar: number) => Math.max(...hits(notes, bar).map((note) => note.velocity));
+      expect(loudest(build, 6)).toBeGreaterThan(loudest(steady, 6));
+    });
+
+    it("plays no snare roll in a build with no fill, or a bar marked No fill", () => {
+      const none = generateDrums(grid, section("build", { fill: 0 }), settings3(), 3);
+      expect(hits(none, 7).filter((note) => note.pitch === SNARE).length).toBeLessThan(16);
+      const marked = generateDrums(grid, section("build"), settings3({ marks: [{ time: 7 * BAR_SECONDS, kind: "no-fill" }] }), 3);
+      expect(hits(marked, 7).filter((note) => note.pitch === SNARE).length).toBeLessThan(16);
+    });
+
+    it("drops: kick and hats on the beats, no snare, and a half-bar fill on the last bar", () => {
+      const notes = generateDrums(grid, section("drop"), settings3(), 3);
+      for (let bar = 0; bar < 7; bar++) {
+        const barHits = hits(notes, bar);
+        expect(barHits.length, `bar ${bar + 1}`).toBeGreaterThan(0);
+        for (const note of barHits) {
+          const step = Math.round(((note.time - bar * BAR_SECONDS) / BAR_SECONDS) * 16);
+          expect([KICK, CLOSED_HAT, RIDE, OPEN_HAT, CRASH], `bar ${bar + 1}`).toContain(note.pitch);
+          if (note.pitch !== KICK) expect(step % 4).toBe(0);
+        }
+      }
+      // The last bar keeps the drop's first half and fills the second.
+      const last = hits(notes, 7);
+      const middle = 7 * BAR_SECONDS + BAR_SECONDS / 2 - 1e-9;
+      expect(last.filter((note) => note.time < middle).every((note) => note.pitch !== SNARE)).toBe(true);
+      expect(last.filter((note) => note.time >= middle).some((note) => note.pitch === SNARE)).toBe(true);
+    });
+
+    it("plays the half-time style's grooves in a half-time shape, whatever the song's style", () => {
+      const asShape = generateDrums(grid, section("half", { style: "rock" }), settings3(), 3);
+      const asStyle = generateDrums(grid, section("steady", { style: "half-time" }), settings3(), 3);
+      expect(asShape).toEqual(asStyle);
+    });
+
+    it("plays a steady section as written, and ignores the shape on an earlier engine", () => {
+      const plain = generateDrums(grid, section(undefined), settings3(), 3);
+      expect(generateDrums(grid, section("steady"), settings3(), 3)).toEqual(plain);
+      const earlier = (shape: SectionPlan["shape"]) => generateDrums(grid, section(shape), settings3({ engine: 2 }), 3);
+      expect(earlier("build")).toEqual(earlier(undefined));
+      expect(earlier("drop")).toEqual(earlier(undefined));
+    });
+  });
 });
