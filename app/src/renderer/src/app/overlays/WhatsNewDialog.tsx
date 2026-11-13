@@ -33,7 +33,7 @@ const SLIDES: Slide[] = [
   },
   {
     title: "A band behind you",
-    text: "The Band panel finds the beat and writes drums and bass that follow the song's chords and sections. Choose the original, the generated part or both, fix a wrong bass note, give the drums and bass a tone, or import a song map that sets it all at once.",
+    text: "The Band panel finds the beat and writes drums and bass that follow the song's chords and sections. Choose the original, the generated part or both, fix a wrong bass note, give the drums and bass a tone, play 3/4 songs with a 3/4 style, or import a song map that sets it all at once.",
     image: band,
   },
   {
