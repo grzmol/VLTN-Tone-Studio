@@ -1,3 +1,4 @@
+import { readOptions } from "@/song/performance/settings";
 import { playsThreeFourDefault, THREE_FOUR_NOTE } from "@/song/band/request";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,7 +32,7 @@ import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/be
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import type { BassOverride } from "@/song/band/bass-overrides";
-import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
+import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, keysFromOptions, previewMix } from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
 import { automaticUpdateBlock, cleanFallbackQuestion, generatedLabel, missingToneFiles } from "@/song/band/tone-check";
@@ -420,6 +421,7 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {})),
       };
       let request = bandRequest(input);
       const notes: (string | BandNotice)[] = [];
@@ -692,6 +694,7 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {})),
       });
       const rendering: BandJob = renderPreview(request, from, bars);
       job.current = rendering;

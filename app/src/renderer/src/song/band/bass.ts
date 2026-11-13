@@ -10,7 +10,20 @@
 
 import type { BandSettings, BassMode, SectionPlan } from "./arrangement";
 import { OCTAVE_SHIFTS, pedalSteps, pulseSteps, ringSteps, type BarStep, type BassPart, type OctaveShift } from "./bass-parts";
-import { chooseVariation, leadSteps, phraseBars, isPhraseEnd, variationSeed, variationSteps, walkDown, type VariantNote } from "./bass-phrases";
+import {
+  chooseVariation,
+  fillScale,
+  keyScale,
+  leadSteps,
+  phraseBars,
+  isPhraseEnd,
+  scaleNeighbours,
+  variationSeed,
+  variationSteps,
+  walkDown,
+  type BandKey,
+  type VariantNote,
+} from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
 import { bassRhythmFromAccents, hitSteps, isAccented, type Feel } from "./feel";
 import type { ChordQuality, ChordSeventh, ChordAtBeat, ParsedChord } from "./harmony";
@@ -145,6 +158,8 @@ interface Slot {
   fifth: boolean;
   /** The part's role for this step: a root, or the fifth (a passing note in a ring bar). */
   role: "root" | "fifth";
+  /** The song's key at the step, when the bass plays by engine 2 and the song's key is known. Fills and approach notes stay in it. */
+  key: BandKey | null;
   /** The song's last bar: one held bass note on its downbeat. */
   ending: boolean;
   /** Song time the bar ends. */
@@ -160,6 +175,8 @@ interface Variant {
   target: number | null;
   quality: ChordQuality;
   chromatic: boolean;
+  /** The key the run walks in. Null walks the scale of the chord's quality. */
+  key: BandKey | null;
 }
 
 interface Picked {
@@ -214,6 +231,18 @@ function approachNote(target: number, from: number, range: Range, semitones: num
   return options.reduce((best, note) => (Math.abs(note - from) < Math.abs(best - from) ? note : best));
 }
 
+/**
+ * The approach note into a melodic bar's next root. In a known key, below 2/3 complexity, it is the scale note just below or above the
+ * target (a whole tone or a semitone, as the key has it), when the target is in the key. Otherwise it is `semitones` away.
+ */
+function melodicApproach(key: BandKey | null, target: number, from: number, range: Range, semitones: number): number | null {
+  const scale = key ? keyScale(key) : null;
+  if (!scale || semitones === 1 || !scale.includes(pitchClass(target))) return approachNote(target, from, range, semitones);
+  const options = scaleNeighbours(target, scale).filter((note) => note >= range.low && note <= range.high);
+  if (options.length === 0) return null;
+  return options.reduce((best, note) => (Math.abs(note - from) < Math.abs(best - from) ? note : best));
+}
+
 /** A chord tone in range that walks toward `target`: near `from` where it can be, and never the note just played. */
 function walkingTone(chord: ParsedChord, from: number, target: number, range: Range): number {
   const tones = chordTones(chord);
@@ -264,7 +293,7 @@ function pitchOf(slot: Slot, chord: ParsedChord, next: Slot | undefined, previou
   if (slot.method === "walking" && slot.walking) return walkingPitch(slot, chord, next, previous, range);
   if (slot.method === "melodic" && approachApplies(slot, chord, next)) {
     const target = nearestOctave(next.chord.bass, previous, range, false);
-    const approach = approachNote(target, previous, range, settings.complexity < CHROMATIC_FROM ? 2 : 1);
+    const approach = melodicApproach(slot.key, target, previous, range, settings.complexity < CHROMATIC_FROM ? 2 : 1);
     if (approach !== null) return { pitch: approach, approach: true };
   }
   return { pitch: plainPitch(slot, chord, previous, slot.method, range), approach: false };
@@ -344,7 +373,7 @@ function variantPitch(chord: ParsedChord, variant: Variant, previous: number, ra
   }
   const root = nearestOctave(variant.target ?? chord.bass, previous, range, false);
   if (variant.kind === "pickup") return { pitch: root, approach: true };
-  const note = walkDown(root, variant.offset, variant.quality, variant.chromatic);
+  const note = walkDown(root, variant.offset, fillScale(root, variant.quality, variant.key), variant.chromatic);
   return { pitch: note >= range.low ? note : root, approach: variant.kind === "run" };
 }
 
@@ -364,6 +393,7 @@ function buildSlots(
   feel: Feel | undefined,
   seed: number,
   endTime: number | undefined,
+  keys: readonly BandKey[],
 ): Slot[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
@@ -386,6 +416,8 @@ function buildSlots(
   const shape = ending >= 0 ? endingShape(grid, ending, settings.ending) : null;
   const chordAt = (beat: number): ParsedChord | null => harmony[beat]?.chord ?? null;
   const nameAt = (beat: number): string | null => chordAt(beat)?.name ?? null;
+  // The earlier engine knows nothing of the key, so its fills and approach notes are as they were.
+  const keyAt = (time: number): BandKey | null => (settings.engine >= 2 ? (keys.find((key) => time >= key.start && time < key.end) ?? null) : null);
 
   // The first segment of each section's first time round. A repeat plays the same rhythm and length for its first bars.
   const firstSegment = new Map<string, { rhythm: number; barsLeft: number }>();
@@ -449,6 +481,7 @@ function buildSlots(
       forced: false,
       fifth: false,
       role: "root",
+      key: keyAt(time),
       ending: true,
       barEnd: time + held,
       nextBarBass,
@@ -535,9 +568,11 @@ function buildSlots(
     // The phrase variations and the lead-in. The lead-in takes the second half of the section's last bar, and the variation a phrase's last bar.
     const quality = chordAt(start)?.quality ?? "major";
     const chromatic = plan.busy >= 4;
+    const barKey = keyAt(beats[start]);
     const variants = new Map<number, Variant>();
     const nextPlan = plans[planIndex + 1];
     let leadTarget: number | null = null;
+    let leadKey: BandKey | null = null;
     if (
       barInPlan === planBars - 1 &&
       nextPlan &&
@@ -551,10 +586,11 @@ function buildSlots(
       const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
       const quiet = Array.from({ length }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
       if (first && !quiet) leadTarget = first.bass;
+      leadKey = keyAt(beats[firstBeat] ?? beats[start]);
     }
     if (leadTarget !== null) {
       rhythm = rhythm.filter((step) => step < steps / 2);
-      for (const note of leadSteps(plan.busy, steps)) variants.set(note.step, { kind: "lead", offset: note.offset, target: leadTarget, quality, chromatic });
+      for (const note of leadSteps(plan.busy, steps)) variants.set(note.step, { kind: "lead", offset: note.offset, target: leadTarget, quality, chromatic, key: leadKey });
     } else if (!lead && plan.fills > 0 && isPhraseEnd(barInPlan, planBars)) {
       const phrase = Math.floor(barInPlan / phraseBars(planBars));
       const variation = chooseVariation(plan.fills, part, phrase, phraseRandom, plan.pickups);
@@ -564,7 +600,7 @@ function buildSlots(
         for (const note of change.add) {
           const target = note.kind === "pop" ? null : nextBarBass;
           if (note.kind !== "pop" && target === null) continue;
-          variants.set(note.step, { kind: note.kind, offset: note.offset, target, quality, chromatic });
+          variants.set(note.step, { kind: note.kind, offset: note.offset, target, quality, chromatic, key: barKey });
         }
       }
     }
@@ -613,6 +649,7 @@ function buildSlots(
         forced,
         fifth: !strong && !forced && offBeat % 2 === 1,
         role: roles.get(step) ?? "root",
+        key: keyAt(point.time),
         variant: byHand ? undefined : variants.get(step),
         ending: false,
         barEnd: end,
@@ -654,11 +691,12 @@ export function generateBass(
   seed: number,
   feel?: Feel,
   endTime?: number,
+  keys: readonly BandKey[] = [],
 ): NoteEvent[] {
   if (grid.beats.length === 0 || plans.length === 0) return [];
 
   const random = createRandom(seed);
-  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime);
+  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime, keys);
   const range = BASS_NOTE_RANGES[settings.bassRange];
   let previous = range.centre;
   const streams = new Map<string, { occurrence: number; random: Random }>();
