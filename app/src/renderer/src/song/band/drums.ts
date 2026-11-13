@@ -12,7 +12,7 @@ import { CRASH, DRUM_DURATION, KICK, type NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
-import { barBeats, barSpans, clampVelocity, fitStepsToBar, planIndexAt, stepAt } from "./timing";
+import { barBeats, barSpans, clampVelocity, fitStepsToBar, planOfBar, stepAt } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
@@ -73,7 +73,7 @@ function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number,
 }
 
 /**
- * Drum notes for the whole song, sorted by time. A bar belongs to the plan covering its first beat. Bars of a plan with drums off, and
+ * Drum notes for the whole song, sorted by time. A bar belongs to the plan covering its middle. Bars of a plan with drums off, and
  * the pickup, are silent. The last bar of the song ends on a crash and a kick on its downbeat, and nothing follows.
  *
  * With `feel` (follow my playing), the variation follows the accents, strong off-beat accents get pushes, the beats of a stop are silent,
@@ -88,7 +88,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
   const perBar = barBeats(grid);
   const spans = barSpans(grid);
   const starts = spans.map((span) => span.start);
-  const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   const emit = (time: number, pitch: number, velocity: number) => notes.push({ time, pitch, velocity: clampVelocity(velocity), duration: DRUM_DURATION });
   const quiet = (beat: number): boolean => feel?.stops.has(beat) === true;
 

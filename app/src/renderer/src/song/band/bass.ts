@@ -18,7 +18,7 @@ import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, fitStepsToBar, planIndexAt, stepAt } from "./timing";
+import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, fitStepsToBar, planOfBar, stepAt } from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
 export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
@@ -352,7 +352,7 @@ function buildSlots(
   const perBar = barBeats(grid);
   const spans = barSpans(grid);
   const starts = spans.map((span) => span.start);
-  const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   const barsInPlan = new Map<number, number>();
   for (const index of planOf) if (index >= 0) barsInPlan.set(index, (barsInPlan.get(index) ?? 0) + 1);
   // Each plan's occurrence of its name, counted from the first time round. A name that appears twice repeats.
@@ -384,7 +384,7 @@ function buildSlots(
       currentPlan = planIndex;
       barInPlan = 0;
       // A pedal holds the chord the section starts on, whatever the chords do after it.
-      const first = planIndex >= 0 ? beats.findIndex((time) => time >= plans[planIndex].start - 1e-9) : -1;
+      const first = planIndex >= 0 ? starts[k] : -1;
       pedalChord = first >= 0 ? chordAt(first) : null;
       if (planIndex >= 0) phraseRandom = createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex]));
     } else {
@@ -516,7 +516,7 @@ function buildSlots(
       nextPlan.bassPart !== "rest" &&
       !lead
     ) {
-      const firstBeat = beats.findIndex((time) => time >= nextPlan.start - 1e-9);
+      const firstBeat = starts[planOf.indexOf(planIndex + 1)] ?? -1;
       const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
       const quiet = Array.from({ length }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
       if (first && !quiet) leadTarget = first.bass;

@@ -7,7 +7,7 @@ import type { BeatGrid, OnsetStrength } from "./beat-grid";
 import { KICK, SNARE } from "./note";
 import { findStyle } from "./styles";
 import { BUSY_FROM, playsAt, type DrumGroove } from "./styles/types";
-import { barBeats, barStarts, beatSpan, planIndexAt, stepAt, stepsForBar } from "./timing";
+import { barBeats, barSpans, beatSpan, planOfBar, stepAt, stepsForBar } from "./timing";
 
 /** A step takes the strongest onset within this many seconds of its time, since a strum lands a little before or after the grid. */
 export const ACCENT_WINDOW_SECONDS = 0.025;
@@ -130,15 +130,15 @@ function consistency(bars: readonly Float64Array[], sums: Float64Array): number 
 export function accentProfile(onset: ArrayLike<number>, frameRate: number, grid: BeatGrid, plans: readonly SectionPlan[]): AccentProfile[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
-  const starts = barStarts(grid);
-  const planOf = starts.map((start) => planIndexAt(plans, beats[start]));
+  const spans = barSpans(grid);
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   return plans.map((plan, index) => {
     const style = findStyle(plan.style);
     const steps = style ? stepsForBar(style, perBar) : perBar * 4;
     const sums = new Float64Array(steps);
     const bars: Float64Array[] = [];
     if (style) {
-      starts.forEach((start, k) => {
+      spans.forEach(({ start }, k) => {
         if (planOf[k] !== index) return;
         const bar = new Float64Array(steps);
         for (let step = 0; step < steps; step++) {
