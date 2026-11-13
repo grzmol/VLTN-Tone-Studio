@@ -851,11 +851,11 @@ describe("Band panel: what plays", () => {
     expect(props.onPartChoice).toHaveBeenCalledWith(ORIGINAL_PARTS);
   });
 
-  it("says a found part can still be replaced, and that the parts switch under What plays", () => {
+  it("says in one line that the song's own drums can be replaced or played with, under Sound", () => {
     useSong.setState({ missingParts: { drums: "present", bass: "absent", absentSections: { drums: [], bass: [] } } });
     renderPanel();
-    expect(screen.getByText("Drums found in the song")).toBeTruthy();
-    expect(screen.getByText("You can still generate your own and switch between them under What plays.")).toBeTruthy();
+    expect(screen.getByText("This song has its own drums. Generated parts can replace them or play with them (Sound).")).toBeTruthy();
+    expect(screen.getByText("No bass found")).toBeTruthy();
   });
 });
 
@@ -878,7 +878,7 @@ describe("Band panel layout", () => {
     expect(dialog.className).toContain("flex-col");
     expect(dialog.className).toContain("min-w-0");
     // The panel's own body and the grid section can shrink to the dialog's width, so the settings and the table keep to it.
-    const body = dialog.querySelector('[aria-label="Band status"]')?.parentElement;
+    const body = screen.getByRole("tabpanel", { name: "Parts" }).parentElement;
     expect(body?.className).toContain("min-w-0");
     expect(screen.getByRole("region", { name: "Beat grid" }).className).toContain("min-w-0");
   });
@@ -912,7 +912,7 @@ describe("Band footer and preview", () => {
     await within(footer).findByText("Rendering the parts…");
     expect(within(footer).getByRole("button", { name: "Cancel" })).toBeTruthy();
     // The footer is not inside the scrolling body, and the beat grid section does not repeat the progress.
-    const body = screen.getByRole("region", { name: "Band status" }).parentElement as HTMLElement;
+    const body = screen.getByRole("tabpanel", { name: "Parts" }).parentElement as HTMLElement;
     expect(body.className).toContain("overflow-y-auto");
     expect(body.contains(footer)).toBe(false);
     expect(within(screen.getByRole("region", { name: "Beat grid" })).queryByText("Rendering the parts…")).toBeNull();
@@ -1165,7 +1165,7 @@ describe("rendered parts", () => {
     await waitFor(() => expect(savedOptions().band.rendered).toEqual({}));
   });
 
-  it("says to render with your own instruments, next to Export MIDI", () => {
+  it("says to render with your own instruments, on the Sound tab", () => {
     renderPanel({ chart: "[Am] [G]" });
     expect(screen.getByText("Render it with your own instruments, then use it here.")).toBeTruthy();
   });

@@ -68,13 +68,14 @@ import { chartChordEvents } from "@/song/band/harmony";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { ORIGINAL_PARTS, partKeysOf, type PartChoices } from "@/song/band/part-choice";
 import { hasGeneratedParts, presenceLine, type PartKind } from "./band-status";
-import { PartChoiceRows } from "./PartChoiceRows";
 import {
+  BAND_ENTRY_ID,
   BASS_TONE_TEXT,
   DRUM_TONE_TEXT,
   NO_SONG_TEXT,
   PLAYHEAD,
   PLAYHEAD_BARS,
+  ownParts,
   PLAYING_TEXT,
   pendingLineUp,
   playOnce,
@@ -82,11 +83,14 @@ import {
   stageText,
   type PendingRendered,
 } from "./band-panel-helpers";
-import { useBandPanel } from "./band-panel-state";
-import { BandSections, type BandSectionRow } from "./BandSections";
-import { BandGridSection } from "./BandGridSection";
-import { BandSettingsForm } from "./BandSettingsForm";
-import { RenderedPartRow } from "./RenderedPartRow";
+import { BAND_TAB_LABELS, BAND_TABS, isBandTab, useBandPanel } from "./band-panel-state";
+import type { BandSectionRow } from "./BandSections";
+import { BandTabFeel } from "./BandTabFeel";
+import { BandTabNotes } from "./BandTabNotes";
+import { BandTabParts } from "./BandTabParts";
+import { BandTabSound } from "./BandTabSound";
+import { BandTabTiming } from "./BandTabTiming";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { decodeAudioFile } from "@/song/decode";
 import { MAX_IMPORT_SECONDS } from "@/song/import/import-tracks";
 import { checkRenderedLength, firstOnsetSeconds, fitToLength, lineUpOffer } from "@/song/band/rendered";
@@ -188,6 +192,8 @@ function BandBody({
   // True while Find the beat runs, so its progress stays in the beat grid section and the footer shows the rest.
   const [finding, setFinding] = useState(false);
   const show = useBandPanel((s) => s.show);
+  const tab = useBandPanel((s) => s.tab);
+  const setTab = useBandPanel((s) => s.setTab);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The notes of the last Generate, kept so they can be exported as a MIDI file.
   const [lastNotes, setLastNotes] = useState<{ drums: NoteEvent[]; bass: NoteEvent[] } | null>(null);
@@ -752,96 +758,121 @@ function BandBody({
     setNotices(["The metronome now runs at this tempo."]);
   };
 
+  const cancelWork = () => {
+    failedInputs.current = musicalInputs;
+    job.current?.cancel();
+  };
   const partLine = (kind: PartKind) => presenceLine(kind, missing?.[kind] ?? "unknown", missing?.absentSections[kind] ?? [], sections);
 
   return (
-    <DialogContent className="flex max-h-[90vh] min-w-0 flex-col gap-4 overflow-hidden sm:max-w-4xl">
+    <DialogContent
+      className="flex h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] min-w-0 flex-col gap-3 overflow-hidden sm:max-w-none"
+      onCloseAutoFocus={(event) => {
+        // The panel is opened from the store, not from a trigger, so Radix has nothing to return focus to: give it back to the entry button.
+        const entry = document.getElementById(BAND_ENTRY_ID);
+        if (entry) {
+          event.preventDefault();
+          entry.focus();
+        }
+      }}
+    >
       <DialogHeader>
         <DialogTitle>Band</DialogTitle>
         <DialogDescription>
           Generated parts update automatically after musical changes while playback is stopped. Generate also makes new parts on demand.
         </DialogDescription>
       </DialogHeader>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto text-sm">
-        <section aria-label="Band status" className="flex flex-col gap-1 rounded-lg border border-seam px-3 py-2">
-          <p>{partLine("drums")}</p>
-          <p>{partLine("bass")}</p>
-          {(missing?.drums === "present" || missing?.bass === "present") && <p>You can still generate your own and switch between them under What plays.</p>}
-          <p>{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
-          {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
-        </section>
-
-        {source !== null && <PartChoiceRows choices={partChoices} keys={partKeys} disabled={busy} onChange={onPartChoice} />}
-
-        {source !== null && (
-          <section aria-label="Rendered parts" className="flex flex-col gap-3">
-            {RENDERED_KINDS.map((kind) => (
-              <RenderedPartRow
-                key={kind}
-                kind={kind}
-                rendered={settings.rendered[kind]}
-                disabled={blocked}
-                pending={pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, source.audio.channels[0].length)}
-                onFile={(file) => void importRendered(kind, file)}
-                onBack={() => void backToGenerated(kind)}
-              />
-            ))}
-          </section>
-        )}
-
-        <BandGridSection
-          grid={grid}
-          harmony={harmony}
-          blocked={blocked}
-          busy={busy && finding}
-          work={finding ? work : null}
-          onGrid={applyGrid}
-          onFind={() => void findBeat()}
-          onCancel={() => {
-            failedInputs.current = musicalInputs;
-            job.current?.cancel();
-          }}
-          onFixed={usesFixed}
-          onSetTempo={setTo}
-          myTempo={typedTempo ? { bpm, use: useMyTempo, onUse: setUseMyTempo } : undefined}
-          bassNotes={{
-            overrides: settings.bassOverrides,
-            bassFrom: settings.bassFrom,
-            bassLine,
-            sections,
-            songEnd,
-            disabled: blocked,
-            onChange: (next) => change({ bassOverrides: next }),
-            onListen: (from, next) => void listen(from, next),
-          }}
-        />
-
-        <BandSettingsForm
-          settings={settings}
-          followSources={followSources}
-          onChange={change}
-          onStyle={changeStyle}
-          songSeconds={songEnd}
-          beatsPerBar={grid?.beatsPerBar}
-        />
-
-        <section aria-label="Sections" className="flex flex-col gap-2">
-          <h3 className="font-semibold">Sections</h3>
-          <BandSections
-            rows={rows}
-            disabled={blocked}
-            selected={selected}
-            onSelect={(index) => {
-              setSelected(index);
-              if (index !== null) setPreviewAt(null);
-            }}
-            onChange={changeRow}
-            beatsPerBar={grid?.beatsPerBar}
-          />
-        </section>
-
-        <p className="text-silkscreen-3">Render it with your own instruments, then use it here.</p>
-      </div>
+      <section aria-label="Band status" className="flex flex-col gap-0.5 text-sm">
+        {ownParts(missing) && <p>{ownParts(missing)}</p>}
+        {(["drums", "bass"] as const).map((kind) => missing?.[kind] !== "present" && <p key={kind}>{partLine(kind)}</p>)}
+        <p className="text-silkscreen-3">{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
+        {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
+      </section>
+      <Tabs value={tab} onValueChange={(value) => isBandTab(value) && setTab(value)} className="min-h-0 flex-1 gap-3">
+        <TabsList aria-label="Band sections">
+          {BAND_TABS.map((id) => (
+            <TabsTrigger key={id} value={id}>
+              {BAND_TAB_LABELS[id]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {/* Every tab stays mounted and is hidden with CSS, so nothing typed or chosen in one is lost when the performer switches. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto text-sm">
+          <TabsContent forceMount value="parts" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabParts
+              rows={rows}
+              disabled={blocked}
+              selected={selected}
+              onSelect={(index) => {
+                setSelected(index);
+                if (index !== null) setPreviewAt(null);
+              }}
+              onChange={changeRow}
+              beatsPerBar={grid?.beatsPerBar}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="feel" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabFeel settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} beatsPerBar={grid?.beatsPerBar} />
+          </TabsContent>
+          <TabsContent forceMount value="sound" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabSound
+              settings={settings}
+              onChange={change}
+              hasSong={source !== null}
+              partChoices={partChoices}
+              partKeys={partKeys}
+              onPartChoice={onPartChoice}
+              busy={busy}
+              blocked={blocked}
+              pendingLineUp={(kind) =>
+                source && pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, source.audio.channels[0].length)
+              }
+              onFile={(kind, file) => void importRendered(kind, file)}
+              onBack={(kind) => void backToGenerated(kind)}
+              songSeconds={songEnd}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="notes" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabNotes
+              grid={grid}
+              harmony={harmony}
+              blocked={blocked}
+              busy={false}
+              work={null}
+              onGrid={applyGrid}
+              onFind={() => void findBeat()}
+              onCancel={cancelWork}
+              onFixed={usesFixed}
+              onSetTempo={setTo}
+              bassNotes={{
+                overrides: settings.bassOverrides,
+                bassFrom: settings.bassFrom,
+                bassLine,
+                sections,
+                songEnd,
+                disabled: blocked,
+                onChange: (next) => change({ bassOverrides: next }),
+                onListen: (from, next) => void listen(from, next),
+              }}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="timing" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabTiming
+              grid={grid}
+              harmony={harmony}
+              blocked={blocked}
+              busy={busy && finding}
+              work={finding ? work : null}
+              onGrid={applyGrid}
+              onFind={() => void findBeat()}
+              onCancel={cancelWork}
+              onFixed={usesFixed}
+              onSetTempo={setTo}
+              myTempo={typedTempo ? { bpm, use: useMyTempo, onUse: setUseMyTempo } : undefined}
+            />
+          </TabsContent>
+        </div>
+      </Tabs>
 
       <footer aria-label="Band actions" className="flex shrink-0 flex-col gap-2 border-t border-seam pt-3 text-sm">
         {source === null && (
@@ -861,10 +892,7 @@ function BandBody({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
-                failedInputs.current = musicalInputs;
-                job.current?.cancel();
-              }}
+              onClick={cancelWork}
             >
               Cancel
             </Button>

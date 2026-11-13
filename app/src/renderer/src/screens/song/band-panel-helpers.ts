@@ -4,6 +4,7 @@ import type { RenderedKind } from "@/song/band/arrangement";
 import type { BandStage } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
 import { fitToLength, shiftAudio, type LineUp } from "@/song/band/rendered";
+import type { MissingParts } from "@/song/band/detect";
 import type { PendingLineUp } from "./RenderedPartRow";
 
 /** The preview target that is not a section: the song position now. */
@@ -81,4 +82,14 @@ export function stageText(stage: BandStage): string {
   if (stage === "loading") return "Loading the drum and bass samples…";
   if (stage === "generating") return "Writing the notes…";
   return "Rendering the parts…";
+}
+
+/** The id of the Band entry button, which gets the focus back when the panel closes. */
+export const BAND_ENTRY_ID = "band-entry-button";
+
+/** The one line that says the song has its own drums or bass and where to choose between them, or null when the split found neither. */
+export function ownParts(missing: MissingParts | null | undefined): string | null {
+  const found = (["drums", "bass"] as const).filter((kind) => missing?.[kind] === "present");
+  if (!found.length) return null;
+  return `This song has its own ${found.join(" and ")}. Generated parts can replace them or play with them (Sound).`;
 }
