@@ -14,7 +14,7 @@ import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
-import { playsAt, type DrumHit, type Energy } from "./styles/types";
+import { LEGACY_FILLS, playsAt, type DrumHit, type Energy } from "./styles/types";
 import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
@@ -198,11 +198,14 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     let filled = false;
     const holdBar = shape?.fill === true && k === ending;
     const endsPlan = planOf[k + 1] !== planIndex;
-    let halfChoice = random.int(style.fills.half.length);
-    let barChoice = random.int(style.fills.bar.length);
+    // Songs on drum engine 2 or earlier draw from the fills a style had then.
+    const halfCount = Math.min(LEGACY_FILLS, style.fills.half.length);
+    const barCount = Math.min(LEGACY_FILLS, style.fills.bar.length);
+    let halfChoice = random.int(halfCount);
+    let barChoice = random.int(barCount);
     if (mine) {
-      halfChoice = mine.int(style.fills.half.length);
-      barChoice = mine.int(style.fills.bar.length);
+      halfChoice = mine.int(halfCount);
+      barChoice = mine.int(barCount);
     }
     const fillMark = markOf(marked, k, "fill");
     if (holdBar) {

@@ -2,7 +2,7 @@
 
 import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, SIXTEENTHS } from "./notation";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, SIXTEENTHS, ramp } from "./notation";
 import type { Style } from "./types";
 
 export const METAL: Style = {
@@ -101,6 +101,11 @@ export const METAL: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, ramp(KICK, [12, 13, 14, 15], 74, 112)),
+      bar(16, lane(HIGH_TOM, 80, [12]), lane(MID_TOM, 90, [13]), lane(LOW_TOM, 100, [14]), lane(KICK, VEL.accent, [15])),
+      bar(16, lane(SNARE, VEL.normal, [12]), ramp(SNARE, [13, 14, 15], 74, 112)),
+    ],
     half: [
       bar(16, lane(KICK, VEL.normal, [8, 10, 12, 14]), lane(SNARE, VEL.normal, [9, 11, 13]), lane(LOW_TOM, VEL.normal, [15])),
       bar(
@@ -111,6 +116,8 @@ export const METAL: Style = {
         lane(SNARE, VEL.normal, [14]),
         lane(KICK, VEL.normal, [15]),
       ),
+      bar(16, ramp(KICK, [8, 9, 10, 11, 12, 13, 14, 15], 70, 112), lane(SNARE, VEL.accent, [12])),
+      bar(16, ramp(HIGH_TOM, [8, 9], 76, 82), ramp(MID_TOM, [10, 11], 88, 94), ramp(LOW_TOM, [12, 13], 100, 104), lane(KICK, VEL.accent, [14, 15])),
     ],
     bar: [
       bar(
@@ -129,8 +136,22 @@ export const METAL: Style = {
         lane(SNARE, VEL.normal, [12, 14]),
         lane(KICK, VEL.accent, [0, 8]),
       ),
+      bar(16, ramp(KICK, SIXTEENTHS, 76, 112), lane(SNARE, VEL.accent, [4, 12])),
+      bar(
+        16,
+        lane(KICK, VEL.accent, [0]),
+        ramp(HIGH_TOM, [2, 3, 4], 74, 82),
+        ramp(MID_TOM, [6, 7, 8], 86, 94),
+        ramp(LOW_TOM, [10, 11, 12], 98, 106),
+        lane(SNARE, VEL.accent, [14, 15]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(16, lane(KICK, VEL.accent, [13, 15])),
+    bar(16, lane(SNARE, VEL.normal, [12]), lane(KICK, VEL.normal, [14, 15])),
+    bar(16, lane(CRASH, VEL.crash, [14])),
+  ],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },

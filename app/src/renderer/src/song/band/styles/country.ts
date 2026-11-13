@@ -3,7 +3,7 @@
 
 import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, ramp } from "./notation";
 import type { Style } from "./types";
 
 export const COUNTRY: Style = {
@@ -102,9 +102,16 @@ export const COUNTRY: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, ramp(SNARE, [12, 13, 14, 15], 66, 106)),
+      bar(16, lane(HIGH_TOM, 76, [12]), lane(MID_TOM, 86, [14]), lane(LOW_TOM, 96, [15])),
+      bar(16, lane(SNARE, VEL.normal, [12]), lane(SNARE, 84, [14]), lane(SNARE, VEL.accent, [15])),
+    ],
     half: [
       bar(16, lane(SNARE, VEL.normal, [8, 10, 12, 13]), lane(MID_TOM, VEL.normal, [14]), lane(LOW_TOM, VEL.normal, [15])),
       bar(16, lane(HIGH_TOM, VEL.normal, [8, 10]), lane(SNARE, VEL.normal, [12, 14]), lane(LOW_TOM, VEL.normal, [15])),
+      bar(16, ramp(SNARE, [8, 10, 11, 12, 13, 14, 15], 62, 106)),
+      bar(16, lane(KICK, VEL.normal, [8]), ramp(SNARE, [10, 12], 72, 84), ramp(MID_TOM, [13, 14], 88, 94), lane(LOW_TOM, 100, [15])),
     ],
     bar: [
       bar(
@@ -123,8 +130,22 @@ export const COUNTRY: Style = {
         lane(SNARE, VEL.normal, [14, 15]),
         lane(KICK, VEL.accent, [0, 8]),
       ),
+      bar(16, lane(KICK, VEL.accent, [0, 8]), ramp(SNARE, [2, 4, 6, 8, 10, 12, 13, 14, 15], 60, 110)),
+      bar(
+        16,
+        lane(KICK, VEL.accent, [0]),
+        ramp(HIGH_TOM, [2, 4], 68, 74),
+        ramp(MID_TOM, [6, 8], 80, 86),
+        ramp(LOW_TOM, [10, 12], 92, 98),
+        lane(SNARE, VEL.accent, [14, 15]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(16, lane(OPEN_HAT, VEL.hat, [14])),
+    bar(16, lane(KICK, VEL.normal, [14])),
+    bar(16, lane(SNARE, VEL.normal, [12]), ramp(SNARE, [13, 14, 15], 64, 92)),
+  ],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },

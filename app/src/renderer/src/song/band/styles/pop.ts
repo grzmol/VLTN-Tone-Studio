@@ -2,7 +2,7 @@
 
 import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, ramp } from "./notation";
 import type { Style } from "./types";
 
 export const POP: Style = {
@@ -100,6 +100,11 @@ export const POP: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, ramp(SNARE, [12, 13, 14, 15], 66, 104)),
+      bar(16, lane(HIGH_TOM, 74, [12]), lane(MID_TOM, 84, [13]), lane(LOW_TOM, 94, [14]), lane(SNARE, VEL.accent, [15])),
+      bar(16, lane(SNARE, VEL.normal, [12, 14]), lane(KICK, VEL.accent, [15])),
+    ],
     half: [
       bar(
         16,
@@ -110,6 +115,8 @@ export const POP: Style = {
         lane(SNARE, VEL.normal, [15]),
       ),
       bar(16, lane(KICK, VEL.normal, [8]), lane(SNARE, VEL.normal, [10, 14, 15]), lane(MID_TOM, VEL.normal, [12]), lane(LOW_TOM, VEL.normal, [13])),
+      bar(16, lane(KICK, VEL.normal, [8]), ramp(SNARE, [10, 12, 13, 14, 15], 64, 108)),
+      bar(16, ramp(HIGH_TOM, [8, 9], 70, 76), ramp(MID_TOM, [10, 11], 80, 86), ramp(LOW_TOM, [12, 13], 90, 96), lane(SNARE, VEL.accent, [14, 15])),
     ],
     bar: [
       bar(
@@ -128,8 +135,22 @@ export const POP: Style = {
         lane(LOW_TOM, VEL.normal, [15]),
         lane(KICK, VEL.accent, [0, 8]),
       ),
+      bar(16, lane(KICK, VEL.accent, [0, 8]), ramp(SNARE, [4, 6, 8, 10, 12, 13, 14, 15], 62, 110)),
+      bar(
+        16,
+        lane(KICK, VEL.accent, [0]),
+        ramp(HIGH_TOM, [0, 2, 4], 66, 74),
+        ramp(MID_TOM, [6, 8, 10], 80, 88),
+        ramp(LOW_TOM, [12, 13], 94, 100),
+        lane(SNARE, VEL.accent, [14, 15]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(16, lane(OPEN_HAT, VEL.hat, [14])),
+    bar(16, lane(KICK, VEL.normal, [14, 15])),
+    bar(16, lane(SNARE, VEL.normal, [12]), lane(SNARE, VEL.accent, [15])),
+  ],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },

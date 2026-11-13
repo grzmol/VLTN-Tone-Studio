@@ -92,12 +92,18 @@ export interface Style {
   /** 2 to 4 variations per energy level. Each variation is one bar. */
   grooves: Record<Energy, DrumGroove[]>;
   /**
-   * Fills. A half fill is a whole-bar pattern whose hits all sit in its second half (`step >= steps / 2`). It replaces the second half
-   * of the last bar of a section. A bar fill replaces the whole bar.
+   * Fills. A short fill is a whole-bar pattern whose hits all sit in the last beat; it replaces that beat. A half fill has its hits in the
+   * second half (`step >= steps / 2`) and replaces the second half of the bar. A bar fill replaces the whole bar. The first
+   * `LEGACY_FILLS` half and bar fills are the ones songs on drum engine 2 or earlier were made with; they stay as they were.
    */
-  fills: { half: DrumPattern[]; bar: DrumPattern[] };
+  fills: { short: DrumPattern[]; half: DrumPattern[]; bar: DrumPattern[] };
+  /** Hits that replace the last beat of a groove in the last bar of a phrase that does not end a pair of phrases: one small change. */
+  turnarounds: DrumPattern[];
   bass: BassStyle;
 }
+
+/** How many half fills and bar fills a style had before the drum phrases (engine 3). Songs on engine 2 or earlier draw from these only. */
+export const LEGACY_FILLS = 2;
 
 /** A "lean" hit plays from this complexity up. */
 export const LEAN_FROM = 1 / 3;
