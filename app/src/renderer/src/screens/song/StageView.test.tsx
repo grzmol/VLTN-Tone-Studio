@@ -191,8 +191,12 @@ it("loops, releases and moves on with the section actions", () => {
   fireEvent.click(screen.getByRole("button", { name: "Next section" }));
   expect(session.tapSection).toHaveBeenCalledWith("s5");
   cleanup();
-  mount(fakeSession({ playing: true, sectionLive: { ...NO_LIVE, loop: "s4" } }));
+  act(() => setClockPosition(66));
+  const looping = fakeSession({ playing: true, sectionLive: { ...NO_LIVE, loop: "s4" } });
+  mount(looping);
+  expect(screen.getByLabelText("Section now and next").textContent).toBe("Verse 2Looping");
   fireEvent.click(screen.getByRole("button", { name: "Release loop" }));
+  expect(looping.releaseSectionLoop).toHaveBeenCalled();
 });
 
 it("jumps from the timeline's section blocks even though seeking is locked", () => {
