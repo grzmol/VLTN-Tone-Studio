@@ -5,7 +5,7 @@ import type { PcmAudio } from "../types";
 import { DEFAULT_BAND_SETTINGS, planSections } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandHarmony, bandKeys, bandRequest, keysFromOptions, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandKeys, extendedRangeNote, bandRequest, keysFromOptions, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -243,5 +243,15 @@ describe("keysFromOptions", () => {
     expect(keysFromOptions({ songKey: "C major", detectedKey: estimate }).songKey).toBe("C major");
     expect(keysFromOptions({ detectedKey: estimate }).songKey).toBe("E major");
     expect(keysFromOptions({ detectedKey: { ...estimate, confidence: "tentative" } }).songKey).toBeUndefined();
+  });
+});
+
+describe("extendedRangeNote", () => {
+  it("says the range is extended for a song in a low key, and nothing otherwise", () => {
+    const keys = (tonic: number) => [{ start: 0, end: 60, tonic, mode: "major" as const }];
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(2) })).toBe("Bass range: extended low, for a song in D");
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(3) })).toBe("Bass range: extended low, for a song in Eb");
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(9) })).toBeNull();
+    expect(extendedRangeNote({ settings: { ...DEFAULT_BAND_SETTINGS, bassRange: "low" }, keys: keys(2) })).toBeNull();
   });
 });

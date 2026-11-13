@@ -10,12 +10,14 @@ import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
 import { parseKey } from "../analysis/chord-hmm";
 import { parseAnalysis } from "../analysis/song-analysis";
+import { bassRangeFor } from "./bass";
 import type { BandKey } from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
 import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
 import { findStyle } from "./styles";
 import { barBeats, barStarts } from "./timing";
+import { KEY_NAMES } from "../performance/key";
 
 /**
  * The audio the beat tracker reads. The drums stem when there is one. Otherwise the pitched stems (everything but drums and vocals,
@@ -147,6 +149,15 @@ export function keysFromOptions(options: Record<string, unknown>): Pick<BandInpu
     return section ? [{ start: section.start, end: section.end, key: entry.key.name }] : [];
   });
   return { songKey: override ?? detected, keySections };
+}
+
+/**
+ * The line the Band panel shows when the bass plans with the extended range because the song's key is low, such as "Bass range: extended
+ * low, for a song in D". Null when the range is the performer's own or the key is not low.
+ */
+export function extendedRangeNote(request: Pick<BandRequest, "settings" | "keys">): string | null {
+  const { tonic } = bassRangeFor(request.settings, request.keys);
+  return tonic === null ? null : `Bass range: extended low, for a song in ${KEY_NAMES[tonic]}`;
 }
 
 /** The beat intervals the end of a grid is continued with: the median of its last few. */
