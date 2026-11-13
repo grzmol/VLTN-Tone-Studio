@@ -43,7 +43,8 @@ describe("bass before sections had their own parts", () => {
   for (const mode of ["roots", "fifths", "octaves", "melodic", "walking"] as const) {
     for (const seed of [3, 11]) {
       it(`gives the same notes for ${mode}, seed ${seed}, with every section on the groove part`, () => {
-        const base: BandSettings = { ...DEFAULT_BAND_SETTINGS, bassMode: mode, complexity: 0.5, lockToKick: true, bassRange: "normal" };
+        // These notes are the earlier bass (engine 1): the figures of engine 2 play other notes in a groove part.
+        const base: BandSettings = { ...DEFAULT_BAND_SETTINGS, engine: 1, bassMode: mode, complexity: 0.5, lockToKick: true, bassRange: "normal" };
         const overrides: Record<string, SectionOverride> = Object.fromEntries(
           sections.map((section) => [section.id, { bassPart: "groove" as const, fills: 0 as const, hitTheOne: false }]),
         );

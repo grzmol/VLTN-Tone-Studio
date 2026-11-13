@@ -1,6 +1,7 @@
 // Three-four: three beats to the bar, four steps to the beat, so a bar has twelve steps. The kick is on the one. At low energy the
 // snare (or cross-stick) is on two and three; at high energy it is on three alone, over hats in eighths, with the ride from energy 4.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane } from "./notation";
 import type { Style } from "./types";
@@ -116,6 +117,13 @@ export const THREE_FOUR: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(12, "1 . . . . ."), figure(12, "1 . . . 1 ."), figure(12, "1 . . . . .", "1 . . . 5 .")],
+      2: [figure(12, "1 . . . 1 ."), figure(12, "1 . 1 . . ."), figure(12, "1 . . . 5 .")],
+      3: [figure(12, "1 . 1 . 5 ."), figure(12, "1 . . . 1 5"), figure(12, "1 . 1 . 5 .", "1 . 1 . 5 app")],
+      4: [figure(12, "1 . 1 . 5 1"), figure(12, "1 . 5 . 1 5"), figure(12, "1 . 1 5 1 .", "1 . 1 5 1 app")],
+      5: [figure(12, "1 1 1 1 5 5"), figure(12, "1 . 1 1 5 1"), figure(12, "1 1 5 1 1 5")],
+    },
     rhythms: {
       1: [[0], [0, 8]],
       2: [[0], [0, 8]],

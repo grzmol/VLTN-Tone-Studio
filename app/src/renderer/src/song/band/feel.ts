@@ -238,20 +238,25 @@ export function hitSteps(feel: Feel, start: number, perBar: number, stepsPerBeat
 }
 
 /**
- * How well a groove fits the accents: the weight of the steps where its kick or snare plays, less the weight of each strong accent that
- * nothing covers. Only hits that play at this complexity count.
+ * How well a set of steps fits the accents: the weight of the steps that play, less the weight of each strong accent that nothing covers.
+ * A groove's covered steps are where its kick or snare plays; a bass figure's are where it has a note.
  */
-function grooveScore(groove: DrumGroove, weights: ArrayLike<number>, complexity: number): number {
-  const covered = new Set<number>();
-  for (const hit of groove.hits) {
-    if ((hit.pitch === KICK || hit.pitch === SNARE) && playsAt(hit, complexity)) covered.add(hit.step);
-  }
+export function rhythmScore(covered: ReadonlySet<number>, weights: ArrayLike<number>): number {
   let score = 0;
   for (const step of covered) score += weights[step] ?? 0;
   for (let step = 0; step < weights.length; step++) {
     if (weights[step] >= STRONG_ACCENT && !covered.has(step)) score -= UNCOVERED_PENALTY * weights[step];
   }
   return score;
+}
+
+/** How well a groove fits the accents. Only hits that play at this complexity count. */
+function grooveScore(groove: DrumGroove, weights: ArrayLike<number>, complexity: number): number {
+  const covered = new Set<number>();
+  for (const hit of groove.hits) {
+    if ((hit.pitch === KICK || hit.pitch === SNARE) && playsAt(hit, complexity)) covered.add(hit.step);
+  }
+  return rhythmScore(covered, weights);
 }
 
 /** The indices of the grooves, best fit first. Ties keep the groove's own order. */
