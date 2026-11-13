@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { Archive, ListEnd, ListStart, Trash2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
 import { isRunning, useAnalysisJob } from "@/song/analysis/analysis-job";
 import { NO_BROWSE, browseSongs, folderRows, type BrowseState } from "@/song/library-browse";
 import { formatTime } from "@/song/stems/mix";
+import { clock, tempo } from "./format";
 import { runningSeconds } from "@/song/performance/running-time";
 import { SORT_KEYS, SORT_LABELS, type SmartRules, type SortKey } from "@shared/library-filter";
 import { overridesFor } from "@shared/entry-overrides";
@@ -20,8 +24,10 @@ const EMPTY_FILTER: SmartRules = { match: "all", rules: [], sort: "title" };
  * The saved songs: search, folders, a filter, a sort and an A to Z index for a long list. Each song can be loaded, queued next or added to
  * the queue. Songs can be selected for a batch edit: add to a playlist, set the colour, the keywords or the folder, or delete.
  */
-export function LibraryBrowser() {
+export function LibraryBrowser({ onImport }: { onImport?: () => void }) {
   const library = useSongLibrary();
+  const status = useSong((s) => s.status);
+  const splitting = ["splitting", "model", "decoding"].includes(status.kind);
   const [view, setView] = useState<BrowseState>(NO_BROWSE);
   const [filtering, setFiltering] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -112,6 +118,39 @@ export function LibraryBrowser() {
         <Button variant="outline" aria-pressed={filtering} onClick={() => setFiltering(!filtering)}>
           {filtering ? "Hide filter" : "Filter the list"}
         </Button>
+        {onImport && (
+          <Button variant="outline" disabled={library.busy} onClick={onImport}>
+            Import audio…
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">
+              <Archive data-icon="inline-start" />
+              Library…
+              <ChevronDown data-icon="inline-end" className="text-silkscreen-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem
+              disabled={library.busy || !songs.length || splitting}
+              title="Saves all songs, audio, stems, charts, lyrics, key and mix settings and playlists in one compressed archive. Save the current song first to include new audio or stems."
+              onSelect={() => void library.exportBackup()}
+            >
+              Export library backup…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={library.busy || splitting}
+              title="Adds songs and playlists from a backup and keeps your existing library."
+              onSelect={() => void library.restoreBackup()}
+            >
+              Restore backup…
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={library.busy || !songs.length} onSelect={() => setAnalysing("all")}>
+              {analysisRunning ? "Analysis running…" : "Analyse all songs…"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Folders">
         <Button variant={view.folderId ? "outline" : "default"} onClick={() => setView({ ...view, folderId: null })}>
@@ -159,9 +198,6 @@ export function LibraryBrowser() {
       <p className="text-sm text-silkscreen-3">
         {result.songs.length} shown{view.folderId ? ` in ${chosen?.name ?? "this folder"}` : ""}
       </p>
-      <Button variant="outline" disabled={library.busy || !songs.length} onClick={() => setAnalysing("all")}>
-        {analysisRunning ? "Analysis running…" : "Analyse all songs…"}
-      </Button>
       {result.letters.length > 0 && (
         <nav aria-label="Jump to letter" className="flex flex-wrap gap-1 text-sm">
           {result.letters.map(({ letter, index }) => (
@@ -172,7 +208,7 @@ export function LibraryBrowser() {
         </nav>
       )}
       {!songs.length && <p>No saved songs. Open audio, prepare it, then save it.</p>}
-      <ul className="max-h-[60vh] space-y-2 overflow-auto pr-1">
+      <ul className="space-y-1.5">
         {result.songs.map((song, index) => (
           <SongRow
             key={song.id}
@@ -348,44 +384,42 @@ function SongRow(props: {
   onQueue(): void;
 }) {
   const { song, index, checked, disabled, confirming } = props;
+  const meta = [song.artist, song.bpm ? tempo(song.bpm) : "", song.key].filter(Boolean).join(" · ");
+  const details = [`${song.playCount ?? 0} plays`, song.keywords?.length ? song.keywords.join(", ") : "", song.year ? String(song.year) : ""]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <li id={`library-row-${index}`} className="rounded border border-seam p-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <li id={`library-row-${index}`} className="rounded border border-seam px-3 py-2" title={details}>
+      <div className="flex items-center gap-2">
         <input type="checkbox" aria-label={`Select ${song.title}`} checked={checked} onChange={props.onToggle} />
-        {song.color && <span aria-hidden className="inline-block h-3 w-3 rounded-full" style={{ background: song.color }} />}
-        <strong className="flex-1">{song.title}</strong>
-        <span className="text-sm text-silkscreen-3">
-          {[song.artist, song.key, song.bpm ? `${Math.round(song.bpm)} BPM` : "", song.year ? String(song.year) : ""].filter(Boolean).join(" · ")}
-        </span>
+        {song.color && <span aria-hidden className="inline-block size-3 shrink-0 rounded-full" style={{ background: song.color }} />}
+        <strong className="min-w-0 flex-1 truncate">{song.title}</strong>
+        <span className="max-w-[40%] shrink-0 truncate text-sm text-silkscreen-3">{meta}</span>
+        <span className="w-10 shrink-0 text-right text-sm tabular-nums">{clock(song.duration)}</span>
+        <Button size="sm" disabled={disabled} aria-label={`Load ${song.title}`} onClick={props.onLoad}>
+          Load
+        </Button>
+        <Button size="icon-sm" variant="outline" disabled={disabled} aria-label={`Play ${song.title} next`} title="Play next" onClick={props.onNext}>
+          <ListStart />
+        </Button>
+        <Button size="icon-sm" variant="outline" disabled={disabled} aria-label={`Add ${song.title} to queue`} title="Add to queue" onClick={props.onQueue}>
+          <ListEnd />
+        </Button>
+        <Button size="icon-sm" variant="outline" disabled={disabled} aria-label={`Delete ${song.title}…`} title="Delete…" onClick={() => props.onConfirm(true)}>
+          <Trash2 />
+        </Button>
       </div>
-      <p className="text-sm">
-        {formatTime(song.duration)} · {song.playCount ?? 0} plays{song.keywords?.length ? ` · ${song.keywords.join(", ")}` : ""}
-      </p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button disabled={disabled} onClick={props.onLoad}>
-          Load song
-        </Button>
-        <Button variant="outline" disabled={disabled} onClick={props.onNext}>
-          Play next
-        </Button>
-        <Button variant="outline" disabled={disabled} onClick={props.onQueue}>
-          Add to queue
-        </Button>
-        <Button variant="outline" disabled={disabled} onClick={() => props.onConfirm(true)}>
-          Delete song…
-        </Button>
-        {confirming && (
-          <>
-            <span>Delete saved audio and remove from all playlists?</span>
-            <Button disabled={disabled} onClick={props.onDelete}>
-              Confirm delete
-            </Button>
-            <Button variant="outline" onClick={() => props.onConfirm(false)}>
-              Keep song
-            </Button>
-          </>
-        )}
-      </div>
+      {confirming && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <span>Delete saved audio and remove from all playlists?</span>
+          <Button size="sm" disabled={disabled} onClick={props.onDelete}>
+            Confirm delete
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => props.onConfirm(false)}>
+            Keep song
+          </Button>
+        </div>
+      )}
     </li>
   );
 }
