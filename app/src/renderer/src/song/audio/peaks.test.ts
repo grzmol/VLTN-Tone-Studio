@@ -1,5 +1,5 @@
 import { beforeEach, expect, it } from "vitest";
-import { cachedPeaks, clearPeakCache, peakBuckets } from "./peaks";
+import { cachedPeaks, clearPeakCache, peakBuckets, scaledToOwnPeak } from "./peaks";
 
 beforeEach(clearPeakCache);
 
@@ -25,4 +25,10 @@ it("keeps the peaks per song and width bucket", () => {
   expect(peakBuckets(1)).toBe(200);
   expect(peakBuckets(601)).toBe(800);
   expect(peakBuckets(99999)).toBe(2000);
+});
+
+it("scales a track to its own peak and leaves silence flat", () => {
+  expect(Array.from(scaledToOwnPeak(Float32Array.from([0.1, 0.05, 0.025])))).toEqual([1, 0.5, 0.25].map((v) => expect.closeTo(v, 5)));
+  expect(Array.from(scaledToOwnPeak(Float32Array.from([0.001, 0.002])))).toEqual([0, 0]);
+  expect(scaledToOwnPeak(new Float32Array(0)).length).toBe(0);
 });
