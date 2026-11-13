@@ -41,6 +41,7 @@ import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
+import { barBeats } from "@/song/band/timing";
 import { findStyle, type StyleId } from "@/song/band/styles";
 import { sectionPreviewBars, type PreviewLength } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
@@ -73,7 +74,7 @@ import {
   type PendingRendered,
 } from "./band-panel-helpers";
 import { BAND_TAB_LABELS, BAND_TABS, isBandTab, useBandPanel } from "./band-panel-state";
-import type { BandSectionRow } from "./BandSections";
+import { sectionKind, type BandSectionRow } from "./BandSections";
 import { BandTabFeel } from "./BandTabFeel";
 import { BandTabNotes } from "./BandTabNotes";
 import { BandTabParts } from "./BandTabParts";
@@ -289,6 +290,23 @@ function BandBody({
     save({ ...settings, sections: { ...settings.sections, [key]: { ...current, ...patch } } });
   };
 
+  /** Gives every section of the same kind (Verse 1, Verse 2 …) the overrides this one has. Other sections keep theirs. */
+  const copyToSameKind = (sectionId: string | null) => {
+    const from = settings.sections[sectionId ?? WHOLE_SONG_ID];
+    const source = rows.find((row) => row.plan.sectionId === sectionId);
+    if (!from || !source) return;
+    const next = { ...settings.sections };
+    for (const row of rows) {
+      if (row.plan.sectionId !== null && sectionKind(row.name) === sectionKind(source.name)) next[row.plan.sectionId] = { ...from };
+    }
+    save({ ...settings, sections: next });
+  };
+  /** Takes a section's overrides away, so its plan is automatic again. */
+  const resetRow = (sectionId: string | null) => {
+    const { [sectionId ?? WHOLE_SONG_ID]: _removed, ...rest } = settings.sections;
+    save({ ...settings, sections: rest });
+  };
+
   const applyGrid = (next: BeatGrid | null) => {
     setGrid(next);
     setOutOfDate(true);
@@ -313,11 +331,18 @@ function BandBody({
     }
   };
 
-  const rows: BandSectionRow[] = plans.map((plan) => ({
-    plan,
-    name: plan.sectionId === null ? "Whole song" : (sections.find((section) => section.id === plan.sectionId)?.name ?? "Section"),
-    choice: settings.sections[plan.sectionId ?? WHOLE_SONG_ID]?.bassPart ?? "auto",
-  }));
+  const rows: BandSectionRow[] = plans.map((plan) => {
+    const section = sections.find((candidate) => candidate.id === plan.sectionId);
+    const override = settings.sections[plan.sectionId ?? WHOLE_SONG_ID] ?? {};
+    return {
+      plan,
+      name: plan.sectionId === null ? "Whole song" : (section?.name ?? "Section"),
+      choice: override.bassPart ?? "auto",
+      override,
+      color: section?.color,
+      bars: grid ? Math.max(1, Math.round(((plan.end - plan.start) * grid.bpm) / 60 / barBeats(grid))) : null,
+    };
+  });
 
   /** Finds the beat in the song's audio. The drums stem is read when present, else the pitched stems, else the mix. */
   const findBeat = async () => {
@@ -786,6 +811,8 @@ function BandBody({
                 if (index !== null) setPreviewAt(null);
               }}
               onChange={changeRow}
+              onCopyToSameKind={copyToSameKind}
+              onReset={resetRow}
               beatsPerBar={grid?.beatsPerBar}
             />
           </TabsContent>
