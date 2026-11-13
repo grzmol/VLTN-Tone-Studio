@@ -339,3 +339,79 @@ describe("parseTime and formatTime", () => {
     expect(formatTime(seconds)).toBe(text);
   });
 });
+
+describe("the Marks table", () => {
+  const sections = `| Start | End | Section | Drums | Bass | Style | Energy | Busy | Loud | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 0:00 | 0:20 | Verse | | | | | | | |
+| 0:20 | 0:40 | Chorus 2 | | | | | | | |
+`;
+  const withMarks = (table: string) => `---\nsongmap: 1\n---\n\n## Sections\n\n${sections}\n## Marks\n\n${table}\n`;
+
+  it("reads a mark on a named bar and a mark on a time", () => {
+    const { map, problems } = parseSongMap(
+      withMarks(`| Bar | Time | Mark | Beats |
+|---|---|---|---|
+| Chorus 2:8 | | stop | 2 |
+| | 1:02.5 | No fill | |
+| verse:1 | | fill | 4 |
+| Verse:2 | | crash | 3 |`),
+    );
+    expect(problems).toEqual([]);
+    expect(map?.marks).toEqual([
+      { kind: "stop", beats: 2, bar: { section: "Chorus 2", number: 8 } },
+      { kind: "no-fill", time: 62.5 },
+      { kind: "fill", beats: 4, bar: { section: "verse", number: 1 } },
+      { kind: "crash", bar: { section: "Verse", number: 2 } },
+    ]);
+  });
+
+  it("skips a row it cannot use, says why, and keeps the rest", () => {
+    const { map, problems } = parseSongMap(
+      withMarks(`| Bar | Time | Mark | Beats |
+|---|---|---|---|
+| Chorus 2:8 | | wobble | |
+| Coda:3 | | stop | |
+| Chorus 2:0 | | stop | |
+| Chorus 2 | | stop | |
+| | | stop | |
+| Chorus 2:4 | | fill | 3 |
+| Chorus 2:5 | | hit | |`),
+    );
+    expect(map?.marks).toEqual([{ kind: "hit", bar: { section: "Chorus 2", number: 5 } }]);
+    expect(problems.map((problem) => problem.message)).toEqual([
+      expect.stringContaining('"wobble" is not a mark'),
+      expect.stringContaining('"Coda" is not a section of this map'),
+      expect.stringContaining("bars are counted from 1"),
+      expect.stringContaining('"Chorus 2" is not a bar'),
+      expect.stringContaining("no Bar and no Time"),
+      expect.stringContaining("3 beats is not allowed for a fill"),
+    ]);
+  });
+
+  it("needs a Mark column and a Bar or a Time column", () => {
+    const { map, problems } = parseSongMap(withMarks(`| Bar | Kind |\n|---|---|\n| Verse:1 | stop |`));
+    expect(map?.marks).toBeUndefined();
+    expect(problems[0].message).toContain("needs a Bar or a Time column, and a Mark column");
+  });
+
+  it("has no marks when the map has no table, and writes none", () => {
+    const { map } = parseSongMap(`---\nsongmap: 1\n---\n\n## Sections\n\n${sections}`);
+    expect(map?.marks).toBeUndefined();
+    expect(writeSongMap({ sections: [], bassNotes: [], extra: {}, ignored: [] })).not.toContain("## Marks");
+  });
+
+  it("is written and read back the same", () => {
+    const map: SongMap = {
+      sections: [{ start: 0, end: 20, name: "Chorus 2" }],
+      bassNotes: [],
+      marks: [
+        { kind: "stop", beats: 2, bar: { section: "Chorus 2", number: 8 } },
+        { kind: "hit", time: 62.5 },
+      ],
+      extra: {},
+      ignored: [],
+    };
+    expect(parseSongMap(writeSongMap(map)).map).toEqual(map);
+  });
+});
