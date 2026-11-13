@@ -24,6 +24,12 @@ export interface SongTimelineProps {
   /** The section that loops, and the one a queued jump lands on. Each gets a mark. */
   loopingId?: string | null;
   jumpTargetId?: string | null;
+  /** Outlines the section after the current one. */
+  showNext?: boolean;
+  /** Section labels stay pressable while seeking is locked (stage mode): a press jumps under the session's rules, as the chips do. */
+  jumpable?: boolean;
+  /** Bigger section labels, for reading from a distance. */
+  large?: boolean;
   /** Seconds in one bar, for Shift + arrow. Without it a bar is taken as 2 s. */
   barSeconds?: number;
   /** Seeking is not allowed (stage mode, or the session locked it): nothing is called and the timeline says so. */
@@ -53,6 +59,9 @@ export function SongTimeline({
   cues = [],
   loopingId,
   jumpTargetId,
+  showNext = false,
+  jumpable = false,
+  large = false,
   barSeconds,
   locked = false,
   onSeek,
@@ -138,13 +147,19 @@ export function SongTimeline({
             key={section.id}
             data-section={section.id}
             data-current={i === currentIndex || undefined}
+            data-next={(showNext && i === currentIndex + 1) || undefined}
             className="absolute inset-y-0 border-l"
             style={{
               left: pct(section.start),
               width: blockWidth(section),
               background: sectionColours(section).fill,
               borderColor: sectionColours(section).edge,
-              boxShadow: i === currentIndex ? `inset 0 0 0 2px ${sectionColours(section).edge}` : undefined,
+              boxShadow:
+                i === currentIndex
+                  ? `inset 0 0 0 2px ${sectionColours(section).edge}`
+                  : showNext && i === currentIndex + 1
+                    ? `inset 0 0 0 2px ${sectionColours(section).edge}66`
+                    : undefined,
             }}
           />
         ))}
@@ -174,10 +189,16 @@ export function SongTimeline({
           <button
             key={section.id}
             type="button"
-            disabled={!onSection || locked}
+            disabled={!onSection || (locked && !jumpable)}
             aria-label={`${section.name}, ${clock(section.start)} to ${clock(section.end)}`}
-            className="pointer-events-auto absolute bottom-1 flex items-center justify-start gap-1 overflow-hidden rounded px-1 text-[11px] leading-4 font-medium text-foreground/90 hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
-            style={{ left: `calc(${pct(section.start)} + 2px)`, width: `calc(${blockWidth(section)} - 4px)` }}
+            className={cn(
+              "pointer-events-auto absolute bottom-1 flex items-center justify-start gap-1 overflow-hidden rounded px-1 font-medium text-foreground/90 hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
+              large ? "text-sm leading-5" : "text-[11px] leading-4",
+            )}
+            style={{
+              left: `calc(${pct(section.start)} + 2px)`,
+              width: `calc(${blockWidth(section)} - 4px)`,
+            }}
             onClick={() => onSection?.(section.id)}
           >
             {loopingId === section.id && <Repeat aria-label="Loops" className="size-3 shrink-0" />}

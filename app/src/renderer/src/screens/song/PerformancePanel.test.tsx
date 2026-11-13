@@ -830,18 +830,22 @@ it("locks stage seeking and editors while keeping panic available", async () => 
   fireEvent.click(screen.getByLabelText("Send cues"));
   fireEvent.click(screen.getByText("Enter stage mode"));
   const stage = within(screen.getByRole("dialog", { name: "Stage mode" }));
-  expect((stage.getByLabelText("Expanded song position") as HTMLInputElement).disabled).toBe(true);
+  expect(stage.getByRole("slider", { name: "Song timeline" }).getAttribute("aria-disabled")).toBe("true");
   expect(stage.queryByText("Edit chords, lyrics & MIDI")).toBeNull();
   await act(async () => {
     fireEvent.click(stage.getByText("Play song"));
   });
   expect(stage.getByText("Pause")).toBeTruthy();
+  // Panic needs a second press, so one press only arms it.
   fireEvent.click(stage.getByText("Panic / stop MIDI"));
-  expect(stage.getByLabelText("Performance status").textContent).toContain("Cues disarmed");
+  expect(stage.getByText("Pause")).toBeTruthy();
+  fireEvent.click(stage.getByText("Press again for panic"));
+  expect(stage.getByLabelText("Performance status").textContent).toContain("Cues off");
   expect(stage.getByText("Play song")).toBeTruthy();
-  fireEvent.keyDown(stage.getByText("Exit stage mode"), { key: "Escape" });
+  fireEvent.keyDown(stage.getByLabelText("More stage settings"), { key: "Escape" });
   expect(screen.getByRole("dialog", { name: "Stage mode" })).toBeTruthy();
-  fireEvent.click(stage.getByText("Exit stage mode"));
+  fireEvent.keyDown(stage.getByLabelText("More stage settings"), { key: "Enter" });
+  fireEvent.click(await screen.findByText("Exit stage mode"));
   expect(screen.queryByRole("dialog", { name: "Stage mode" })).toBeNull();
 });
 
@@ -851,7 +855,7 @@ it("keeps stage mode active when a new playlist song replaces the source", () =>
   mocks.source = { ...mocks.source, libraryId: "next-stage-song" };
   view.rerender(<PerformancePanel />);
   expect(screen.getByRole("dialog", { name: "Stage mode" })).toBeTruthy();
-  expect((screen.getByLabelText("Expanded song position") as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByRole("slider", { name: "Song timeline" }).getAttribute("aria-disabled")).toBe("true");
 });
 
 it("one Pause after a join pauses the song that joined, once the view is re-created on the hand-over", async () => {

@@ -728,14 +728,15 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           ))}
         </div>
         <div style={{ display: shownView("play") }}>
-          <SessionTimeline
-            session={session}
-            songId={source ? (source.libraryId ?? source.name) : null}
-            channels={source?.audio.channels ?? null}
-            sampleRate={source?.audio.sampleRate ?? 0}
-            barSeconds={(beats * 60) / effectiveBpm(bpm, speed.rate)}
-            stage={stage}
-          />
+          {!stage && (
+            <SessionTimeline
+              session={session}
+              songId={source ? (source.libraryId ?? source.name) : null}
+              channels={source?.audio.channels ?? null}
+              sampleRate={source?.audio.sampleRate ?? 0}
+              barSeconds={(beats * 60) / effectiveBpm(bpm, speed.rate)}
+            />
+          )}
           <AnalysisCard
             quiet
             analysis={analysis}

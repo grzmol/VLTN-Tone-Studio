@@ -34,6 +34,9 @@ import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
 import { ClockText } from "./PlaybackDisplay";
+import { sectionColours } from "./section-colours";
+import { patchCues, patchPedal } from "@/song/performance/position";
+import { presetNumber } from "@/song/performance/pedal-preset-names";
 import { PdfChart } from "./PdfChart";
 import { PdfControls } from "./PdfControls";
 import type { ChartView } from "@shared/song-library";
@@ -47,6 +50,16 @@ export interface PdfReaderState {
   view: ChartView;
   onView(view: ChartView): void;
 }
+
+/** The short label a cue shows as a chip on stage: "GP-180 011" for a pedal memory, else its label, with no byte detail. */
+function cueChip(cue: Cue): string {
+  const patch = patchCues([cue])[0];
+  if (patch) return `${patchPedal(patch)} ${presetNumber(patch.slot)}`;
+  return cue.label || "MIDI";
+}
+
+/** In stage mode the current line sits 35% from the top of the chart, so two lines of history and four or more lines ahead show. */
+const STAGE_READING_LINE = 0.35;
 
 export function PerformanceReader({
   chart,
@@ -64,8 +77,20 @@ export function PerformanceReader({
   onExitStage,
   pdf,
   soloScale,
+  stageTop,
+  stageCard,
 }: {
   stage?: boolean;
+  /** Stage mode's bands above the chart (status, timeline, actions). It gets the reader's own settings, which the stage menu holds. */
+  stageTop?: (reader: {
+    follow: boolean;
+    onFollow: (follow: boolean) => void;
+    showCommands: boolean;
+    onShowCommands: (show: boolean) => void;
+    pdfControls: ReactNode;
+  }) => ReactNode;
+  /** Takes the chart area in stage mode, between songs of a set. */
+  stageCard?: ReactNode;
   onExitStage?: () => void;
   /** The song's PDF chart, when it is a saved song. The PDF replaces the lyrics body while its view is on. */
   pdf?: PdfReaderState;
@@ -95,7 +120,10 @@ export function PerformanceReader({
       setSoloOpen(false);
     }
   }, [stage]);
-  const showCommands = useMidiConfiguration((s) => s.showCommands);
+  const savedCommands = useMidiConfiguration((s) => s.showCommands);
+  // Cue chips are off by default on stage, whatever the editor views show.
+  const [stageCommands, setStageCommands] = useState(false);
+  const showCommands = stage ? stageCommands : savedCommands;
   const macros = useMidiConfiguration((s) => s.macros);
   const lines = useMemo(() => {
     const result = performanceLines(chart, lyrics, chords, macros).map((line) => ({ ...line, midi: [] as Cue[] }));
@@ -166,7 +194,7 @@ export function PerformanceReader({
       if (!follow || !panel || isAutoscrollHeld()) return;
       const target = autoscrollTarget(model.mode, position, model.rows, model.linesPerMinute);
       if (target === null) return;
-      const top = scrollTopFor(target, panel.clientHeight);
+      const top = scrollTopFor(target, panel.clientHeight, stage ? STAGE_READING_LINE : undefined);
       if (Math.abs(panel.scrollTop - top) < 0.5) return;
       panel.scrollTo({ top, behavior: "instant" });
     };
@@ -193,104 +221,111 @@ export function PerformanceReader({
     <section
       aria-label="Combined performance view"
       className={
-        expanded || stage ? "fixed inset-0 z-50 flex flex-col bg-background p-6 text-foreground" : "flex flex-col rounded-xl border border-seam bg-black/10 p-4"
+        stage
+          ? "fixed inset-0 z-50 flex flex-col gap-3 bg-background p-3 text-foreground"
+          : expanded
+            ? "fixed inset-0 z-50 flex flex-col bg-background p-6 text-foreground"
+            : "flex flex-col rounded-xl border border-seam bg-black/10 p-4"
       }
     >
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="mr-auto">
-          <h2 className="font-semibold">Lyrics & chords · Perform</h2>
-          <p className="text-sm text-silkscreen-3">
-            {title} · <ClockText />
-          </p>
-        </div>
-        {!stage && onSaveChart && (
-          <Button
-            variant="outline"
-            disabled={editing}
-            onClick={() => {
-              onEditStart?.();
-              setEditing(true);
-            }}
-          >
-            Edit chords, lyrics & MIDI
+      {stage &&
+        stageTop?.({
+          follow,
+          onFollow: setFollow,
+          showCommands: stageCommands,
+          onShowCommands: setStageCommands,
+          pdfControls: pdf ? <PdfControls songId={pdf.songId} chart={pdf.chart} view={pdf.view} stage onView={pdf.onView} /> : null,
+        })}
+      {!stage && (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <div className="mr-auto">
+            <h2 className="font-semibold">Lyrics & chords · Perform</h2>
+            <p className="text-sm text-silkscreen-3">
+              {title} · <ClockText />
+            </p>
+          </div>
+          {!stage && onSaveChart && (
+            <Button
+              variant="outline"
+              disabled={editing}
+              onClick={() => {
+                onEditStart?.();
+                setEditing(true);
+              }}
+            >
+              Edit chords, lyrics & MIDI
+            </Button>
+          )}
+          {!stage && soloScale && (
+            <Button ref={soloButton} variant="outline" onClick={() => setSoloOpen(true)}>
+              Solo scale
+            </Button>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow playback
+          </label>
+          {pdf && <PdfControls songId={pdf.songId} chart={pdf.chart} view={pdf.view} stage={stage} onView={pdf.onView} />}
+          {follow && !pdfShown && (
+            <Select value={autoscrollMode} onValueChange={(value) => isAutoscrollMode(value) && useAutoscroll.getState().update({ mode: value })}>
+              <SelectTrigger aria-label="Autoscroll style" className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AUTOSCROLL_MODES.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {AUTOSCROLL_LABELS[mode]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {follow && !pdfShown && autoscrollMode === "constant" && (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                Lines per minute
+                <Input
+                  aria-label="Lines per minute"
+                  type="number"
+                  min={LINES_PER_MINUTE.min}
+                  max={LINES_PER_MINUTE.max}
+                  className="w-24"
+                  value={linesPerMinute}
+                  onChange={(e) => useAutoscroll.getState().update({ linesPerMinute: Number(e.target.value) })}
+                />
+              </label>
+              {fitLinesPerMinute(lines.length, duration) !== null && (
+                <Button
+                  variant="outline"
+                  onClick={() => useAutoscroll.getState().update({ linesPerMinute: fitLinesPerMinute(lines.length, duration) ?? linesPerMinute })}
+                >
+                  Fit to song length
+                </Button>
+              )}
+            </>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={showCommands} onChange={(e) => useMidiConfiguration.getState().update({ showCommands: e.target.checked })} /> Show
+            MIDI commands
+          </label>
+          <Button variant="outline" aria-label="Smaller performance text" disabled={size <= READER_TEXT.min} onClick={() => useReaderText.getState().step(-1)}>
+            A−
           </Button>
-        )}
-        {!stage && soloScale && (
-          <Button ref={soloButton} variant="outline" onClick={() => setSoloOpen(true)}>
-            Solo scale
+          <Button variant="outline" aria-label="Larger performance text" disabled={size >= READER_TEXT.max} onClick={() => useReaderText.getState().step(1)}>
+            A+
           </Button>
-        )}
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow playback
-        </label>
-        {pdf && <PdfControls songId={pdf.songId} chart={pdf.chart} view={pdf.view} stage={stage} onView={pdf.onView} />}
-        {follow && !pdfShown && (
-          <Select value={autoscrollMode} onValueChange={(value) => isAutoscrollMode(value) && useAutoscroll.getState().update({ mode: value })}>
-            <SelectTrigger aria-label="Autoscroll style" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AUTOSCROLL_MODES.map((mode) => (
-                <SelectItem key={mode} value={mode}>
-                  {AUTOSCROLL_LABELS[mode]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {follow && !pdfShown && autoscrollMode === "constant" && (
-          <>
-            <label className="flex items-center gap-2 text-sm">
-              Lines per minute
-              <Input
-                aria-label="Lines per minute"
-                type="number"
-                min={LINES_PER_MINUTE.min}
-                max={LINES_PER_MINUTE.max}
-                className="w-24"
-                value={linesPerMinute}
-                onChange={(e) => useAutoscroll.getState().update({ linesPerMinute: Number(e.target.value) })}
-              />
-            </label>
-            {fitLinesPerMinute(lines.length, duration) !== null && (
-              <Button variant="outline" onClick={() => useAutoscroll.getState().update({ linesPerMinute: fitLinesPerMinute(lines.length, duration) ?? linesPerMinute })}>
-                Fit to song length
-              </Button>
-            )}
-          </>
-        )}
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={showCommands} onChange={(e) => useMidiConfiguration.getState().update({ showCommands: e.target.checked })} /> Show
-          MIDI commands
-        </label>
-        <Button variant="outline" aria-label="Smaller performance text" disabled={size <= READER_TEXT.min} onClick={() => useReaderText.getState().step(-1)}>
-          A−
-        </Button>
-        <Button variant="outline" aria-label="Larger performance text" disabled={size >= READER_TEXT.max} onClick={() => useReaderText.getState().step(1)}>
-          A+
-        </Button>
-        {stage ? (
-          <Button variant="outline" onClick={onExitStage}>
-            Exit stage mode
-          </Button>
-        ) : (
-          <Button ref={expandButton} variant="outline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-            {expanded ? "Close expanded view" : "Expand performance view"}
-          </Button>
-        )}
-      </div>
-      {(expanded || stage) && (
-        <div
-          className={
-            stage
-              ? "mb-3 flex flex-wrap items-center gap-4 [&_button]:min-h-14 [&_button]:min-w-28 [&_button]:text-lg"
-              : "mb-3 flex flex-wrap items-center gap-3"
-          }
-        >
-          {transport}
+          {stage ? (
+            <Button variant="outline" onClick={onExitStage}>
+              Exit stage mode
+            </Button>
+          ) : (
+            <Button ref={expandButton} variant="outline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+              {expanded ? "Close expanded view" : "Expand performance view"}
+            </Button>
+          )}
         </div>
       )}
-      {status && (
+      {expanded && !stage && <div className="mb-3 flex flex-wrap items-center gap-3">{transport}</div>}
+      {status && !stage && (
         <div className="mb-3 shrink-0 space-y-1 text-sm" aria-label="Performance status">
           {status}
         </div>
@@ -307,6 +342,8 @@ export function PerformanceReader({
           }}
           onImportMetadata={onImportMetadata}
         />
+      ) : stageCard ? (
+        stageCard
       ) : pdfShown && pdf ? (
         <PdfChart
           key={`${pdf.songId}:${pdf.revision}`}
@@ -329,7 +366,7 @@ export function PerformanceReader({
           }}
           className={
             expanded || stage
-              ? "relative min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-lg p-6"
+              ? "relative min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-lg px-6 py-3"
               : "relative h-[28rem] overflow-y-auto overscroll-contain rounded-lg p-4"
           }
           style={{ fontSize: stage ? Math.max(36, size) : size, lineHeight: 1.6 }}
@@ -379,28 +416,44 @@ export function PerformanceReader({
                       </div>
                     )}
                     {label !== null ? (
-                      <h3 className="text-sm font-semibold tracking-wide text-silkscreen-3 uppercase">{label}</h3>
+                      <h3
+                        className="text-sm font-semibold tracking-wide text-silkscreen-3 uppercase"
+                        style={stage ? { color: sectionColours({ name: label }).edge } : undefined}
+                      >
+                        {label}
+                      </h3>
                     ) : shown ? (
                       <p className={index === active ? "whitespace-pre-wrap font-semibold" : "whitespace-pre-wrap"}>
                         {formatted(transpose(shown, shift, spelling))}
                       </p>
                     ) : null}
-                    {line.midi.map((cue, i) => (
-                      <div key={i} aria-label="MIDI cue" className="my-2 rounded border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-sm text-amber-300">
-                        <strong>
-                          {lrcTime(cue.time)} · {cue.label || "MIDI command"}
-                        </strong>
-                        <span className="ml-2 font-mono">
-                          {cue.messages
-                            .map((bytes) =>
-                              bytes[0] < 0xf0
-                                ? `ch ${(bytes[0] & 15) + 1} · ${bytes[0] >> 4 === 12 ? "PC" : bytes[0] >> 4 === 11 ? "CC" : "MIDI"} ${bytes.slice(1).join(" ")}`
-                                : "SysEx",
-                            )
-                            .join(" → ")}
+                    {stage &&
+                      line.midi.map((cue, i) => (
+                        <span
+                          key={i}
+                          aria-label="MIDI cue"
+                          className="float-right ml-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-sm font-semibold text-amber-300"
+                        >
+                          {cueChip(cue)}
                         </span>
-                      </div>
-                    ))}
+                      ))}
+                    {!stage &&
+                      line.midi.map((cue, i) => (
+                        <div key={i} aria-label="MIDI cue" className="my-2 rounded border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-sm text-amber-300">
+                          <strong>
+                            {lrcTime(cue.time)} · {cue.label || "MIDI command"}
+                          </strong>
+                          <span className="ml-2 font-mono">
+                            {cue.messages
+                              .map((bytes) =>
+                                bytes[0] < 0xf0
+                                  ? `ch ${(bytes[0] & 15) + 1} · ${bytes[0] >> 4 === 12 ? "PC" : bytes[0] >> 4 === 11 ? "CC" : "MIDI"} ${bytes.slice(1).join(" ")}`
+                                  : "SysEx",
+                              )
+                              .join(" → ")}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 );
               })}
@@ -425,10 +478,12 @@ export function PerformanceReader({
           onChange={soloScale.onChange}
         />
       )}
-      <p className="mt-2 text-xs text-silkscreen-3">
-        Chords follow their timestamps above the corresponding lyric line. Chart chords take priority over estimates. Untimed text stays available for manual
-        reading.
-      </p>
+      {!stage && (
+        <p className="mt-2 text-xs text-silkscreen-3">
+          Chords follow their timestamps above the corresponding lyric line. Chart chords take priority over estimates. Untimed text stays available for manual
+          reading.
+        </p>
+      )}
     </section>
   );
   return stage ? (
