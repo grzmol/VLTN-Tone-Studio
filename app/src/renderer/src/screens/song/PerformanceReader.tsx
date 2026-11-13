@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as StageDialog } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,6 +159,12 @@ export function PerformanceReader({
     lyricsBody = useRef<HTMLDivElement>(null),
     rowRefs = useRef<(HTMLDivElement | null)[]>([]),
     expandButton = useRef<HTMLButtonElement>(null);
+  // The stage view sits in a portal that mounts a commit after this component, so the rows are measured again once the scroll box exists.
+  const [boxMounted, setBoxMounted] = useState(false);
+  const attachViewport = useCallback((element: HTMLDivElement | null) => {
+    viewport.current = element;
+    setBoxMounted(element !== null);
+  }, []);
   const chordButton = useRef<HTMLButtonElement | null>(null);
   const soloButton = useRef<HTMLButtonElement>(null);
   const active = useActiveIndex(useMemo(() => lines.map((line) => line.time), [lines]));
@@ -184,7 +190,7 @@ export function PerformanceReader({
     const observer = new ResizeObserver(measure);
     for (const element of [viewport.current, lyricsBody.current]) if (element) observer.observe(element);
     return () => observer.disconnect();
-  }, [lines, size, expanded, stage, editing, pdfShown, autoscrollMode, linesPerMinute]);
+  }, [lines, size, expanded, stage, editing, pdfShown, autoscrollMode, linesPerMinute, boxMounted]);
   // Autoscroll follows the song position from the playback clock. The clock's listener moves the scroll box directly, so a frame of
   // playback does not re-render the reader. A manual or remote scroll holds it off for a while, and it then returns to the position.
   useEffect(() => {
@@ -355,7 +361,7 @@ export function PerformanceReader({
         />
       ) : (
         <div
-          ref={viewport}
+          ref={attachViewport}
           data-reader-scroll
           tabIndex={0}
           aria-label="Combined lyrics and chords"
