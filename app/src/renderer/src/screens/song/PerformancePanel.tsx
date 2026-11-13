@@ -42,6 +42,7 @@ import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
 import { PerformanceMix } from "./PerformanceMix";
 import { BandPanel, BandPanelButton } from "./BandPanel";
+import { ResumeBanner } from "./ResumeBanner";
 import { MissingPartsNotice } from "./MissingPartsNotice";
 import { TrackImport } from "./TrackImport";
 import { SongLoudnessControl } from "./SongLoudnessControl";
@@ -690,6 +691,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   return (
     <section className="glass flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-xl p-5" aria-label="Performance">
       <div style={{ display: stage ? "none" : "contents" }}>
+        <ResumeBanner session={session} setStage={setStage} />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <PerformanceViewSwitcher view={view} onView={chooseView} />
           <Button variant="outline" onClick={() => setStage(true)}>
