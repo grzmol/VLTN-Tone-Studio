@@ -10,6 +10,7 @@ import { StatusBar } from "./StatusBar";
 import { useAppCommands } from "./commands";
 import { useDeviceWatch } from "./device-watch";
 import { useShowGuard } from "./show-guard";
+import { useResumeAfterCrash } from "./resume-after-crash";
 import { useUpdateWatch } from "./updates";
 import { CommandPalette } from "./palette/CommandPalette";
 import { AboutDialog } from "./overlays/AboutDialog";
@@ -44,6 +45,7 @@ export function AppShell() {
   useAppCommands();
   useDeviceWatch();
   useShowGuard();
+  useResumeAfterCrash();
   useUpdateWatch();
   useWhatsNewOnLaunch();
   const Active = SCREENS[screen];
