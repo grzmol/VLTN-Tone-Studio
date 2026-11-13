@@ -32,7 +32,10 @@ const WIDE_ONLY = `hidden ${NARROW}`;
 
 /** The same section's name with a trailing number taken off, so "Verse 2" and "Verse" are one kind of section. */
 export function sectionKind(name: string): string {
-  return name.replace(/\s*\d+$/, "").trim().toLowerCase();
+  return name
+    .replace(/\s*\d+$/, "")
+    .trim()
+    .toLowerCase();
 }
 
 /**
