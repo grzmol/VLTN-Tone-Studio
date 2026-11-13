@@ -9,6 +9,7 @@ import { WHOLE_SONG_ID, planSections, type BandSettings, type SectionBandHint, t
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
 import { parseKey } from "../analysis/chord-hmm";
+import { parseSongKey } from "../songmap/songmap";
 import { parseAnalysis } from "../analysis/song-analysis";
 import { bassRangeFor } from "./bass";
 import type { BandKey } from "./bass-phrases";
@@ -136,10 +137,11 @@ export function bandKeys(songKey: string | undefined, keySections: BandInputs["k
 }
 
 /**
- * The key inputs of a song from its saved options: the performer's key override wins, then a strong estimate (the key the chord names are
- * spelled by, SongKey.tsx), and the sections of the song analysis that read as another key.
+ * The key inputs of a song from its saved options: the performer's key override wins, then a strong estimate from the song analysis (the
+ * key the chord names are spelled by, SongKey.tsx), then the key on the song's library entry, and the sections of the song analysis that
+ * read as another key. With none of them the song has no key.
  */
-export function keysFromOptions(options: Record<string, unknown>): Pick<BandInputs, "songKey" | "keySections"> {
+export function keysFromOptions(options: Record<string, unknown>, libraryKey?: string | null): Pick<BandInputs, "songKey" | "keySections"> {
   const override = typeof options.songKey === "string" && options.songKey ? options.songKey : undefined;
   const estimate = options.detectedKey as { name?: unknown; confidence?: unknown } | null | undefined;
   const detected = estimate?.confidence === "strong" && typeof estimate.name === "string" ? estimate.name : undefined;
@@ -148,7 +150,9 @@ export function keysFromOptions(options: Record<string, unknown>): Pick<BandInpu
     const section = analysis?.sections?.[Number(entry.sectionId)];
     return section ? [{ start: section.start, end: section.end, key: entry.key.name }] : [];
   });
-  return { songKey: override ?? detected, keySections };
+  // The key saved on the library entry (an import or the song details) is the last resort, read as a key name such as "F#m" or "Bb".
+  const fromLibrary = libraryKey ? parseSongKey(libraryKey)?.name : undefined;
+  return { songKey: override ?? detected ?? fromLibrary, keySections };
 }
 
 /**
