@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -13,6 +14,7 @@ import {
 import { host } from "@/host";
 import { selectWholeSongStems, useSong } from "@/song/store";
 import {
+  CURRENT_ENGINE,
   planSections,
   RENDERED_KINDS,
   WHOLE_SONG_ID,
@@ -130,6 +132,8 @@ export interface BandPanelProps {
   bassLine?: readonly BassLineBeat[] | null;
   /** The song analysis's sections: where the song's own drums or bass stop, and how loud each is. The plans default to follow them. */
   sectionHints?: readonly SectionBandHint[];
+  /** The key saved on the song's library entry. The bass uses it when the performer set no key and the song analysis found none. */
+  libraryKey?: string;
 }
 
 export { BandPanelButton, type BandPanelButtonProps } from "./BandPanelButton";
@@ -163,6 +167,7 @@ function BandBody({
   onPartChoice,
   bassLine = null,
   sectionHints = [],
+  libraryKey,
 }: BandPanelProps) {
   // On by default when the tempo was set by hand: the beat is then found near it, not from the tracker's own pick.
   const [useMyTempo, setUseMyTempo] = useState(true);
@@ -434,7 +439,7 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
-        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {})),
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {}), libraryKey),
       };
       let request = bandRequest(input);
       const notes: (string | BandNotice)[] = [];
@@ -685,6 +690,13 @@ function BandBody({
   /** Back to generated renders the part again with the current settings: the generated audio is not kept, so this is Generate for it alone. */
   const backToGenerated = (kind: RenderedKind) => void generate(settingsRef.current, kind);
 
+  /** A song saved with the earlier band patterns moves to the newest ones, and generates again with them, so the replace and tone questions still apply. */
+  const updateEngine = () => {
+    const next = { ...settingsRef.current, engine: CURRENT_ENGINE };
+    save(next);
+    void generateOrAsk(next);
+  };
+
   const tryAnother = () => {
     const next = { ...settings, seed: 1 + Math.floor(Math.random() * 0xfffffffe) };
     save(next);
@@ -718,7 +730,7 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
-        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {})),
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {}), libraryKey),
       });
       const rendering: BandJob = renderPreview(request, from, bars);
       job.current = rendering;
@@ -868,6 +880,14 @@ function BandBody({
         {ownParts(missing) && <p>{ownParts(missing)}</p>}
         {(["drums", "bass"] as const).map((kind) => missing?.[kind] !== "present" && <p key={kind}>{partLine(kind)}</p>)}
         <p className="text-silkscreen-3">{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
+        {settings.engine < CURRENT_ENGINE && (
+          <p className="flex items-center gap-2">
+            This song uses the earlier band patterns.
+            <Button type="button" size="sm" variant="outline" disabled={blocked} onClick={updateEngine}>
+              Update…
+            </Button>
+          </p>
+        )}
         {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
       </section>
       <Tabs value={tab} onValueChange={(value) => isBandTab(value) && setTab(value)} className="min-h-0 flex-1 gap-2">

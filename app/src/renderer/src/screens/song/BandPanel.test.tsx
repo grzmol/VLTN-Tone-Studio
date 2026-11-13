@@ -281,6 +281,23 @@ describe("Band panel", () => {
     expect(mocks.startBeatGrid).not.toHaveBeenCalled();
   });
 
+  it("offers to update a song on the earlier band patterns, and generates again with the newest ones", async () => {
+    stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, engine: 1 } });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel();
+    expect(screen.getByText(/This song uses the earlier band patterns/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Update…" }));
+    await waitFor(() => expect(mocks.startBandRender).toHaveBeenCalledTimes(1));
+    expect(mocks.startBandRender.mock.calls[0][0].settings.engine).toBe(2);
+    expect(savedOptions().band.engine).toBe(2);
+    expect(screen.queryByText(/This song uses the earlier band patterns/)).toBeNull();
+  });
+
+  it("shows no update line for a song already on the newest patterns", () => {
+    renderPanel();
+    expect(screen.queryByText(/This song uses the earlier band patterns/)).toBeNull();
+  });
+
   it("changing the style or complexity saves at once and marks the parts out of date", () => {
     renderPanel();
     pick(screen.getByRole("combobox", { name: "Style" }), "Funk");

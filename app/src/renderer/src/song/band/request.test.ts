@@ -246,6 +246,27 @@ describe("keysFromOptions", () => {
   });
 });
 
+describe("keysFromOptions: where the song's key comes from", () => {
+  const estimate = { name: "E major", confidence: "strong" };
+  const analysisOnly = { detectedKey: estimate };
+
+  it("goes performer override, then song analysis, then the library entry, then none", () => {
+    expect(keysFromOptions({ songKey: "C major", ...analysisOnly }, "A minor").songKey).toBe("C major");
+    expect(keysFromOptions(analysisOnly, "A minor").songKey).toBe("E major");
+    expect(keysFromOptions({}, "A minor").songKey).toBe("A minor");
+    expect(keysFromOptions({}, undefined).songKey).toBeUndefined();
+    expect(keysFromOptions({}).songKey).toBeUndefined();
+    // A tentative analysis key is not used, so the library entry's key is.
+    expect(keysFromOptions({ detectedKey: { ...estimate, confidence: "tentative" } }, "A minor").songKey).toBe("A minor");
+  });
+
+  it("reads the library entry's key however it is written, and ignores text that is not a key", () => {
+    expect(keysFromOptions({}, "F#m").songKey).toBe("F# minor");
+    expect(keysFromOptions({}, "Bb").songKey).toBe("Bb major");
+    expect(keysFromOptions({}, "not a key").songKey).toBeUndefined();
+  });
+});
+
 describe("extendedRangeNote", () => {
   it("says the range is extended for a song in a low key, and nothing otherwise", () => {
     const keys = (tonic: number) => [{ start: 0, end: 60, tonic, mode: "major" as const }];
