@@ -29,3 +29,16 @@ describe("beatTimeAt", () => {
     expect(beatTimeAt([0, 0.5, 1], 4)).toBe(2);
   });
 });
+
+describe("band settings for tones", () => {
+  it("read what a part was rendered with, and a built-in bass tone", () => {
+    expect(parseBandSettings({ renderedTone: { bass: "clean", drums: "chain", other: "chain" } }).renderedTone).toEqual({ bass: "clean", drums: "chain" });
+    expect(parseBandSettings({}).renderedTone).toEqual({});
+    expect(parseBandSettings({ bassTone: { kind: "builtin", id: "warm" } }).bassTone).toEqual({ kind: "builtin", id: "warm" });
+    // Drums have no built-in tone, and an unknown one is clean.
+    expect(parseBandSettings({ drumTone: { kind: "builtin", id: "warm" } }).drumTone).toEqual({ kind: "clean" });
+    expect(parseBandSettings({ bassTone: { kind: "builtin", id: "other" } }).bassTone).toEqual({ kind: "clean" });
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "builtin", id: "warm" }, renderedTone: { bass: "chain" } })).toBe(true);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, renderedTone: { bass: "dirty" } })).toBe(false);
+  });
+});

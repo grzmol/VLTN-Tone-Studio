@@ -130,7 +130,15 @@ export interface ToneBlock {
  * A part's tone. "clean" is the generated sample as it is. "chain" plays it through its blocks in order, then mixes the result with the
  * dry sample by `dryWet` (0 dry, 1 all chain). `fast` renders captures at their Lite size where the file has one.
  */
-export type PartTone = { kind: "clean" } | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean };
+export type PartTone =
+  | { kind: "clean" }
+  | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean }
+  /** A tone that needs no download: the bass is played through a fixed chain in code (builtin-bass-tone.ts). */
+  | { kind: "builtin"; id: BuiltinToneId };
+
+/** The built-in tones. "warm" is the bass's: a gentle compressor and saturation with a rolled-off top. */
+export const BUILTIN_TONES = ["warm"] as const;
+export type BuiltinToneId = (typeof BUILTIN_TONES)[number];
 export type BassTone = PartTone;
 
 /** The key the overrides of a song without sections are kept under. Section ids are UUIDs, so this cannot clash with one. */
@@ -236,6 +244,8 @@ export interface BandSettings {
   drumTone: PartTone;
   /** Parts brought back as rendered audio (spec 84). A kind is here while its track is the rendered audio, not a generated part. */
   rendered: Partial<Record<RenderedKind, RenderedPart>>;
+  /** What each generated part was last rendered with: "clean" when its tone asked for a chain whose files were missing (spec 136). */
+  renderedTone: Partial<Record<TonePart, "clean" | "chain">>;
   /** The time of each generated part's first note at the last Generate, so a rendered file can be lined up with it. */
   firstNote: Partial<Record<RenderedKind, number>>;
   /** Each generation uses this seed, so a song regenerates the same way. "Try another" picks a new one. */
@@ -268,6 +278,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassTone: { kind: "clean" },
   drumTone: { kind: "clean" },
   rendered: {},
+  renderedTone: {},
   firstNote: {},
   seed: 1,
   sections: {},
@@ -488,6 +499,16 @@ function parseFirstNote(value: unknown): Partial<Record<RenderedKind, number>> {
   return out;
 }
 
+/** The tone each part was rendered with, keeping each valid entry. */
+function parseRenderedTone(value: unknown): Partial<Record<TonePart, "clean" | "chain">> {
+  const out: Partial<Record<TonePart, "clean" | "chain">> = {};
+  if (!isRecord(value)) return out;
+  for (const part of ["bass", "drums"] as const) if (value[part] === "clean" || value[part] === "chain") out[part] = value[part];
+  return out;
+}
+const isRenderedTone = (value: unknown): boolean =>
+  isRecord(value) && Object.entries(value).every(([key, tone]) => (key === "bass" || key === "drums") && (tone === "clean" || tone === "chain"));
+
 /** True when every entry of the rendered and first-note records is valid. */
 const isRendered = (value: unknown): boolean =>
   isRecord(value) && Object.keys(value).every((key) => isRenderedKind(key) && parseRenderedPart(value[key]) !== null);
@@ -545,6 +566,7 @@ function isToneBlock(value: unknown, part: TonePart): boolean {
 function isPartTone(value: unknown, part: TonePart): value is PartTone {
   if (!isRecord(value)) return false;
   if (value.kind === "clean") return true;
+  if (value.kind === "builtin") return part === "bass" && (BUILTIN_TONES as readonly unknown[]).includes(value.id);
   return (
     value.kind === "chain" &&
     Array.isArray(value.blocks) &&
@@ -579,6 +601,8 @@ export function parsePartTone(value: unknown, part: TonePart): PartTone {
     if (cab) blocks.push({ type: "ir", role: "cab", file: cab, inputDb: 0, outputDb: 0, mix: 1, on: true });
     return { kind: "chain", blocks, dryWet: isUnit(value.blend) ? value.blend : 1, fast: false };
   }
+  if (value.kind === "builtin" && part === "bass" && (BUILTIN_TONES as readonly unknown[]).includes(value.id))
+    return { kind: "builtin", id: value.id as BuiltinToneId };
   if (value.kind !== "chain") return { kind: "clean" };
   const blocks = Array.isArray(value.blocks)
     ? value.blocks
@@ -621,6 +645,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isPartTone(value.bassTone, "bass") &&
     isPartTone(value.drumTone, "drums") &&
     isRendered(value.rendered) &&
+    isRenderedTone(value.renderedTone) &&
     isFirstNote(value.firstNote) &&
     isSeed(value.seed) &&
     isRecord(value.sections) &&
@@ -702,6 +727,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassTone: parseBassTone(source.bassTone),
     drumTone: parseDrumTone(source.drumTone),
     rendered: parseRendered(source.rendered),
+    renderedTone: parseRenderedTone(source.renderedTone),
     firstNote: parseFirstNote(source.firstNote),
     seed: isSeed(source.seed) ? source.seed : defaults.seed,
     sections,
