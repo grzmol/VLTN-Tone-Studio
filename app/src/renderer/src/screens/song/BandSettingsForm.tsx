@@ -10,7 +10,7 @@ import { BASS_PART_LABELS, styleChoices } from "./band-labels";
  * A lighter track keeps the full length visible at any value.
  */
 const BAND_TRACK = "bg-white/15";
-const BASS_RANGE_LABELS: Record<(typeof BASS_RANGES)[number], string> = { low: "Low", normal: "Normal", high: "High" };
+const BASS_RANGE_LABELS: Record<(typeof BASS_RANGES)[number], string> = { low: "Low", normal: "Normal", high: "High", extended: "Extended low (5-string, drop tunings)" };
 const BASS_FROM_LABELS: Record<BassFrom, string> = { original: "Original bass", chords: "Chords" };
 const FOLLOW_LABELS: Record<FollowSource, string> = { auto: "Auto", guitar: "Guitar", piano: "Piano", other: "Other", mix: "Mix" };
 const HUMANISE_LABELS: Record<HumaniseChoice, string> = {
@@ -157,7 +157,7 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, b
         <label className="flex items-center gap-3">
           Bass range
           <Select value={settings.bassRange} onValueChange={(value) => onChange({ bassRange: value as BandSettings["bassRange"] })}>
-            <SelectTrigger aria-label="Bass range" className="w-36">
+            <SelectTrigger aria-label="Bass range" className="w-64">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

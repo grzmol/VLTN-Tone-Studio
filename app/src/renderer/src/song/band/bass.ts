@@ -9,7 +9,7 @@
 // next bass note is then picked from that approach. Both picks land on the same octave, because the approach is within a tone of the
 // target and no other octave of the same pitch class is that close.
 
-import type { BandSettings, BassMode, SectionPlan } from "./arrangement";
+import type { BandSettings, BassMode, BassRange, SectionPlan } from "./arrangement";
 import { OCTAVE_SHIFTS, pedalSteps, pulseSteps, ringSteps, type BarStep, type BassPart, type OctaveShift } from "./bass-parts";
 import {
   chooseVariation,
@@ -49,12 +49,31 @@ import {
   stretchesToBar,
 } from "./timing";
 
-/** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
-export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
+/**
+ * Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). Extended is a five-string or a dropped
+ * four-string, from B0. Its centre sits low, so a root of C sharp, D or E flat lands below the low E instead of a seventh above it.
+ */
+export const BASS_NOTE_RANGES: Record<BassRange, { low: number; high: number; centre: number }> = {
   low: { low: 28, high: 40, centre: 34 },
   normal: { low: 28, high: 55, centre: 40 },
   high: { low: 33, high: 60, centre: 46 },
+  extended: { low: 23, high: 50, centre: 31 },
 };
+
+/** A song in one of these keys (C, C sharp, D, E flat) plans with the extended range when the range is still the default. */
+const LOW_KEY_TONICS: readonly number[] = [0, 1, 2, 3];
+
+/**
+ * The range the bass plans with. The default range (normal) becomes extended for a song whose key has a tonic of C, C sharp, D or E flat,
+ * at engine 2. A range the performer chose, and a song with no known key, keep their own. `tonic` is the key's tonic when the range was
+ * changed this way, so the panel can say so.
+ */
+export function bassRangeFor(settings: Pick<BandSettings, "bassRange" | "engine">, keys: readonly BandKey[]): { range: BassRange; tonic: number | null } {
+  if (settings.engine < 2 || settings.bassRange !== "normal") return { range: settings.bassRange, tonic: null };
+  // The song's key is the one that covers the most of it.
+  const key = keys.reduce<BandKey | null>((best, candidate) => (best === null || candidate.end - candidate.start > best.end - best.start ? candidate : best), null);
+  return key && LOW_KEY_TONICS.includes(key.tonic) ? { range: "extended", tonic: key.tonic } : { range: settings.bassRange, tonic: null };
+}
 
 /** A kick within this many seconds of a step locks the step to it. */
 const LOCK_WINDOW = 0.03;
@@ -799,7 +818,7 @@ export function generateBass(
 
   const random = createRandom(seed);
   const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime, keys);
-  const range = BASS_NOTE_RANGES[settings.bassRange];
+  const range = BASS_NOTE_RANGES[bassRangeFor(settings, keys).range];
   // Engine 2 keeps each section's roots in one register: its home note (see homeNotes).
   const homes = settings.engine >= 2 ? homeNotes(slots, range) : null;
   for (const slot of slots) slot.home = homes?.get(slot.plan) ?? null;

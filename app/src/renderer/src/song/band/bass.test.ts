@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type BassMode, type BassRange, type SectionPlan } from "./arrangement";
-import { generateBass } from "./bass";
+import { bassRangeFor, generateBass } from "./bass";
 import { chooseFigure, type Figure } from "./bass-figures";
 import { findStyle } from "./styles";
 import type { EndingSettings } from "./ending";
@@ -78,7 +78,7 @@ describe("generateBass", () => {
   });
 
   it("keeps every note inside the range, for each range and mode", () => {
-    const ranges: Record<BassRange, [number, number]> = { low: [28, 40], normal: [28, 55], high: [33, 60] };
+    const ranges: Record<BassRange, [number, number]> = { low: [28, 40], normal: [28, 55], high: [33, 60], extended: [23, 50] };
     const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
     const grid = gridOf(progression.length);
     const modes: [BassMode, string][] = [
@@ -671,6 +671,33 @@ describe("generateBass with a figure (engine 2)", () => {
     for (const pitch of rootsOf(1)) expect(pitch).toBeLessThanOrEqual(55);
     // An octave down would put C at 24, below the range, so it stays at 36.
     expect(rootsOf(-1)).toEqual([36, 33]);
+  });
+
+  it("plays a root of D at D1 (26) in the extended range, a seventh above the low E in the normal one", () => {
+    const chords = barsOf("D", "D", "D", "D");
+    const rootOf = (settings: BandSettings, keys: { start: number; end: number; tonic: number; mode: "major" | "minor" }[] = []) =>
+      generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { bassPart: "pulse" })], settings, [], 3, undefined, undefined, keys)[0].pitch;
+    expect(rootOf(engine2({ bassRange: "extended" }))).toBe(26);
+    expect(rootOf(engine2())).toBe(38);
+  });
+
+  it("plans a song in C, C sharp, D or E flat with the extended range while the range is still the default", () => {
+    const keyOf = (tonic: number) => [{ start: 0, end: 60, tonic, mode: "major" as const }];
+    for (const tonic of [0, 1, 2, 3]) expect(bassRangeFor(engine2(), keyOf(tonic))).toEqual({ range: "extended", tonic });
+    expect(bassRangeFor(engine2(), keyOf(4))).toEqual({ range: "normal", tonic: null });
+    expect(bassRangeFor(engine2(), [])).toEqual({ range: "normal", tonic: null });
+    // A range the performer chose, and the earlier engine, keep their own.
+    expect(bassRangeFor(engine2({ bassRange: "high" }), keyOf(2))).toEqual({ range: "high", tonic: null });
+    expect(bassRangeFor(settingsFor({ engine: 1 }), keyOf(2))).toEqual({ range: "normal", tonic: null });
+    // The song's key is the one covering most of it.
+    const mixed = [
+      { start: 0, end: 20, tonic: 2, mode: "major" as const },
+      { start: 20, end: 60, tonic: 7, mode: "major" as const },
+    ];
+    expect(bassRangeFor(engine2(), mixed).range).toBe("normal");
+    const chords = barsOf("D", "D", "D", "D");
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { bassPart: "pulse" })], engine2(), [], 3, undefined, undefined, keyOf(2));
+    expect(notes[0].pitch).toBe(26);
   });
 
   it("keeps every note inside the range, for every style and energy", () => {
