@@ -92,6 +92,8 @@ const WALK_LEAP = 5;
 const GROOVE_SHARE: readonly [number, number] = [0.7, 0.95];
 const PULSE_SHARE: readonly [number, number] = [0.4, 0.9];
 const WALKING_SHARE = 0.9;
+/** A short figure note lasts the step to the next note divided by this. */
+const SHORT_SHARE = 3;
 /** The bass feel scales every length: 0 (tight) gives 0.6, 1 (ring) gives 1.4, and 0.5 gives 1. */
 const FEEL_TIGHT = 0.6;
 const FEEL_RING = 1.4;
@@ -394,6 +396,7 @@ function ownSteps(part: BassPart, busy: Energy, steps: number, stepsPerBeat: num
 /**
  * How long a note lasts, in seconds. A hit-the-one note holds to the next chord change or the bar end. Ring lasts to the next note. Pulse,
  * groove, melodic and a variant note last a share of the step to the next note, rising with the loud level, and walking a fixed share.
+ * A short figure note lasts a third of that step.
  * Pedal lasts to the bar end. The bass feel scales the result, and the note never runs past the next note less a gap, or past its bar.
  */
 function noteLength(slot: Slot, nextTime: number, feel: number): number {
@@ -405,7 +408,9 @@ function noteLength(slot: Slot, nextTime: number, feel: number): number {
   const level = (slot.loud - 1) / 4;
   const share = (range: readonly [number, number]): number => range[0] + (range[1] - range[0]) * level;
   let length: number;
-  if (slot.variant) length = gap * share(GROOVE_SHARE);
+  // A short figure note (funk, reggae) lasts a third of the step to the next note, whatever the loud level.
+  if (slot.figure?.short) length = gap / SHORT_SHARE;
+  else if (slot.variant) length = gap * share(GROOVE_SHARE);
   else if (slot.part === "ring") length = gap;
   else if (slot.part === "pedal") length = bar;
   else if (slot.part === "pulse") length = gap * share(PULSE_SHARE);
