@@ -956,6 +956,25 @@ function BandBody({
             <BandTabNotes
               grid={grid}
               harmony={harmony}
+              partView={{
+                notes: savedNotes,
+                grid,
+                harmony,
+                sections: rows.map(({ plan, name }) => ({ name, start: plan.start, end: plan.end })),
+                selected: Math.min(selected ?? 0, Math.max(0, rows.length - 1)),
+                onSelect: (index) => {
+                  setSelected(index);
+                  setPreviewAt(null);
+                },
+                onPlayFrom: onPlayFrom
+                  ? (seconds) => {
+                      show(false);
+                      onPlayFrom(seconds);
+                    }
+                  : undefined,
+                getPosition,
+                playing: audioPlaying,
+              }}
               blocked={blocked}
               busy={false}
               work={null}
