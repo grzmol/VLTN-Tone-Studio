@@ -43,6 +43,18 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, s
           <Switch aria-label="Generate drums" checked={settings.parts.drums} onCheckedChange={(on) => onChange({ parts: { ...settings.parts, drums: on } })} />
           Drums
         </label>
+        <label className="flex items-center gap-3">
+          Room {Math.round(settings.drumRoom * 100)}%
+          <Slider
+            trackClassName={BAND_TRACK}
+            aria-label="Room"
+            min={0}
+            max={100}
+            step={5}
+            value={[Math.round(settings.drumRoom * 100)]}
+            onValueChange={([percent]) => onChange({ drumRoom: percent / 100 })}
+          />
+        </label>
         <label className="flex items-center gap-2">
           <Switch aria-label="Generate bass" checked={settings.parts.bass} onCheckedChange={(on) => onChange({ parts: { ...settings.parts, bass: on } })} />
           Bass

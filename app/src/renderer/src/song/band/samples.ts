@@ -35,6 +35,8 @@ export interface SampleSet {
   /** Drum layers by GM pitch, sorted by velocity. */
   drums: Map<number, DrumLayer[]>;
   bass: BassSample[];
+  /** The built-in room's impulse response (room.ts). A set without one has no room. */
+  room?: PcmAudio;
 }
 
 /** One drum layer in map.json: `file` for a single take, or `files` for round-robin takes. */
@@ -54,6 +56,8 @@ export function takeFiles(layer: DrumLayerEntry): string[] {
 /** What samples/map.json holds. File paths are relative to samples/. */
 export interface SampleMap {
   sampleRate: number;
+  /** The room impulse response, relative to samples/. */
+  room?: string;
   drums: Record<string, { name: string; layers: DrumLayerEntry[] }>;
   bass: { file: string; root: number; layer: "p" | "f"; velocity: VelocityRange }[];
 }
@@ -80,6 +84,7 @@ export function readSampleMap(value: unknown): SampleMap {
   if (!Number.isFinite(map.sampleRate) || (map.sampleRate ?? 0) <= 0) fail("sampleRate");
   if (!map.drums || typeof map.drums !== "object") fail("drums");
   if (!Array.isArray(map.bass)) fail("bass");
+  if (map.room !== undefined && typeof map.room !== "string") fail("room");
   const isRange = (r: unknown): r is VelocityRange => Array.isArray(r) && r.length === 2 && r.every(Number.isInteger);
   const isTakeList = (layer: DrumLayerEntry): boolean =>
     layer.files !== undefined ? Array.isArray(layer.files) && layer.files.length > 0 && layer.files.every((f) => typeof f === "string") : typeof layer.file === "string";
@@ -237,7 +242,7 @@ export function sampleSetFrom(map: SampleMap, audioFor: (file: string) => PcmAud
     );
   }
   const bass = map.bass.map((sample) => ({ root: sample.root, layer: sample.layer, velocity: sample.velocity, audio: audioFor(sample.file) }));
-  return { drums, bass };
+  return { drums, bass, room: map.room ? audioFor(map.room) : undefined };
 }
 
 // Vite emits each FLAC as an asset and gives its URL (the same pattern as the Gp5 fixtures and the capture clips).
@@ -255,7 +260,7 @@ const DECODE_BATCH = 8;
 
 /** Every sample file the map names, once each. */
 function sampleFiles(): string[] {
-  return [...new Set([...Object.values(SAMPLE_MAP.drums).flatMap((e) => e.layers.flatMap(takeFiles)), ...SAMPLE_MAP.bass.map((s) => s.file)])];
+  return [...new Set([...Object.values(SAMPLE_MAP.drums).flatMap((e) => e.layers.flatMap(takeFiles)), ...SAMPLE_MAP.bass.map((s) => s.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])])];
 }
 
 async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>): Promise<Map<string, PcmAudio>> {

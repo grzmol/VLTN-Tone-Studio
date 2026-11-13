@@ -1,5 +1,6 @@
 {
   "sampleRate": 44100,
+  "room": "room/drum-room.flac",
   "drums": {
     "36": {
       "name": "kick",
