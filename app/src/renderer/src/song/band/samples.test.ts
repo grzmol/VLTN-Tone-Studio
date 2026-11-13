@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { PcmAudio } from "../types";
-import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumSample, readSampleMap, sampleSetFrom, takeFiles, type SampleSet } from "./samples";
+import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumLayers, pickDrumSample, readSampleMap, sampleSetFrom, takeFiles, type SampleSet } from "./samples";
 import { ENERGIES, STYLES } from "./styles";
 
 const SAMPLES = join(dirname(fileURLToPath(import.meta.url)), "samples");
@@ -171,6 +171,47 @@ describe("pickDrumSample", () => {
   it("throws for a pitch with no sample", () => {
     const { set } = stubSet();
     expect(() => pickDrumSample(set, 0, 80)).toThrow(/GM pitch 0/);
+  });
+});
+
+describe("pickDrumLayers", () => {
+  it("plays one layer well inside its range", () => {
+    const { set, audio } = stubSet();
+    const mix = pickDrumLayers(set, 36, 63);
+    expect(mix).toHaveLength(1);
+    expect(mix[0].weight).toBe(1);
+    expect(mix[0].pick.audio).toBe(audio("drums/kick-v2-rr1.flac"));
+  });
+
+  it("plays two layers with equal-power weights 3 steps below a boundary", () => {
+    const { set, audio } = stubSet();
+    // The kick's layers meet between 79 and 80.
+    const mix = pickDrumLayers(set, 36, 76);
+    expect(mix.map((m) => m.pick.audio)).toEqual([audio("drums/kick-v2-rr1.flac"), audio("drums/kick-v3-rr1.flac")]);
+    expect(mix[0].weight ** 2 + mix[1].weight ** 2).toBeCloseTo(1);
+    expect(mix[0].weight).toBeGreaterThan(mix[1].weight);
+  });
+
+  it("meets at equal weights on the boundary and is continuous across it", () => {
+    const { set } = stubSet();
+    const below = pickDrumLayers(set, 36, 79);
+    const above = pickDrumLayers(set, 36, 80);
+    // One velocity step moves a weight by about 0.08 (a whole zone is 12 steps), and the lower layer never jumps up.
+    expect(Math.abs(below[0].weight - above[1].weight)).toBeLessThan(0.12);
+    expect(Math.abs(below[1].weight - above[0].weight)).toBeLessThan(0.12);
+    expect(below[1].weight).toBeGreaterThan(0.6);
+  });
+
+  it("uses the same take for both layers", () => {
+    const { set, audio } = stubSet();
+    const mix = pickDrumLayers(set, 36, 76, 2);
+    expect(mix.map((m) => m.pick.audio)).toEqual([audio("drums/kick-v2-rr3.flac"), audio("drums/kick-v3-rr3.flac")]);
+  });
+
+  it("plays only the first or the last layer at the ends of the velocity range", () => {
+    const { set } = stubSet();
+    expect(pickDrumLayers(set, 36, 1)).toHaveLength(1);
+    expect(pickDrumLayers(set, 36, 127)).toHaveLength(1);
   });
 });
 

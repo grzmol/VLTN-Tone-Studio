@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DRUM_PAN, PEAK_LIMIT, panGains, renderPart, sampleAttack } from "./render";
 import { CLOSED_HAT, KICK, OPEN_HAT, SNARE, type NoteEvent } from "./note";
-import { pickDrumSample, type BassSample, type DrumLayer, type SampleSet } from "./samples";
+import { pickDrumLayers, pickDrumSample, type BassSample, type DrumLayer, type SampleSet } from "./samples";
 import type { PcmAudio } from "../types";
 
 const RATE = 44100;
@@ -95,6 +95,30 @@ describe("renderPart: drums", () => {
 
     const loud = renderPart([hit(0, KICK, 100)], "drums", drums, 1000).audio.channels[0][0];
     expect(loud).toBeCloseTo(1 * CENTRE, 6);
+  });
+
+  it("plays hit n of a pitch from take n, and gives the same audio when rendered twice", () => {
+    const takes = [constant(0.2, 2000), constant(0.4, 2000), constant(0.6, 2000)];
+    const drums = kit({ [CLOSED_HAT]: [{ velocity: [1, 127], nominal: 100, transpose: 0, takes }] });
+    const notes = [0.05, 0.15, 0.25, 0.35].map((time) => hit(time, CLOSED_HAT));
+    const first = renderPart(notes, "drums", drums, 20000).audio.channels[0];
+    const at = (seconds: number): number => first[Math.round((seconds + 0.01) * RATE)];
+    expect([0.05, 0.15, 0.25, 0.35].map(at)).toEqual([0.2, 0.4, 0.6, 0.2].map((amplitude) => expect.closeTo(amplitude * panGains(DRUM_PAN[CLOSED_HAT] ?? 0)[0], 3)));
+    expect(Array.from(renderPart(notes, "drums", drums, 20000).audio.channels[0])).toEqual(Array.from(first));
+  });
+
+  it("does not render two equal hats in a row as the same samples when the piece has two takes", () => {
+    const drums = kit({ [CLOSED_HAT]: [{ velocity: [1, 127], nominal: 100, transpose: 0, takes: [constant(0.3, 500), constant(0.5, 500)] }] });
+    const out = renderPart([hit(0, CLOSED_HAT), hit(0.1, CLOSED_HAT)], "drums", drums, 8000).audio.channels[0];
+    expect(out[10]).not.toBeCloseTo(out[Math.round(0.1 * RATE) + 10], 3);
+  });
+
+  it("plays both layers near a boundary, each at its crossfade weight", () => {
+    const drums = kit({ [KICK]: [layer(impulse(1), [1, 62], 100), layer(impulse(1), [63, 127], 100)] });
+    const [left] = renderPart([hit(0, KICK, 60)], "drums", drums, 1000).audio.channels;
+    const weights = pickDrumLayers(drums, KICK, 60).map((m) => m.weight);
+    expect(weights).toHaveLength(2);
+    expect(left[0]).toBeCloseTo(((weights[0] + weights[1]) * 0.6) * CENTRE, 5);
   });
 
   it("outputs exactly lengthFrames, and drops hits past the end", () => {

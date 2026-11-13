@@ -128,6 +128,42 @@ export function pickDrumSample(set: SampleSet, pitch: number, velocity: number, 
   return { audio: layer.takes[take % layer.takes.length], gain: clampVelocity(velocity) / layer.nominal, transpose: layer.transpose };
 }
 
+/** Within this many velocity steps of a layer boundary a drum hit plays both neighbouring layers. */
+export const DRUM_CROSSFADE_STEPS = 6;
+
+/** One drum layer that sounds, with its weight in the mix. */
+export interface DrumLayerMix {
+  pick: DrumPick;
+  weight: number;
+}
+
+/**
+ * The layers a drum hit plays. Normally the one layer that holds the velocity. Within DRUM_CROSSFADE_STEPS of a boundary between two
+ * layers, both play with equal-power weights (the same curve as pickBassLayers), so a velocity crossing a boundary does not step. Both
+ * layers use the same take number.
+ */
+export function pickDrumLayers(set: SampleSet, pitch: number, velocity: number, take = 0): DrumLayerMix[] {
+  const v = clampVelocity(velocity);
+  const layers = set.drums.get(pitch);
+  const main = layers && layerFor(layers, v);
+  if (!layers || !main) throw new Error(`No drum sample for GM pitch ${pitch}.`);
+  const index = layers.indexOf(main);
+  // The boundary lies between a layer's last velocity and the next layer's first.
+  const side = v - main.velocity[0] < main.velocity[1] + 1 - v ? -1 : 1;
+  const other = layers[index + side];
+  const boundary = side === 1 ? main.velocity[1] + 0.5 : main.velocity[0] - 0.5;
+  const distance = Math.abs(v - boundary);
+  if (!other || distance >= DRUM_CROSSFADE_STEPS) return [{ pick: pickDrumSample(set, pitch, v, take), weight: 1 }];
+  // The other layer's share grows from 0 at the edge of the zone to one half at the boundary itself.
+  const toOther = 0.5 * (1 - distance / DRUM_CROSSFADE_STEPS);
+  const angle = (toOther * Math.PI) / 2;
+  const pickOf = (layer: DrumLayer): DrumPick => ({ audio: layer.takes[take % layer.takes.length], gain: v / layer.nominal, transpose: layer.transpose });
+  return [
+    { pick: pickOf(main), weight: Math.cos(angle) },
+    { pick: pickOf(other), weight: Math.sin(angle) },
+  ];
+}
+
 /** The root of the sample nearest the note. Throws when no bass samples are loaded. */
 function nearestBassRoot(set: SampleSet, midi: number): number {
   let root: number | undefined;
