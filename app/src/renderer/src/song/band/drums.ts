@@ -10,6 +10,7 @@ import type { BeatGrid } from "./beat-grid";
 import { accentPushes, hitSteps, isAccented, rankGrooves, type AccentProfile, type Feel } from "./feel";
 import { CLOSED_HAT, CRASH, DRUM_DURATION, KICK, SNARE, type NoteEvent } from "./note";
 import { endingBar, endingShape, type EndingShape } from "./ending";
+import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
@@ -113,10 +114,13 @@ function writeEnding(shape: EndingShape, plan: SectionPlan, silent: boolean, emi
  * With `feel` (follow my playing), the variation follows the accents, strong off-beat accents get pushes, the beats of a stop are silent,
  * and a hit beat gets a crash and a kick. Without it the notes are the same as before the feel layer existed.
  */
-export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], settings: BandSettings, seed: number, feel?: Feel, endTime?: number): NoteEvent[] {
+export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], settings: BandSettings, seed: number, follow?: Feel, endTime?: number): NoteEvent[] {
   const beats = grid.beats;
   const notes: NoteEvent[] = [];
   if (beats.length === 0 || plans.length === 0) return notes;
+  // The performer's marks: a stop becomes a stop of the feel, so both parts obey it (marks.ts). Without marks the feel is the one given.
+  const { byBar: marked } = marksByBar(grid, settings.marks);
+  const feel = withMarkStops(grid, marked, follow);
 
   const random = createRandom(seed);
   const perBar = barBeats(grid);
@@ -169,9 +173,22 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     const endsPlan = planOf[k + 1] !== planIndex;
     const halfChoice = random.int(style.fills.half.length);
     const barChoice = random.int(style.fills.bar.length);
+    const fillMark = markOf(marked, k, "fill");
     if (holdBar) {
       // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.
       hits = style.fills.bar[barChoice].hits;
+      filled = true;
+    } else if (markOf(marked, k, "no-fill")) {
+      // A bar marked No fill plays its groove, whatever the rules say.
+    } else if (fillMark) {
+      // A marked fill takes the last `beats` beats of the bar: the half-bar fill cut to them, or the whole-bar fill when it takes the bar.
+      const taken = markBeats(fillMark);
+      if (taken >= patternBeats(style, perBar)) {
+        hits = style.fills.bar[barChoice].hits;
+      } else {
+        const cutoff = groove.steps * (1 - taken / patternBeats(style, perBar));
+        hits = [...hits.filter((hit) => hit.step < cutoff), ...style.fills.half[halfChoice].hits.filter((hit) => hit.step >= cutoff)];
+      }
       filled = true;
     } else if (endsPlan && plan.fill) {
       if (plan.energy <= HALF_FILL_MAX_ENERGY) {
@@ -187,14 +204,27 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     if ((sectionCrash || crashAfterFill) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
+    if (markOf(marked, k, "crash") && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     if (feel) hits = hitBeatHits(hits, feel, start, perBar, stepsPerGridBeat(style, perBar));
+    if (markOf(marked, k, "no-crash")) hits = hits.filter((hit) => !(hit.step === 0 && hit.pitch === CRASH));
+    // A stab: the downbeat only, a kick and a crash.
+    if (markOf(marked, k, "hit")) {
+      hits = [
+        { step: 0, pitch: KICK, velocity: HIT_KICK_VELOCITY },
+        { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY },
+      ];
+      filled = false;
+    }
+    // A bar the drums rest in is still drawn from the same random numbers, so the bars after it keep their notes.
+    const resting = markOf(marked, k, "drums-out") !== undefined;
+    if (resting) filled = false;
     // A bar that is shorter or longer than the style's bar (a 3/4 song with a 4/4 style, or where the bar lines move) plays the part of
     // the pattern that fits it.
     hits = fitStepsToBar(hits, groove.steps, patternBeats(style, perBar), spans[k].beats);
     afterFill = filled;
     if (k === ending) endingPlan = plan;
 
-    for (const hit of hits) {
+    for (const hit of resting ? [] : hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
       if (!playsAt(hit, settings.complexity)) continue;
 

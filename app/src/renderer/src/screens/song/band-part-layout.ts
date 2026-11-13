@@ -246,3 +246,23 @@ export function layoutSection(
   for (let i = 0; i < bars.length; i += BARS_PER_LINE) lines.push(bars.slice(i, i + BARS_PER_LINE));
   return { bars, lines, bassScale: scaleOf(allBlocks) };
 }
+
+/** Where a bar is, as the marks list says it: "Chorus 2, bar 8" (the bar counted from its section's start), or "Bar 40" when no section has it. */
+export function barPlace(grid: BeatGrid, sections: readonly { name: string; start: number; end: number }[], barIndex: number): string {
+  const beats = grid.beats;
+  const spans = barSpans(grid);
+  const middleOf = (index: number) => {
+    const start = beats[spans[index].start];
+    return (start + barEndTime(beats, spans[index].start, spans[index].beats)) / 2;
+  };
+  if (!spans[barIndex]) return `Bar ${barIndex + 1}`;
+  const middle = middleOf(barIndex);
+  const section = sections.find((candidate) => middle >= candidate.start && middle < candidate.end);
+  if (!section) return `Bar ${barIndex + 1}`;
+  let number = 1;
+  for (let index = 0; index < barIndex; index++) {
+    const before = middleOf(index);
+    if (before >= section.start && before < section.end) number += 1;
+  }
+  return `${section.name}, bar ${number}`;
+}
