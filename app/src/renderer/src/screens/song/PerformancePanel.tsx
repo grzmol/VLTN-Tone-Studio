@@ -797,6 +797,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         </div>
         <div style={{ display: shownView("song") }}>
           <AnalysisCard
+            sectionCount={sectionList.length}
             analysis={analysis}
             hasSong={!!source}
             analyseDisabled={!source || playing || library.playlistPlaying || !!library.busy}
@@ -818,6 +819,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
             shift={shift}
             libraryKey={savedSong?.key ?? undefined}
             onSpellingKey={setSpellingKey}
+            sections={sectionList}
           />
           <h3 className="text-sm font-semibold">Solo scale</h3>
           <SoloScales key={`${key}:${soloVersion}`} songKey={spellingKey} shift={shapeShift} capo={capo} storageKey={key} />

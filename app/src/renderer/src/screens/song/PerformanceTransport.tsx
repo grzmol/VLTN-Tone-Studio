@@ -142,7 +142,8 @@ export function PerformanceTransport({
   const waitingForPlay = library.playlistPlaying && !playing && library.queueOverrides[library.position]?.autoplay === false;
   return (
     <>
-      {queued && (
+      {/* A single song has no playlist to show: no position, no Stop playlist, no "Next: End of set". */}
+      {queued && library.queue.length > 1 && (
         <div aria-label="Playlist transport" className="flex flex-wrap items-center gap-3 rounded border border-seam p-3">
           <strong>{library.index.songs.find((s) => s.id === source?.libraryId)?.title}</strong>
           <span>

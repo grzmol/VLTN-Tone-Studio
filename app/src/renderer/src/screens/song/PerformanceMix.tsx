@@ -22,6 +22,9 @@ function rowName(name: string, stems: Stems | null, info: TrackInfo | undefined)
   return info?.name ?? name;
 }
 
+/** What part-choice.ts says on the original track while the generated part plays. */
+const OFF_ORIGINAL = "Off: generated plays";
+
 // One grid for every row, so the columns line up: name, solo, volume, pan, follows pitch, bus and mute groups.
 const ROW_GRID = "grid grid-cols-[minmax(9rem,1.2fr)_auto_minmax(8rem,1fr)_minmax(7rem,0.8fr)_auto_minmax(7rem,auto)_minmax(10rem,auto)] gap-x-3";
 
@@ -86,6 +89,8 @@ export function PerformanceMix({
   );
   const label = (name: string) => rowName(name, stems, tracks[name]);
   const silenced = silencedByChoice(partChoices, partKeysOf(tracks, stems));
+  // The tracks the band generated, so a generated part that plays is badged as such.
+  const generatedKeys = new Set(Object.values(partKeysOf(tracks, stems)).flatMap((part) => (part?.generated === undefined ? [] : [part.generated])));
   const usedGroups = [...new Set(Object.values(groups).flat())].sort((a, b) => a - b);
   return (
     <div aria-label="Performance mixer" className="flex flex-col gap-3">
@@ -127,6 +132,8 @@ export function PerformanceMix({
           const off = silenced[name];
           const byPractice = practiceMuted.has(name);
           const byPedal = pedalDrums && kindOfTrack(name, info, countsAs[name]) === "drums";
+          const state = off ? "off" : entry.mute || byPractice || byPedal ? "muted" : "playing";
+          const generatedPlays = !off && generatedKeys.has(name);
           return (
             <div
               key={name}
@@ -135,7 +142,13 @@ export function PerformanceMix({
               className="col-span-full grid grid-cols-subgrid items-center rounded-lg border border-seam px-3 py-2 text-sm"
             >
               <div className={`flex min-w-0 items-center gap-2 ${off ? "opacity-60" : ""}`}>
-                <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: info?.color ?? "#94a3b8" }} />
+                <span
+                  role="img"
+                  aria-label={`${label(name)}: ${state}`}
+                  title={`${label(name)}: ${state}`}
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: info?.color ?? "#94a3b8" }}
+                />
                 <label className="flex min-w-0 items-center gap-1.5">
                   <input
                     type="checkbox"
@@ -174,7 +187,15 @@ export function PerformanceMix({
                     <option value="none">Counts as: none</option>
                   </select>
                 )}
-                {off && <span className="shrink-0 rounded-md border border-seam px-1.5 py-0.5 text-xs text-silkscreen-3">{off}</span>}
+                {generatedPlays && (
+                  <span
+                    className="shrink-0 rounded-md border px-1.5 py-0.5 text-xs"
+                    style={{ borderColor: info?.color ?? "#94a3b8", color: info?.color ?? "#94a3b8" }}
+                  >
+                    Generated plays
+                  </span>
+                )}
+                {off && <span className="shrink-0 text-xs text-silkscreen-3">{off === OFF_ORIGINAL ? "Original off" : "Generated off"}</span>}
               </div>
               <label className="flex items-center gap-1">
                 <input
@@ -189,6 +210,7 @@ export function PerformanceMix({
                 Solo
               </label>
               <div className="flex items-center gap-2">
+                <span className="w-9 shrink-0 text-xs text-silkscreen-3">Level</span>
                 <input
                   aria-label={`${label(name)} volume`}
                   className="min-w-0 flex-1"
@@ -204,19 +226,28 @@ export function PerformanceMix({
                 />
                 <span className="w-10 shrink-0 text-right tabular-nums">{Math.round(entry.volume * 100)}%</span>
               </div>
-              <input
-                aria-label={`${label(name)} pan`}
-                className="w-full"
-                type="range"
-                min="-1"
-                max="1"
-                step="0.05"
-                value={entry.pan ?? 0}
-                onChange={(e) => {
-                  const pan = Number(e.target.value);
-                  onMix((m) => ({ ...m, [name]: { ...(m[name] ?? defaultStemMix()), pan } }));
-                }}
-              />
+              <div className="flex items-center gap-1.5">
+                <span className="shrink-0 text-xs text-silkscreen-3">Pan</span>
+                <span aria-hidden className="shrink-0 text-[10px] text-silkscreen-3">
+                  L
+                </span>
+                <input
+                  aria-label={`${label(name)} pan`}
+                  className="min-w-0 flex-1"
+                  type="range"
+                  min="-1"
+                  max="1"
+                  step="0.05"
+                  value={entry.pan ?? 0}
+                  onChange={(e) => {
+                    const pan = Number(e.target.value);
+                    onMix((m) => ({ ...m, [name]: { ...(m[name] ?? defaultStemMix()), pan } }));
+                  }}
+                />
+                <span aria-hidden className="shrink-0 text-[10px] text-silkscreen-3">
+                  R
+                </span>
+              </div>
               <label className="flex items-center gap-1">
                 <input
                   type="checkbox"

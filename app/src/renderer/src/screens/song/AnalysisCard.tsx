@@ -7,6 +7,15 @@ export function isFailure(message: string | null): boolean {
 }
 
 /**
+ * The summary line with the song's own section count. The analysis counts the sections it detected, which is not the number on the
+ * timeline. `count` is the song's; with none given the line stays as it is.
+ */
+export function withSongSections(message: string, count: number | undefined): string {
+  if (count === undefined || count <= 0) return message;
+  return message.replace(/\. \d+ sections?(?! key)/, `. ${count} section${count === 1 ? "" : "s"}`);
+}
+
+/**
  * What the song analysis found, or what it is doing, with Cancel while it runs and "Analyse again" after. In "This song" it is the first
  * card; in Play (`quiet`) it shows only while the analysis runs or after it failed.
  */
@@ -16,17 +25,21 @@ export function AnalysisCard({
   analyseDisabled,
   onAnalyseAgain,
   quiet = false,
+  sectionCount,
 }: {
   analysis: Pick<SongAnalysisControl, "step" | "detecting" | "message" | "cancel">;
   hasSong: boolean;
   analyseDisabled: boolean;
   onAnalyseAgain: () => void;
   quiet?: boolean;
+  /** How many sections the song has. The line shows this, and what the analysis detected is in the details. */
+  sectionCount?: number;
 }) {
   const running = !!analysis.step || analysis.detecting;
   if (!running && !analysis.message && !hasSong) return null;
   if (quiet && !running && !isFailure(analysis.message)) return null;
-  const text = analysis.detecting ? "Detecting…" : analysis.step ? `Analysing the song: ${analysis.step}…` : analysis.message;
+  const shown = analysis.message ? withSongSections(analysis.message, sectionCount) : analysis.message;
+  const text = analysis.detecting ? "Detecting…" : analysis.step ? `Analysing the song: ${analysis.step}…` : shown;
   return (
     <section
       aria-label="Analysis"
@@ -45,6 +58,12 @@ export function AnalysisCard({
           </Button>
         )}
       </p>
+      {!running && !quiet && analysis.message && shown !== analysis.message && (
+        <details className="w-full text-xs text-silkscreen-3">
+          <summary className="cursor-pointer">Details</summary>
+          <p>What the analysis detected: {analysis.message}</p>
+        </details>
+      )}
     </section>
   );
 }

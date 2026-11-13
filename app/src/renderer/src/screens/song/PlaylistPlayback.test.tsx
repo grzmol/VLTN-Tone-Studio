@@ -653,3 +653,17 @@ it("keeps a set playing when another Song tab is shown, and plays the queue as e
   });
   await waitFor(() => expect(useSong.getState().source?.libraryId).toBe(third.id));
 });
+
+it("shows no playlist row for a set of one song, and the row with its position for a set of two", async () => {
+  await useSongLibrary.getState().playPlaylist([first.id]);
+  const view = render(<PerformancePanel />);
+  await waitFor(() => expect(mock.players.at(-1)?.isPlaying).toBe(true));
+  expect(screen.queryByLabelText("Playlist transport")).toBeNull();
+  expect(screen.queryByText("Stop playlist")).toBeNull();
+  expect(screen.queryByText(/End of set/)).toBeNull();
+  view.unmount();
+  await useSongLibrary.getState().playPlaylist([first.id, second.id]);
+  render(<PerformancePanel />);
+  await waitFor(() => expect(screen.getByLabelText("Playlist transport")).toBeTruthy());
+  expect(screen.getByText("Stop playlist")).toBeTruthy();
+});

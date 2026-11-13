@@ -51,21 +51,36 @@ afterEach(cleanup);
 describe("PerformanceMix: what plays", () => {
   it("marks the original drums as off when the generated drums play", () => {
     renderMix({ drums: "generated", bass: "original" });
-    expect(within(screen.getByRole("group", { name: "Drums" })).getByText("Off: generated plays")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).queryByText(/^Off:/)).toBeNull();
-    expect(within(screen.getByRole("group", { name: "Bass" })).queryByText(/^Off:/)).toBeNull();
+    expect(within(screen.getByRole("group", { name: "Drums" })).getByText("Original off")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).queryByText(/off$/i)).toBeNull();
+    expect(within(screen.getByRole("group", { name: "Bass" })).queryByText(/off$/i)).toBeNull();
+  });
+
+  it("badges a generated part that plays", () => {
+    renderMix({ drums: "generated", bass: "original" });
+    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).getByText("Generated plays")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Bass (generated)" })).queryByText("Generated plays")).toBeNull();
   });
 
   it("marks the generated bass as off when the original bass plays", () => {
     renderMix({ drums: "original", bass: "original" });
-    expect(within(screen.getByRole("group", { name: "Bass (generated)" })).getByText("Off: original plays")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).getByText("Off: original plays")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Bass" })).queryByText(/^Off:/)).toBeNull();
+    expect(within(screen.getByRole("group", { name: "Bass (generated)" })).getByText("Generated off")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).getByText("Generated off")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Bass" })).queryByText(/off$/i)).toBeNull();
   });
 
   it("marks nothing when both play", () => {
     renderMix({ drums: "both", bass: "both" });
-    expect(screen.queryByText(/^Off:/)).toBeNull();
+    expect(screen.queryByText(/off$/i)).toBeNull();
+  });
+
+  it("labels the level and pan sliders and gives the status dot a name", () => {
+    renderMix({ drums: "generated", bass: "original" });
+    const drums = within(screen.getByRole("group", { name: "Drums" }));
+    expect(drums.getByText("Level")).toBeTruthy();
+    expect(drums.getByText("Pan")).toBeTruthy();
+    expect(drums.getByRole("img", { name: "Drums: off" }).getAttribute("title")).toBe("Drums: off");
+    expect(within(screen.getByRole("group", { name: "Bass" })).getByRole("img", { name: "Bass: playing" })).toBeTruthy();
   });
 
   it("names the split stems as the Stems tab does, not in lower case", () => {

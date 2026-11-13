@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { SongKey } from "./SongKey";
+import { SongKey, sectionKeyLines } from "./SongKey";
+import type { SongAnalysis } from "@/song/analysis/song-analysis";
 import { performanceKey, readSettings, writeSettings } from "@/song/performance/settings";
 import { ANALYSIS_VERSION, songAudioId } from "@/song/analysis/song-analysis";
 const workers: FakeWorker[] = [];
@@ -102,4 +103,29 @@ it("leaves out the alternatives when the estimate has none", () => {
     } as MessageEvent);
   });
   expect(screen.getByRole("status").textContent).toBe("Estimated A major from guitar · clearer match");
+});
+
+it("names the keys of the detected sections after the song's own sections and drops the song's key", () => {
+  const saved = {
+    audioId: "x",
+    version: 1,
+    sections: [
+      { start: 0, end: 20, name: "Section 1" },
+      { start: 60, end: 100, name: "Section 2" },
+      { start: 100, end: 140, name: "Section 3" },
+    ],
+    keySections: [
+      { sectionId: "0", key: { name: "D major" } },
+      { sectionId: "1", key: { name: "D major" } },
+      { sectionId: "2", key: { name: "G major" } },
+    ],
+  } as unknown as SongAnalysis;
+  const own = [
+    { id: "a", name: "Intro", start: 0, end: 30, mode: "continue" as const },
+    { id: "b", name: "Bridge 1", start: 50, end: 105, mode: "continue" as const },
+    { id: "c", name: "Chorus 3", start: 105, end: 200, mode: "continue" as const },
+  ];
+  expect(sectionKeyLines(saved, own, "G major")).toEqual(["Intro: D major", "Bridge 1: D major"]);
+  expect(sectionKeyLines(saved, own, undefined)).toHaveLength(3);
+  expect(sectionKeyLines(null, own, "G major")).toEqual([]);
 });

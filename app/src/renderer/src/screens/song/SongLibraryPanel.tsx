@@ -104,7 +104,7 @@ export function SongLibraryPanel({ onPick }: { onPick(): void }) {
           </Button>
         </div>
       )}
-      {library.busy && library.playlistPlaying && (
+      {library.busy && library.playlistPlaying && library.queue.length > 1 && (
         <Button variant="outline" onClick={() => library.pausePlaylist()}>
           Stop playlist
         </Button>

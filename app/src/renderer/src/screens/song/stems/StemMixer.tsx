@@ -12,6 +12,7 @@ import { useNav } from "@/state/nav";
 import { useStatusHints } from "@/state/ui";
 import { useSong } from "@/song/store";
 import { defaultMix, formatTime, mergeMix, peaks, type Mix, type StemMix } from "@/song/stems/mix";
+import { scaledToOwnPeak } from "@/song/audio/peaks";
 import { findQuality } from "@/song/stems/options";
 import { StemPlayer } from "@/song/stems/player";
 import { fmtShift, TransposeControl, useTranspose } from "./TransposeControl";
@@ -20,6 +21,7 @@ import { STEM_NAMES, type StemName, type Stems, type SplitInfo } from "@/song/ty
 import { findModel } from "@shared/host/song";
 import { performanceKey, readOptions, setSetting } from "@/song/performance/settings";
 import { SplitOptions } from "./SplitOptions";
+import { generatedTrackKeysIn } from "@/song/analysis/song-analysis";
 
 const PANEL = "glass rounded-xl min-w-0 min-h-0";
 const WAVE_BUCKETS = 800;
@@ -75,7 +77,16 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState<Partial<Record<StemName, number>> | null>(null);
-  const waves = useMemo(() => Object.fromEntries(names.map((n) => [n, peaks(stems[n]!.channels, WAVE_BUCKETS)])) as Partial<Record<StemName, Float32Array>>, [stems, names]);
+  const waves = useMemo(() => Object.fromEntries(names.map((n) => [n, scaledToOwnPeak(peaks(stems[n]!.channels, WAVE_BUCKETS))])) as Partial<Record<StemName, Float32Array>>, [stems, names]);
+  // The drums and bass the band generated are tracks of the song too. They are listed here with their own waveform, and play on Performance.
+  const tracks = useSong((s) => s.tracks);
+  const generated = useMemo(
+    () =>
+      generatedTrackKeysIn(readOptions<Record<string, unknown>>(settingsKey, {}))
+        .filter((key) => stems[key])
+        .map((key) => ({ key, name: tracks[key]?.name ?? key, wave: scaledToOwnPeak(peaks(stems[key]!.channels, WAVE_BUCKETS)) })),
+    [settingsKey, stems, tracks],
+  );
   useStatusHints(HINTS);
   // Tuning the song swaps the stems under the player: it picks up at the same second, playing or paused.
   const resume = useRef<{ at: number; play: boolean } | null>(null);
@@ -219,6 +230,9 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
             onSeek={(fraction) => seek(fraction * duration)}
           />
         ))}
+        {generated.map((track) => (
+          <GeneratedRow key={track.key} name={track.name} wave={track.wave} progress={progress} onSeek={(fraction) => seek(fraction * duration)} />
+        ))}
       </div>
       <div className="flex min-w-0 items-center gap-3">
         <p className="min-w-0 flex-1 text-[11px] text-pretty text-silkscreen-3">
@@ -288,6 +302,25 @@ function StemRow({ name, mix, wave, progress, level, onChange, onSeek }: StemRow
         <span className="h-9 w-1.5 shrink-0 overflow-hidden rounded-full bg-well" aria-hidden>
           <span className="block w-full rounded-full bg-silkscreen-2" style={{ height: `${meter * 100}%`, marginTop: `${(1 - meter) * 100}%` }} />
         </span>
+      </div>
+    </div>
+  );
+}
+
+/** A track the band generated: its name with a "generated" badge and its waveform. It has no mixer here, since it plays on Performance. */
+function GeneratedRow({ name, wave, progress, onSeek }: { name: string; wave: Float32Array; progress: number; onSeek(f: number): void }) {
+  return (
+    <div role="listitem" aria-label={name} className="grid grid-cols-[96px_68px_120px_minmax(0,1fr)] items-center gap-3 rounded-lg bg-white/4 px-3 py-2">
+      <span className="col-span-3 flex items-center gap-2 text-[13px] font-semibold">
+        <span className="size-2 rounded-full bg-silkscreen-3" aria-hidden />
+        <span className="truncate">{name}</span>
+        <span className="shrink-0 rounded-md border border-seam px-1.5 py-0.5 text-xs font-normal text-silkscreen-3" title="Made by the band. It plays on the Performance tab.">
+          generated
+        </span>
+      </span>
+      <div className="flex min-w-0 items-center gap-2">
+        <Waveform wave={wave} progress={progress} color="var(--silkscreen-3, #999)" dim={false} onSeek={onSeek} label={name} />
+        <span className="h-9 w-1.5 shrink-0" aria-hidden />
       </div>
     </div>
   );

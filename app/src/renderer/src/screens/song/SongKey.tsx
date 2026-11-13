@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { PcmAudio, Stems } from "@/song/types";
 import { KEY_NAMES, SONG_KEYS, effectiveSongKey, keyAudio, type KeyEstimate, type KeyInput } from "@/song/performance/key";
 import { readOptions, setSetting } from "@/song/performance/settings";
-import { generatedTrackKeysIn, isCurrent, songAudioId } from "@/song/analysis/song-analysis";
+import { generatedTrackKeysIn, isCurrent, songAudioId, type SongAnalysis } from "@/song/analysis/song-analysis";
+import type { Section } from "@/song/performance/sections";
 import { storedAnalysis } from "./use-song-analysis";
 import { HelpNote } from "@/components/ui/help-note";
 
@@ -28,14 +29,28 @@ function savedKey(songKey: string, name: string, mix: PcmAudio | undefined, stem
 }
 
 /**
- * The keys of the sections that differ from the song's, as the song analysis saved them for this audio, with the section's name. Empty when
- * nothing matches, so nothing is shown for a song that was not analysed.
+ * The keys of the sections that differ from the song's, as the song analysis saved them for this audio. Each key belongs to the detected
+ * section it was measured in; it is named after the song's own section that covers the middle of that one, so the names are the ones on
+ * the timeline: "Bridge 1: D major". A key equal to the song's key is left out. Empty when nothing matches, so nothing is shown for a
+ * song that was not analysed.
  */
-function sectionKeyLines(songKey: string, mix: PcmAudio | undefined, stems: Stems | null): string[] {
-  if (!mix) return [];
+export function sectionKeyLines(saved: SongAnalysis | null, sections: readonly Section[], songKeyName: string | undefined): string[] {
+  const lines: string[] = [];
+  for (const { sectionId, key } of saved?.keySections ?? []) {
+    if (key.name === songKeyName) continue;
+    const detected = saved?.sections?.[Number(sectionId)];
+    const middle = detected ? (detected.start + detected.end) / 2 : undefined;
+    const own = middle === undefined ? undefined : sections.find((section) => section.start <= middle && middle < section.end);
+    lines.push(`${own?.name ?? detected?.name ?? "Section"}: ${key.name}`);
+  }
+  return lines;
+}
+
+/** The analysis saved for this audio, or null when there is none or it is out of date. */
+function currentAnalysis(songKey: string, mix: PcmAudio | undefined, stems: Stems | null): SongAnalysis | null {
+  if (!mix) return null;
   const saved = storedAnalysis(songKey).read();
-  if (!saved || !isCurrent(saved, savedAudioId(songKey, mix, stems))) return [];
-  return (saved.keySections ?? []).map(({ sectionId, key }) => `${saved.sections?.[Number(sectionId)]?.name ?? "Section"}: ${key.name}`);
+  return saved && isCurrent(saved, savedAudioId(songKey, mix, stems)) ? saved : null;
 }
 
 const FLAVOUR_NAMES = { mixolydian: "Mixolydian", dorian: "Dorian" } as const;
@@ -48,6 +63,7 @@ export function SongKey({
   shift = 0,
   libraryKey,
   onSpellingKey,
+  sections = [],
 }: {
   stems: Stems | null;
   original?: PcmAudio;
@@ -56,6 +72,8 @@ export function SongKey({
   /** The key saved on the song's library entry, used when there is no override and no strong estimate */
   libraryKey?: string;
   onSpellingKey?: (key: string | undefined) => void;
+  /** The song's own sections, which name the keys of the detected ones */
+  sections?: readonly Section[];
 }) {
   const [saved] = useState(() => readOptions<KeySettings>(storageKey, { songKey: "", detectedKey: null, keyAudioSource: "" }));
   const [override, setOverride] = useState(SONG_KEYS.includes(saved.songKey) ? saved.songKey : "");
@@ -123,10 +141,13 @@ export function SongKey({
       setError("Could not save the song key.");
     }
   }, [storageKey, override, estimate, analysisSource]);
-  const sectionLines = useMemo(() => sectionKeyLines(storageKey, original, stems), [storageKey, original, stems]);
   const spellingKey = effectiveSongKey(override, libraryKey, estimate);
   useEffect(() => onSpellingKey?.(spellingKey), [spellingKey, onSpellingKey]);
   const name = override || estimate?.name;
+  const sectionLines = useMemo(
+    () => sectionKeyLines(currentAnalysis(storageKey, original, stems), sections, name),
+    [storageKey, original, stems, sections, name],
+  );
   // A modal flavour is named after the key, such as "G major (Mixolydian)". The key itself, and the transposition, stay the major or minor key.
   const flavour = !override && estimate?.flavour ? ` (${FLAVOUR_NAMES[estimate.flavour]})` : "";
   const root = name ? KEY_NAMES.indexOf(name.split(" ")[0]) : -1;
