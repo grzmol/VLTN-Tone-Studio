@@ -602,6 +602,28 @@ describe("Band panel", () => {
     expect(savedOptions().band.renderedTone).toEqual({ bass: "chain" });
   });
 
+  it("lets Play go ahead with the existing parts when a tone file is missing, and says why", async () => {
+    const amp = {
+      type: "capture",
+      role: "amp",
+      file: { source: "tone3000", toneId: 42, modelId: 7, name: "Bass amp" },
+      inputDb: 0,
+      outputDb: 0,
+      mix: 1,
+      on: true,
+    };
+    const band = { ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: [amp], dryWet: 1, fast: false }, renderedTone: { bass: "chain" } };
+    stored({ beatGrid: grid, generatedParts: { drums: "track0" }, bandOutOfDate: true, band });
+    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+    renderPanel();
+    await expect(refreshBandBeforePlay(KEY)).resolves.toBeUndefined();
+    expect(mocks.startBandRender).not.toHaveBeenCalled();
+    expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
+    expect(savedOptions().band.renderedTone).toEqual({ bass: "chain" });
+    expect(savedOptions().bandOutOfDate).toBe(true);
+    expect(await screen.findByText(/Not updated: the bass tone's amp capture is missing/)).toBeTruthy();
+  });
+
   it("asks before removing the generated parts, and removes them only on confirm", async () => {
     useSong.setState({ tracks: { track1: { kind: "user", name: "Drums (generated)", bus: "main", transpose: false } } });
     stored({ beatGrid: grid });

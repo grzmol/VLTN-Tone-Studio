@@ -576,7 +576,13 @@ function BandBody({
     const run = (async () => {
       // An automatic update never swaps good audio for a clean part: with a tone file missing it stops and says so.
       const blocked = await automaticUpdateBlock(settings, host.tones);
-      if (blocked) throw new Error(blocked);
+      if (blocked) {
+        // A missing tone must never stop playback: the parts already there are kept and play, and the notice says why they were not updated.
+        // The automatic effect does not try again for these inputs.
+        failedInputs.current = musicalInputs;
+        setNotices([blocked]);
+        return;
+      }
       const protectsRendered = RENDERED_KINDS.some((kind) => settings.parts[kind] && settings.rendered[kind]);
       const ok = protectsRendered ? await generate(settings, kinds[0]) : await generate(settings);
       if (!ok) throw new Error("Automatic band update could not finish. Open Drums & bass for the reason; playback will wait.");
