@@ -8,6 +8,8 @@ export function BandTabParts({
   selected,
   onSelect,
   onChange,
+  onCopyToSameKind,
+  onReset,
   beatsPerBar,
 }: {
   rows: readonly BandSectionRow[];
@@ -15,11 +17,13 @@ export function BandTabParts({
   selected: number | null;
   onSelect(index: number | null): void;
   onChange(sectionId: string | null, patch: SectionOverride): void;
+  onCopyToSameKind(sectionId: string | null): void;
+  onReset(sectionId: string | null): void;
   beatsPerBar?: number;
 }) {
   return (
     <section aria-label="Sections" className="flex flex-col gap-2">
-      <BandSections rows={rows} disabled={disabled} selected={selected} onSelect={onSelect} onChange={onChange} beatsPerBar={beatsPerBar} />
+      <BandSections rows={rows} disabled={disabled} selected={selected} onSelect={onSelect} onChange={onChange} onCopyToSameKind={onCopyToSameKind} onReset={onReset} beatsPerBar={beatsPerBar} />
     </section>
   );
 }

@@ -626,8 +626,56 @@ describe("Band panel", () => {
     renderPanel({ sections: SECTIONS });
     const table = screen.getByRole("table");
     expect(table.parentElement?.className).toContain("overflow-x-auto");
-    expect(table.className).toContain("min-w-[56rem]");
+    expect(table.className).toContain("min-w-[48rem]");
     expect(screen.getByText(/Energy shapes the drums\. Busy and Loud shape the bass/)).toBeTruthy();
+  });
+
+  it("shows the section's length in bars, and an automatic value in muted text until it is changed", () => {
+    stored({ beatGrid: grid });
+    renderPanel({ sections: SECTIONS });
+    // At 120 BPM in 4/4 a bar is 2 s: the verse is 4 s (2 bars), the chorus 4 s.
+    expect(screen.getAllByText("2 bars").length).toBe(2);
+    const energy = screen.getByRole("combobox", { name: "Energy of Chorus" });
+    expect(energy.className).toContain("text-silkscreen-3");
+    pick(energy, "5");
+    expect(screen.getByRole("combobox", { name: "Energy of Chorus" }).className).not.toContain("text-silkscreen-3");
+  });
+
+  it("selects a row by clicking its name, and the preview follows that row", async () => {
+    stored({ beatGrid: grid });
+    mocks.renderPreview.mockReturnValue({ done: new Promise(() => undefined), cancel: vi.fn() });
+    renderPanel({ sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Chorus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(mocks.renderPreview).toHaveBeenCalledTimes(1));
+    expect(mocks.renderPreview.mock.calls[0][1]).toBe(4);
+  });
+
+  it("Reset to automatic removes a section's override, and leaves the others", () => {
+    renderPanel({ sections: SECTIONS });
+    pick(screen.getByRole("combobox", { name: "Energy of Chorus" }), "5");
+    pick(screen.getByRole("combobox", { name: "Energy of Verse" }), "4");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menu for Chorus" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reset to automatic" }));
+    expect(savedOptions().band.sections.chorus).toBeUndefined();
+    expect(savedOptions().band.sections.verse.energy).toBe(4);
+  });
+
+  it("Copy to all sections of a name writes the same override to Verse 1 to 3, and not to the Pre-chorus", () => {
+    const named: Section[] = [
+      { id: "v1", name: "Verse 1", start: 0, end: 2, mode: "continue" },
+      { id: "pre", name: "Pre-chorus", start: 2, end: 4, mode: "continue" },
+      { id: "v2", name: "Verse 2", start: 4, end: 6, mode: "continue" },
+      { id: "v3", name: "Verse 3", start: 6, end: 8, mode: "continue" },
+    ];
+    renderPanel({ sections: named });
+    pick(screen.getByRole("combobox", { name: "Energy of Verse 1" }), "5");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menu for Verse 1" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy settings to all sections named Verse" }));
+    const saved = savedOptions().band.sections;
+    expect(saved.v2.energy).toBe(5);
+    expect(saved.v3.energy).toBe(5);
+    expect(saved.pre).toBeUndefined();
   });
 
   it("detects chords from the audio when the chart and the analysis have none, and generates with them", async () => {
