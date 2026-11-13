@@ -6,6 +6,9 @@ import { DEFAULT_SPEED, clampRate, clampSpeed, effectiveBpm, speedFromOptions, s
 import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
+import { extraKeysIn, loadExtras, type ExtrasPart, type LoadedExtras } from "@/song/band/extras";
+import { parseBandSettings } from "@/song/band/arrangement";
+import { countLeadSeconds, type DrummerCount } from "@/song/performance/drummer-count";
 import { useNav } from "@/state/nav";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
@@ -356,6 +359,10 @@ export class PerformanceSession {
   private restartingLoop = false;
   /** The stems at 100%, which every render is made from */
   private baseStems: Stems | null = null;
+  /** The drummer's count and a vamp's exit bars of the loaded song's generated parts (band/extras.ts). Empty for a song without them. */
+  private bandExtras: Partial<Record<ExtrasPart, LoadedExtras>> = {};
+  /** Whether the loaded song's settings ask for the drummer's count. A count rendered earlier is not played once the setting is off. */
+  private drummerCounts = false;
   /** The settings key of the song loaded, under which its speed is stored */
   private songSettingsKey = "";
   private renders = new RenderQueue();
@@ -521,7 +528,10 @@ export class PerformanceSession {
     const options = getSetting(performanceKey(source), ":options");
     const shape = playerShapeFromOptions(options);
     const speed = speedFromOptions(options);
-    this.baseStems = playableStems(stems, source.audio);
+    const saved = parseOptions(options);
+    this.baseStems = playableStems(stems, source.audio, extraKeysIn(saved));
+    this.bandExtras = loadExtras(saved, stems);
+    this.drummerCounts = parseBandSettings(saved.band).countIn.bars > 0;
     this.songSettingsKey = performanceKey(source);
     this.renders.clear();
     this.pendingRender = null;
@@ -853,6 +863,17 @@ export class PerformanceSession {
   }
 
   /** Waits out the start delay. Cancelling resolves the wait at once. */
+  /**
+   * The drummer's count for a start, or undefined when the song has none or its settings no longer ask for one. It plays through the
+   * generated drums' track, and only from stopped: a join into the next song passes no count (a count under a crossfade makes no sense).
+   */
+  private drummerCount(): DrummerCount | undefined {
+    const drums = this.bandExtras.drums;
+    const count = drums?.extras.countIn;
+    if (!drums || !count || !this.drummerCounts) return undefined;
+    return { track: drums.track, audio: count.audio, start: count.start };
+  }
+
   private waitStartDelay(seconds: number): Promise<void> {
     if (seconds <= 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -1028,17 +1049,20 @@ export class PerformanceSession {
       const requestedPosition = player.position >= player.duration ? 0 : Math.max(0, player.position);
       // The count-in is clicked before the audio starts, so it begins with the tempo message.
       const countIn = countInBeats(timing.countInBars, timing.beatsPerBar);
-      // The count-in is as long as the audio it leads: beats at the song tempo times the rate.
-      this.countInMs = bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0;
+      // The count-in is as long as the audio it leads: beats at the song tempo times the rate. The drummer's count, when it plays, leads the
+      // song too, and the longer of the two is what the tempo message and the cues wait for.
+      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
+      const drummer = this.drummerCount();
+      const drummerMs = countLeadSeconds(drummer, chaseStart, player.playbackRate) * 1000;
+      this.countInMs = Math.max(bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0, drummerMs);
       // A chase that the pedals need before the song begins holds the audio back by CHASE_LEAD_MS, so it goes out first. Nothing is held
       // when the output is not armed, or when there is no state to chase (a start from the beginning, or no cues before the position).
-      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
       const chaseLead = armed && computeChaseState(this.playCues(this.state), chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
       // Clock without a count-in has no lead-in to cover the scheduler's start, so the hold is CLOCK_LEAD_MS.
-      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 ? CLOCK_LEAD_MS : 0;
+      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 && drummerMs === 0 ? CLOCK_LEAD_MS : 0;
       const lead = Math.max(chaseLead, clockLead) / 1000;
       this.transportAt = lead ? midiNow() + lead * 1000 : null;
-      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}) });
+      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}), ...(drummer ? { drummer } : {}) });
       if (request !== this.playRequest) {
         player.pause();
         this.terminateWorker();

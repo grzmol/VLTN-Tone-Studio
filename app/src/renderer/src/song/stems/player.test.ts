@@ -41,6 +41,7 @@ class Context {
         setTargetAtTime: vi.fn(),
       },
       buffer: null,
+      playbackRate: { value: 1 },
       fftSize: 2048,
     };
   }
@@ -900,4 +901,67 @@ it("plays to the end of the longest stem, so a generated part that rings past th
   const player = new StemPlayer({ other: pcm(1000), bass: pcm(1300) });
   expect(player.length).toBe(13);
   expect(player.duration).toBe(13);
+});
+
+const countOf = (start: number, seconds = 1) => ({ track: "other", audio: { sampleRate: 100, channels: [new Float32Array(seconds * 100)] }, start });
+
+it("starts the song after the drummer's count: the count plays ahead of the song and ends where the song begins", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  // The count plays from the call (10.02), and the song starts two seconds later, where the count ends.
+  const [count, song] = [ctx.sources[1], ctx.sources[0]];
+  expect(count.start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(song.start.mock.calls[0][0]).toBeCloseTo(12.02);
+  expect(count.playbackRate.value).toBe(1);
+  await player.dispose();
+});
+
+it("plays the drummer's count and the metronome's count-in together, each ending where the song begins", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  // One bar of clicks at 120 BPM is 2 s, and the drummer's count is 3 s: the song starts after the longer, and the clicks start 1 s into it.
+  await player.play({ bpm: 120, countInBeats: 4, drummer: countOf(-3) });
+  const ctx = Context.instances[0];
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(13.02);
+  expect(ctx.sources[1].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(ctx.oscillators[0].start.mock.calls[0][0]).toBeCloseTo(11.02);
+  await player.dispose();
+});
+
+it("leaves the drummer's count out of a start that is not from the beginning of the song", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.seek(5);
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  expect(ctx.sources).toHaveLength(1);
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  await player.dispose();
+});
+
+it("plays a count that falls inside the song where it is, and stops it with the clicks on pause", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.play({ drummer: countOf(3) });
+  const ctx = Context.instances[0];
+  // The song starts at once, and the count joins it three seconds in.
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(ctx.sources[1].start.mock.calls[0][0]).toBeCloseTo(13.02);
+  player.pause();
+  expect(ctx.sources[1].stop).toHaveBeenCalledWith();
+  await player.dispose();
+});
+
+it("counts at the song's speed, so the count keeps the song's tempo", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } }, undefined, {}, "now", 0.5);
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  // Two song seconds at half speed are four audio seconds, and the count's buffer plays at half speed to fill them.
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(14.02);
+  expect(ctx.sources[1].playbackRate.value).toBe(0.5);
+  await player.dispose();
 });
