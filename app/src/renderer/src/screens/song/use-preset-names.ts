@@ -1,5 +1,5 @@
 import { useDevice } from "@/state/device";
-import { loadCachedNames } from "@/state/device-storage";
+import { loadCachedNames, loadDevice } from "@/state/device-storage";
 import { usablePresetNames, type PresetModel, type PresetNames } from "@/song/performance/pedal-preset-names";
 
 /** The names of `model`'s presets as of now: read from a connected pedal of that model, else cached from its last connection. */
@@ -23,4 +23,25 @@ export function usePresetNames(model: PresetModel | null): { presetNames: Preset
   useDevice((s) => s.status);
   useDevice((s) => s.device);
   return { presetNames: model ? currentPresetNames(model) : null, lastConnectedAt };
+}
+
+/** The model of the pedal whose names are known: the connected one, else the last one connected. */
+function presetModelInUse(): PresetModel | null {
+  const { device, status } = useDevice.getState();
+  const model = status === "connected" && device ? device : loadDevice();
+  return model === "gp150" || model === "gp180" ? model : null;
+}
+
+/** The names a preflight can check cues against, or undefined while no GP-150 / GP-180 has been read. */
+export function knownPresetNames(): PresetNames | undefined {
+  const model = presetModelInUse();
+  return (model && currentPresetNames(model)) || undefined;
+}
+
+/** `knownPresetNames` for a screen, refreshed with the pedal's connection and names. */
+export function useKnownPresetNames(): PresetNames | undefined {
+  useDevice((s) => s.names);
+  useDevice((s) => s.status);
+  useDevice((s) => s.device);
+  return knownPresetNames();
 }
