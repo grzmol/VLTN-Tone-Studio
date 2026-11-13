@@ -5,6 +5,7 @@
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
 import { endBeforeNext, generateBass } from "./bass";
+import type { BandKey } from "./bass-phrases";
 import { drumOnsets, followDrummer } from "./drummer-timing";
 import { generateDrums } from "./drums";
 import { ENDING_TAIL, HOLD_BARS, SLOW_TEMPO } from "./ending";
@@ -38,6 +39,11 @@ export interface BandRequest {
   seed: number;
   /** The song's length in frames at RENDER_RATE. The parts are rendered to exactly this length. */
   lengthFrames: number;
+  /**
+   * The song's keys, in song seconds, covering the song (one entry when it has one key). The bass keeps its fills in them. An empty list
+   * means no key is known, and the fills use the chord's own scale.
+   */
+  keys: BandKey[];
   /** The song's trim end in seconds, when it has one. The ending goes on the last full bar before it (ending.ts). */
   trimEnd?: number;
   parts: { drums: boolean; bass: boolean };
@@ -128,7 +134,7 @@ function generate(request: BandRequest): Generated {
   const { feel, follow } = feelFor(request);
   const { grid, plans, settings, seed } = request;
   const drums = generateDrums(grid, plans, settings, seed, feel, request.trimEnd);
-  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel, request.trimEnd) : [];
+  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel, request.trimEnd, request.keys) : [];
   const humanDrums = humanise(drums, "drums", grid, plans, settings.humanise, seed);
   const humanBass = humanise(bass, "bass", grid, plans, settings.humanise, seed);
   const snapped = snapToDrummer(request, humanDrums, humanBass);
