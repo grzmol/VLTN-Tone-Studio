@@ -2,13 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
+  showRunning: false,
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   updater: { on: vi.fn(), off: vi.fn(), checkForUpdates: vi.fn(), downloadUpdate: vi.fn() },
 }));
 
 vi.mock("electron", () => ({ app: { isPackaged: true, getVersion: () => "1.0.0" }, net: { fetch: vi.fn() } }));
 vi.mock("./handle", () => ({ handle: (channel: string, fn: (...args: unknown[]) => unknown) => hoisted.handlers.set(channel, fn), sendTo: vi.fn() }));
-vi.mock("./app", () => ({ isJobRunning: () => false, loadSettings: async () => ({ checkForUpdates: false }) }));
+vi.mock("./app", () => ({ isJobRunning: () => false, isShowRunning: () => hoisted.showRunning, loadSettings: async () => ({ checkForUpdates: false }) }));
 vi.mock("./log", () => ({ logMain: vi.fn() }));
 vi.mock("electron-updater", () => {
   const { updater } = hoisted;
@@ -72,5 +73,20 @@ describe("update download", () => {
     await check();
     await download();
     expect(hoisted.updater.downloadUpdate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("update install", () => {
+  afterEach(() => {
+    hoisted.showRunning = false;
+  });
+
+  it("refuses to restart while a song is playing, and goes ahead once it stops", async () => {
+    await hoisted.handlers.get("update:check")!();
+    await hoisted.handlers.get("update:download")!();
+    hoisted.showRunning = true;
+    await expect(hoisted.handlers.get("update:install")!()).rejects.toThrow("A song is playing");
+    hoisted.showRunning = false;
+    await expect(hoisted.handlers.get("update:install")!()).resolves.toBeUndefined();
   });
 });

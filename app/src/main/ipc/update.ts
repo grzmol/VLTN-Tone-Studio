@@ -3,7 +3,7 @@ import type { AppUpdater } from "electron-updater";
 import { HostError } from "@shared/ipc";
 import { isNewer, latestReleaseVersion, RELEASE_REPO, type UpdateMode, type UpdateSnapshot, type UpdateState } from "@shared/host/update";
 import { handle, sendTo } from "./handle";
-import { isJobRunning, loadSettings } from "./app";
+import { isJobRunning, isShowRunning, loadSettings } from "./app";
 import { logMain } from "./log";
 
 // App updates (src/shared/host/update.ts). Nothing is downloaded or installed without the user asking:
@@ -133,6 +133,7 @@ async function install(): Promise<void> {
   if (mode !== "install" || state.status !== "ready") throw new HostError("invalid", "No update is ready to install");
   // Same rule as closing the window: an interrupted write is discarded by the pedal.
   if (isJobRunning()) throw new HostError("invalid", "Tone Studio is still writing to or backing up the pedal. Restart when it finishes.");
+  if (isShowRunning()) throw new HostError("invalid", "A song is playing. Restart when the set is over.");
   const u = await updater();
   // Silent on Windows (the install folder is already chosen), then start the new version.
   setImmediate(() => u.quitAndInstall(true, true));
