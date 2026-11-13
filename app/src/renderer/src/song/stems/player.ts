@@ -136,6 +136,14 @@ export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Players that have not been disposed, for the memory estimate (spec 127). Holds no audio itself. */
+const livePlayers = new Set<StemPlayer>();
+
+/** The audio each live player holds, by song: what the memory line in MIDI health adds up. */
+export function liveAudio(): { player: StemPlayer; rate: number; tracks: { channels: number; frames: number; key: object }[] }[] {
+  return [...livePlayers].map((player) => ({ player, rate: player.playbackRate, tracks: player.bufferShapes() }));
+}
+
 export class StemPlayer {
   /** The playable range, in song seconds. Trim and the file's length both set it. */
   private range: PlayRange;
@@ -217,6 +225,7 @@ export class StemPlayer {
     this.ctx = this.engine.ctx;
     this.router = this.engine.router;
     this.unlisten = this.engine.onWarning((message) => this.onOutputWarning?.(message));
+    livePlayers.add(this);
     this.voices = Object.fromEntries(
       this.names.map((name) => {
         const pcm = stems[name]!;
@@ -251,6 +260,14 @@ export class StemPlayer {
       }
     }
     return player;
+  }
+
+  /** Shape of each track's buffer, read without touching its samples. `key` is the buffer, so a buffer shared between players counts once. */
+  bufferShapes(): { channels: number; frames: number; key: object }[] {
+    return this.names.map((name) => {
+      const { buffer } = this.voice(name);
+      return { channels: buffer.numberOfChannels, frames: buffer.length, key: buffer };
+    });
   }
 
   private voice(name: string): Voice {
@@ -872,6 +889,7 @@ export class StemPlayer {
 
   /** Frees the song's nodes. `stop` is false after a hand-over, whose stems have already been scheduled to end. */
   private async release(stop: boolean): Promise<void> {
+    livePlayers.delete(this);
     this.unlisten();
     if (stop) this.stopSources();
     else this.stopMetronome();
