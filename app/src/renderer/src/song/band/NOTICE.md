@@ -70,3 +70,12 @@ Bass: Killer KB-Simmony bass guitar, played and mapped by D. Smolken, with Fashi
 Files used (`samples/bass/`): the note samples from the `fashionbass_clean.sfz` mapping (no release samples), round robin 1, velocity layers `p` and `f`, for the roots F1, G#1, B1, D2, F2, G#2, B2, D3, F3, G#3 and B3. Each root is stored as `bass-<note>-<p|f>.flac`, for example `bass-f1-p.flac`.
 
 Processing: each WAV is 44.1 kHz mono 32-bit float. It is trimmed the same way as the drums (1 ms before the onset, last sample above −60 dBFS, 50 ms fade-out) and saved as 24-bit mono FLAC. Nothing is resampled or normalised.
+
+## Room and the heavier kit (spec 133)
+
+`samples/room/drum-room.flac` is a stereo room impulse response (0.5 s, 44.1 kHz, 24-bit) that this project generated: seeded noise, early reflections and an exponentially decaying low-passed tail, with the direct sound at sample 0. It is not taken from any recording, so no third-party licence applies to it. The generating script is kept locally (`.claude/tools/band-samples/make-room-ir.ts`, not committed).
+
+The "Standard, heavier" kit (`kits.rock` in `samples/map.json`) uses the same drum files as the standard kit, so it adds no files and no licence. The renderer voices them when the kit loads (`kit-voicing.ts`): a 60 Hz sine thump with a 40 ms decay and a short 3 kHz click are added to the kick, a +4 dB shelf above 4 kHz to the snare, and the toms play two semitones lower.
+
+Candidate recordings for a separate rock kit were not used. The sfzinstruments organisation lists three other drum kits whose repository licence GitHub reports as CC0-1.0: `karoryfer.big-rusty-drums`, `karoryfer.unruly-drums` and `karoryfer.swirly-drums` (checked on 13 Nov 2026 through the GitHub API; their `LICENSE` files were not read and no files were taken). The DrumGizmo kits listed there are CC-BY-4.0, and the Naked Drums kit is too, so none of those is eligible. Nobody has listened to the CC0 candidates yet.
+

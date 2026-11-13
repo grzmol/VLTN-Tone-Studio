@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { BASS_FROM, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type BassFrom, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
+import { BASS_FROM, BASS_RANGES, DRUM_KITS, HUMANISE_CHOICES, type BandSettings, type BassFrom, type DrumKit, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
 import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
 import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
 import { PartToneChain } from "./PartToneChain";
@@ -13,6 +13,9 @@ import { BASS_PART_LABELS } from "./band-labels";
 const BAND_TRACK = "bg-white/15";
 const BASS_RANGE_LABELS: Record<(typeof BASS_RANGES)[number], string> = { low: "Low", normal: "Normal", high: "High" };
 const BASS_FROM_LABELS: Record<BassFrom, string> = { original: "Original bass", chords: "Chords" };
+/** The kit menu's choices. "auto" leaves the kit to the style: the heavier kit for metal, rock and half-time. */
+const KIT_LABELS: Record<DrumKit, string> = { standard: "Standard", rock: "Standard, heavier" };
+const AUTO_KIT = "auto";
 const FOLLOW_LABELS: Record<FollowSource, string> = { auto: "Auto", guitar: "Guitar", piano: "Piano", other: "Other", mix: "Mix" };
 const HUMANISE_LABELS: Record<HumaniseChoice, string> = {
   style: "Style default",
@@ -42,6 +45,22 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, s
         <label className="flex items-center gap-2">
           <Switch aria-label="Generate drums" checked={settings.parts.drums} onCheckedChange={(on) => onChange({ parts: { ...settings.parts, drums: on } })} />
           Drums
+        </label>
+        <label className="flex items-center gap-3">
+          Kit
+          <Select value={settings.kit ?? AUTO_KIT} onValueChange={(value) => onChange({ kit: value === AUTO_KIT ? undefined : (value as DrumKit) })}>
+            <SelectTrigger aria-label="Drum kit" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={AUTO_KIT}>Automatic</SelectItem>
+              {DRUM_KITS.map((kit) => (
+                <SelectItem key={kit} value={kit}>
+                  {KIT_LABELS[kit]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="flex items-center gap-3">
           Room {Math.round(settings.drumRoom * 100)}%

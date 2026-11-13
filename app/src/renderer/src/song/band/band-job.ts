@@ -161,7 +161,7 @@ function render(request: BandRequest, generated: Generated, samples: SampleSet, 
   for (const kind of ["drums", "bass"] as const) {
     if (!request.parts[kind]) continue;
     const dry = renderPart(notes[kind], kind, samples, lengthFrames, RENDER_RATE).audio;
-    const rendered = kind === "drums" && !hasOwnSpace(request.settings.drumTone) ? addRoom(dry, samples.room, request.settings.drumRoom) : dry;
+    const rendered = kind === "drums" && !hasOwnSpace(request.settings.drumTone) ? addRoom(dry, samples.room, Math.min(1, request.settings.drumRoom * (samples.roomScale ?? 1))) : dry;
     const leveled = levelPart(kind, rendered, request, songLufs);
     result[kind] = leveled.audio;
     if (leveled.report) levels[kind] = leveled.report;

@@ -118,6 +118,13 @@ describe("runBandJob: the built-in room", () => {
     expect(wet.length - quiet(wet)).toBeGreaterThan((dry.length - quiet(dry)) * 5);
   });
 
+  it("gives a kit that wants more room more of it", () => {
+    const loud = { ...clickKit(), roomScale: 1.6 };
+    const energy = (channel: Float32Array): number => channel.reduce((sum, value) => sum + value * value, 0);
+    expect(energy(drumsOf({ drumRoom: 0.25 }, loud))).toBeGreaterThan(energy(drumsOf({ drumRoom: 0.25 })));
+    expect(sameSamples(drumsOf({ drumRoom: 0 }, loud), drumsOf({ drumRoom: 0 }))).toBe(true);
+  });
+
   it("skips the room when the drum tone chain has a space block that is on", () => {
     const space = { type: TONE_BLOCK_TYPE.space, role: "space" as const, file: null, inputDb: 0, outputDb: 0, mix: 0.3, on: true };
     const withChain = (on: boolean): Partial<BandSettings> => ({ drumRoom: 0.5, drumTone: { kind: "chain", blocks: [{ ...space, on }], dryWet: 1, fast: false } });

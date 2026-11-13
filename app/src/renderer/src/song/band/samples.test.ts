@@ -1,17 +1,19 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PcmAudio } from "../types";
-import { SAMPLE_MAP, pickBassLayers, pickBassSample, pickDrumLayers, pickDrumSample, readSampleMap, sampleSetFrom, takeFiles, type SampleSet } from "./samples";
+import { DRUM_KITS } from "./arrangement";
+import { DRUM_PITCHES } from "./note";
+import { SAMPLE_MAP, loadSampleSetWith, pickBassLayers, pickBassSample, pickDrumLayers, pickDrumSample, readSampleMap, sampleSetFrom, takeFiles, type SampleSet } from "./samples";
 import { ENERGIES, STYLES } from "./styles";
 
 const SAMPLES = join(dirname(fileURLToPath(import.meta.url)), "samples");
 
 /** A SampleSet whose audio is one stub object per file, so a test can tell which file a pick came from. */
-function stubSet(): { set: SampleSet; audio: (file: string) => PcmAudio } {
+function stubSet(kit = "standard"): { set: SampleSet; audio: (file: string) => PcmAudio } {
   const stubs = new Map<string, PcmAudio>();
-  const set = sampleSetFrom(SAMPLE_MAP, (file) => {
+  const set = sampleSetFrom(SAMPLE_MAP, kit, (file) => {
     let stub = stubs.get(file);
     if (!stub) {
       stub = { sampleRate: 44100, channels: [new Float32Array(1)] };
@@ -31,7 +33,7 @@ function stubSet(): { set: SampleSet; audio: (file: string) => PcmAudio } {
 
 /** Every file path in map.json, in drum and bass order. */
 function mappedFiles(): string[] {
-  const drums = Object.values(SAMPLE_MAP.drums).flatMap((entry) => entry.layers.flatMap(takeFiles));
+  const drums = Object.values(SAMPLE_MAP.kits).flatMap((kit) => Object.values(kit.drums).flatMap((entry) => entry.layers.flatMap(takeFiles)));
   return [...drums, ...SAMPLE_MAP.bass.map((sample) => sample.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])];
 }
 
@@ -42,7 +44,7 @@ describe("map.json", () => {
   });
 
   it("rejects a map with a bad bass entry", () => {
-    expect(() => readSampleMap({ sampleRate: 44100, drums: {}, bass: [{ file: "bass/x.flac", root: 40, layer: "mf", velocity: [1, 127] }] })).toThrow(
+    expect(() => readSampleMap({ sampleRate: 44100, kits: { standard: { name: "Standard", drums: {} } }, bass: [{ file: "bass/x.flac", root: 40, layer: "mf", velocity: [1, 127] }] })).toThrow(
       /Invalid sample map/,
     );
   });
@@ -53,12 +55,14 @@ describe("map.json", () => {
       for (const energy of ENERGIES) for (const groove of style.grooves[energy]) for (const hit of groove.hits) pitches.add(hit.pitch);
       for (const fill of [...style.fills.half, ...style.fills.bar]) for (const hit of fill.hits) pitches.add(hit.pitch);
     }
-    const missing = [...pitches].filter((pitch) => !SAMPLE_MAP.drums[String(pitch)]);
-    expect(missing).toEqual([]);
+    for (const [kit, entry] of Object.entries(SAMPLE_MAP.kits)) {
+      const missing = [...pitches].filter((pitch) => !entry.drums[String(pitch)]);
+      expect(missing, kit).toEqual([]);
+    }
   });
 
   it("covers velocities 1 to 127 for every drum pitch, with no gaps", () => {
-    for (const [pitch, entry] of Object.entries(SAMPLE_MAP.drums)) {
+    for (const [pitch, entry] of Object.entries(SAMPLE_MAP.kits.standard.drums)) {
       const layers = [...entry.layers].sort((a, b) => a.velocity[0] - b.velocity[0]);
       expect(layers[0].velocity[0], `pitch ${pitch} starts`).toBe(1);
       expect(layers[layers.length - 1].velocity[1], `pitch ${pitch} ends`).toBe(127);
@@ -71,8 +75,9 @@ describe("map.json", () => {
   });
 
   it("gives the mid tom the low tom files, transposed up 3 semitones", () => {
-    expect(SAMPLE_MAP.drums["47"].layers.map(takeFiles)).toEqual(SAMPLE_MAP.drums["45"].layers.map(takeFiles));
-    expect(SAMPLE_MAP.drums["47"].layers.every((layer) => layer.transpose === 3)).toBe(true);
+    const { drums } = SAMPLE_MAP.kits.standard;
+    expect(drums["47"].layers.map(takeFiles)).toEqual(drums["45"].layers.map(takeFiles));
+    expect(drums["47"].layers.every((layer) => layer.transpose === 3)).toBe(true);
   });
 
   it("covers MIDI 28 to 60 within 2 semitones of a bass root", () => {
@@ -111,9 +116,10 @@ describe("map.json", () => {
   });
 
   it("accepts a layer with one file or with several", () => {
-    const map = (layer: object): unknown => ({ sampleRate: 44100, drums: { "36": { name: "kick", layers: [layer] } }, bass: [] });
-    expect(readSampleMap(map({ file: "a.flac", velocity: [1, 127], nominal: 80 })).drums["36"].layers.map(takeFiles)).toEqual([["a.flac"]]);
-    expect(readSampleMap(map({ files: ["a.flac", "b.flac"], velocity: [1, 127], nominal: 80 })).drums["36"].layers.map(takeFiles)).toEqual([["a.flac", "b.flac"]]);
+    const map = (layer: object): unknown => ({ sampleRate: 44100, kits: { standard: { name: "Standard", drums: { "36": { name: "kick", layers: [layer] } } } }, bass: [] });
+    const layersOf = (value: unknown): string[][] => readSampleMap(value).kits.standard.drums["36"].layers.map(takeFiles);
+    expect(layersOf(map({ file: "a.flac", velocity: [1, 127], nominal: 80 }))).toEqual([["a.flac"]]);
+    expect(layersOf(map({ files: ["a.flac", "b.flac"], velocity: [1, 127], nominal: 80 }))).toEqual([["a.flac", "b.flac"]]);
     expect(() => readSampleMap(map({ files: [], velocity: [1, 127], nominal: 80 }))).toThrow(/Invalid sample map/);
     expect(() => readSampleMap(map({ velocity: [1, 127], nominal: 80 }))).toThrow(/Invalid sample map/);
   });
@@ -124,6 +130,52 @@ describe("map.json", () => {
       .filter((path) => statSync(path).isFile())
       .reduce((sum, path) => sum + statSync(path).size, 0);
     expect(total).toBeLessThan(30_000_000);
+  });
+});
+
+describe("drum kits", () => {
+  it("has the kits arrangement lists, each with layers for every pitch the generator plays", () => {
+    expect(Object.keys(SAMPLE_MAP.kits).sort()).toEqual([...DRUM_KITS].sort());
+    for (const [kit, entry] of Object.entries(SAMPLE_MAP.kits)) {
+      for (const pitch of DRUM_PITCHES) expect(entry.drums[String(pitch)]?.layers.length, `${kit} ${pitch}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("plays the heavier kit's toms two semitones lower than the standard kit's", () => {
+    const standard = stubSet("standard").set;
+    const heavy = stubSet("rock").set;
+    for (const pitch of [45, 47, 50]) {
+      expect(pickDrumSample(heavy, pitch, 80).transpose).toBe(pickDrumSample(standard, pitch, 80).transpose - 2);
+    }
+  });
+
+  it("voices the heavier kit's kick and snare and leaves the standard kit's recordings as they are", () => {
+    const audioOf = (kit: string, pitch: number) => pickDrumSample(stubSet(kit).set, pitch, 90).audio;
+    // The stub audio is one frame; a thumped kick is stretched to ring, a shelved snare keeps its length.
+    expect(audioOf("standard", 36).channels[0]).toHaveLength(1);
+    expect(audioOf("rock", 36).channels[0].length).toBeGreaterThan(10000);
+    expect(audioOf("rock", 38).channels[0]).toHaveLength(1);
+    expect(stubSet("rock").set.roomScale).toBe(1.6);
+    expect(stubSet("standard").set.roomScale).toBeUndefined();
+  });
+
+  it("decodes only the files of the kit asked for, and rejects a kit the map lacks", async () => {
+    const requested: string[] = [];
+    const urls = new Map<string, string>();
+    for (const file of mappedFiles()) urls.set(file, `https://app.test/${file}`);
+    vi.stubGlobal("fetch", async (url: string) => {
+      requested.push(url);
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+    });
+    try {
+      const set = await loadSampleSetWith(urls, async () => ({ sampleRate: 44100, channels: [new Float32Array(1)] }), "rock");
+      expect(set.drums.size).toBe(Object.keys(SAMPLE_MAP.kits.rock.drums).length);
+      const wanted = new Set(Object.values(SAMPLE_MAP.kits.rock.drums).flatMap((entry) => entry.layers.flatMap(takeFiles)));
+      expect(requested.filter((url) => url.includes("/drums/")).length).toBe(wanted.size);
+      await expect(loadSampleSetWith(urls, async () => ({ sampleRate: 44100, channels: [new Float32Array(1)] }), "jazz")).rejects.toThrow(/jazz/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
