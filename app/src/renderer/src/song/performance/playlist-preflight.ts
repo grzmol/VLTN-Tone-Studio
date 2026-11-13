@@ -1,4 +1,5 @@
 import { ownLeadIn, resolveLeadIn, LEAD_IN_DEFAULTS } from "./lead-in";
+import type { MissingToneFile } from "../band/tone-check";
 import { preRollStart } from "./rhythm";
 import type { LibraryPreflightSong } from "@shared/song-library";
 import { trackKey, trackKindOf } from "@shared/song-library";
@@ -31,6 +32,7 @@ export interface PlaylistCheck {
   advice: string[];
   /** Information only, shown without the warning label */
   notes: string[];
+  missingTones?: MissingToneFile[];
 }
 export function playlistPreflight(
   ids: string[],
