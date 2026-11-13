@@ -66,6 +66,14 @@ export function readSettingsFile(value: unknown): Partial<AppSettings> {
   return knownSettings(value, true);
 }
 
+/** What the app and the machine use, in kilobytes. `workingSetKb` is this window's renderer, where the song audio lives. */
+export interface MemoryReading {
+  workingSetKb: number;
+  peakWorkingSetKb: number;
+  totalKb: number;
+  freeKb: number;
+}
+
 export interface AppApi {
   version(): Promise<string>;
   getSettings(): Promise<AppSettings>;
@@ -81,6 +89,8 @@ export interface AppApi {
   setShowRunning(running: boolean): Promise<void>;
   /** Files passed on launch ("Open with", command line) that arrived before the renderer listened; empties the queue. */
   takeOpenedFiles(): Promise<string[]>;
+  /** Memory of this window's renderer and of the machine. Null in the web build, or when it cannot be read. Never throws. */
+  memory(): Promise<MemoryReading | null>;
   /** Absolute path of a dropped File (Electron `webUtils.getPathForFile`); null in the web build. */
   pathForFile(file: File): string | null;
   /** Subscribe to menu commands and OS events. Returns an unsubscribe function. */

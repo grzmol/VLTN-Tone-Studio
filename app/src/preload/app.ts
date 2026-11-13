@@ -14,6 +14,7 @@ export const appApi: AppApi = {
   setProgress: (fraction) => invoke("app:setProgress", fraction),
   setShowRunning: (running) => invoke("app:setShowRunning", running),
   takeOpenedFiles: () => invoke("app:takeOpenedFiles"),
+  memory: () => invoke("app:memory"),
   pathForFile: (file) => webUtils.getPathForFile(file) || null,
   onEvent: (cb) => {
     const handler = (_e: IpcRendererEvent, event: AppEvent) => cb(event);

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell } from "electron";
 import { readFile, rename, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings } from "@shared/host/app";
+import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings, type MemoryReading } from "@shared/host/app";
 import { HostError } from "@shared/ipc";
 import { handle, shellPaths } from "./handle";
 import { serial, writeJsonAtomic } from "./fs-atomic";
@@ -79,6 +79,17 @@ export function routeOpenedFile(win: { isDestroyed(): boolean; webContents: { is
   return win && !win.isDestroyed() && !win.webContents.isLoading() ? "send" : "queue";
 }
 
+/** The renderer `pid` in Electron's process metrics, with the machine's memory. Null when the renderer is not listed. */
+export function memoryReading(
+  metrics: { pid: number; memory: { workingSetSize: number; peakWorkingSetSize: number } }[],
+  pid: number,
+  system: { total: number; free: number },
+): MemoryReading | null {
+  const entry = metrics.find((m) => m.pid === pid);
+  if (!entry) return null;
+  return { workingSetKb: entry.memory.workingSetSize, peakWorkingSetKb: entry.memory.peakWorkingSetSize, totalKb: system.total, freeKb: system.free };
+}
+
 const isHttp = (url: string) => /^https?:\/\//i.test(url);
 
 /** Checks a renderer-supplied path against what main handed out; returns the absolute path to pass to shell. */
@@ -131,6 +142,14 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
     // `on`, not `once`: the same sender can crash, reload and report again, and is not added twice.
     e.sender.on("render-process-gone", clear);
     e.sender.once("destroyed", clear);
+  });
+  // Read-only and cheap; a failure gives null, never an error into the page that is playing.
+  handle("app:memory", (e) => {
+    try {
+      return memoryReading(app.getAppMetrics(), e.sender.getOSProcessId(), process.getSystemMemoryInfo());
+    } catch {
+      return null;
+    }
   });
   handle("app:takeOpenedFiles", () => openedFiles.splice(0));
 }
