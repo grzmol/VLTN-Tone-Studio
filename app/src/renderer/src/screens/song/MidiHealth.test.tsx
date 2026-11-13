@@ -4,13 +4,18 @@ import { useBluetooth } from "@/bluetooth/connection";
 import { MidiHealth } from "./MidiHealth";
 import { parseChart } from "@/song/performance/chart";
 import { useDevice } from "@/state/device";
+import { usePedalLibrary } from "@/song/performance/pedal-library";
+import { useMidiConfiguration } from "@/song/performance/midi-configuration";
+import { resetStageActivity, setStageBusy } from "@/state/stage-activity";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   useMidiDiagnostics.getState().reset();
   localStorage.clear();
-  useDevice.setState({ device: null, status: "idle", names: [] });
+  useDevice.setState({ device: null, status: "idle", names: [], globals: null });
+  useMidiConfiguration.setState({ output: null });
+  resetStageActivity();
 });
 it("refreshes the counters at most every 500 ms however often they change", () => {
   vi.useFakeTimers();
@@ -83,4 +88,34 @@ it("warns when a cue recalls a GP-180 preset that now holds a different sound", 
   });
   render(<MidiHealth cues={cues} duration={10} clock={false} parseError="" />);
   expect(screen.getByText(/recalls GP-180 preset 002, saved as "Crunch Lead". That slot now holds "Clean Verb"/)).toBeTruthy();
+});
+
+/** A simulated GP-180 whose USB input is on Omni, with a second pedal set up and USB selected for output. */
+async function omniRig() {
+  await useDevice.getState().connect("mock", { mockDevice: "gp180" });
+  useDevice.getState().setGlobal("midiInChannelUsb", 0);
+  usePedalLibrary.getState().setChannel("strymon-timeline", 2);
+  useMidiConfiguration.setState({ output: { id: "usb", name: "GP-180", transport: "system" } });
+}
+
+it("shows the Omni input channel as an error and fixes it from the simulator", async () => {
+  await omniRig();
+  render(<MidiHealth cues={[]} duration={10} clock={false} parseError="" />);
+  expect(screen.getByText(/listens on every channel over USB/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Set MIDI in channel (USB) to 1" }));
+  expect(useDevice.getState().globals?.midiInChannelUsb).toBe(1);
+  expect(screen.queryByText(/listens on every channel over USB/)).toBeNull();
+});
+
+it("disables the fix buttons while a song plays", async () => {
+  await omniRig();
+  setStageBusy(true);
+  render(<MidiHealth cues={[]} duration={10} clock={false} parseError="" />);
+  expect((screen.getByRole("button", { name: /Set MIDI in channel \(USB\)/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("Stop the song to change pedal settings")).toBeTruthy();
+});
+
+it("asks to connect the editor when no GP is connected", () => {
+  render(<MidiHealth cues={[]} duration={10} clock={false} parseError="" />);
+  expect(screen.getAllByText("Connect the pedal in the editor to check its MIDI settings.")).toHaveLength(1);
 });
