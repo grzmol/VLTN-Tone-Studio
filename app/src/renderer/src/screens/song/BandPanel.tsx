@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Drum, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -53,7 +53,7 @@ import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
 import { findStyle, type StyleId } from "@/song/band/styles";
-import { sectionPreviewBars, type BandStage, type PreviewLength } from "@/song/band/band-job";
+import { sectionPreviewBars, type PreviewLength } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
 import { parseChart, type Cue } from "@/song/performance/chart";
 import type { Chord } from "@/song/performance/chords";
@@ -61,22 +61,35 @@ import type { Section } from "@/song/performance/sections";
 import { readStoredBand, writeStoredBand } from "@/song/band/stored";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { registerBandRefresh, useBandRefreshStatus } from "@/song/band/refresh";
-import { performanceKey, readOptions } from "@/song/performance/settings";
+import { readOptions } from "@/song/performance/settings";
 import { useSongLibrary } from "@/song/library";
 import { bandAudioId } from "@/song/band/dependencies";
 import { chartChordEvents } from "@/song/band/harmony";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { ORIGINAL_PARTS, partKeysOf, type PartChoices } from "@/song/band/part-choice";
-import { bandEntryStatus, hasGeneratedParts, presenceLine, type PartKind } from "./band-status";
+import { hasGeneratedParts, presenceLine, type PartKind } from "./band-status";
 import { PartChoiceRows } from "./PartChoiceRows";
+import {
+  BASS_TONE_TEXT,
+  DRUM_TONE_TEXT,
+  NO_SONG_TEXT,
+  PLAYHEAD,
+  PLAYHEAD_BARS,
+  PLAYING_TEXT,
+  pendingLineUp,
+  playOnce,
+  replaceTitle,
+  stageText,
+  type PendingRendered,
+} from "./band-panel-helpers";
 import { useBandPanel } from "./band-panel-state";
 import { BandSections, type BandSectionRow } from "./BandSections";
 import { BandGridSection } from "./BandGridSection";
 import { BandSettingsForm } from "./BandSettingsForm";
-import { RenderedPartRow, type PendingLineUp } from "./RenderedPartRow";
+import { RenderedPartRow } from "./RenderedPartRow";
 import { decodeAudioFile } from "@/song/decode";
 import { MAX_IMPORT_SECONDS } from "@/song/import/import-tracks";
-import { checkRenderedLength, firstOnsetSeconds, fitToLength, lineUpOffer, shiftAudio, type LineUp } from "@/song/band/rendered";
+import { checkRenderedLength, firstOnsetSeconds, fitToLength, lineUpOffer } from "@/song/band/rendered";
 
 /** The Band panel's inputs from the Performance screen: the song's chart, chords, sections and metronome. */
 export interface BandPanelProps {
@@ -112,92 +125,7 @@ export interface BandPanelProps {
   sectionHints?: readonly SectionBandHint[];
 }
 
-/** The preview target that is not a section: the song position now. */
-const PLAYHEAD = "playhead";
-/** The bars a preview from the playhead plays when the length is "Whole section", since the playhead is not in a section. */
-const PLAYHEAD_BARS = 4;
-/** A rendered file that is waiting for the performer's line-up choice (spec 84). */
-interface PendingRendered {
-  kind: RenderedKind;
-  name: string;
-  /** The decoded file, before it is fitted to the song, so a shift does not lose its end twice. */
-  decoded: PcmAudio;
-  line: LineUp;
-  notices: string[];
-}
-/** The title of the prompt before Generate replaces rendered audio. */
-function replaceTitle(kinds: readonly RenderedKind[]): string {
-  if (kinds.length === 1) return `Replace your rendered ${kinds[0]} with new generated ${kinds[0]}?`;
-  return "Replace your rendered drums and bass with new generated parts?";
-}
-/** The step the bass tone takes after the render, while it is read and rendered through the capture. */
-const BASS_TONE_TEXT = "Bass tone…";
-/** The step the drum tone takes after the render (spec 104), before the bass tone. */
-const DRUM_TONE_TEXT = "Applying the drum tone…";
-const PLAYING_TEXT = "Stop playback to generate parts.";
-const NO_SONG_TEXT = "Open a song to generate parts.";
-
-/** Plays a mixed buffer once through a short-lived AudioContext. Returns a function that stops it early. */
-function playOnce(audio: PcmAudio, onDone: () => void): () => void {
-  const context = new AudioContext();
-  const buffer = context.createBuffer(audio.channels.length, audio.channels[0].length, audio.sampleRate);
-  audio.channels.forEach((channel, i) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, i));
-  const node = context.createBufferSource();
-  node.buffer = buffer;
-  node.connect(context.destination);
-  let finished = false;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    void context.close();
-    onDone();
-  };
-  node.onended = finish;
-  node.start();
-  return () => {
-    try {
-      node.stop();
-    } catch {
-      // Already stopped.
-    }
-    finish();
-  };
-}
-
-export interface BandPanelButtonProps {
-  /** The song's sections, which name the section a partly found part is missing from. */
-  sections: Section[];
-  /** Which drums and bass play, so the entry point can say what is playing. */
-  partChoices: PartChoices;
-}
-
-/**
- * The Band entry point, above the mixer: a card that opens the panel. Its label and status follow the song's generated parts, and a
- * part the split missed is named here too.
- */
-export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps) {
-  const show = useBandPanel((s) => s.show);
-  const stems = useSong(selectWholeSongStems);
-  const tracks = useSong((s) => s.tracks);
-  const missing = useSong((s) => s.missingParts);
-  const generated = hasGeneratedParts(tracks);
-  const source = useSong((s) => s.source);
-  const updating = useBandRefreshStatus((s) => (s.key === performanceKey(source) ? s.message : ""));
-  const status = bandEntryStatus(partKeysOf(tracks ?? {}, stems), partChoices, missing, sections);
-  return (
-    <section aria-label="Band parts" className="flex flex-wrap items-center gap-3 rounded-lg border border-seam px-3 py-2 text-sm">
-      <Drum className="size-5 shrink-0 text-silkscreen-3" aria-hidden />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-muted-foreground">Make drum and bass parts that follow this song, and choose what plays.</p>
-        {status && <p>{status}.</p>}
-        {updating && <p role="status">Updating generated parts: {updating}</p>}
-      </div>
-      <Button variant="secondary" size="sm" onClick={() => show(true)}>
-        {generated ? "Drums & bass…" : "Generate drums & bass…"}
-      </Button>
-    </section>
-  );
-}
+export { BandPanelButton, type BandPanelButtonProps } from "./BandPanelButton";
 
 /** The Band panel: the song's beat grid, its band settings and sections, and the actions that generate, preview and remove the parts. */
 export function BandPanel(props: BandPanelProps) {
@@ -1051,28 +979,3 @@ function BandBody({
   );
 }
 
-/** The line-up offer of a rendered file for one part, or null when the pending file is for the other part. */
-function pendingLineUp(
-  pending: PendingRendered | null,
-  kind: RenderedKind,
-  dismiss: () => void,
-  apply: (kind: RenderedKind, name: string, audio: PcmAudio, notices: string[]) => void,
-  frames: number,
-): PendingLineUp | null {
-  if (!pending || pending.kind !== kind) return null;
-  return {
-    text: pending.line.text,
-    shiftSeconds: pending.line.shiftSeconds,
-    onLineUp: () => apply(kind, pending.name, shiftAudio(pending.decoded, pending.line.shiftSeconds, frames), pending.notices),
-    onUseAsIs: () => {
-      apply(kind, pending.name, fitToLength(pending.decoded, frames), pending.notices);
-      dismiss();
-    },
-  };
-}
-
-function stageText(stage: BandStage): string {
-  if (stage === "loading") return "Loading the drum and bass samples…";
-  if (stage === "generating") return "Writing the notes…";
-  return "Rendering the parts…";
-}
