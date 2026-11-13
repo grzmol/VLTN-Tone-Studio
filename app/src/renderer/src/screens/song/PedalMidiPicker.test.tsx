@@ -4,11 +4,13 @@ import { PedalMidiPicker } from "./PedalMidiPicker";
 import { usePedalLibrary } from "@/song/performance/pedal-library";
 import { readMidiConfiguration, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { parseChart } from "@/song/performance/chart";
+import { useDevice } from "@/state/device";
 afterEach(() => {
   cleanup();
   localStorage.clear();
   useMidiConfiguration.setState(readMidiConfiguration());
   usePedalLibrary.setState({ profiles: [], channels: {}, assignments: {} });
+  useDevice.setState({ device: null, status: "idle", names: [], lastConnectedAt: null });
 });
 
 it("adds a clearly labelled, banked preset and sends the identical sequence on the target channel", () => {
@@ -117,4 +119,38 @@ it("saves a named pedal command as a macro in one click, and a chart can then us
     [0xb0, 0, 1],
     [0xc0, 0],
   ]);
+});
+
+it("lists GP-180 presets by name from the connected pedal, and filters by number or name", () => {
+  useDevice.setState({
+    device: "gp180",
+    status: "connected",
+    names: [
+      { slot: 0, name: "Clean Verb" },
+      { slot: 1, name: "Crunch Lead" },
+    ],
+  });
+  render(<PedalMidiPicker time={0} onAdd={vi.fn()} onTest={vi.fn()} canTest={false} />);
+  fireEvent.change(screen.getByLabelText("MIDI pedal"), { target: { value: "valeton-gp180" } });
+  expect(screen.getByRole("option", { name: "002 Crunch Lead" })).toBeTruthy();
+  expect(screen.getByRole("note").textContent).toBe("Names read from the pedal just now");
+  fireEvent.change(screen.getByLabelText("Find pedal command"), { target: { value: "crunch" } });
+  expect(screen.queryByRole("option", { name: "001 Clean Verb" })).toBeNull();
+  expect(screen.getByRole("option", { name: "002 Crunch Lead" })).toBeTruthy();
+});
+
+it("uses the names cached from the last connection, and says to connect when there are none", () => {
+  const at = new Date(2026, 10, 3, 12).getTime();
+  localStorage.setItem("gp5.names.v1", JSON.stringify({ v: 1, device: "gp180", names: [{ slot: 0, name: "Clean Verb" }] }));
+  useDevice.setState({ device: null, status: "idle", names: [], lastConnectedAt: at });
+  render(<PedalMidiPicker time={0} onAdd={vi.fn()} onTest={vi.fn()} canTest={false} />);
+  fireEvent.change(screen.getByLabelText("MIDI pedal"), { target: { value: "valeton-gp180" } });
+  expect(screen.getByRole("option", { name: "001 Clean Verb" })).toBeTruthy();
+  expect(screen.getByRole("note").textContent).toBe(`Names from the last connection on ${new Date(at).toLocaleDateString()}`);
+  localStorage.clear();
+  cleanup();
+  render(<PedalMidiPicker time={0} onAdd={vi.fn()} onTest={vi.fn()} canTest={false} />);
+  fireEvent.change(screen.getByLabelText("MIDI pedal"), { target: { value: "valeton-gp180" } });
+  expect(screen.getByRole("option", { name: "Recall memory 001" })).toBeTruthy();
+  expect(screen.getByRole("note").textContent).toBe("Connect the pedal in the editor to see preset names");
 });
