@@ -52,6 +52,15 @@ describe("Band sliders", () => {
   });
 });
 
+describe("Room", () => {
+  it("shows the drum room amount as a percentage, on a full-track slider", () => {
+    const { container } = renderWith({ ...DEFAULT_BAND_SETTINGS, drumRoom: 0.25 });
+    expect(container.textContent).toContain("Room 25%");
+    expect(trackOf(container, "Room").className).toContain("bg-white/15");
+    expect(container.querySelector('[aria-label="Room"] [role="slider"]')?.getAttribute("aria-valuenow")).toBe("25");
+  });
+});
+
 describe("Bass notes from", () => {
   it("shows the original bass, the default, as the choice", () => {
     const { container } = renderWith(DEFAULT_BAND_SETTINGS);

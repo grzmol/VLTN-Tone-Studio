@@ -32,7 +32,7 @@ function stubSet(): { set: SampleSet; audio: (file: string) => PcmAudio } {
 /** Every file path in map.json, in drum and bass order. */
 function mappedFiles(): string[] {
   const drums = Object.values(SAMPLE_MAP.drums).flatMap((entry) => entry.layers.flatMap(takeFiles));
-  return [...drums, ...SAMPLE_MAP.bass.map((sample) => sample.file)];
+  return [...drums, ...SAMPLE_MAP.bass.map((sample) => sample.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])];
 }
 
 describe("map.json", () => {

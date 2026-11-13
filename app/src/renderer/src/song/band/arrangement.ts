@@ -227,6 +227,8 @@ export interface BandSettings {
   humanise: HumaniseSettings;
   /** How long each bass note rings, from 0 (tight) to 1 (ring). Scales the lengths the bass part gives (bass.ts). */
   bassFeel: number;
+  /** How much of the built-in room is mixed under the generated drums, from 0 (dry) to 1 (spec 133). A drum tone chain with a space block replaces it. */
+  drumRoom: number;
   /** The bass tone the generated bass is rendered through (part-tone.ts). Only Generate uses it. */
   bassTone: PartTone;
   /** The tone the generated drums are rendered through (part-tone.ts, spec 104). Only Generate uses it. */
@@ -256,6 +258,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassOverrides: [],
   defaultBassPart: "pulse",
   bassFeel: 0.5,
+  drumRoom: 0.25,
   lockToKick: true,
   followPlaying: true,
   followSource: "auto",
@@ -613,6 +616,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBool(value.followDrummer) &&
     isHumanise(value.humanise) &&
     isUnit(value.bassFeel) &&
+    isUnit(value.drumRoom) &&
     isPartTone(value.bassTone, "bass") &&
     isPartTone(value.drumTone, "drums") &&
     isRendered(value.rendered) &&
@@ -688,6 +692,7 @@ export function parseBandSettings(value: unknown): BandSettings {
         ? partForBassMode(source.bassMode)
         : defaults.defaultBassPart,
     bassFeel: isUnit(source.bassFeel) ? source.bassFeel : defaults.bassFeel,
+    drumRoom: isUnit(source.drumRoom) ? source.drumRoom : defaults.drumRoom,
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,
