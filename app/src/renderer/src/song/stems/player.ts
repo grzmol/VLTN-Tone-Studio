@@ -204,9 +204,10 @@ export class StemPlayer {
   constructor(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, fill: "now" | "later" = "now", rate = 1) {
     this.names = orderedKeys(Object.keys(stems).filter((name) => stems[name]));
     if (!this.names.length) throw new Error("There are no stems to play.");
-    const first = stems[this.names[0]]!;
     this.rate = clampRate(rate);
-    this.fileLength = (first.channels[0].length / first.sampleRate) * this.rate;
+    // The longest stem sets the length: a generated part may ring on past the song (spec 136), and the shorter stems just end.
+    const seconds = this.names.map((name) => stems[name]!.channels[0].length / stems[name]!.sampleRate);
+    this.fileLength = Math.max(...seconds) * this.rate;
     this.range = playRange(this.fileLength, shape);
     this.offset = this.range.start;
     this.fadeIn = fadeSeconds(shape.fadeIn);
