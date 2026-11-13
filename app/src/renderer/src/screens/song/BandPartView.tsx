@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Dices, Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { BeatGrid } from "@/song/band/beat-grid";
@@ -40,6 +40,12 @@ export interface BandPartViewProps {
   onMarks?(marks: BarMark[]): void;
   /** True while the band works or the song plays: marks cannot be changed then. */
   disabled?: boolean;
+  /** The shown section's own seed (spec 135): another draw for this section alone, and keeping it when the song's seed changes. Not shown when not given. */
+  sectionSeed?: {
+    kept: boolean;
+    onTryAnother(): void;
+    onKeep(keep: boolean): void;
+  };
 }
 
 const FALLBACK_WIDTH = 760;
@@ -79,6 +85,7 @@ export function BandPartView({
   marks,
   onMarks,
   disabled = false,
+  sectionSeed,
 }: BandPartViewProps) {
   const section = sections[selected] ?? sections[0];
   const layout = useMemo(() => {
@@ -169,6 +176,24 @@ export function BandPartView({
         >
           <ChevronRight />
         </Button>
+        {sectionSeed && (
+          <>
+            <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={sectionSeed.onTryAnother}>
+              <Dices /> Try another for this section
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={sectionSeed.kept ? "secondary" : "outline"}
+              aria-pressed={sectionSeed.kept}
+              disabled={disabled}
+              title="Keeps this section as it is when you try another for the whole song. Its notes are drawn once more when you turn this on."
+              onClick={() => sectionSeed.onKeep(!sectionSeed.kept)}
+            >
+              {sectionSeed.kept ? <Lock /> : <LockOpen />} Keep this section
+            </Button>
+          </>
+        )}
         {edge && <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: edge.edge }} />}
         {layout && <span className="text-silkscreen-3">{layout.bars.length === 1 ? "1 bar" : `${layout.bars.length} bars`}</span>}
       </div>

@@ -814,3 +814,44 @@ describe("generateBass with marks", () => {
     expect(outside(marked, [2])).toEqual(outside(base, [2]));
   });
 });
+
+describe("generateBass with a seed for one section", () => {
+  // Three sections of 16 bars (32 s each), each over its own two chords.
+  const chords = [...Array.from({ length: 8 }, () => barsOf("C", "G")).flat(), ...Array.from({ length: 8 }, () => barsOf("Am", "F")).flat(), ...Array.from({ length: 8 }, () => barsOf("D", "A")).flat()];
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  const plansWith = (seed?: number) => [
+    planFor(64, { name: "Verse", fills: 3, busy: 4 }),
+    { ...planFor(128, { name: "Chorus", fills: 3, busy: 4 }), start: 32, ...(seed === undefined ? {} : { seed }) },
+    { ...planFor(192, { name: "Bridge", fills: 3, busy: 4 }), start: 64 },
+  ];
+  const settings = settingsFor({ engine: 2, bassMode: "melodic" });
+  const generate = (seed: number, sectionSeed?: number) => generateBass(grid, harmony, plansWith(sectionSeed), settings, [], seed);
+  const inSection = (notes: readonly NoteEvent[], index: number) =>
+    notes.filter((note) => note.time >= index * 32 && note.time < (index + 1) * 32).map((note) => [note.time, note.pitch, note.velocity]);
+
+  it("a new seed for the song leaves a section with its own seed alone and changes the others", () => {
+    const first = generate(1, 9);
+    const second = generate(2, 9);
+    expect(inSection(second, 1)).toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).not.toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).not.toEqual(inSection(first, 2));
+  });
+
+  it("a new seed for one section changes only that section", () => {
+    const first = generate(1, 9);
+    const second = generate(1, 10);
+    expect(inSection(second, 1)).not.toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).toEqual(inSection(first, 2));
+  });
+
+  it("a section without a seed of its own plays what it played before", () => {
+    const without = generate(1);
+    expect(generate(1, undefined)).toEqual(without);
+    // The first seed of a song moves every velocity once (jitter is then drawn by place), but no note's time or pitch.
+    const timesAndPitches = (notes: readonly NoteEvent[], index: number) => inSection(notes, index).map(([time, pitch]) => [time, pitch]);
+    expect(timesAndPitches(generate(1, 9), 0)).toEqual(timesAndPitches(without, 0));
+    expect(timesAndPitches(generate(1, 9), 2)).toEqual(timesAndPitches(without, 2));
+  });
+});
