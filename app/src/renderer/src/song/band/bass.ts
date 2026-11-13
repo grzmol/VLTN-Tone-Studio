@@ -32,6 +32,7 @@ import { bassRhythmFromAccents, hitSteps, isAccented, rhythmScore, type Feel } f
 import type { ChordQuality, ChordAtBeat, ParsedChord } from "./harmony";
 import { endingBar, endingShape } from "./ending";
 import type { NoteEvent } from "./note";
+import { markBeats, markOf, marksByBar, withMarkStops, type BarMark } from "./marks";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
@@ -188,6 +189,8 @@ interface Slot {
   key: BandKey | null;
   /** The song's last bar: one held bass note on its downbeat. */
   ending: boolean;
+  /** True for a note of a bar the performer marked. Such a bar does not count towards its section's home note, so a mark never moves a register. */
+  marked?: true;
   /** Song time the bar ends. */
   barEnd: number;
   /** Bass pitch class of the chord on the next bar's downbeat. Walking lines head toward it. Null past the end of the grid or on a rest. */
@@ -477,6 +480,7 @@ function buildSlots(
   seed: number,
   endTime: number | undefined,
   keys: readonly BandKey[],
+  marked: ReadonlyMap<number, readonly BarMark[]>,
 ): Slot[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
@@ -537,6 +541,9 @@ function buildSlots(
     // A bar can be shorter or longer than the rest where the song's bar lines move.
     const length = spans[k].beats;
     const end = barEnd(beats, start, length);
+    // A note in a bar with a stop mark ends where the stop starts, so the gap is heard.
+    const stopMark = markOf(marked, k, "stop");
+    const limit = stopMark ? beats[start + length - Math.min(markBeats(stopMark), length)] : end;
     const nextBarBass = chordAt(start + length)?.bass ?? null;
     const makeEnding = (time: number, beat: number, held: number, index: number): Slot => ({
       time,
@@ -674,7 +681,12 @@ function buildSlots(
     const nextPlan = plans[planIndex + 1];
     let leadTarget: number | null = null;
     let leadKey: BandKey | null = null;
+    // The performer's marks on this bar: no fill and no turnaround, a fill, a stab, a rest.
+    const noFill = markOf(marked, k, "no-fill") !== undefined;
+    const stab = markOf(marked, k, "hit") !== undefined;
+    const resting = markOf(marked, k, "bass-out") !== undefined;
     if (
+      !noFill &&
       barInPlan === planBars - 1 &&
       nextPlan &&
       nextPlan.name !== plan.name &&
@@ -696,7 +708,23 @@ function buildSlots(
       const phrase = Math.floor(barInPlan / phraseBars(planBars));
       const variation = chooseVariation(plan.fills, part, phrase, phraseRandom, plan.pickups);
       if (variation) {
+        // A bar marked No fill still draws its variation, so the phrases after it are the same as without the mark.
         const change = variationSteps(variation, steps, style.meter.stepsPerBeat, phraseRandom);
+        if (!noFill) rhythm = rhythm.filter((step) => !change.remove.includes(step));
+        for (const note of noFill ? [] : change.add) {
+          const target = note.kind === "pop" ? null : nextBarBass;
+          if (note.kind !== "pop" && target === null) continue;
+          variants.set(note.step, { kind: note.kind, offset: note.offset, target, quality, chromatic, key: barKey, plan: planIndex });
+        }
+      }
+    }
+
+    if (markOf(marked, k, "fill") && variants.size === 0 && !stab && leadTarget === null) {
+      // A marked fill is one variation at the end of the bar, drawn from its own stream so no other bar changes.
+      const own = createRandom(variationSeed(seed, "mark-fill", start));
+      const variation = chooseVariation(3, part, 1, own, plan.pickups);
+      if (variation) {
+        const change = variationSteps(variation, steps, style.meter.stepsPerBeat, own);
         rhythm = rhythm.filter((step) => !change.remove.includes(step));
         for (const note of change.add) {
           const target = note.kind === "pop" ? null : nextBarBass;
@@ -705,9 +733,14 @@ function buildSlots(
         }
       }
     }
-
+    if (stab) {
+      rhythm = [0];
+      variants.clear();
+    }
     const silent = (step: number): boolean => feel?.stops.has(points[step].beat) ?? false;
-    const stepList = [...new Set([...rhythm, ...variants.keys()])].filter((step) => step >= 0 && step < barSteps && !silent(step)).sort((a, b) => a - b);
+    // A bar the bass rests in keeps only a note the performer set by hand.
+    const kept = (step: number): boolean => !resting || stab || chordAt(points[step].beat)?.byHand === true;
+    const stepList = [...new Set([...rhythm, ...variants.keys()])].filter((step) => step >= 0 && step < barSteps && !silent(step) && kept(step)).sort((a, b) => a - b);
     const holdEnd = (beat: number): number => {
       for (let b = beat + 1; b < start + length && b < beats.length; b++) if (nameAt(b) !== nameAt(beat)) return beats[b];
       return end;
@@ -720,7 +753,7 @@ function buildSlots(
       const pedal = part === "pedal";
       const forced = !pedal && previousBeat >= 0 && nameAt(previousBeat) !== nameAt(point.beat);
       if (!strong && !forced) offBeat += 1;
-      const hitOne = plan.hitTheOne && barInPlan === 0 && index === 0;
+      const hitOne = (plan.hitTheOne && barInPlan === 0 && index === 0) || (stab && index === 0);
       // A beat with a note set by hand keeps that note: a pedal, a fill or a lead-in into the next section plays around it, not over it.
       const byHand = chordAt(point.beat)?.byHand === true;
       slots.push({
@@ -743,7 +776,7 @@ function buildSlots(
         downbeat: step === 0,
         locked: locked.has(step),
         hitOne,
-        holdUntil: hitOne ? holdEnd(point.beat) : end,
+        holdUntil: hitOne && !stab ? holdEnd(point.beat) : limit,
         name: plan.name,
         occurrence: occurrence[planIndex],
         repeats: nameCount.get(plan.name)! > 1,
@@ -755,7 +788,8 @@ function buildSlots(
         figure: byHand || variants.has(step) ? undefined : figureNotes.get(step),
         variant: byHand ? undefined : variants.get(step),
         ending: false,
-        barEnd: end,
+        marked: marked.has(k) ? true : undefined,
+        barEnd: limit,
         nextBarBass,
       });
       previousBeat = point.beat;
@@ -784,7 +818,7 @@ function buildSlots(
 function homeNotes(slots: readonly Slot[], range: Range): Map<number, number> {
   const counts = new Map<number, Map<number, number>>();
   for (const slot of slots) {
-    if (!slot.chord || slot.ending) continue;
+    if (!slot.chord || slot.ending || slot.marked) continue;
     const own = counts.get(slot.plan) ?? new Map<number, number>();
     own.set(slot.chord.bass, (own.get(slot.chord.bass) ?? 0) + 1);
     counts.set(slot.plan, own);
@@ -815,14 +849,17 @@ export function generateBass(
   settings: BandSettings,
   kick: readonly NoteEvent[],
   seed: number,
-  feel?: Feel,
+  follow?: Feel,
   endTime?: number,
   keys: readonly BandKey[] = [],
 ): NoteEvent[] {
   if (grid.beats.length === 0 || plans.length === 0) return [];
 
   const random = createRandom(seed);
-  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime, keys);
+  // The performer's marks: a stop becomes a stop of the feel, so both parts obey it (marks.ts).
+  const { byBar: marked } = marksByBar(grid, settings.marks);
+  const feel = withMarkStops(grid, marked, follow);
+  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime, keys, marked);
   const range = BASS_NOTE_RANGES[bassRangeFor(settings, keys).range];
   // Engine 2 keeps each section's roots in one register: its home note (see homeNotes).
   const homes = settings.engine >= 2 ? homeNotes(slots, range) : null;
@@ -832,6 +869,8 @@ export function generateBass(
   const jitter = (slot: Slot): number => {
     let source = random;
     if (slot.variant) source = createRandom(variationSeed(seed, "variant", slot.beat * 128 + slot.index));
+    // With marks, each note's jitter comes from its own place, so a mark that adds or takes away notes in one bar moves no velocity in another.
+    else if (settings.marks.length > 0) source = createRandom(variationSeed(seed, "place", slot.beat * 128 + slot.index));
     else if (slot.repeats) {
       const stream = streams.get(slot.name);
       if (!stream || stream.occurrence !== slot.occurrence) {

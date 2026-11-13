@@ -6,6 +6,7 @@ import { findStyle } from "./styles";
 import type { EndingSettings } from "./ending";
 import type { BeatGrid } from "./beat-grid";
 import type { Feel } from "./feel";
+import type { BarMark } from "./marks";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import type { NoteEvent } from "./note";
 
@@ -742,5 +743,74 @@ describe("generateBass with a figure (engine 2)", () => {
         }
       }
     }
+  });
+});
+
+describe("generateBass with marks", () => {
+  const chords = barsOf("C", "Am", "F", "G", "C", "Am", "F", "G");
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  const plans = [planFor(chords.length, { name: "Verse", fills: 3, busy: 4 })];
+  const generate = (marks: BarMark[], withHarmony: ChordAtBeat[] = harmony, settings: Partial<BandSettings> = {}) =>
+    generateBass(grid, withHarmony, plans, settingsFor({ engine: 2, bassMode: "melodic", ...settings, marks }), [], 3);
+  // A song with no marks keeps the jitter it always had, so the unmarked notes are read from a song with a mark that falls on no bar.
+  const plain = generate([{ time: 500, kind: "fill" }]);
+  /** Every note outside the given bars. */
+  // Lengths are left out: the note before a changed bar is cut at the next note, which has moved.
+  const outside = (notes: readonly NoteEvent[], bars: number[]) =>
+    notes.filter((note) => !bars.includes(Math.floor(note.time / 2 + 1e-9))).map((note) => [note.time, note.pitch, note.velocity]);
+
+  it("gives the notes it always gave when there are no marks", () => {
+    const noMarks = generateBass(grid, harmony, plans, settingsFor({ engine: 2, bassMode: "melodic" }), [], 3);
+    expect(noMarks.map((note) => [note.time, note.pitch])).toEqual(plain.map((note) => [note.time, note.pitch]));
+  });
+
+  it("stop silences the last beats of its bar and plays a note on the next downbeat, and changes nothing else", () => {
+    const marked = generate([{ time: 4, kind: "stop", beats: 2 }]);
+    expect(inBar(marked, 2).filter((note) => note.time >= 5)).toEqual([]);
+    // The last note before the stop is now the bar's last note, so it rings; the notes before it are the same.
+    expect(inBar(marked, 2).filter((note) => note.time < 4.5)).toEqual(inBar(plain, 2).filter((note) => note.time < 4.5));
+    expect(inBar(marked, 3).some((note) => note.time === 6)).toBe(true);
+    expect(outside(marked, [2, 3])).toEqual(outside(plain, [2, 3]));
+    // No note rings into the stop.
+    expect(inBar(marked, 2).every((note) => note.time + note.duration <= 5 + 1e-9)).toBe(true);
+  });
+
+  it("bass-out rests the bass for one bar and leaves every other bar as it was", () => {
+    const marked = generate([{ time: 4, kind: "bass-out" }]);
+    expect(inBar(marked, 2)).toEqual([]);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("a note set by hand still plays in a bar marked bass-out", () => {
+    const byHand = harmony.map((entry) => (entry.beat === 9 && entry.chord ? { ...entry, chord: { ...entry.chord, byHand: true } } : entry));
+    const marked = generate([{ time: 4, kind: "bass-out" }], byHand);
+    expect(inBar(marked, 2).length).toBeGreaterThan(0);
+    expect(inBar(marked, 2).every((note) => note.time >= 4.5 && note.time < 5)).toBe(true);
+  });
+
+  it("hit plays one note on the downbeat, held for the bar, and changes nothing else", () => {
+    const marked = generate([{ time: 4, kind: "hit" }]);
+    expect(inBar(marked, 2)).toHaveLength(1);
+    expect(inBar(marked, 2)[0].time).toBe(4);
+    expect(inBar(marked, 2)[0].duration).toBeGreaterThan(1);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("no-fill takes the phrase variation out of its bar and leaves the other phrases as they were", () => {
+    // Bars 3 and 7 end the phrases of an eight-bar section.
+    const marked = generate([{ time: 6, kind: "no-fill" }]);
+    const without = generateBass(grid, harmony, [planFor(chords.length, { name: "Verse", fills: 0, busy: 4 })], settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 500, kind: "fill" }] }), [], 3);
+    expect(inBar(plain, 3)).not.toEqual(inBar(without, 3));
+    expect(inBar(marked, 3)).toEqual(inBar(without, 3));
+    expect(outside(marked, [3])).toEqual(outside(plain, [3]));
+  });
+
+  it("fill gives a bar a variation of its own and changes no other bar", () => {
+    const quiet = [planFor(chords.length, { name: "Verse", fills: 0, busy: 4 })];
+    const base = generateBass(grid, harmony, quiet, settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 500, kind: "fill" }] }), [], 3);
+    const marked = generateBass(grid, harmony, quiet, settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 4, kind: "fill" }] }), [], 3);
+    expect(inBar(marked, 2)).not.toEqual(inBar(base, 2));
+    expect(outside(marked, [2])).toEqual(outside(base, [2]));
   });
 });

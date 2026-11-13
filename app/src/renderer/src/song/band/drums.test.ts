@@ -4,6 +4,7 @@ import type { BeatGrid } from "./beat-grid";
 import { generateDrums, playsAt } from "./drums";
 import type { EndingSettings } from "./ending";
 import { rankGrooves, type Feel } from "./feel";
+import type { BarMark } from "./marks";
 import { CLOSED_HAT, CRASH, DRUM_DURATION, KICK, OPEN_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
 import { findStyle, STYLES } from "./styles";
 import { STYLE_IDS, type DrumGroove, type DrumHit } from "./styles/types";
@@ -569,5 +570,92 @@ describe("generateDrums endings", () => {
   it("keeps the last bar a hit when no ending is set, as saved songs have always had", () => {
     const saved = generateDrums(grid, [plan(0, 16)], settingsFor(), 1);
     expect(saved).toEqual(generateDrums(grid, [plan(0, 16)], ended("hit"), 1));
+  });
+});
+
+describe("generateDrums with marks", () => {
+  // Eight bars of two seconds, in two sections of four, with a fill on the first one's last bar. Bar n starts at 2n seconds.
+  const grid = steady(33);
+  const plans = [plan(0, 16, { fill: true }), plan(16, 33)];
+  const base = settingsFor();
+  const generate = (marks: BarMark[], settings: BandSettings = base) => generateDrums(grid, plans, { ...settings, marks }, 7);
+  const barOf = (notes: readonly NoteEvent[], bar: number) => notes.filter((note) => note.time >= bar * 2 && note.time < bar * 2 + 2);
+  /** Every note outside the given bars. */
+  const outside = (notes: readonly NoteEvent[], bars: number[]) => notes.filter((note) => !bars.includes(Math.floor(note.time / 2)));
+  const plain = generate([]);
+
+  it("gives the notes it always gave when there are no marks", () => {
+    expect(generateDrums(grid, plans, base, 7)).toEqual(plain);
+  });
+
+  it("a fill mark gives its bar a fill and changes no other bar but the crash that follows a fill", () => {
+    const marked = generate([{ time: 4, kind: "fill", beats: 2 }]);
+    expect(barOf(marked, 2)).not.toEqual(barOf(plain, 2));
+    expect(barOf(marked, 2).filter((note) => note.time < 5)).toEqual(barOf(plain, 2).filter((note) => note.time < 5));
+    expect(outside(marked, [2, 3])).toEqual(outside(plain, [2, 3]));
+    expect(barOf(marked, 3).filter((note) => note.pitch === CRASH && note.time === 6)).toHaveLength(1);
+  });
+
+  it("a fill of one beat changes less of the bar than a fill of four", () => {
+    const one = barOf(generate([{ time: 4, kind: "fill", beats: 1 }]), 2);
+    const four = barOf(generate([{ time: 4, kind: "fill", beats: 4 }]), 2);
+    expect(one.filter((note) => note.time < 5.5)).toEqual(barOf(plain, 2).filter((note) => note.time < 5.5));
+    expect(four).not.toEqual(one);
+  });
+
+  it("no-fill on a section's last bar removes the fill and the crash after it", () => {
+    const withFill = plain;
+    expect(barOf(withFill, 4).some((note) => note.pitch === CRASH && note.time === 8)).toBe(true);
+    const marked = generate([{ time: 6, kind: "no-fill" }]);
+    // The bar plays its groove, as it would if the section had no fill, and the crash the fill led to is gone.
+    const grooveOnly = generateDrums(grid, [plan(0, 16), plan(16, 33)], base, 7);
+    expect(barOf(marked, 3)).toEqual(barOf(grooveOnly, 3));
+    expect(barOf(marked, 4).some((note) => note.pitch === CRASH && note.time === 8)).toBe(false);
+    expect(outside(marked, [3, 4])).toEqual(outside(withFill, [3, 4]));
+  });
+
+  it("stop silences the last beats of its bar, hits the next downbeat, and changes nothing else", () => {
+    const marked = generate([{ time: 4, kind: "stop", beats: 2 }]);
+    expect(barOf(marked, 2).filter((note) => note.time >= 5)).toEqual([]);
+    expect(barOf(marked, 2).filter((note) => note.time < 5)).toEqual(barOf(plain, 2).filter((note) => note.time < 5));
+    const next = barOf(marked, 3).filter((note) => note.time === 6);
+    expect(next.map((note) => note.pitch)).toEqual(expect.arrayContaining([KICK, CRASH]));
+    expect(outside(marked, [2, 3])).toEqual(outside(plain, [2, 3]));
+    expect(barOf(marked, 3).filter((note) => note.time > 6.4)).toEqual(barOf(plain, 3).filter((note) => note.time > 6.4));
+  });
+
+  it("stop keeps the follow feel's own stops", () => {
+    const follow: Feel = { profiles: [], stops: new Set([2]), hits: new Set() };
+    const marked = generateDrums(grid, plans, { ...base, marks: [{ time: 4, kind: "stop", beats: 1 }] }, 7, follow);
+    expect(barOf(marked, 0).filter((note) => note.time === 1)).toEqual([]);
+    expect(barOf(marked, 2).filter((note) => note.time >= 5.5)).toEqual([]);
+  });
+
+  it("crash puts a crash on the downbeat, and no-crash takes the section's crash away, each on its own bar", () => {
+    const withCrash = generate([{ time: 4, kind: "crash" }]);
+    expect(barOf(withCrash, 2).some((note) => note.pitch === CRASH && note.time === 4)).toBe(true);
+    expect(outside(withCrash, [2])).toEqual(outside(plain, [2]));
+    const sectionCrashes = { ...base, crashOnSections: true };
+    const before = generateDrums(grid, plans, { ...sectionCrashes, marks: [] }, 7);
+    const marked = generateDrums(grid, plans, { ...sectionCrashes, marks: [{ time: 8, kind: "no-crash" }] }, 7);
+    expect(barOf(before, 4).some((note) => note.pitch === CRASH && note.time === 8)).toBe(true);
+    expect(barOf(marked, 4).some((note) => note.pitch === CRASH && note.time === 8)).toBe(false);
+    expect(outside(marked, [4])).toEqual(outside(before, [4]));
+  });
+
+  it("drums-out rests the drums for one bar and leaves every other bar as it was", () => {
+    const marked = generate([{ time: 4, kind: "drums-out" }]);
+    expect(barOf(marked, 2)).toEqual([]);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("hit plays a kick and a crash on the downbeat only", () => {
+    const marked = generate([{ time: 4, kind: "hit" }]);
+    expect(barOf(marked, 2).map((note) => [note.time, note.pitch].join(":")).sort()).toEqual(["4:36", "4:49"]);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("a mark that falls on no bar changes nothing", () => {
+    expect(generate([{ time: 500, kind: "drums-out" }])).toEqual(plain);
   });
 });
