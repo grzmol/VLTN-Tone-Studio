@@ -91,6 +91,40 @@ describe("planSections", () => {
     expect(plans.map((plan) => plan.fill)).toEqual([true, false, false, true]);
   });
 
+  it("gives a pre-chorus and a build the build shape, the rest steady, and lets an override win", () => {
+    const plans = planSections(
+      [section("a", "Verse", 0, 10), section("b", "Pre-chorus", 10, 20), section("c", "Build", 20, 30), section("d", "Chorus", 30, 40)],
+      40,
+      settings({ sections: { d: { shape: "half" } } }),
+    );
+    expect(plans.map((plan) => plan.shape)).toEqual(["steady", "build", "build", "half"]);
+  });
+
+  it("drops a section the song's own drums play quietly, unless the drums are off or the performer chose a shape", () => {
+    const sections = [section("a", "Verse", 0, 10), section("b", "Bridge", 10, 20), section("c", "Solo", 20, 30)];
+    const hints = [
+      { start: 0, end: 10, levelDb: -4 },
+      { start: 10, end: 20, levelDb: -6, drumsOff: true },
+      { start: 20, end: 30, levelDb: -4 },
+    ];
+    const plans = planSections(sections, 30, settings({ sections: { c: { shape: "steady" } } }), hints);
+    expect(plans.map((plan) => plan.shape)).toEqual(["drop", "steady", "steady"]);
+  });
+
+  it("lifts the bass in a build by the shape, and only at drum engine 3", () => {
+    const sections = [section("a", "Verse", 0, 10), section("b", "Pre-chorus", 10, 20), section("c", "Build", 20, 30)];
+    expect(planSections(sections, 30, settings({ engine: 3 })).map((plan) => plan.bassRamp)).toEqual([false, true, true]);
+    expect(planSections(sections, 30, settings({ engine: 2 })).map((plan) => plan.bassRamp)).toEqual([false, true, false]);
+    const steady = planSections(sections, 30, settings({ engine: 3, sections: { b: { shape: "steady" }, a: { shape: "build" } } }));
+    expect(steady.map((plan) => plan.bassRamp)).toEqual([true, false, true]);
+  });
+
+  it("reads a shape from a saved song and drops an unknown one", () => {
+    const read = (shape: unknown) => parseBandSettings({ sections: { a: { shape } } }).sections.a?.shape;
+    expect(["steady", "build", "drop", "half"].map(read)).toEqual(["steady", "build", "drop", "half"]);
+    expect([1, "loud", null].map(read)).toEqual([undefined, undefined, undefined]);
+  });
+
   it("leaves the fill automatic for every section at drum engine 3", () => {
     const plans = planSections([section("a", "Verse", 0, 10), section("b", "Chorus", 10, 20), section("c", "Bridge", 20, 30)], 30, settings({ engine: 3 }));
     expect(plans.map((plan) => plan.fill)).toEqual([true, true, true]);

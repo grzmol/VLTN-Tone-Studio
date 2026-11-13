@@ -193,6 +193,11 @@ export interface SectionPlan {
    * engine 3 is sized to the change into the next section (drum-phrases.ts). `false` is none. Songs on an earlier engine read it as on or off.
    */
   fill: boolean | FillSize;
+  /**
+   * How the section's drums move through it (drum engine 3): steady as written, a build into the next section, a drop to kick and hats, or
+   * the half-time style's groove. Left out it is steady. From the section's name unless the performer or the song's own band sets it. A build also lifts the bass.
+   */
+  shape?: SectionShape;
   play: PartToggles;
   /**
    * The section's own seed, when the performer tried another for this section or kept it. The section then draws its groove, fills, figure and
@@ -203,6 +208,15 @@ export interface SectionPlan {
 
 /** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
 export type SectionOverride = Partial<Omit<SectionPlan, "name" | "bassPart" | "bassLead" | "bassRamp">> & { bassPart?: BassPartChoice };
+
+/** The shapes a section's drums can take. */
+export const SECTION_SHAPES = ["steady", "build", "drop", "half"] as const;
+export type SectionShape = (typeof SECTION_SHAPES)[number];
+
+/** The shape a section name gets: a build for a pre-chorus and for a section called a build, steady for the rest. */
+export function defaultShape(name: string): SectionShape {
+  return /pre[\s-]*chorus|\bbuild/i.test(name) ? "build" : "steady";
+}
 
 /** The size of the drum fill that ends a section: none, the last beat, half a bar, the whole bar. */
 export type FillSize = 0 | 1 | 2 | 3;
@@ -357,6 +371,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
   const energy = override.energy ?? energyForName(name);
   const technique = findStyle(override.style ?? settings.style)?.bass.techniques ?? { slides: false, deadNotes: false, pickups: true };
   const busy = override.busy ?? energy;
+  const shape = override.shape ?? defaultShape(name);
   const choice = override.bassPart ?? "auto";
   const bass =
     choice === "auto"
@@ -370,7 +385,9 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
     busy,
     bassPart: bass.part,
     bassLead: bass.lead,
-    bassRamp: bass.rampLoud,
+    // The shape drives the lift: a section the performer gave a shape lifts when it is a build, and otherwise a build lifts like a pre-chorus.
+    bassRamp: settings.engine >= 3 && override.shape !== undefined ? override.shape === "build" : bass.rampLoud || (settings.engine >= 3 && shape === "build"),
+    shape,
     octave: override.octave ?? bass.octave,
     fills: override.fills ?? defaultFills(name),
     slides: override.slides ?? technique.slides,
@@ -412,6 +429,8 @@ function withHint(override: SectionOverride, hint: SectionBandHint | undefined, 
   const fromHint: SectionOverride = {};
   if (hint.bassOff) fromHint.bassPart = "rest";
   if (hint.drumsOff) fromHint.play = { drums: false, bass: settings.parts.bass };
+  // A section where the song's own drums play quietly drops to kick and hats.
+  if (!hint.drumsOff && hint.levelDb !== undefined && hint.levelDb <= HINT_QUIETER_DB) fromHint.shape = "drop";
   if (hint.levelDb !== undefined && override.energy === undefined) {
     const step = hint.levelDb >= HINT_LOUDER_DB ? 1 : hint.levelDb <= HINT_QUIETER_DB ? -1 : 0;
     if (step !== 0) fromHint.energy = Math.min(5, Math.max(1, energyForName(name) + step)) as Energy;
@@ -468,6 +487,7 @@ const isUnit = (value: unknown): value is number => isInRange(value, 0, 1);
 const isSwing = (value: unknown): value is number => isInRange(value, 0, SWING_MAX);
 const isSeed = (value: unknown): value is number => isInRange(value, 0, 0xffffffff) && Number.isInteger(value);
 const isEngine = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= CURRENT_ENGINE;
+const isShape = (value: unknown): value is SectionShape => SECTION_SHAPES.includes(value as SectionShape);
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
 const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
 const isFills = (value: unknown): value is Fills => FILLS.includes(value as Fills);
@@ -506,6 +526,7 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.pickups, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isFillChoice) &&
+    optional(value.shape, isShape) &&
     optional(value.play, isPartToggles) &&
     optional(value.seed, isSeed)
   );
@@ -723,6 +744,7 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isBool(value.pickups)) override.pickups = value.pickups;
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isFillChoice(value.fill)) override.fill = value.fill;
+  if (isShape(value.shape)) override.shape = value.shape;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
   if (isSeed(value.seed)) override.seed = value.seed;
   return override;

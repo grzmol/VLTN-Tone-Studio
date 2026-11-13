@@ -14,7 +14,7 @@ import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
-import { barRoles, choked, fillSizeOf, overlay, shapeFill } from "./drum-phrases";
+import { addKickEighths, barRoles, choked, dropBar, fillSizeOf, overlay, riseHats, shapeFill, snareBuild } from "./drum-phrases";
 import { VEL } from "./styles/notation";
 import { LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
 import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
@@ -63,6 +63,14 @@ function pickSegment(plan: number, energy: Energy, style: Style, accent: AccentP
     barsLeft: random.pick(VARIATION_BARS),
     pushes: accentPushes(accent.weights, grooves[groove], complexity, style.meter.stepsPerBeat),
   };
+}
+
+/** The style a section plays: its own, or at drum engine 3 the half-time style's grooves for a half-time shape, when the two share a bar. */
+function styleOf(plan: SectionPlan, phrased: boolean): Style | undefined {
+  const own = findStyle(plan.style);
+  const half = findStyle("half-time");
+  const fits = own && half && half.meter.beatsPerBar === own.meter.beatsPerBar && half.meter.stepsPerBeat === own.meter.stepsPerBeat;
+  return phrased && plan.shape === "half" && fits ? half : own;
 }
 
 /** The draws a bar makes under the drum phrases: which turnaround, short fill, half fill and bar fill it would use. Always drawn, whether used or not. */
@@ -219,7 +227,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
         seed,
         occurrence[planIndex],
         barsOf[planIndex],
-        findStyle(plans[planIndex].style) ?? findStyle("rock")!,
+        styleOf(plans[planIndex], true) ?? findStyle("rock")!,
         isAccented(accented) ? accented : undefined,
         settings.complexity,
       );
@@ -236,10 +244,10 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     const known = fillDraws.get(key);
     if (known !== undefined) return known;
     const last = sectionFor(planIndex).draws[barsOf[planIndex] - 1];
-    const style = findStyle(plans[planIndex].style);
+    const style = styleOf(plans[planIndex], true);
     let choice = last[kind];
     const before = planIndex > 0 ? plans[planIndex - 1] : undefined;
-    if (before && style && before.style === plans[planIndex].style && before.seed === undefined && plans[planIndex].seed === undefined) {
+    if (before && style && styleOf(before, true)?.id === style.id && before.seed === undefined && plans[planIndex].seed === undefined) {
       if (sectionFill(planIndex - 1, kind) === choice) choice = (choice + 1) % style.fills[kind].length;
     }
     fillDraws.set(key, choice);
@@ -261,7 +269,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     afterFill = false;
 
     const plan = planIndex >= 0 ? plans[planIndex] : undefined;
-    const style = plan && plan.play.drums ? findStyle(plan.style) : undefined;
+    const style = plan && plan.play.drums ? styleOf(plan, phrased) : undefined;
     if (!plan || !style) {
       segment = null;
       continue;
@@ -277,6 +285,8 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     let groove: DrumGroove;
     let hits: DrumHit[];
     let filled = false;
+    // The loud level of the bar: a build lifts its last two bars by one.
+    let barLoud: Energy = plan.loud;
     if (phrased) {
       const section = sectionFor(planIndex);
       const role = roles[planIndex][barIndex[k]];
@@ -293,15 +303,17 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
       hits = pushes.length > 0 ? [...groove.hits, ...pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
       const lastBeat = groove.steps - style.meter.stepsPerBeat;
       const fillMark = markOf(marked, k, "fill");
+      const noFill = markOf(marked, k, "no-fill") !== undefined;
+      const hold = shape?.fill === true && k === ending;
       const asFill = (size: 1 | 2 | 3): void => {
         const { from, fill } = fillOf(style, draw, size, groove.steps);
         hits = [...hits.filter((hit) => hit.step < from), ...fill];
         filled = size >= 2;
       };
-      if (shape?.fill === true && k === ending) {
+      if (hold) {
         // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.
         asFill(3);
-      } else if (markOf(marked, k, "no-fill")) {
+      } else if (noFill) {
         // A bar marked No fill plays its groove, whatever the rules say.
       } else if (fillMark) {
         // A marked fill takes the last `beats` beats of the bar: a short fill for one beat, a half-bar fill cut to the beats, or the whole bar.
@@ -315,7 +327,9 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
           filled = true;
         }
       } else if (role.sectionEnd) {
-        if (fillSize !== 0) asFill(fillSize);
+        // The last bar of a drop is kick and hats, then a half-bar fill, whatever size the change asks for.
+        if (plan.shape === "drop") hits = dropBar(hits, style.meter.stepsPerBeat);
+        if (fillSize !== 0) asFill(plan.shape === "drop" ? 2 : fillSize);
         // Before a section with the drums off the last bar ends with a kick and a crash, if the section is loud.
         if (choked(plan, next)) {
           hits = [
@@ -324,10 +338,31 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
             { step: lastBeat, pitch: CRASH, velocity: CRASH_VELOCITY },
           ];
         }
+      } else if (plan.shape === "drop") {
+        // A drop is kick and hats, with none of the small fills and turnarounds of the phrases.
+        hits = dropBar(hits, style.meter.stepsPerBeat);
       } else if (role.pairEnd) {
         asFill(1);
       } else if (role.phraseEnd) {
         hits = overlay(hits, style.turnarounds[draw.turn].hits, lastBeat);
+      }
+      if (plan.shape === "build") {
+        // A build rises over the section's last four bars (or all of it when it is shorter): the hats get louder, the kick fills in the eighths
+        // and the loud level lifts in the last two, and the last bar is a snare roll.
+        const window = Math.min(4, barsOf[planIndex]);
+        const into = role.bar - (barsOf[planIndex] - window);
+        if (into >= 0) {
+          const lifting = into >= window - 2;
+          hits = riseHats(hits, into);
+          if (lifting) {
+            hits = addKickEighths(hits, groove.steps, style.meter.stepsPerBeat);
+            barLoud = Math.min(5, plan.loud + 1) as Energy;
+          }
+          if (role.sectionEnd && !fillMark && !noFill && !hold && fillSize !== 0) {
+            hits = snareBuild(groove.steps, style.meter.stepsPerBeat);
+            filled = true;
+          }
+        }
       }
     } else {
       if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
@@ -418,7 +453,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
 
       const at = stepAt(beats, style, start, hit.step, perBar, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
-      let velocity = hit.velocity * LOUD_DRUM_SCALE[plan.loud];
+      let velocity = hit.velocity * LOUD_DRUM_SCALE[barLoud];
       if (hit.ghost) velocity = Math.min(velocity, GHOST_CEILING);
       emit(at.time, hit.pitch, velocity);
     }

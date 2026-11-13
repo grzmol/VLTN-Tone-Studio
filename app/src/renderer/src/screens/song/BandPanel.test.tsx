@@ -699,6 +699,13 @@ describe("Band panel", () => {
     expect(savedOptions().band.sections.chorus.energy).toBe(5);
   });
 
+  it("sets a section's shape from the More popover", async () => {
+    renderPanel({ sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "More bass options for Verse" }));
+    pick(await screen.findByRole("combobox", { name: "Shape of Verse" }), "Build");
+    expect(savedOptions().band.sections.verse.shape).toBe("build");
+  });
+
   it("keeps the fill a checkbox for a song on the earlier drums", () => {
     stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, engine: 2 } });
     renderPanel({ sections: SECTIONS });

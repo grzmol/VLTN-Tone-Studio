@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FILL_CHOICES, fillChoiceOf, fillOfChoice, styleChoices } from "./band-labels";
+import { FILL_CHOICES, fillChoiceOf, fillOfChoice, SHAPE_CHOICES, SHAPE_LABELS, styleChoices } from "./band-labels";
 
 describe("styleChoices", () => {
   it("lists the styles written for the song's meter first and marks the others", () => {
@@ -24,5 +24,11 @@ describe("the Fill menu", () => {
   it("saves Auto as true and every other choice as its size, and reads its own saves back", () => {
     expect(FILL_CHOICES.map((choice) => fillOfChoice(choice))).toEqual([true, 0, 1, 2, 3]);
     for (const choice of FILL_CHOICES) expect(fillChoiceOf(fillOfChoice(choice))).toBe(choice);
+  });
+});
+
+describe("the Shape menu", () => {
+  it("names every shape a section can take", () => {
+    expect(SHAPE_CHOICES.map((shape) => SHAPE_LABELS[shape])).toEqual(["Steady", "Build", "Drop", "Half-time"]);
   });
 });

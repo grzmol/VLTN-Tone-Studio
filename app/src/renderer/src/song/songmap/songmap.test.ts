@@ -452,3 +452,33 @@ describe("the Fill column of the Sections table", () => {
     expect(parseSongMap(text).map?.sections.map((section) => section.fill)).toEqual([true, 3, undefined]);
   });
 });
+
+describe("the Shape column of the Sections table", () => {
+  it("reads the four shapes, refuses another and keeps the other rows", () => {
+    const text = "---\nsongmap: 1\n---\n## Sections\n\n| Start | End | Section | Shape |\n|---|---|---|---|\n| 0 | 10 | A | build |\n| 10 | 20 | B | Drop |\n| 20 | 30 | C | quiet |\n| 30 | 40 | D | half |\n| 40 | 50 | E | |\n";
+    const { map, problems } = parseSongMap(text);
+    expect(problems[0].message).toContain('"quiet" is not a shape');
+    expect(map?.sections.map((section) => [section.name, section.shape])).toEqual([
+      ["A", "build"],
+      ["B", "drop"],
+      ["D", "half"],
+      ["E", undefined],
+    ]);
+  });
+
+  it("writes the column only when a section has a shape, after the Fill column, and reads it back", () => {
+    const map: SongMap = {
+      sections: [
+        { start: 0, end: 10, name: "A", fill: 2, shape: "steady" },
+        { start: 10, end: 20, name: "B", shape: "build" },
+      ],
+      bassNotes: [],
+      extra: {},
+      ignored: [],
+    };
+    const text = writeSongMap(map);
+    expect(text).toContain("| Loud | Fill | Shape | Notes |");
+    expect(parseSongMap(text).map?.sections.map((section) => section.shape)).toEqual(["steady", "build"]);
+    expect(writeSongMap({ ...map, sections: [{ start: 0, end: 10, name: "A", fill: 1 }] })).not.toContain("Shape");
+  });
+});
