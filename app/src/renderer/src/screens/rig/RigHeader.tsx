@@ -37,6 +37,7 @@ export function RigHeader({ preset, connected }: Props) {
   const saved = useDevice((s) => s.saved);
   const unsaved = useDevice((s) => s.unsavedChanges);
   const busy = useDevice((s) => s.busy);
+  const stale = useDevice((s) => s.stale);
   const names = useDevice((s) => s.names);
   const pedal = usePedalName();
   const profile = profileFor(preset.device);
@@ -140,6 +141,7 @@ export function RigHeader({ preset, connected }: Props) {
               No unsaved changes
             </span>
           )}
+          {stale && <span className="font-semibold text-led-warn">Preset changed on the pedal during playback. It will refresh when the song stops.</span>}
           <TempoControl bpm={preset.bpm} range={profile.tempo} disabled={!editable} />
           <FootswitchControl preset={preset} disabled={!editable} />
           {preset.exp && <ExpControl preset={preset} exp={preset.exp} disabled={!editable} />}

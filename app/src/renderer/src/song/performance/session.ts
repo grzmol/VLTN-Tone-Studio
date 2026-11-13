@@ -9,6 +9,7 @@ import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
+import { setStageBusy } from "@/state/stage-activity";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
@@ -703,6 +704,7 @@ export class PerformanceSession {
     if (this.playPending) this.cancelPendingStart();
     this.dropSectionPlan();
     this.dropChained();
+    setStageBusy(false, this);
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.unsubscribeResume?.();
@@ -2014,6 +2016,11 @@ export class PerformanceSession {
   private createEffects(): Effect[] {
     const armedOf = (s: SessionState) => selectArmed(s);
     return [
+      // While a song plays or prepares, the editor leaves the pedal alone (see state/stage-activity.ts).
+      {
+        deps: (s) => [s.playing, s.starting, s.preparing !== null],
+        run: (s) => setStageBusy(s.playing || s.starting || s.preparing !== null, this),
+      },
       // A song a MIDI trigger loaded starts once its player is ready and the library is no longer loading.
       {
         deps: (s) => [s.player, s.busy],
