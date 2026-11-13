@@ -19,7 +19,8 @@ export interface DrumLayer {
   nominal: number;
   /** Semitones to play the sample up or down. Only the GM 47 (mid tom) layers set it. */
   transpose: number;
-  audio: PcmAudio;
+  /** One recording per round-robin take. A layer with a single take has one entry. */
+  takes: PcmAudio[];
 }
 
 export interface BassSample {
@@ -36,10 +37,24 @@ export interface SampleSet {
   bass: BassSample[];
 }
 
+/** One drum layer in map.json: `file` for a single take, or `files` for round-robin takes. */
+export interface DrumLayerEntry {
+  file?: string;
+  files?: string[];
+  velocity: VelocityRange;
+  nominal: number;
+  transpose?: number;
+}
+
+/** The files of a drum layer entry, one per take. */
+export function takeFiles(layer: DrumLayerEntry): string[] {
+  return layer.files ?? (layer.file ? [layer.file] : []);
+}
+
 /** What samples/map.json holds. File paths are relative to samples/. */
 export interface SampleMap {
   sampleRate: number;
-  drums: Record<string, { name: string; layers: { file: string; velocity: VelocityRange; nominal: number; transpose?: number }[] }>;
+  drums: Record<string, { name: string; layers: DrumLayerEntry[] }>;
   bass: { file: string; root: number; layer: "p" | "f"; velocity: VelocityRange }[];
 }
 
@@ -66,10 +81,12 @@ export function readSampleMap(value: unknown): SampleMap {
   if (!map.drums || typeof map.drums !== "object") fail("drums");
   if (!Array.isArray(map.bass)) fail("bass");
   const isRange = (r: unknown): r is VelocityRange => Array.isArray(r) && r.length === 2 && r.every(Number.isInteger);
+  const isTakeList = (layer: DrumLayerEntry): boolean =>
+    layer.files !== undefined ? Array.isArray(layer.files) && layer.files.length > 0 && layer.files.every((f) => typeof f === "string") : typeof layer.file === "string";
   for (const [pitch, entry] of Object.entries(map.drums ?? {})) {
     if (!/^\d+$/.test(pitch) || !Array.isArray(entry.layers) || entry.layers.length === 0) fail(`drum ${pitch}`);
     for (const layer of entry.layers)
-      if (typeof layer.file !== "string" || !isRange(layer.velocity) || !Number.isFinite(layer.nominal)) fail(`drum ${pitch} layer`);
+      if (!isTakeList(layer) || !isRange(layer.velocity) || !Number.isFinite(layer.nominal)) fail(`drum ${pitch} layer`);
   }
   for (const sample of map.bass ?? []) {
     if (typeof sample.file !== "string" || !Number.isInteger(sample.root) || (sample.layer !== "p" && sample.layer !== "f") || !isRange(sample.velocity)) {
@@ -100,12 +117,15 @@ function layerFor<T extends { velocity: VelocityRange }>(layers: readonly T[], v
   return best;
 }
 
-/** The layer and gain for one drum hit. A GM pitch with no layers throws; the tests check every pitch the styles use has some. */
-export function pickDrumSample(set: SampleSet, pitch: number, velocity: number): DrumPick {
+/**
+ * The layer and gain for one drum hit. `take` is the hit's number among the hits of this pitch: hit n plays take n of the layer, wrapping
+ * around, so the same notes always give the same audio. A GM pitch with no layers throws; the tests check every pitch the styles use has some.
+ */
+export function pickDrumSample(set: SampleSet, pitch: number, velocity: number, take = 0): DrumPick {
   const layers = set.drums.get(pitch);
   const layer = layers && layerFor(layers, clampVelocity(velocity));
   if (!layer) throw new Error(`No drum sample for GM pitch ${pitch}.`);
-  return { audio: layer.audio, gain: clampVelocity(velocity) / layer.nominal, transpose: layer.transpose };
+  return { audio: layer.takes[take % layer.takes.length], gain: clampVelocity(velocity) / layer.nominal, transpose: layer.transpose };
 }
 
 /** The root of the sample nearest the note. Throws when no bass samples are loaded. */
@@ -173,7 +193,7 @@ export function sampleSetFrom(map: SampleMap, audioFor: (file: string) => PcmAud
       velocity: layer.velocity,
       nominal: layer.nominal,
       transpose: layer.transpose ?? 0,
-      audio: audioFor(layer.file),
+      takes: takeFiles(layer).map(audioFor),
     }));
     drums.set(
       Number(pitch),
@@ -187,7 +207,7 @@ export function sampleSetFrom(map: SampleMap, audioFor: (file: string) => PcmAud
 // Vite emits each FLAC as an asset and gives its URL (the same pattern as the Gp5 fixtures and the capture clips).
 const SAMPLE_URLS = import.meta.glob("./samples/**/*.flac", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 
-/** The bundled URL of each sample, by its path in map.json (for example `drums/kick-soft.flac`). */
+/** The bundled URL of each sample, by its path in map.json (for example `drums/kick-v1-rr1.flac`). */
 export function sampleFileUrls(): Map<string, string> {
   const urls = new Map<string, string>();
   for (const [path, url] of Object.entries(SAMPLE_URLS)) urls.set(path.replace("./samples/", ""), url);
@@ -199,7 +219,7 @@ const DECODE_BATCH = 8;
 
 /** Every sample file the map names, once each. */
 function sampleFiles(): string[] {
-  return [...new Set([...Object.values(SAMPLE_MAP.drums).flatMap((e) => e.layers.map((l) => l.file)), ...SAMPLE_MAP.bass.map((s) => s.file)])];
+  return [...new Set([...Object.values(SAMPLE_MAP.drums).flatMap((e) => e.layers.flatMap(takeFiles)), ...SAMPLE_MAP.bass.map((s) => s.file)])];
 }
 
 async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>): Promise<Map<string, PcmAudio>> {
@@ -258,12 +278,13 @@ export function loadDrumSample(pitch: number): Promise<PcmAudio> {
   if (cached) return cached;
   const layers = SAMPLE_MAP.drums[String(pitch)]?.layers ?? [];
   const layer = layers.find((l) => CLICK_VELOCITY >= l.velocity[0] && CLICK_VELOCITY <= l.velocity[1]) ?? layers[0];
-  if (!layer) return Promise.reject(new Error(`No drum sample for note ${pitch}.`));
+  const file = layer && takeFiles(layer)[0];
+  if (!file) return Promise.reject(new Error(`No drum sample for note ${pitch}.`));
   const load = (async () => {
-    const url = sampleFileUrls().get(layer.file);
-    if (!url) throw new Error(`Sample ${layer.file} is missing from the app.`);
+    const url = sampleFileUrls().get(file);
+    if (!url) throw new Error(`Sample ${file} is missing from the app.`);
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Could not load sample ${layer.file}.`);
+    if (!response.ok) throw new Error(`Could not load sample ${file}.`);
     return decodeTrack(await response.arrayBuffer());
   })().catch((error: unknown) => {
     clickSamples.delete(pitch);

@@ -24,7 +24,7 @@ const sine = (hz: number, seconds: number): PcmAudio => {
   return { sampleRate: RATE, channels: [channel] };
 };
 
-const layer = (audio: PcmAudio, velocity: [number, number] = [1, 127], nominal = 100, transpose = 0): DrumLayer => ({ velocity, nominal, transpose, audio });
+const layer = (audio: PcmAudio, velocity: [number, number] = [1, 127], nominal = 100, transpose = 0): DrumLayer => ({ velocity, nominal, transpose, takes: [audio] });
 
 const bass = (root: number, audio: PcmAudio): BassSample => ({ root, layer: "p", velocity: [1, 127], audio });
 
