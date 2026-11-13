@@ -71,6 +71,16 @@ describe("bandRequest", () => {
     expect(request.parts).toEqual({ drums: true, bass: true });
   });
 
+  it("plans the parts to the trim end and tells the generator, keeping the audio the song's length", () => {
+    const grid = fixedBeatGrid(120, 0, 4, 8);
+    const input = { grid, cues: [], chords: [], sections: [], settings: DEFAULT_BAND_SETTINGS, songEnd: 8, lengthFrames: 8 * 44100, sampleUrls: {} };
+    const request = bandRequest({ ...input, trimEnd: 5 });
+    expect(request.trimEnd).toBe(5);
+    expect(request.plans.at(-1)?.end).toBe(5);
+    expect(request.lengthFrames).toBe(8 * 44100);
+    expect(bandRequest(input).trimEnd).toBeUndefined();
+  });
+
   it("sends the song's mix and the split's original stems for the level match, with or without follow", () => {
     const grid = fixedBeatGrid(120, 0, 4, 8);
     const mix = audio([0.5]);

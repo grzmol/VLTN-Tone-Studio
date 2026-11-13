@@ -52,6 +52,8 @@ export interface BandInputs {
   settings: BandSettings;
   /** The song's length in seconds, at the song's own rate. */
   songEnd: number;
+  /** The song's trim end in seconds, when it has one. The parts end there: the ending goes on the last full bar before it. */
+  trimEnd?: number;
   /** The song's length in samples. The parts are rendered to exactly this length. */
   lengthFrames: number;
   sampleUrls: Record<string, string>;
@@ -179,17 +181,20 @@ export function playsThreeFourDefault(request: BandRequest): boolean {
  */
 export function bandRequest(input: BandInputs): BandRequest {
   const grid = gridThroughSections(input.grid, input.sections, input.songEnd);
-  const harmony = bandHarmony({ ...input, grid });
+  // The parts are planned to the trim end, so nothing is generated after the place the song is cut. The audio keeps the song's length.
+  const songEnd = input.trimEnd === undefined ? input.songEnd : Math.min(input.songEnd, input.trimEnd);
+  const harmony = bandHarmony({ ...input, grid, songEnd });
   const request: BandRequest = {
     grid,
     harmony,
-    plans: plansForMeter(grid, planSections(input.sections, input.songEnd, input.settings, input.hints ?? []), input.settings),
+    plans: plansForMeter(grid, planSections(input.sections, songEnd, input.settings, input.hints ?? []), input.settings),
     settings: input.settings,
     seed: input.settings.seed,
     lengthFrames: input.lengthFrames,
     parts: { ...input.settings.parts },
     sampleUrls: input.sampleUrls,
   };
+  if (input.trimEnd !== undefined) request.trimEnd = input.trimEnd;
   if (input.follow) request.follow = input.follow;
   if (input.mix) request.mix = input.mix;
   if (input.originals) request.originals = input.originals;
