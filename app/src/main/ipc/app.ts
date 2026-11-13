@@ -128,7 +128,8 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
     const clear = () => {
       showRunning = false;
     };
-    e.sender.once("render-process-gone", clear);
+    // `on`, not `once`: the same sender can crash, reload and report again, and is not added twice.
+    e.sender.on("render-process-gone", clear);
     e.sender.once("destroyed", clear);
   });
   handle("app:takeOpenedFiles", () => openedFiles.splice(0));
