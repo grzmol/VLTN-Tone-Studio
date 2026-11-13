@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockGp150 } from "../lib/mock-device.mjs";
 import { CMD, GLOBALS, P } from "../lib/protocol.mjs";
-import { applyPatchEdits, parsePrst } from "../lib/prst.mjs";
+import { applyPatchEdits, imagesMatch, parsePrst } from "../lib/prst.mjs";
 import { Gp150Session } from "../lib/session.mjs";
 
 const FAST = { frameGapMs: 0, helloTimeoutMs: 50, ackTimeoutMs: 30, replyTimeoutMs: 100, uploadTimeoutMs: 200, resends: 1 };
@@ -129,4 +129,70 @@ test("a message without an ACK is sent again, then the request fails", async () 
 test("a silent pedal fails the hello", async () => {
   const session = new Gp150Session({ name: "x", send() {}, onMessage() {}, close() {} }, { timing: FAST });
   await assert.rejects(() => session.connect(), /connection request/);
+});
+
+// ------------------------------------------------------------------------ pushes during reads
+
+/** A session on a simulator whose replies take a few ms, so a push can land while a read waits. */
+async function slowConnected() {
+  const mock = new MockGp150({ latencyMs: 5 });
+  const session = new Gp150Session(mock.transport(), { timing: { ...FAST, ackTimeoutMs: 100, replyTimeoutMs: 500, uploadTimeoutMs: 1000 } });
+  const events = [];
+  session.addEventListener("message", (e) => events.push(e.message));
+  await session.connect();
+  return { mock, session, events };
+}
+
+test("a stored read takes its own reply, not a preset the pedal pushed meanwhile", async () => {
+  const { mock, session, events } = await slowConnected();
+  const [prst] = await Promise.all([session.readPreset(10), mock.selectOnPedal(150)]);
+  assert.equal(parsePrst(prst).slot, 10);
+  assert.ok(imagesMatch(prst, mock.presets[10]));
+  await new Promise((r) => setTimeout(r, 30));
+  const patches = events.filter((e) => e.kind === "patch");
+  assert.equal(patches.length, 1);
+  assert.equal(parsePrst(patches[0].prst).slot, 150);
+  assert.equal(session.currentSlot, 150);
+});
+
+test("backupAll keeps every entry in its own slot when the pedal changes preset mid-backup", async () => {
+  const { mock, session } = await slowConnected();
+  let stop = false;
+  const pushes = (async () => {
+    for (let slot = 150; !stop; slot = slot === 150 ? 151 : 150) {
+      await mock.selectOnPedal(slot);
+      await new Promise((r) => setTimeout(r, 7));
+    }
+  })();
+  const all = await session.backupAll();
+  stop = true;
+  await pushes;
+  assert.equal(all.length, 200);
+  for (const e of all) assert.equal(parsePrst(e.prst).slot, e.slot);
+});
+
+test("renamePreset keeps the slot's own sound when the pedal pushes another preset", async () => {
+  const { mock, session } = await slowConnected();
+  const before = mock.presets[10].slice();
+  const other = mock.presets[150].slice();
+  const [res] = await Promise.all([session.renamePreset(10, "X", { confirm: true }), mock.selectOnPedal(150)]);
+  assert.equal(res.name, "X");
+  assert.ok(imagesMatch(mock.presets[10], applyPatchEdits(before, { name: "X" })));
+  assert.deepEqual([...mock.presets[150]], [...other]);
+});
+
+test("a write's verify read is not fooled by a push", async () => {
+  const { mock, session } = await slowConnected();
+  const prst = applyPatchEdits(mock.presets[0], { name: "Written" });
+  // The push lands while the verify read waits, not during the import.
+  const pushes = new Promise((r) => setTimeout(r, 12)).then(() => mock.selectOnPedal(150));
+  const [res] = await Promise.all([session.writePreset(12, prst, { confirm: true }), pushes]);
+  assert.equal(res.verified, true);
+});
+
+test("an edit-buffer read racing a push resolves with the pushed (current) patch", async () => {
+  const { mock, session } = await slowConnected();
+  const [eb] = await Promise.all([session.readEditBuffer(), mock.selectOnPedal(150)]);
+  assert.equal(eb.slot, 150);
+  assert.equal(parsePrst(eb.prst).slot, 150);
 });
