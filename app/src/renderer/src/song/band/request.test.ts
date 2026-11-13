@@ -5,7 +5,7 @@ import type { PcmAudio } from "../types";
 import { DEFAULT_BAND_SETTINGS, planSections } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandHarmony, bandRequest, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandKeys, bandRequest, keysFromOptions, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -212,5 +212,36 @@ describe("plansForMeter", () => {
   it("leaves a 4/4 song's plans alone", () => {
     const plans = plansForMeter(fixedBeatGrid(120, 0, 4, 24), planSections(sections, 12, settings), settings);
     expect(plans.map((plan) => plan.style)).toEqual(["rock", "funk"]);
+  });
+});
+
+describe("bandKeys", () => {
+  it("gives no keys when none is known, and one key over the whole song when the song has one", () => {
+    expect(bandKeys(undefined, [], 100)).toEqual([]);
+    expect(bandKeys("A major", [], 100)).toEqual([{ start: 0, end: 100, tonic: 9, mode: "major" }]);
+  });
+
+  it("lets a section in another key cover its own span, and the song's key the rest", () => {
+    const keys = bandKeys("A major", [{ start: 40, end: 60, key: "F# minor" }], 100);
+    expect(keys).toEqual([
+      { start: 0, end: 40, tonic: 9, mode: "major" },
+      { start: 40, end: 60, tonic: 6, mode: "minor" },
+      { start: 60, end: 100, tonic: 9, mode: "major" },
+    ]);
+  });
+
+  it("reaches the request", () => {
+    const grid = fixedBeatGrid(120, 0, 4, 8);
+    const request = bandRequest({ grid, cues: [], chords: [], sections: [], settings: DEFAULT_BAND_SETTINGS, songEnd: 8, lengthFrames: 44100, sampleUrls: {}, songKey: "D minor" });
+    expect(request.keys).toEqual([{ start: 0, end: 8, tonic: 2, mode: "minor" }]);
+  });
+});
+
+describe("keysFromOptions", () => {
+  it("takes the performer's override over a strong estimate, and ignores a tentative one", () => {
+    const estimate = { name: "E major", confidence: "strong" };
+    expect(keysFromOptions({ songKey: "C major", detectedKey: estimate }).songKey).toBe("C major");
+    expect(keysFromOptions({ detectedKey: estimate }).songKey).toBe("E major");
+    expect(keysFromOptions({ detectedKey: { ...estimate, confidence: "tentative" } }).songKey).toBeUndefined();
   });
 });

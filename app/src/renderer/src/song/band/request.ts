@@ -8,6 +8,9 @@ import type { PcmAudio, Stems } from "../types";
 import { WHOLE_SONG_ID, planSections, type BandSettings, type SectionBandHint, type SectionPlan } from "./arrangement";
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
+import { parseKey } from "../analysis/chord-hmm";
+import { parseAnalysis } from "../analysis/song-analysis";
+import type { BandKey } from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
 import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
@@ -59,6 +62,10 @@ export interface BandInputs {
   sampleUrls: Record<string, string>;
   /** The follow-my-playing audio, from followFor. Absent when the setting is off. */
   follow?: BandFollow;
+  /** The song's key as a name such as "A major": the performer's override, else a strong estimate (keysFromOptions). Unknown when absent. */
+  songKey?: string;
+  /** Spans of the song in another key than `songKey`, in seconds, with the key as a name. */
+  keySections?: readonly { start: number; end: number; key: string }[];
   /** The bass note the song's bass stem plays on each beat (analysis/bass-line.ts), when the song has a bass stem and it was read. */
   bassLine?: readonly BassLineBeat[] | null;
   /** What the song's own band does in each detected section (where its drums or bass stop, and how loud), as defaults for the plans. */
@@ -99,6 +106,47 @@ export function followFor(settings: BandSettings, stems: Stems | null, mix: PcmA
 export function bandHarmony(input: Pick<BandInputs, "grid" | "cues" | "chords" | "songEnd" | "settings" | "bassLine">): ChordAtBeat[] {
   const original = input.settings.bassFrom === "original" ? (input.bassLine ?? null) : null;
   return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original, input.settings.bassOverrides);
+}
+
+/**
+ * The song's keys for the bass, in song seconds. The song's key covers the song, and each section in another key covers its own span.
+ * Where no key is known the span has no entry, and with none known at all the list is empty.
+ */
+export function bandKeys(songKey: string | undefined, keySections: BandInputs["keySections"], songEnd: number): BandKey[] {
+  const song = parseKey(songKey);
+  const own = (keySections ?? [])
+    .flatMap((span): BandKey[] => {
+      const key = parseKey(span.key);
+      return key && span.end > span.start ? [{ start: Math.max(0, span.start), end: Math.min(songEnd, span.end), ...key }] : [];
+    })
+    .filter((span) => span.end > span.start)
+    .sort((a, b) => a.start - b.start);
+  const keys: BandKey[] = [];
+  let at = 0;
+  for (const span of own) {
+    if (span.start < at) continue;
+    if (song && span.start > at) keys.push({ start: at, end: span.start, ...song });
+    keys.push(span);
+    at = span.end;
+  }
+  if (song && at < songEnd) keys.push({ start: at, end: songEnd, ...song });
+  return keys;
+}
+
+/**
+ * The key inputs of a song from its saved options: the performer's key override wins, then a strong estimate (the key the chord names are
+ * spelled by, SongKey.tsx), and the sections of the song analysis that read as another key.
+ */
+export function keysFromOptions(options: Record<string, unknown>): Pick<BandInputs, "songKey" | "keySections"> {
+  const override = typeof options.songKey === "string" && options.songKey ? options.songKey : undefined;
+  const estimate = options.detectedKey as { name?: unknown; confidence?: unknown } | null | undefined;
+  const detected = estimate?.confidence === "strong" && typeof estimate.name === "string" ? estimate.name : undefined;
+  const analysis = parseAnalysis(options.analysis);
+  const keySections = (analysis?.keySections ?? []).flatMap((entry) => {
+    const section = analysis?.sections?.[Number(entry.sectionId)];
+    return section ? [{ start: section.start, end: section.end, key: entry.key.name }] : [];
+  });
+  return { songKey: override ?? detected, keySections };
 }
 
 /** The beat intervals the end of a grid is continued with: the median of its last few. */
@@ -187,6 +235,7 @@ export function bandRequest(input: BandInputs): BandRequest {
   const request: BandRequest = {
     grid,
     harmony,
+    keys: bandKeys(input.songKey, input.keySections, songEnd),
     plans: plansForMeter(grid, planSections(input.sections, songEnd, input.settings, input.hints ?? []), input.settings),
     settings: input.settings,
     seed: input.settings.seed,

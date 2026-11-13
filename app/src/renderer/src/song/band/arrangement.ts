@@ -250,9 +250,18 @@ export interface BandSettings {
   firstNote: Partial<Record<RenderedKind, number>>;
   /** Each generation uses this seed, so a song regenerates the same way. "Try another" picks a new one. */
   seed: number;
+  /**
+   * Which generation rules the song plays by. 1 is the earlier bass (fills in the chord's own scale, no figure, the octave from the note
+   * before). 2 is the bass of spec 134 (fills in the song's key, a figure per section, a register per section). A song saved without the
+   * field keeps 1, so it does not change until the performer updates it; a new song starts on 2.
+   */
+  engine: number;
   /** Per-section changes, keyed by section id. Style, energy, loud, busy, bass part, octave, fill and play can be overridden. */
   sections: Record<string, SectionOverride>;
 }
+
+/** The newest generation rules. A new song starts on them; a saved song without an engine plays by the earlier ones (engine 1). */
+export const CURRENT_ENGINE = 2;
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   parts: { drums: true, bass: true },
@@ -281,6 +290,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   renderedTone: {},
   firstNote: {},
   seed: 1,
+  engine: CURRENT_ENGINE,
   sections: {},
 };
 
@@ -428,6 +438,7 @@ const isInRange = (value: unknown, min: number, max: number): value is number =>
 const isUnit = (value: unknown): value is number => isInRange(value, 0, 1);
 const isSwing = (value: unknown): value is number => isInRange(value, 0, SWING_MAX);
 const isSeed = (value: unknown): value is number => isInRange(value, 0, 0xffffffff) && Number.isInteger(value);
+const isEngine = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= CURRENT_ENGINE;
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
 const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
 const isFills = (value: unknown): value is Fills => FILLS.includes(value as Fills);
@@ -648,6 +659,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isRenderedTone(value.renderedTone) &&
     isFirstNote(value.firstNote) &&
     isSeed(value.seed) &&
+    isEngine(value.engine) &&
     isRecord(value.sections) &&
     Object.values(value.sections).every(isSectionOverride)
   );
@@ -730,6 +742,7 @@ export function parseBandSettings(value: unknown): BandSettings {
     renderedTone: parseRenderedTone(source.renderedTone),
     firstNote: parseFirstNote(source.firstNote),
     seed: isSeed(source.seed) ? source.seed : defaults.seed,
+    engine: isEngine(source.engine) ? source.engine : isRecord(value) ? 1 : defaults.engine,
     sections,
   };
 }

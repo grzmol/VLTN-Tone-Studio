@@ -139,6 +139,10 @@ describe("bass notes from", () => {
   it("takes the original bass by default, and keeps a valid choice", () => {
     expect(DEFAULT_BAND_SETTINGS.bassFrom).toBe("original");
     expect(parseBandSettings({ bassFrom: "chords" }).bassFrom).toBe("chords");
+    // A song saved before the engine existed keeps the earlier bass; a song with nothing saved starts on the newest.
+    expect(parseBandSettings({ bassFrom: "chords" }).engine).toBe(1);
+    expect(parseBandSettings({ engine: 2 }).engine).toBe(2);
+    expect(parseBandSettings(undefined).engine).toBe(2);
     expect(parseBandSettings({ bassFrom: "piano" }).bassFrom).toBe("original");
     expect(parseBandSettings({}).bassFrom).toBe("original");
   });
