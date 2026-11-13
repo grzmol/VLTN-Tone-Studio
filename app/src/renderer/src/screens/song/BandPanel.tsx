@@ -414,6 +414,7 @@ function BandBody({
       };
       let request = bandRequest(input);
       const notes: (string | BandNotice)[] = [];
+      if (playsThreeFourDefault(request)) notes.push(info(THREE_FOUR_NOTE));
       if (using.parts.bass && !request.harmony.some((entry) => entry.chord)) {
         // Neither the chart nor the screen's analysis has chords, so the bass would rest all song. Detect them from the audio first.
         let found: Chord[] | null = [];

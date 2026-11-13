@@ -10,6 +10,7 @@ import { REGGAE } from "./reggae";
 import { ROCK } from "./rock";
 import { SHUFFLE } from "./shuffle";
 import { SIX_EIGHT } from "./six-eight";
+import { THREE_FOUR } from "./three-four";
 import { STYLE_IDS, type Style, type StyleId } from "./types";
 
 export {
@@ -36,6 +37,7 @@ export const STYLES: Record<StyleId, Style> = {
   metal: METAL,
   "six-eight": SIX_EIGHT,
   "half-time": HALF_TIME,
+  "three-four": THREE_FOUR,
 };
 
 /** The style with this id, or undefined for an id the engine does not know. */

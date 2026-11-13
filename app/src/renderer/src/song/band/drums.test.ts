@@ -444,3 +444,22 @@ describe("generateDrums by section loud", () => {
     for (const [key] of ghosts) expect(at5.get(key), key).toBeLessThan(50);
   });
 });
+
+describe("generateDrums with the 3/4 style", () => {
+  const threeFour = findStyle("three-four")!;
+  const grid = steady(60, 0, 3);
+
+  it("puts every hit on a twelfth-step position and a kick on every bar's beat 1 in a 16-bar section", () => {
+    const notes = generateDrums(grid, [plan(0, 48, { style: "three-four", energy: 3 })], settingsFor(), 4);
+    expect(threeFour.meter).toEqual({ beatsPerBar: 3, stepsPerBeat: 4 });
+    for (const note of notes) {
+      const { beat, fraction } = positionOf(grid.beats, note.time);
+      expect(beat).toBeLessThan(48);
+      expect(Math.abs(fraction * 4 - Math.round(fraction * 4))).toBeLessThan(1e-9);
+    }
+    // The last bar is the song's ending only when it is the last bar of the grid; here the grid goes on past the section.
+    for (let bar = 0; bar < 15; bar++) {
+      expect(notes.some((note) => note.pitch === KICK && note.time === grid.beats[bar * 3])).toBe(true);
+    }
+  });
+});
