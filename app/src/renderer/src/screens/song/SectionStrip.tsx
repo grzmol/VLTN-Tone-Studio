@@ -3,18 +3,14 @@ import { Button } from "@/components/ui/button";
 import { formatTime } from "@/song/stems/mix";
 import { usePlaybackClock } from "@/song/performance/playback-clock";
 import { useSession, type PerformanceSession, type SessionState } from "@/song/performance/session";
+import { sectionColours } from "./section-colours";
 import { sectionIndexAt, sortedSections, type Section } from "@/song/performance/sections";
 
 /**
  * The sentence under the strip: what is armed, or what is decided and when it lands. Pure, so the wording can be tested.
  * `position` is the song time now, in seconds.
  */
-export function sectionStatus(
-  sections: readonly Section[],
-  live: SessionState["sectionLive"],
-  next: SessionState["sectionNext"],
-  position: number,
-): string {
+export function sectionStatus(sections: readonly Section[], live: SessionState["sectionLive"], next: SessionState["sectionNext"], position: number): string {
   const ordered = sortedSections(sections);
   const current = ordered[sectionIndexAt(ordered, position)];
   const name = (id: string | null) => ordered.find((s) => s.id === id)?.name ?? "";
@@ -52,7 +48,8 @@ export function SectionStrip({ session, onSaveDefaults }: { session: Performance
   const looping = !!playing && (live.loop === playing.id || (playing.mode === "loop" && !live.released.includes(playing.id)));
   return (
     <div aria-label="Song sections" className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2">
+      {/* Up to 8 sections wrap onto as many lines as they need; more stay on one line and scroll sideways, so the strip stays short. */}
+      <div className={ordered.length > 8 ? "flex flex-nowrap gap-2 overflow-x-auto pb-1 [&>*]:shrink-0" : "flex flex-wrap gap-2"}>
         {ordered.map((section, i) => {
           const armed = live.jump === section.id;
           return (
@@ -62,7 +59,7 @@ export function SectionStrip({ session, onSaveDefaults }: { session: Performance
               variant={i === current ? "default" : "outline"}
               aria-pressed={i === current}
               aria-label={`${section.name}, ${formatTime(section.start)} to ${formatTime(section.end)}${armed ? ", jump armed" : ""}`}
-              style={section.color ? { borderColor: section.color } : undefined}
+              style={{ borderColor: section.color ?? sectionColours(section).edge }}
               onClick={() => session.tapSection(section.id)}
               onDoubleClick={() => session.jumpSectionNow(section.id)}
             >

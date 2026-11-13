@@ -28,9 +28,7 @@ function fakeSession(patch: Partial<SessionState> = {}) {
 
 it("says what is armed and where it lands, and what is decided with its time", () => {
   expect(sectionStatus(sections, NO_LIVE, null, 10)).toBe("");
-  expect(sectionStatus(sections, { ...NO_LIVE, jump: "chorus" }, null, 10)).toBe(
-    "Chorus is armed. It lands at the end of Verse. Tap Cancel jump to stop it.",
-  );
+  expect(sectionStatus(sections, { ...NO_LIVE, jump: "chorus" }, null, 10)).toBe("Chorus is armed. It lands at the end of Verse. Tap Cancel jump to stop it.");
   expect(sectionStatus(sections, NO_LIVE, { kind: "jump", target: "chorus", at: 16 }, 14)).toBe("Jumps to Chorus at 0:16 (in 2.0 s).");
   expect(sectionStatus(sections, NO_LIVE, { kind: "pause", target: null, at: 24 }, 22)).toBe("Pauses at 0:24 (in 2.0 s).");
 });
@@ -56,4 +54,18 @@ it("offers Exit loop for a section that loops, and Loop for one that does not", 
   fireEvent.click(screen.getByText(/Loop Intro/));
   expect(session.toggleSectionLoop).toHaveBeenCalledWith("intro");
   expect(screen.queryByText("Save as default")).toBeNull();
+});
+
+it("keeps more than eight sections on one scrolling line", () => {
+  const many: Section[] = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, name: `Part ${i}`, start: i * 8, end: i * 8 + 8, mode: "continue" }));
+  const { container } = render(<SectionStrip session={fakeSession({ sections: many })} />);
+  const row = container.querySelector("button")?.parentElement as HTMLElement;
+  expect(row.className).toContain("overflow-x-auto");
+  expect(row.className).not.toContain("flex-wrap");
+});
+
+it("colours a section's border by its kind unless the section has its own colour", () => {
+  const { container } = render(<SectionStrip session={fakeSession()} />);
+  const verse = container.querySelector('button[aria-label^="Verse"]') as HTMLElement;
+  expect(verse.style.borderColor).not.toBe("");
 });
