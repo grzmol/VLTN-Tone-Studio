@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { barRoles } from "./drum-phrases";
+import { barRoles, FILL_RANGE, overlay, shapeFill } from "./drum-phrases";
+import { CLOSED_HAT, KICK, OPEN_HAT, SNARE } from "./note";
+import type { DrumHit } from "./styles/types";
 import { isPhraseEnd, phraseBars } from "./bass-phrases";
 
 const endsOf = (bars: number, key: "phraseEnd" | "pairEnd" | "sectionEnd") =>
@@ -50,5 +52,55 @@ describe("barRoles", () => {
       expect(barRoles(bars).map((role) => role.phraseEnd)).toEqual(Array.from({ length: bars }, (_, bar) => isPhraseEnd(bar, bars)));
       for (const role of barRoles(bars)) expect(role.inPhrase).toBeLessThan(phraseBars(bars));
     }
+  });
+});
+
+describe("overlay", () => {
+  const groove: DrumHit[] = [
+    { step: 0, pitch: KICK, velocity: 90 },
+    { step: 12, pitch: SNARE, velocity: 90 },
+    { step: 12, pitch: CLOSED_HAT, velocity: 86 },
+    { step: 14, pitch: CLOSED_HAT, velocity: 86 },
+  ];
+
+  it("keeps the groove before the patch's first step", () => {
+    const result = overlay(groove, [{ step: 14, pitch: OPEN_HAT, velocity: 86 }], 12);
+    expect(result.filter((hit) => hit.step < 12)).toEqual([groove[0]]);
+  });
+
+  it("lets a hat on a step take the place of the hat there, and keeps the rest of the beat", () => {
+    const result = overlay(groove, [{ step: 14, pitch: OPEN_HAT, velocity: 86 }], 12);
+    expect(result).toContainEqual(groove[1]);
+    expect(result).toContainEqual(groove[2]);
+    expect(result).not.toContainEqual(groove[3]);
+    expect(result).toContainEqual({ step: 14, pitch: OPEN_HAT, velocity: 86 });
+  });
+
+  it("drops a groove voice the patch plays again", () => {
+    const result = overlay(groove, [{ step: 12, pitch: SNARE, velocity: 100 }], 12);
+    expect(result.filter((hit) => hit.pitch === SNARE)).toEqual([{ step: 12, pitch: SNARE, velocity: 100 }]);
+  });
+});
+
+describe("shapeFill", () => {
+  const flat = (steps: number[]): DrumHit[] => steps.map((step) => ({ step, pitch: SNARE, velocity: 90 }));
+
+  it("makes a flat fill rise, ending on at least the accent", () => {
+    const shaped = shapeFill(flat([12, 13, 14, 15]), 108);
+    const velocities = shaped.map((hit) => hit.velocity);
+    expect(velocities).toEqual([...velocities].sort((a, b) => a - b));
+    expect(Math.max(...velocities) - Math.min(...velocities)).toBeGreaterThanOrEqual(FILL_RANGE);
+    expect(velocities[3]).toBeGreaterThanOrEqual(108);
+  });
+
+  it("leaves a short fill and a fill that already rises as written", () => {
+    expect(shapeFill(flat([14, 15]), 108)).toEqual(flat([14, 15]));
+    const rising = flat([12, 13, 14, 15]).map((hit, i) => ({ ...hit, velocity: 60 + i * 15 }));
+    expect(shapeFill(rising, 108)).toEqual(rising);
+  });
+
+  it("does not scale ghost notes", () => {
+    const hits: DrumHit[] = [...flat([12, 13, 14, 15]), { step: 13, pitch: SNARE, velocity: 38, ghost: true }];
+    expect(shapeFill(hits, 108)[4].velocity).toBe(38);
   });
 });

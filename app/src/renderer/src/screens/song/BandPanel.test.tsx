@@ -11,7 +11,7 @@ import { useBandPanel } from "./band-panel-state";
 import { ORIGINAL_PARTS, type PartChoices } from "@/song/band/part-choice";
 import type { TrackInfo } from "@/song/tracks";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
-import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
+import { CURRENT_ENGINE, DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
 
 const mocks = vi.hoisted(() => ({
   startBeatGrid: vi.fn(),
@@ -312,9 +312,15 @@ describe("Band panel", () => {
     expect(screen.getByText(/This song uses the earlier band patterns/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Update…" }));
     await waitFor(() => expect(mocks.startBandRender).toHaveBeenCalledTimes(1));
-    expect(mocks.startBandRender.mock.calls[0][0].settings.engine).toBe(2);
-    expect(savedOptions().band.engine).toBe(2);
+    expect(mocks.startBandRender.mock.calls[0][0].settings.engine).toBe(CURRENT_ENGINE);
+    expect(savedOptions().band.engine).toBe(CURRENT_ENGINE);
     expect(screen.queryByText(/This song uses the earlier band patterns/)).toBeNull();
+  });
+
+  it("offers the update to a song on the bass figures that has not the drum phrases yet", () => {
+    stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, engine: 2 } });
+    renderPanel();
+    expect(screen.getByText(/This song uses the earlier band patterns/)).toBeTruthy();
   });
 
   it("shows no update line for a song already on the newest patterns", () => {
@@ -655,7 +661,9 @@ describe("Band panel", () => {
     const band = { ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: [amp], dryWet: 1, fast: false }, renderedTone: { bass: "chain" } };
     stored({ beatGrid: grid, generatedParts: { drums: "track0" }, bandOutOfDate: true, band });
     useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
-    renderPanel();
+    const view = renderPanel();
+    expect(mocks.startBandRender).not.toHaveBeenCalled();
+    view.rerender(<BandPanel {...view.props} bpm={130} />);
     await expect(refreshBandBeforePlay(KEY)).resolves.toBeUndefined();
     expect(mocks.startBandRender).not.toHaveBeenCalled();
     expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();

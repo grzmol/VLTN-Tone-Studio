@@ -47,7 +47,8 @@ function plan(startBeat: number, endBeat: number, overrides: Partial<SectionPlan
 
 /** Settings that keep every hit: full complexity, no swing, ghosts on, no section crashes unless a test asks for them. */
 function settingsFor(overrides: Partial<BandSettings> = {}): BandSettings {
-  return { ...DEFAULT_BAND_SETTINGS, complexity: 1, swing: 0, ghostNotes: true, crashOnSections: false, ...overrides };
+  // The tests here are the earlier drums (engine 2) unless one sets engine 3; the drum phrases have their own tests below.
+  return { ...DEFAULT_BAND_SETTINGS, engine: 2, complexity: 1, swing: 0, ghostNotes: true, crashOnSections: false, ...overrides };
 }
 
 /** Hat, ride and cross-stick: the voices that keep time. */
@@ -701,5 +702,93 @@ describe("generateDrums with a seed for one section", () => {
     const seeded = generateDrums(grid, plansWith(9), settings, 1);
     expect(inSection(seeded, 0)).toEqual(inSection(without, 0));
     expect(inSection(seeded, 2)).toEqual(inSection(without, 2));
+  });
+});
+
+// The drum phrases (engine 3). Bars are two seconds long on the fixture grid, four beats of half a second.
+describe("generateDrums with drum phrases (engine 3)", () => {
+  const BAR_SECONDS = 2;
+  const settings3 = (overrides: Partial<BandSettings> = {}): BandSettings =>
+    settingsFor({ engine: 3, ending: { kind: "none" }, ...overrides });
+  /** A plan from bar `from` to bar `to` (exclusive). */
+  const bars = (from: number, to: number, overrides: Partial<SectionPlan> = {}): SectionPlan => plan(from * 4, to * 4, overrides);
+  /** What a bar plays, as "step:pitch:velocity" in sixteenths from its downbeat, leaving out hits from `beforeBeat` on when it is given. */
+  const signature = (notes: readonly NoteEvent[], bar: number, untilBeat = 4): string[] =>
+    notes
+      .filter((note) => note.time >= bar * BAR_SECONDS - 1e-9 && note.time < bar * BAR_SECONDS + (untilBeat * BAR_SECONDS) / 4 - 1e-9)
+      .map((note) => `${Math.round(((note.time - bar * BAR_SECONDS) / BAR_SECONDS) * 16)}:${note.pitch}:${note.velocity}`);
+  const grid = steady(64 * 4);
+
+  it("gives the same notes for the same seed, and others for another", () => {
+    const plans = [bars(0, 16, { name: "Verse", energy: 3, fill: true }), bars(16, 24, { name: "Chorus", energy: 4 })];
+    expect(generateDrums(grid, plans, settings3(), 5)).toEqual(generateDrums(grid, plans, settings3(), 5));
+    const outputs = Array.from({ length: 8 }, (_, seed) => JSON.stringify(generateDrums(grid, plans, settings3(), seed + 1)));
+    expect(new Set(outputs).size).toBeGreaterThan(1);
+  });
+
+  describe("one groove per section, varied by the bar's role", () => {
+    const plans = [bars(0, 16, { name: "Verse", energy: 3, fill: true }), bars(16, 24, { name: "Chorus", energy: 4 })];
+    const notes = generateDrums(grid, plans, settings3(), 3);
+
+    it("plays at least four distinct bars in a 16-bar verse", () => {
+      const distinct = new Set(Array.from({ length: 16 }, (_, bar) => signature(notes, bar).join(",")));
+      expect(distinct.size).toBeGreaterThanOrEqual(4);
+    });
+
+    it("turns around on bars 4 and 12 with a change in the last beat only", () => {
+      for (const bar of [3, 11]) {
+        expect(signature(notes, bar, 3), `bar ${bar + 1}`).toEqual(signature(notes, 1, 3));
+        expect(signature(notes, bar), `bar ${bar + 1}`).not.toEqual(signature(notes, 1));
+      }
+    });
+
+    it("plays a small fill on bar 8 that changes the last beat only", () => {
+      expect(signature(notes, 7, 3)).toEqual(signature(notes, 1, 3));
+      expect(signature(notes, 7)).not.toEqual(signature(notes, 1));
+    });
+
+    it("plays the groove as written on the bars between", () => {
+      for (const bar of [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]) expect(signature(notes, bar), `bar ${bar + 1}`).toEqual(signature(notes, 1));
+    });
+  });
+
+  describe("a repeated section", () => {
+    const plans = [
+      bars(0, 8, { name: "Verse", energy: 3, fill: false }),
+      bars(8, 16, { name: "Chorus", energy: 4, fill: false }),
+      bars(16, 24, { name: "Verse", energy: 3, fill: false }),
+    ];
+    const notes = generateDrums(grid, plans, settings3(), 4);
+
+    it("plays the same groove the second time", () => {
+      expect(signature(notes, 17)).toEqual(signature(notes, 1));
+      expect(signature(notes, 18)).toEqual(signature(notes, 2));
+    });
+
+    it("plays the other groove of the energy in the second half of the second verse", () => {
+      expect(signature(notes, 5)).toEqual(signature(notes, 1));
+      expect(signature(notes, 21)).not.toEqual(signature(notes, 17));
+      expect(signature(notes, 22)).toEqual(signature(notes, 21));
+    });
+  });
+
+  describe("sections with a seed of their own", () => {
+    const plansWith = (seeds: (number | undefined)[]): SectionPlan[] =>
+      ["Verse", "Chorus", "Bridge"].map((name, i) => bars(i * 8, i * 8 + 8, { name, energy: 3, fill: true, ...(seeds[i] !== undefined ? { seed: seeds[i] } : {}) }));
+    const section = (notes: readonly NoteEvent[], index: number) => notes.filter((note) => note.time >= index * 16 && note.time < (index + 1) * 16);
+
+    it("keeps a kept section's drums when another section is given a new seed", () => {
+      const before = generateDrums(grid, plansWith([undefined, 9, undefined]), settings3(), 1);
+      for (const other of [10, 11, 12, 13]) {
+        const after = generateDrums(grid, plansWith([other, 9, other]), settings3(), 1);
+        expect(section(after, 1)).toEqual(section(before, 1));
+      }
+    });
+
+    it("keeps a kept section's drums when the song's seed changes", () => {
+      const first = generateDrums(grid, plansWith([undefined, 9, undefined]), settings3(), 1);
+      const second = generateDrums(grid, plansWith([undefined, 9, undefined]), settings3(), 2);
+      expect(section(second, 1)).toEqual(section(first, 1));
+    });
   });
 });
