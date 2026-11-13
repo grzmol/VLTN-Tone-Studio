@@ -40,17 +40,22 @@ function SectionNow({ session, sections }: { session: PerformanceSession; sectio
   const live = useSession(session, (s) => s.sectionLive);
   const decided = useSession(session, (s) => s.sectionNext);
   const current = sections[index];
+  const looping = !!current && (live.loop === current.id || (current.mode === "loop" && !live.released.includes(current.id)));
   const jumpId = live.jump ?? (decided?.kind === "jump" ? decided.target : null);
   const next = (jumpId ? sections.find((s) => s.id === jumpId) : undefined) ?? sections[index + 1];
   if (!current) return null;
   return (
     <p className="min-w-0 text-2xl leading-tight font-bold" aria-label="Section now and next">
       <span style={{ color: sectionColour(current) }}>{current.name}</span>
-      {next && (
-        <>
-          <span className="mx-2 text-silkscreen-3">→</span>
-          <span className="text-xl font-semibold text-foreground/80">{next.name}</span>
-        </>
+      {looping && !jumpId ? (
+        <span className="ml-3 text-xl font-semibold text-foreground/80">Looping</span>
+      ) : (
+        next && (
+          <>
+            <span className="mx-2 text-silkscreen-3">→</span>
+            <span className="text-xl font-semibold text-foreground/80">{next.name}</span>
+          </>
+        )
       )}
     </p>
   );
