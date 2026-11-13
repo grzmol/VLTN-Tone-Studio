@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { debouncedCommit } from "@/song/performance/debounced-commit";
 import { effectiveBpm } from "@/song/performance/speed";
+import { tempo } from "./format";
 import { useSession, type PerformanceSession } from "@/song/performance/session";
 
 const field = "rounded border border-seam bg-transparent p-2";
@@ -81,19 +82,21 @@ export function SpeedControls({ session, bpm }: { session: PerformanceSession; b
         Reset speed
       </Button>
       <label>
-        Pitch{" "}
-        <NumberField label="Pitch semitones" value={speed.semitones} min={-6} max={6} onCommit={setSemitones} />
+        Pitch <NumberField label="Pitch semitones" value={speed.semitones} min={-6} max={6} onCommit={setSemitones} />
       </label>
       <label>
-        Fine tune{" "}
-        <NumberField label="Pitch cents" value={speed.cents} min={-50} max={50} onCommit={setCents} />{" "}
-        cents
+        Fine tune <NumberField label="Pitch cents" value={speed.cents} min={-50} max={50} onCommit={setCents} /> cents
       </label>
       <label className="flex items-center gap-2">
-        <input type="checkbox" aria-label="Apply pitch to chords" checked={speed.applyToChords} onChange={(e) => session.setSpeed({ applyToChords: e.target.checked })} />
+        <input
+          type="checkbox"
+          aria-label="Apply pitch to chords"
+          checked={speed.applyToChords}
+          onChange={(e) => session.setSpeed({ applyToChords: e.target.checked })}
+        />
         Apply pitch to chords
       </label>
-      <span className="text-sm tabular-nums text-silkscreen-3">Plays at {Math.round(effectiveBpm(bpm, speed.rate))} BPM</span>
+      <span className="text-sm tabular-nums text-silkscreen-3">Plays at {tempo(effectiveBpm(bpm, speed.rate))}</span>
       {rendering && (
         <span role="status" className="text-sm text-silkscreen-3">
           Rendering… {rendering.done} of {rendering.total} tracks

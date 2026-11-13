@@ -14,6 +14,7 @@ import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/s
 import { ClickSoundOptions } from "./ClickSoundOptions";
 import { ClickSampleSettings, useClickSampleSync } from "./ClickSampleSettings";
 import { MidiClickSettingsView, useMidiClick } from "./MidiClickSettings";
+import { parseSeconds } from "./format";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
 import { HelpNote } from "@/components/ui/help-note";
@@ -40,7 +41,8 @@ export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: bool
   // The typed text while editing; null shows the BPM itself, so a change from outside shows while not editing.
   const [draft, setDraft] = useState<string | null>(null);
   const commit = (text: string) => {
-    if (text.trim() !== "" && Number.isFinite(Number(text))) onBpm(Math.max(30, Math.min(300, Number(text))));
+    const typed = parseSeconds(text);
+    if (typed !== null) onBpm(Math.max(30, Math.min(300, typed)));
     setDraft(null);
   };
   return (
@@ -48,11 +50,10 @@ export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: bool
       className={field + " w-20"}
       aria-label="BPM"
       title="Set the recording’s BPM while stopped. Audio speed and cue timestamps stay unchanged."
-      type="number"
-      min="30"
-      max="300"
+      type="text"
+      inputMode="decimal"
       disabled={disabled}
-      value={draft ?? bpm}
+      value={draft ?? String(Math.round(bpm * 10) / 10)}
       onChange={(e) => {
         const text = e.target.value;
         setDraft(text);
@@ -227,7 +228,7 @@ export function PerformanceTransport({
         <Button variant="outline" disabled={!player || stage} onClick={() => void session.seek(0)}>
           Rewind
         </Button>
-        <ClockOverDuration duration={duration} />
+        <ClockOverDuration plain duration={duration} />
         <PositionSlider label="Song position" duration={duration} onSeek={(value) => void session.seek(value)} />
         {!source && <span>Open a song in Stems to perform.</span>}
         <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
