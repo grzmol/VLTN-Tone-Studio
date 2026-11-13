@@ -266,8 +266,9 @@ export interface BandSettings {
   seed: number;
   /**
    * Which generation rules the song plays by. 1 is the earlier bass (fills in the chord's own scale, no figure, the octave from the note
-   * before). 2 is the bass of spec 134 (fills in the song's key, a figure per section, a register per section). A song saved without the
-   * field keeps 1, so it does not change until the performer updates it; a new song starts on 2.
+   * before). 2 is the bass of spec 134 (fills in the song's key, a figure per section, a register per section). 3 adds the drum phrases of
+   * spec 132 (one groove per section, turnarounds, fills sized to the change, builds and drops). The bass of 3 is the bass of 2. A song saved
+   * without the field keeps 1, so it does not change until the performer updates it; a new song starts on the newest.
    */
   engine: number;
   /** Per-section changes, keyed by section id. Style, energy, loud, busy, bass part, octave, fill and play can be overridden. */
@@ -279,7 +280,7 @@ export function kitFor(settings: Pick<BandSettings, "kit" | "style">): DrumKit {
   return settings.kit ?? (HEAVY_KIT_STYLES.includes(settings.style) ? "rock" : "standard");
 }
 /** The newest generation rules. A new song starts on them; a saved song without an engine plays by the earlier ones (engine 1). */
-export const CURRENT_ENGINE = 2;
+export const CURRENT_ENGINE = 3;
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   parts: { drums: true, bass: true },

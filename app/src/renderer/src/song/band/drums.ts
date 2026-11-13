@@ -14,7 +14,9 @@ import { markBeats, marksByBar, markOf, withMarkStops } from "./marks";
 import { variationSeed } from "./bass-phrases";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
-import { LEGACY_FILLS, playsAt, type DrumHit, type Energy } from "./styles/types";
+import { barRoles, overlay, shapeFill } from "./drum-phrases";
+import { VEL } from "./styles/notation";
+import { LEGACY_FILLS, playsAt, type DrumGroove, type DrumHit, type Energy } from "./styles/types";
 import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
@@ -61,6 +63,59 @@ function pickSegment(plan: number, energy: Energy, style: Style, accent: AccentP
     barsLeft: random.pick(VARIATION_BARS),
     pushes: accentPushes(accent.weights, grooves[groove], complexity, style.meter.stepsPerBeat),
   };
+}
+
+/** The draws a bar makes under the drum phrases: which turnaround, short fill, half fill and bar fill it would use. Always drawn, whether used or not. */
+interface BarDraws {
+  turn: number;
+  short: number;
+  half: number;
+  bar: number;
+}
+
+/** What a section plays under the drum phrases: its two grooves (the second one is the lift), the follow pushes of each, and its draws per bar. */
+interface PhraseSection {
+  grooves: [number, number];
+  pushes: [number[], number[]];
+  draws: BarDraws[];
+}
+
+/**
+ * A section's groove, lift and draws. They come from streams named by the section's seed (its own, or the song's) and its name, so a section
+ * keeps its drums when another section is given a new seed. A repeat of a section name has the same grooves; its fills are drawn again.
+ * With follow-my-playing the groove is among the best FOLLOW_TOP fits to the accents, and the lift is the next one down the ranking.
+ */
+function phraseSection(
+  plan: SectionPlan,
+  songSeed: number,
+  occurrence: number,
+  bars: number,
+  style: Style,
+  accent: AccentProfile | undefined,
+  complexity: number,
+): PhraseSection {
+  const seed = plan.seed ?? songSeed;
+  const grooves = style.grooves[plan.energy];
+  const ranked = accent ? rankGrooves(grooves, accent.weights, complexity) : grooves.map((_, i) => i);
+  const pick = createRandom(variationSeed(seed, `${plan.name}/groove`, 0)).int(accent ? Math.min(FOLLOW_TOP, ranked.length) : ranked.length);
+  const first = ranked[pick];
+  const lift = ranked[(pick + 1) % ranked.length];
+  const pushesOf = (groove: number): number[] => (accent ? accentPushes(accent.weights, grooves[groove], complexity, style.meter.stepsPerBeat) : []);
+  const random = createRandom(variationSeed(seed, `${plan.name}/bars`, occurrence));
+  const draws = Array.from({ length: bars }, () => ({
+    turn: random.int(style.turnarounds.length),
+    short: random.int(style.fills.short.length),
+    half: random.int(style.fills.half.length),
+    bar: random.int(style.fills.bar.length),
+  }));
+  return { grooves: [first, lift], pushes: [pushesOf(first), pushesOf(lift)], draws };
+}
+
+/** The fill of a size (1 last beat, 2 half a bar, 3 the whole bar) a bar draws, shaped to rise, and the step it takes the bar from. */
+function fillOf(style: Style, draw: BarDraws, size: 1 | 2 | 3, steps: number): { from: number; fill: DrumHit[] } {
+  const from = size === 1 ? steps - style.meter.stepsPerBeat : size === 2 ? steps / 2 : 0;
+  const pattern = size === 1 ? style.fills.short[draw.short] : size === 2 ? style.fills.half[draw.half] : style.fills.bar[draw.bar];
+  return { from, fill: shapeFill(pattern.hits, VEL.accent).filter((hit) => hit.step >= from) };
 }
 
 /**
@@ -148,6 +203,21 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     if (!own.has(planIndex)) own.set(planIndex, createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex])));
     return own.get(planIndex);
   };
+  // Under the drum phrases (engine 3) every bar knows its place in its section's phrases, and a section draws from streams of its own.
+  const phrased = settings.engine >= 3;
+  const barsOf = plans.map((_, i) => planOf.filter((index) => index === i).length);
+  const counted = plans.map(() => 0);
+  const barIndex = planOf.map((index) => (index >= 0 ? counted[index]++ : -1));
+  const roles = barsOf.map((bars) => barRoles(bars));
+  const sections = new Map<number, PhraseSection>();
+  const sectionFor = (planIndex: number, style: Style, accent: AccentProfile | undefined): PhraseSection => {
+    let found = sections.get(planIndex);
+    if (!found) {
+      found = phraseSection(plans[planIndex], seed, occurrence[planIndex], barsOf[planIndex], style, accent, settings.complexity);
+      sections.set(planIndex, found);
+    }
+    return found;
+  };
   let segment: Segment | null = null;
   let ownSegment: Segment | null = null;
   let previousPlan = -2;
@@ -177,61 +247,105 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
       continue;
     }
 
-    if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
-      segment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, random);
-    }
-    segment.barsLeft -= 1;
-    // A section with its own seed plays its own variation, which lasts as long as its own draw says. The song's segment runs on beside it.
-    let played = segment;
-    const mine = ownRandom(planIndex);
-    if (mine) {
-      if (!ownSegment || ownSegment.plan !== planIndex || ownSegment.barsLeft === 0) {
-        ownSegment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, mine);
-      }
-      ownSegment.barsLeft -= 1;
-      played = ownSegment;
-    }
-    const groove = style.grooves[plan.energy][played.groove];
-
-    let hits: DrumHit[] =
-      played.pushes.length > 0 ? [...groove.hits, ...played.pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
+    let groove: DrumGroove;
+    let hits: DrumHit[];
     let filled = false;
-    const holdBar = shape?.fill === true && k === ending;
-    const endsPlan = planOf[k + 1] !== planIndex;
-    // Songs on drum engine 2 or earlier draw from the fills a style had then.
-    const halfCount = Math.min(LEGACY_FILLS, style.fills.half.length);
-    const barCount = Math.min(LEGACY_FILLS, style.fills.bar.length);
-    let halfChoice = random.int(halfCount);
-    let barChoice = random.int(barCount);
-    if (mine) {
-      halfChoice = mine.int(halfCount);
-      barChoice = mine.int(barCount);
-    }
-    const fillMark = markOf(marked, k, "fill");
-    if (holdBar) {
-      // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.
-      hits = style.fills.bar[barChoice].hits;
-      filled = true;
-    } else if (markOf(marked, k, "no-fill")) {
-      // A bar marked No fill plays its groove, whatever the rules say.
-    } else if (fillMark) {
-      // A marked fill takes the last `beats` beats of the bar: the half-bar fill cut to them, or the whole-bar fill when it takes the bar.
-      const taken = markBeats(fillMark);
-      if (taken >= patternBeats(style, perBar)) {
-        hits = style.fills.bar[barChoice].hits;
-      } else {
-        const cutoff = groove.steps * (1 - taken / patternBeats(style, perBar));
-        hits = [...hits.filter((hit) => hit.step < cutoff), ...style.fills.half[halfChoice].hits.filter((hit) => hit.step >= cutoff)];
+    if (phrased) {
+      const section = sectionFor(planIndex, style, accent);
+      const role = roles[planIndex][barIndex[k]];
+      const draw = section.draws[role.bar];
+      // A repeat of a section (Verse 2) plays the section's other groove in its second half, so it is the same part with a lift.
+      const lifted = occurrence[planIndex] % 2 === 1 && role.bar >= Math.floor(barsOf[planIndex] / 2) ? 1 : 0;
+      groove = style.grooves[plan.energy][section.grooves[lifted]];
+      const pushes = section.pushes[lifted];
+      hits = pushes.length > 0 ? [...groove.hits, ...pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
+      const lastBeat = groove.steps - style.meter.stepsPerBeat;
+      const fillMark = markOf(marked, k, "fill");
+      const asFill = (size: 1 | 2 | 3): void => {
+        const { from, fill } = fillOf(style, draw, size, groove.steps);
+        hits = [...hits.filter((hit) => hit.step < from), ...fill];
+        filled = size >= 2;
+      };
+      if (shape?.fill === true && k === ending) {
+        // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.
+        asFill(3);
+      } else if (markOf(marked, k, "no-fill")) {
+        // A bar marked No fill plays its groove, whatever the rules say.
+      } else if (fillMark) {
+        // A marked fill takes the last `beats` beats of the bar: a short fill for one beat, a half-bar fill cut to the beats, or the whole bar.
+        const taken = markBeats(fillMark);
+        const bar = patternBeats(style, perBar);
+        if (taken >= bar) asFill(3);
+        else if (taken <= 1) asFill(1);
+        else {
+          const cutoff = groove.steps * (1 - taken / bar);
+          hits = [...hits.filter((hit) => hit.step < cutoff), ...shapeFill(style.fills.half[draw.half].hits, VEL.accent).filter((hit) => hit.step >= cutoff)];
+          filled = true;
+        }
+      } else if (role.sectionEnd) {
+        if (plan.fill) asFill(plan.energy <= HALF_FILL_MAX_ENERGY ? 2 : 3);
+      } else if (role.pairEnd) {
+        asFill(1);
+      } else if (role.phraseEnd) {
+        hits = overlay(hits, style.turnarounds[draw.turn].hits, lastBeat);
       }
-      filled = true;
-    } else if (endsPlan && plan.fill) {
-      if (plan.energy <= HALF_FILL_MAX_ENERGY) {
-        const middle = groove.steps / 2;
-        hits = [...hits.filter((hit) => hit.step < middle), ...style.fills.half[halfChoice].hits.filter((hit) => hit.step >= middle)];
-      } else {
-        hits = style.fills.bar[barChoice].hits;
+    } else {
+      if (!segment || segment.plan !== planIndex || segment.barsLeft === 0) {
+        segment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, random);
       }
-      filled = true;
+      segment.barsLeft -= 1;
+      // A section with its own seed plays its own variation, which lasts as long as its own draw says. The song's segment runs on beside it.
+      let played = segment;
+      const mine = ownRandom(planIndex);
+      if (mine) {
+        if (!ownSegment || ownSegment.plan !== planIndex || ownSegment.barsLeft === 0) {
+          ownSegment = pickSegment(planIndex, plan.energy, style, accent, settings.complexity, mine);
+        }
+        ownSegment.barsLeft -= 1;
+        played = ownSegment;
+      }
+      groove = style.grooves[plan.energy][played.groove];
+
+      hits =
+        played.pushes.length > 0 ? [...groove.hits, ...played.pushes.map((step) => ({ step, pitch: KICK, velocity: PUSH_VELOCITY }))] : groove.hits;
+      const holdBar = shape?.fill === true && k === ending;
+      const endsPlan = planOf[k + 1] !== planIndex;
+      // Songs on drum engine 2 or earlier draw from the fills a style had then.
+      const halfCount = Math.min(LEGACY_FILLS, style.fills.half.length);
+      const barCount = Math.min(LEGACY_FILLS, style.fills.bar.length);
+      let halfChoice = random.int(halfCount);
+      let barChoice = random.int(barCount);
+      if (mine) {
+        halfChoice = mine.int(halfCount);
+        barChoice = mine.int(barCount);
+      }
+      const fillMark = markOf(marked, k, "fill");
+      if (holdBar) {
+        // The bar before a hold is a whole-bar fill whatever the section's energy, so the band stops together.
+        hits = style.fills.bar[barChoice].hits;
+        filled = true;
+      } else if (markOf(marked, k, "no-fill")) {
+        // A bar marked No fill plays its groove, whatever the rules say.
+      } else if (fillMark) {
+        // A marked fill takes the last `beats` beats of the bar: the half-bar fill cut to them, or the whole-bar fill when it takes the bar.
+        const taken = markBeats(fillMark);
+        if (taken >= patternBeats(style, perBar)) {
+          hits = style.fills.bar[barChoice].hits;
+        } else {
+          const cutoff = groove.steps * (1 - taken / patternBeats(style, perBar));
+          hits = [...hits.filter((hit) => hit.step < cutoff), ...style.fills.half[halfChoice].hits.filter((hit) => hit.step >= cutoff)];
+        }
+        filled = true;
+      } else if (endsPlan && plan.fill) {
+        if (plan.energy <= HALF_FILL_MAX_ENERGY) {
+          const middle = groove.steps / 2;
+          hits = [...hits.filter((hit) => hit.step < middle), ...style.fills.half[halfChoice].hits.filter((hit) => hit.step >= middle)];
+        } else {
+          hits = style.fills.bar[barChoice].hits;
+        }
+        filled = true;
+      }
+
     }
 
     const sectionCrash = newPlan && settings.crashOnSections && plan.energy >= CRASH_MIN_ENERGY;
