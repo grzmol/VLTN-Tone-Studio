@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { AnalysisCard, isFailure } from "./AnalysisCard";
+import { AnalysisCard, isFailure, withSongSections } from "./AnalysisCard";
 
 afterEach(cleanup);
 
@@ -29,4 +29,19 @@ it("recognises a failure line", () => {
   expect(isFailure("Chords failed: x")).toBe(true);
   expect(isFailure("Tempo 150 BPM")).toBe(false);
   expect(isFailure(null)).toBe(false);
+});
+
+it("shows the song's own section count and keeps the detected count in the details", () => {
+  const message = "Tempo 150 BPM. 3 section keys. 39 sections";
+  expect(withSongSections(message, 13)).toBe("Tempo 150 BPM. 3 section keys. 13 sections");
+  expect(withSongSections("Tempo 150 BPM. 39 sections", 1)).toBe("Tempo 150 BPM. 1 section");
+  expect(withSongSections(message, undefined)).toBe(message);
+  render(<AnalysisCard analysis={{ ...idle, message }} hasSong analyseDisabled={false} onAnalyseAgain={vi.fn()} sectionCount={13} />);
+  expect(screen.getByText("Tempo 150 BPM. 3 section keys. 13 sections")).toBeTruthy();
+  expect(screen.getByText(/What the analysis detected: .*39 sections/)).toBeTruthy();
+});
+
+it("says the song is not analysed yet when there is no summary", () => {
+  render(<AnalysisCard analysis={{ ...idle, message: null }} hasSong analyseDisabled={false} onAnalyseAgain={vi.fn()} />);
+  expect(screen.getByText("Not analysed yet.")).toBeTruthy();
 });
