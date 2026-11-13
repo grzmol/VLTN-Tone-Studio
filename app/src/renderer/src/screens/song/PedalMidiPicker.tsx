@@ -8,6 +8,8 @@ import { DEFAULT_PEDAL_CHANNELS, usePedalLibrary } from "@/song/performance/peda
 import { saveMacro, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { macroCodeFor } from "@/song/performance/midi-macros";
 import { HelpNote } from "@/components/ui/help-note";
+import { nameSource, presetLabel, presetModelOf } from "@/song/performance/pedal-preset-names";
+import { usePresetNames } from "./use-preset-names";
 
 export function PedalMidiPicker({
   time,
@@ -39,6 +41,13 @@ export function PedalMidiPicker({
     [customValue, setCustomValue] = useState(127);
   const profile = profiles.find((p) => p.id === pedal),
     action = profile?.actions.find((a) => a.id === actionId);
+  const presetModel = presetModelOf(pedal);
+  const { presetNames, lastConnectedAt } = usePresetNames(presetModel);
+  /** The command as listed: a GP-150 / GP-180 memory shows the preset name when the app knows it. */
+  const actionLabel = (a: (typeof profiles)[number]["actions"][number]) => {
+    const memory = presetModel && presetNames ? /^memory-(\d+)$/.exec(a.id) : null;
+    return memory ? presetLabel(Number(memory[1]) - 1, presetNames!.names) : a.label;
+  };
   const channel = library.channels[pedal] ?? DEFAULT_PEDAL_CHANNELS[pedal] ?? 1;
   const field = "rounded border border-seam bg-background p-2";
   const chooseAction = (id: string) => {
@@ -203,10 +212,10 @@ export function PedalMidiPicker({
               <select aria-label="Pedal command preset" className={field + " max-w-full"} value={actionId} onChange={(e) => chooseAction(e.target.value)}>
                 <option value="">Choose a command…</option>
                 {profile.actions
-                  .filter((a) => a.id === actionId || a.label.toLowerCase().includes(query.toLowerCase()))
+                  .filter((a) => a.id === actionId || actionLabel(a).toLowerCase().includes(query.toLowerCase()))
                   .map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.label}
+                      {actionLabel(a)}
                       {a.assignment ? " · assign CC" : ""}
                     </option>
                   ))}
@@ -264,6 +273,11 @@ export function PedalMidiPicker({
           {saved && (
             <p role="status" className="text-sm">
               {saved}
+            </p>
+          )}
+          {presetModel && (
+            <p role="note" className="text-xs text-silkscreen-3">
+              {nameSource(presetNames, lastConnectedAt)}
             </p>
           )}
           {action?.description && <p className="text-sm text-silkscreen-3">{action.description}</p>}
