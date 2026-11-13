@@ -57,6 +57,17 @@ export function chooseSuitePath(path: string): Promise<AppSettings> {
 let jobProgress: number | null = null;
 export const isJobRunning = () => jobProgress !== null;
 
+/** A song or playlist is playing (the renderer reports it); quitting and "Restart to update" ask first. */
+let showRunning = false;
+const watchedSenders = new WeakSet<object>();
+export const isShowRunning = () => showRunning;
+
+/** What closing the window should do: ask about a pedal job first, then about a running show, else close. */
+export function closeDecision({ job, show }: { job: boolean; show: boolean }): "job-prompt" | "show-prompt" | "close" {
+  if (job) return "job-prompt";
+  return show ? "show-prompt" : "close";
+}
+
 /** Files the OS asked us to open before the renderer was ready to receive them. */
 const openedFiles: string[] = [];
 export function queueOpenedFiles(paths: string[]): void {
@@ -108,6 +119,17 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
     const win = getWindow();
     if (!win || win.isDestroyed()) return;
     win.setProgressBar(jobProgress === null ? -1 : jobProgress);
+  });
+  handle("app:setShowRunning", (e, running: unknown) => {
+    showRunning = running === true;
+    if (!showRunning || watchedSenders.has(e.sender)) return;
+    // A renderer that crashed or closed can never say "stopped", so it must not block quitting for good.
+    watchedSenders.add(e.sender);
+    const clear = () => {
+      showRunning = false;
+    };
+    e.sender.once("render-process-gone", clear);
+    e.sender.once("destroyed", clear);
   });
   handle("app:takeOpenedFiles", () => openedFiles.splice(0));
 }

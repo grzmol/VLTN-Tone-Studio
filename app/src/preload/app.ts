@@ -12,6 +12,7 @@ export const appApi: AppApi = {
   openPath: (path) => invoke("app:openPath", path),
   launchSuite: () => invoke("app:launchSuite"),
   setProgress: (fraction) => invoke("app:setProgress", fraction),
+  setShowRunning: (running) => invoke("app:setShowRunning", running),
   takeOpenedFiles: () => invoke("app:takeOpenedFiles"),
   pathForFile: (file) => webUtils.getPathForFile(file) || null,
   onEvent: (cb) => {

@@ -532,6 +532,7 @@ Choose **Enter stage mode** in Performance. The window fills with large lyrics a
 - **Panic / stop MIDI** pauses playback, clears queued MIDI, disarms and turns Send cues off. It cannot undo commands a pedal already received.
 - **Exit stage mode** unlocks everything. Leaving the Performance screen also exits.
 - Stage mode does not arm MIDI or change the BPM, and it stays on across playlist songs.
+- Quitting, closing the window or choosing **Restart to update** while a song or playlist is playing asks first. **Keep playing** leaves the music and cues running; the update restart is refused until the set is over.
 
 On the desktop, playback in stage mode keeps the computer and display awake. It lets go on pause, at the end of the set, on exit or if the app closes. It does not override a closed lid or a deliberate sleep.
 
