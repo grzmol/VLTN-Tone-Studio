@@ -16,6 +16,7 @@ import { clampGp200Eq } from "./driver/gp200-globals";
 import type { DeviceDriver, DriverEvent } from "./driver/types";
 import { clampParamValue, editPrst, orderError, syncParams, toPresetState } from "./preset-codec";
 import { SendQueue } from "./send-queue";
+import { useStageActivity } from "./stage-activity";
 import { diffPresets } from "./unsaved-diff";
 import {
   RestoreError,
@@ -58,6 +59,9 @@ let reconnects = 0;
 let userDisconnected = false;
 let resyncTimer: number | undefined;
 const listTimers: Partial<Record<"presets" | "snaptones" | "irs", number>> = {};
+/** Reads the pedal asked for while a performance was using it; one catch-up read each runs when the performance stops. */
+let pendingResync = false;
+const pendingLists = new Set<"presets" | "snaptones" | "irs">();
 /** When a setting/global/assignment was last edited here (key → ms), to recognise the pedal's echoes. */
 const localEdits = new Map<string, number>();
 /** A connection attempt the user cancelled; checked after every await in connect(). */
@@ -214,15 +218,48 @@ export const useDevice = create<DeviceState>((set, get) => {
   };
 
   const scheduleResync = () => {
+    if (useStageActivity.getState().busy) {
+      clearTimeout(resyncTimer);
+      resyncTimer = undefined;
+      pendingResync = true;
+      set({ stale: true });
+      return;
+    }
     clearTimeout(resyncTimer);
     resyncTimer = window.setTimeout(() => {
       resyncTimer = undefined;
-      if (driver && get().status === "connected" && !get().busy) void readActive(driver, get().names, true).catch(() => {});
+      if (!driver || get().status !== "connected" || get().busy) return set({ stale: false });
+      void readActive(driver, get().names, true)
+        .catch(() => {})
+        .finally(() => set({ stale: false }));
     }, RESYNC_DEBOUNCE_MS);
   };
 
+  const clearDeferredReads = () => {
+    pendingResync = false;
+    pendingLists.clear();
+    set({ stale: false });
+  };
+
+  /** When the performance stops, the reads that were held back run once, in place of the ones that would have run along the way. */
+  useStageActivity.subscribe((state, previous) => {
+    if (state.busy || !previous.busy) return;
+    const resync = pendingResync;
+    const lists = [...pendingLists];
+    pendingResync = false;
+    pendingLists.clear();
+    if (resync) scheduleResync();
+    for (const list of lists) scheduleListRead(list);
+  });
+
   /** A name list changed on the pedal: re-read it (debounced; a running job re-reads what it changed itself). */
   const scheduleListRead = (list: "presets" | "snaptones" | "irs") => {
+    if (useStageActivity.getState().busy) {
+      clearTimeout(listTimers[list]);
+      listTimers[list] = undefined;
+      pendingLists.add(list);
+      return;
+    }
     clearTimeout(listTimers[list]);
     listTimers[list] = window.setTimeout(async () => {
       listTimers[list] = undefined;
@@ -326,6 +363,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     driver = null;
     sends.clear();
     void d?.close().catch(() => {});
+    clearDeferredReads();
     set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "lost", features: [], lockedFeatures: [], slotHashes: new Map() });
     if (!userDisconnected && get().mode === "webmidi" && reconnects < MAX_RECONNECTS) {
       reconnects++;
@@ -415,6 +453,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     preset: null,
     saved: null,
     slotHashes: new Map(),
+    stale: false,
     unsavedChanges: 0,
     globals: null,
     globalEq: null,
@@ -529,6 +568,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       driver = null;
       sends.clear();
       await d?.close().catch(() => {});
+      clearDeferredReads();
       set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "user", features: [], lockedFeatures: [], slotHashes: new Map() });
     },
 

@@ -275,6 +275,8 @@ export class RestoreError extends Error {
 }
 
 export interface DeviceState {
+  /** The preset changed on the pedal while a song was playing; the editor refreshes it when playback stops. */
+  stale: boolean;
   mode: DeviceMode;
   status: ConnectionStatus;
   error: ConnectionError | null;
