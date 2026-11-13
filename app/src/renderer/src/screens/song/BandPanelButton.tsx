@@ -7,6 +7,7 @@ import { performanceKey } from "@/song/performance/settings";
 import type { Section } from "@/song/performance/sections";
 import { bandEntryStatus, hasGeneratedParts } from "./band-status";
 import { useBandPanel } from "./band-panel-state";
+import { BAND_ENTRY_ID } from "./band-panel-helpers";
 
 export interface BandPanelButtonProps {
   /** The song's sections, which name the section a partly found part is missing from. */
@@ -36,7 +37,7 @@ export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps)
         {status && <p>{status}.</p>}
         {updating && <p role="status">Updating generated parts: {updating}</p>}
       </div>
-      <Button variant="secondary" size="sm" onClick={() => show(true)}>
+      <Button id={BAND_ENTRY_ID} variant="secondary" size="sm" onClick={() => show(true)}>
         {generated ? "Drums & bass…" : "Generate drums & bass…"}
       </Button>
     </section>
