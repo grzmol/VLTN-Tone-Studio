@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type SectionPlan } from "./arrangement";
 import type { BeatGrid } from "./beat-grid";
-import { generateDrums, playsAt } from "./drums";
+import { generateDrums, playsAt, tempoLimitedComplexity } from "./drums";
 import type { EndingSettings } from "./ending";
 import { rankGrooves, type Feel } from "./feel";
 import type { BarMark } from "./marks";
 import { CLOSED_HAT, CRASH, DRUM_DURATION, KICK, OPEN_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
 import { findStyle, STYLES } from "./styles";
-import { STYLE_IDS, type DrumGroove, type DrumHit } from "./styles/types";
+import { BUSY_FROM, LEAN_FROM, STYLE_IDS, type DrumGroove, type DrumHit } from "./styles/types";
 
 /** A grid of `count` beats, `interval` seconds apart. Intervals of 0.5 keep every step time exact in binary. */
 function steady(count: number, downbeat = 0, beatsPerBar = 4): BeatGrid {
@@ -948,6 +948,87 @@ describe("generateDrums with drum phrases (engine 3)", () => {
       const earlier = (shape: SectionPlan["shape"]) => generateDrums(grid, section(shape), settings3({ engine: 2 }), 3);
       expect(earlier("build")).toEqual(earlier(undefined));
       expect(earlier("drop")).toEqual(earlier(undefined));
+    });
+  });
+
+  describe("tempo", () => {
+    /** A grid of `count` beats whose beat lengths come from `bpmAt`. */
+    const tempoGrid = (count: number, bpmAt: (beat: number) => number): BeatGrid => {
+      const beats: number[] = [];
+      let time = 0;
+      for (let i = 0; i < count; i++) {
+        beats.push(time);
+        time += 60 / bpmAt(i);
+      }
+      return { beatsPerBar: 4, beats, downbeat: 0, bpm: 120, steady: null };
+    };
+    /** A plan covering bars `from` to `to` of a grid whose beats are not half a second apart. */
+    const barsOn = (grid: BeatGrid, from: number, to: number, overrides: Partial<SectionPlan> = {}): SectionPlan =>
+      plan(0, 0, { start: grid.beats[from * 4], end: grid.beats[to * 4] ?? grid.beats[grid.beats.length - 1] + 1, ...overrides });
+    const ghostSnares = (notes: readonly NoteEvent[]) => notes.filter((note) => note.pitch === SNARE && note.velocity < 50);
+    const kicks = (notes: readonly NoteEvent[]) => notes.filter((note) => note.pitch === KICK);
+
+    it("limits the complexity by the tempo at four steps to the beat", () => {
+      expect(tempoLimitedComplexity(1, 120, 4)).toBe(1);
+      expect(tempoLimitedComplexity(1, 150, 4)).toBe(1);
+      expect(tempoLimitedComplexity(1, 151, 4)).toBeLessThan(BUSY_FROM);
+      expect(tempoLimitedComplexity(1, 151, 4)).toBeGreaterThanOrEqual(LEAN_FROM);
+      expect(tempoLimitedComplexity(1, 191, 4)).toBeLessThan(LEAN_FROM);
+      expect(tempoLimitedComplexity(0.5, 120, 4)).toBe(0.5);
+      expect(tempoLimitedComplexity(0.2, 79, 4)).toBeCloseTo(0.4);
+      expect(tempoLimitedComplexity(0.9, 60, 4)).toBe(1);
+      expect(tempoLimitedComplexity(0.2, 190, 4)).toBe(0.2);
+      expect(tempoLimitedComplexity(1, 200, 3)).toBe(1);
+    });
+
+    it("plays no ghost snares at 170 BPM at complexity 1, and keeps the lean hits", () => {
+      const run = (bpm: number) => {
+        const tempo = tempoGrid(40, () => bpm);
+        return generateDrums(tempo, [barsOn(tempo, 0, 8, { name: "Verse", energy: 4 })], settings3(), 3);
+      };
+      const fast = run(170);
+      const normal = run(120);
+      expect(ghostSnares(normal).length).toBeGreaterThan(0);
+      expect(ghostSnares(fast)).toHaveLength(0);
+      expect(kicks(fast).length).toBeGreaterThan(0);
+    });
+
+    it("plays the lean hits at complexity 0.2 at 70 BPM, and not at 120 BPM", () => {
+      const run = (bpm: number) => {
+        const tempo = tempoGrid(40, () => bpm);
+        return kicks(generateDrums(tempo, [barsOn(tempo, 0, 8, { name: "Verse", energy: 3 })], settings3({ complexity: 0.2 }), 3));
+      };
+      const slow = run(70);
+      const normal = run(120);
+      expect(slow.length).toBeGreaterThan(normal.length);
+    });
+
+    it("follows the tempo of the bar, so a song that speeds up thins out", () => {
+      const tempo = tempoGrid(64, (beat) => (beat < 32 ? 120 : 175));
+      const notes = generateDrums(tempo, [barsOn(tempo, 0, 16, { name: "Verse", energy: 4 })], settings3(), 3);
+      const ghosts = ghostSnares(notes);
+      expect(ghosts.length).toBeGreaterThan(0);
+      expect(ghosts.every((note) => note.time < tempo.beats[32])).toBe(true);
+    });
+
+    it("keeps the lean kick above 190 BPM, and the metal kick's busy hits up to 200 BPM", () => {
+      const at = (bpm: number, style: "rock" | "metal") => {
+        const tempo = tempoGrid(40, () => bpm);
+        return kicks(generateDrums(tempo, [barsOn(tempo, 0, 8, { name: "Verse", energy: 5, style })], settings3(), 3)).length;
+      };
+      // Rock's lean kicks stay above 190 BPM; only its busy ones go.
+      expect(at(195, "rock")).toBeGreaterThan(0);
+      expect(at(195, "rock")).toBeLessThanOrEqual(at(120, "rock"));
+      expect(at(190, "metal")).toBe(at(120, "metal"));
+      expect(at(210, "metal")).toBeLessThan(at(120, "metal"));
+    });
+
+    it("does not change what songs on an earlier engine play at any tempo", () => {
+      const earlier = (bpm: number) => {
+        const tempo = tempoGrid(40, () => bpm);
+        return generateDrums(tempo, [barsOn(tempo, 0, 8, { name: "Verse", energy: 3 })], settings3({ engine: 2 }), 3).map((note) => `${note.pitch}:${note.velocity}`);
+      };
+      expect(earlier(170)).toEqual(earlier(120));
     });
   });
 });
