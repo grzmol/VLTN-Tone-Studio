@@ -6,6 +6,7 @@ import { host } from "@/host";
 import { Button } from "@/components/ui/button";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
+import { currentRigFacts } from "@/song/performance/rig-facts";
 import { playlistPreflight, type PlaylistCheck } from "@/song/performance/playlist-preflight";
 import { songEntries } from "@/song/performance/song-triggers";
 import type { LibrarySong } from "@shared/song-library";
@@ -44,6 +45,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
           songs: songEntries(songs),
           bindings: config.bindings,
           pedals: configuredPedals(pedals),
+          rig: currentRigFacts(false),
         }),
       );
     } catch (e) {

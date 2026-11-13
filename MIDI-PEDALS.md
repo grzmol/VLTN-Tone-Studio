@@ -58,6 +58,12 @@ Network MIDI is not built into the app. The operating system provides it, and th
 
 Network MIDI adds the latency and jitter of the network to every cue and timecode message. Use a wired link where you can, and test the path with the pedals before a show. Hardware results are not yet recorded for network sessions.
 
+## Checking the pedal's settings
+
+When a GP-150 or GP-180 is connected in the editor, **MIDI health** has a "Pedal settings" list that compares the pedal's own MIDI settings with how the app is about to drive it: the MIDI in source, the MIDI in channel for the output you chose (USB or Bluetooth), the tempo clock source, and the FS / MIDI out jack when other pedals are set up. Each mismatch comes with a button that changes the setting on the pedal. The most common one is a MIDI in channel set to Omni, which makes the pedal change its patch for commands meant for your other pedals.
+
+Other pedals count once you import a profile or save a channel for a built-in one. The check reads the settings the editor already has, so connect the pedal in the editor first; it never opens a connection itself. The buttons are disabled while a song plays. The playlist check reports the same list once.
+
 ## Included profiles
 
 | Pedal | Actions and manual reference |

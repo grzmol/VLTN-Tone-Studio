@@ -119,3 +119,24 @@ it("does not warn about a 120 BPM the performer set", () => {
   const [result] = playlistPreflight(["one"], [{ ...saved, song }], config);
   expect(result.warnings).toEqual([]);
 });
+it("reports the pedal's settings once for the whole playlist, on the first entry", () => {
+  const rig = {
+    device: "gp180" as const,
+    globals: { midiInSource: 3, midiInChannelUsb: 0, clockSource: 0, clockOutTrs: 1, fsJack: 0 },
+    transport: "system" as const,
+    pedalChannel: 16,
+    otherChannels: [1],
+    appClock: false,
+    tempoOnStart: false,
+    downstreamPedals: true,
+  };
+  const result = playlistPreflight(["one", "one", "one"], [saved], { ...config, rig });
+  const mentions = result.map((r) => [...r.errors, ...r.warnings, ...r.advice].filter((text) => text.startsWith("Pedal settings:")).length);
+  expect(mentions).toEqual([1, 0, 0]);
+  expect(result[0].errors.find((text) => text.startsWith("Pedal settings:"))).toContain("MIDI in channel (USB)");
+});
+
+it("reports no pedal settings when no GP is connected", () => {
+  const [result] = playlistPreflight(["one"], [saved], { ...config, rig: null });
+  expect([...result.errors, ...result.warnings, ...result.advice].some((text) => text.startsWith("Pedal settings:"))).toBe(false);
+});
