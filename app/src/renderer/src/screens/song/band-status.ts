@@ -63,3 +63,18 @@ export function bandEntryStatus(keys: PartKeys, choices: PartChoices, missing: M
   }
   return lines.length ? lines.join(". ") : null;
 }
+
+/** What a note in the panel's footer is: information to read once (levels, what was followed), or a problem the performer should act on. */
+export type NoticeLevel = "info" | "warning";
+export interface BandNotice {
+  text: string;
+  level: NoticeLevel;
+}
+/** An information note. */
+export function info(text: string): BandNotice {
+  return { text, level: "info" };
+}
+/** A note given as plain text is a problem, since the panel's errors and refusals are made as text. Information is made with `info`. */
+export function asNotice(notice: string | BandNotice): BandNotice {
+  return typeof notice === "string" ? { text: notice, level: "warning" } : notice;
+}

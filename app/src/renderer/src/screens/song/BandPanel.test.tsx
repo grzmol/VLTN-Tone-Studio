@@ -113,6 +113,28 @@ function pick(trigger: HTMLElement, option: string) {
   fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
+/** Opens the footer's More menu, runs `read` on its item, and closes the menu again, since an open menu hides the rest of the dialog. */
+function withMoreItem<T>(name: string, read: (item: HTMLElement) => T): T {
+  fireEvent.keyDown(screen.getByRole("button", { name: "More actions" }), { key: "Enter" });
+  const item = screen.getByRole("menuitem", { name });
+  const result = read(item);
+  fireEvent.keyDown(item, { key: "Escape" });
+  return result;
+}
+/** True when a More menu item is disabled. */
+const itemDisabled = (name: string) => withMoreItem(name, (item) => item.getAttribute("aria-disabled") === "true");
+/** Chooses a More menu item. */
+function chooseMoreItem(name: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: "More actions" }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("menuitem", { name }));
+}
+/** The footer keeps information notes behind a button: opens it and finds the note. */
+async function infoNote(text: string | RegExp) {
+  const button = await screen.findByRole("button", { name: /^\d+ notes?$/ });
+  if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+  return screen.findByText(text);
+}
+
 // jsdom has no layout: the Radix select and slider measure with these.
 class ResizeObserverStub {
   observe() {}
@@ -200,11 +222,15 @@ describe("Band panel", () => {
       cancel: vi.fn(),
     });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
-    const exporting = screen.getByRole("button", { name: "Export MIDI…" }) as HTMLButtonElement;
+    const exporting = {
+      get disabled() {
+        return itemDisabled("Export MIDI…");
+      },
+    };
     expect(exporting.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     await waitFor(() => expect(exporting.disabled).toBe(false));
-    fireEvent.click(exporting);
+    chooseMoreItem("Export MIDI…");
     await waitFor(() => expect(mocks.saveFiles).toHaveBeenCalledTimes(1));
     const [files, title] = mocks.saveFiles.mock.calls[0] as unknown as [{ name: string; bytes: Uint8Array }[], string];
     expect(files.map((file) => file.name)).toEqual(["Song - band.mid"]);
@@ -245,10 +271,10 @@ describe("Band panel", () => {
       "Use fixed BPM",
       "Generate",
       "Try another",
-      "Remove generated parts",
       "Preview",
     ];
     for (const name of actions) expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled, name).toBe(true);
+    expect(itemDisabled("Remove generated parts")).toBe(true);
     expect(mocks.startBeatGrid).not.toHaveBeenCalled();
   });
 
@@ -311,7 +337,7 @@ describe("Band panel", () => {
     });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
-    await waitFor(() => expect(screen.getByText("Follow my playing: not enough clear rhythm in the guitar")).toBeTruthy());
+    expect(await infoNote("Follow my playing: not enough clear rhythm in the guitar")).toBeTruthy();
     expect(mocks.startBandRender.mock.calls[0][0].follow.source).toBe("guitar");
   });
 
@@ -334,7 +360,7 @@ describe("Band panel", () => {
     });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
-    await waitFor(() => expect(screen.getByText("Drums set 4.0 dB under the song, bass 7.2 dB under.")).toBeTruthy());
+    expect(await infoNote("Drums set 4.0 dB under the song, bass 7.2 dB under.")).toBeTruthy();
     const request = mocks.startBandRender.mock.calls[0][0];
     expect(request.originals.drums).toBe(useSong.getState().stems?.drums);
     expect(request.mix).toBeDefined();
@@ -525,7 +551,7 @@ describe("Band panel", () => {
     useSong.setState({ tracks: { track1: { kind: "user", name: "Drums (generated)", bus: "main", transpose: false } } });
     stored({ beatGrid: grid });
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Remove generated parts" }));
+    chooseMoreItem("Remove generated parts");
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Remove the generated parts?")).toBeTruthy();
     expect(useSong.getState().removeGeneratedParts).not.toHaveBeenCalled();
@@ -873,7 +899,7 @@ describe("Band panel: what plays", () => {
     const { props } = renderPanel({ chart: "[Am] [G]", sections: SECTIONS, partChoices: ORIGINAL_PARTS });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     await waitFor(() => expect(props.onPartChoice).toHaveBeenCalledWith({ drums: "generated", bass: "generated" }));
-    expect(screen.getByText("Now playing the generated drums and bass. Switch back under What plays.")).toBeTruthy();
+    expect(await infoNote("Now playing the generated drums and bass. Switch back under What plays.")).toBeTruthy();
   });
 
   it("keeps a Both choice when Generate runs again", async () => {
@@ -894,7 +920,7 @@ describe("Band panel: what plays", () => {
     useSong.setState({ tracks: { track1: GENERATED_DRUMS } });
     stored({ beatGrid: grid });
     const { props } = renderPanel({ partChoices: { drums: "generated", bass: "original" } });
-    fireEvent.click(screen.getByRole("button", { name: "Remove generated parts" }));
+    chooseMoreItem("Remove generated parts");
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
     expect(props.onPartChoice).toHaveBeenCalledWith(ORIGINAL_PARTS);
   });
@@ -972,40 +998,65 @@ describe("Band footer and preview", () => {
     expect(useBandPanel.getState().open).toBe(false);
   });
 
-  it("closes from Done without playing", async () => {
+  it("offers Play from the start in Preview's place after a Generate, for five seconds", async () => {
     stored({ beatGrid: grid });
-    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
-    renderPanel({ sections: SECTIONS, onPlayFrom: vi.fn() });
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
-    expect(useBandPanel.getState().open).toBe(false);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+      renderPanel({ sections: SECTIONS, onPlayFrom: vi.fn() });
+      fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+      expect(await screen.findByRole("button", { name: "Play from the start" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+      await act(async () => {
+        vi.advanceTimersByTime(5100);
+      });
+      expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("lists the sections in the preview menu and previews the chosen one from its start", async () => {
+  it("previews the selected section from its start, with no section menu in the footer", async () => {
     stored({ beatGrid: grid });
-    const drums = { sampleRate: 44100, channels: [new Float32Array(44100 * 4)] };
     mocks.renderPreview.mockReturnValue({ done: new Promise(() => undefined), cancel: vi.fn() });
     renderPanel({ sections: SECTIONS });
-    const trigger = screen.getByRole("combobox", { name: "Preview section" });
-    fireEvent.keyDown(trigger, { key: "Enter" });
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Verse", "Chorus", "From the playhead"]);
-    fireEvent.click(screen.getByRole("option", { name: "Chorus" }));
+    expect(screen.queryByRole("combobox", { name: "Preview section" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Chorus" }));
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     // The chorus starts at 4 s and runs to the song's end: 4 s at 120 BPM is 2 bars.
     await waitFor(() => expect(mocks.renderPreview).toHaveBeenCalledTimes(1));
     expect(mocks.renderPreview.mock.calls[0].slice(1)).toEqual([4, 2]);
-    expect(drums).toBeTruthy();
   });
 
-  it("previews 4 bars from the playhead", async () => {
+  it("previews 4 bars from the playhead, chosen in the Preview menu", async () => {
     stored({ beatGrid: grid });
     mocks.renderPreview.mockReturnValue({ done: new Promise(() => undefined), cancel: vi.fn() });
     renderPanel({ sections: SECTIONS, getPosition: () => 1.5 });
-    pick(screen.getByRole("combobox", { name: "Preview section" }), "From the playhead");
-    pick(screen.getByRole("combobox", { name: "Preview length" }), "4 bars");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Preview options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "4 bars" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Preview options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "From the playhead" }));
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     await waitFor(() => expect(mocks.renderPreview).toHaveBeenCalledTimes(1));
     expect(mocks.renderPreview.mock.calls[0].slice(1)).toEqual([1.5, 4]);
+  });
+
+  it("shows a problem as a line in the footer, and information behind a notes button", async () => {
+    stored({ beatGrid: grid, bandOutOfDate: true });
+    const silent = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({ drums: silent, bass: silent, notes: { drums: [], bass: [] }, follow: { source: "guitar", following: false } }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    mocks.startChordDetection.mockReturnValue({ done: Promise.reject(new Error("The chord finder could not start.")), cancel: vi.fn() });
+    useSong.setState({ stems: { guitar: song().audio } as never });
+    renderPanel({ sections: SECTIONS });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const footer = screen.getByRole("contentinfo", { name: "Band actions" });
+    expect(await within(footer).findByText("The chord finder could not start.")).toBeTruthy();
+    expect(within(footer).queryByText(/not enough clear rhythm/)).toBeNull();
+    expect(await infoNote(/not enough clear rhythm/)).toBeTruthy();
   });
 });
 
@@ -1208,7 +1259,7 @@ describe("rendered parts", () => {
     stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, rendered: { bass: { name: "bass.wav", importedAt: "2026-10-30T10:00:00.000Z" } } } });
     useSong.setState({ tracks: { track0: { kind: "user", name: "Bass (generated)" } } as never });
     renderPanel({ chart: "[Am] [G]", sections: SECTIONS });
-    fireEvent.click(screen.getByRole("button", { name: "Remove generated parts" }));
+    chooseMoreItem("Remove generated parts");
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(savedOptions().band.rendered).toEqual({}));
   });
