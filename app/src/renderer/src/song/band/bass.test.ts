@@ -647,6 +647,32 @@ describe("generateBass with a figure (engine 2)", () => {
     for (const note of notes.slice(0, -1)) expect(pc(note.pitch)).toBe(4);
   });
 
+  it("plays each root at the same pitch both times round an intro of D, A, E and F sharp", () => {
+    const chords = barsOf("D", "A", "E", "F#", "D", "A", "E", "F#", "D");
+    for (const part of ["ring", "pulse", "groove", "melodic"] as const) {
+      const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { name: "Intro", bassPart: part })], engine2(), [], 3);
+      const roots = [0, 1, 2, 3, 4, 5, 6, 7].map((bar) => inBar(notes, bar)[0].pitch);
+      expect(roots.slice(0, 4)).toEqual(roots.slice(4));
+      // The four roots sit within an octave of one another, instead of E and F sharp dropping a ninth below D and A.
+      expect(Math.max(...roots) - Math.min(...roots)).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it("moves a section's roots by its octave shift, and keeps a note that would leave the range in it", () => {
+    const chords = barsOf("C", "C", "A", "A");
+    const plan = (octave: -1 | 0 | 1) => [planFor(chords.length, { bassPart: "pulse", octave })];
+    const rootsOf = (octave: -1 | 0 | 1) => {
+      const notes = generateBass(gridOf(chords.length), harmonyFor(chords), plan(octave), engine2(), [], 3);
+      return [inBar(notes, 0)[0].pitch, inBar(notes, 2)[0].pitch];
+    };
+    expect(rootsOf(0)).toEqual([36, 33]);
+    // The shift is all or nothing at engine 1. At engine 2 C moves up and A, which has no room above, stays in the range.
+    expect(rootsOf(1)[0]).toBe(48);
+    for (const pitch of rootsOf(1)) expect(pitch).toBeLessThanOrEqual(55);
+    // An octave down would put C at 24, below the range, so it stays at 36.
+    expect(rootsOf(-1)).toEqual([36, 33]);
+  });
+
   it("keeps every note inside the range, for every style and energy", () => {
     const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
     for (const id of ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "half-time"] as const) {
