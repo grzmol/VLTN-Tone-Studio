@@ -2016,10 +2016,10 @@ export class PerformanceSession {
   private createEffects(): Effect[] {
     const armedOf = (s: SessionState) => selectArmed(s);
     return [
-      // While a song plays or prepares, the editor leaves the pedal alone (see state/stage-activity.ts).
+      // While a song plays or prepares, or a playlist runs between its songs, the editor leaves the pedal alone (see state/stage-activity.ts).
       {
-        deps: (s) => [s.playing, s.starting, s.preparing !== null],
-        run: (s) => setStageBusy(s.playing || s.starting || s.preparing !== null, this),
+        deps: (s) => [s.playing, s.starting, s.preparing !== null, s.playlistPlaying],
+        run: (s) => setStageBusy(s.playing || s.starting || s.preparing !== null || s.playlistPlaying, this),
       },
       // A song a MIDI trigger loaded starts once its player is ready and the library is no longer loading.
       {

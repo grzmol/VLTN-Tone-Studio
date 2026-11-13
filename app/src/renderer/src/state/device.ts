@@ -228,10 +228,11 @@ export const useDevice = create<DeviceState>((set, get) => {
     clearTimeout(resyncTimer);
     resyncTimer = window.setTimeout(() => {
       resyncTimer = undefined;
-      if (!driver || get().status !== "connected" || get().busy) return set({ stale: false });
+      if (useStageActivity.getState().busy) return scheduleResync();
+      if (!driver || get().status !== "connected" || get().busy) return set({ stale: pendingResync });
       void readActive(driver, get().names, true)
         .catch(() => {})
-        .finally(() => set({ stale: false }));
+        .finally(() => set({ stale: pendingResync }));
     }, RESYNC_DEBOUNCE_MS);
   };
 
@@ -243,6 +244,12 @@ export const useDevice = create<DeviceState>((set, get) => {
 
   /** When the performance stops, the reads that were held back run once, in place of the ones that would have run along the way. */
   useStageActivity.subscribe((state, previous) => {
+    if (state.busy && !previous.busy) {
+      // A read armed just before the performance started is held back with the rest.
+      if (resyncTimer !== undefined) scheduleResync();
+      for (const list of ["presets", "snaptones", "irs"] as const) if (listTimers[list] !== undefined) scheduleListRead(list);
+      return;
+    }
     if (state.busy || !previous.busy) return;
     const resync = pendingResync;
     const lists = [...pendingLists];
@@ -263,6 +270,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     clearTimeout(listTimers[list]);
     listTimers[list] = window.setTimeout(async () => {
       listTimers[list] = undefined;
+      if (useStageActivity.getState().busy) return scheduleListRead(list);
       const d = driver;
       if (!d || get().status !== "connected" || get().busy) return;
       try {
