@@ -463,3 +463,21 @@ describe("generateBass with the performer's bass notes (spec 87)", () => {
     expect(firstOf(up, 1).pitch - firstOf(plain, 1).pitch).toBe(12);
   });
 });
+
+describe("generateBass with a section that starts near a bar line", () => {
+  const chords = barsOf("C", "C", "C", "C", "F", "F", "F", "F");
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  /** Two sections that meet `offset` seconds after the bar line at 8 s, the second hitting the one. */
+  const withSplit = (offset: number) => {
+    const plans = [planFor(16, { end: 8 + offset, fills: 1 }), planFor(32, { start: 8 + offset, hitTheOne: true })];
+    return generateBass(grid, harmony, plans, settingsFor(), [], 4);
+  };
+
+  it.each([0.04, -0.04])("plays the hit-the-one note on the bar line when the section starts %f s after it", (offset) => {
+    const notes = withSplit(offset);
+    const first = notes.find((note) => note.time >= 8 - 1e-9);
+    expect(first?.time).toBeCloseTo(8, 9);
+    expect(notes).toEqual(withSplit(0));
+  });
+});

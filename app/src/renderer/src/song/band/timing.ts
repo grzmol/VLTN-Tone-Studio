@@ -85,6 +85,12 @@ export function barEnd(beats: readonly number[], start: number, perBar: number):
   return beats[start] + perBar * beatSpan(beats, start);
 }
 
+/** The plan a bar belongs to: the plan covering the bar's middle. A section start within half a bar of a bar line then takes that bar. */
+export function planOfBar(plans: readonly SectionPlan[], beats: readonly number[], span: BarSpan): number {
+  const middle = (beats[span.start] + barEnd(beats, span.start, span.beats)) / 2;
+  return planIndexAt(plans, middle);
+}
+
 /**
  * How late an off-beat step plays, in beats. The off-beat is the odd step of a sixteenth or eighth grid. At full swing (1) it would
  * sit two thirds of the way through the pair, so swing × half a step is close to a triplet feel at the top of the range. Triplet
