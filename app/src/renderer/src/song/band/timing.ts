@@ -97,23 +97,21 @@ export function swingDelay(style: Style, fraction: number, swing: number): numbe
   return (swing * 0.5) / perBeat;
 }
 
+/** Steps in a bar of `perBar` beats for a style: its steps per beat stay, and the bar is cut or carried on. */
+export function stepsForBar(style: Style, perBar: number): number {
+  return style.meter.stepsPerBeat * perBar;
+}
+
 /**
- * One step of a bar. `start` is the bar's first beat, `steps` the style's steps in one bar and `perBar` the grid's beats in one bar.
- * The step's beat may fall past the end of the grid; callers check `beat` before using `time`.
+ * One step of a bar. `start` is the bar's first beat. A step sits on the same part of its beat whatever the grid's bar length: its
+ * beat is `step / stepsPerBeat` rounded down, and its fraction the rest. The step's beat may fall past the end of the grid; callers
+ * check `beat` before using `time`.
  */
-export function stepAt(
-  beats: readonly number[],
-  style: Style,
-  start: number,
-  step: number,
-  steps: number,
-  perBar: number,
-  swing: number,
-): { beat: number; time: number } {
-  const scaled = step * perBar;
-  const beatOffset = Math.floor(scaled / steps);
+export function stepAt(beats: readonly number[], style: Style, start: number, step: number, swing: number): { beat: number; time: number } {
+  const perBeat = style.meter.stepsPerBeat;
+  const beatOffset = Math.floor(step / perBeat);
   const beat = start + beatOffset;
-  const fraction = (scaled - beatOffset * steps) / steps;
+  const fraction = (step % perBeat) / perBeat;
   return { beat, time: timeIn(beats, beat, fraction + swingDelay(style, fraction, swing)) };
 }
 

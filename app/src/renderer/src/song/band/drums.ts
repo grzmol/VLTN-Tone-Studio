@@ -63,9 +63,9 @@ function pickSegment(plan: number, energy: Energy, style: Style, accent: AccentP
 /**
  * A crash and a kick on each hit beat of the bar that the bar does not already have there. The hit after a stop is then a clear restart.
  */
-function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number, steps: number): DrumHit[] {
+function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number, stepsPerBeat: number): DrumHit[] {
   const extra: DrumHit[] = [];
-  for (const step of hitSteps(feel, start, perBar, steps)) {
+  for (const step of hitSteps(feel, start, perBar, stepsPerBeat)) {
     if (!hits.some((hit) => hit.step === step && hit.pitch === CRASH)) extra.push({ step, pitch: CRASH, velocity: CRASH_VELOCITY });
     if (!hits.some((hit) => hit.step === step && hit.pitch === KICK)) extra.push({ step, pitch: KICK, velocity: HIT_KICK_VELOCITY });
   }
@@ -148,16 +148,17 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     if ((sectionCrash || crashAfterFill) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
-    if (feel) hits = hitBeatHits(hits, feel, start, perBar, groove.steps);
-    // A bar that is shorter or longer than the rest (the bar lines move there) plays the part of the pattern that fits it.
-    hits = fitStepsToBar(hits, groove.steps, perBar, spans[k].beats);
+    if (feel) hits = hitBeatHits(hits, feel, start, perBar, style.meter.stepsPerBeat);
+    // A bar that is shorter or longer than the style's bar (a 3/4 song with a 4/4 style, or where the bar lines move) plays the part of
+    // the pattern that fits it.
+    hits = fitStepsToBar(hits, groove.steps, style.meter.beatsPerBar, spans[k].beats);
     afterFill = filled;
 
     for (const hit of hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
       if (!playsAt(hit, settings.complexity)) continue;
 
-      const at = stepAt(beats, style, start, hit.step, groove.steps, perBar, settings.swing);
+      const at = stepAt(beats, style, start, hit.step, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
       let velocity = hit.velocity * LOUD_DRUM_SCALE[plan.loud];
       if (hit.ghost) velocity = Math.min(velocity, GHOST_CEILING);

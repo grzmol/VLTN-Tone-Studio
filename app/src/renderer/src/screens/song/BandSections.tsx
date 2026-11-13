@@ -1,10 +1,10 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ENERGIES, STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
+import { ENERGIES, type StyleId } from "@/song/band/styles";
 import { BASS_PART_CHOICES, type BassPartChoice } from "@/song/band/bass-parts";
 import type { SectionOverride, SectionPlan } from "@/song/band/arrangement";
 import { BandSectionMore } from "./BandSectionMore";
-import { BASS_PART_LABELS } from "./band-labels";
+import { BASS_PART_LABELS, styleChoices } from "./band-labels";
 
 export interface BandSectionRow {
   plan: SectionPlan;
@@ -27,6 +27,7 @@ export function BandSections({
   selected,
   onSelect,
   onChange,
+  beatsPerBar,
 }: {
   rows: readonly BandSectionRow[];
   disabled: boolean;
@@ -34,6 +35,8 @@ export function BandSections({
   selected: number | null;
   onSelect(index: number | null): void;
   onChange(sectionId: string | null, patch: SectionOverride): void;
+  /** The song's beats per bar, to list the styles written for it first. */
+  beatsPerBar?: number;
 }) {
   return (
     <>
@@ -74,9 +77,9 @@ export function BandSections({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {STYLE_IDS.map((id) => (
+                        {styleChoices(beatsPerBar).map(({ id, label }) => (
                           <SelectItem key={id} value={id}>
-                            {STYLES[id].name}
+                            {label}
                           </SelectItem>
                         ))}
                       </SelectContent>

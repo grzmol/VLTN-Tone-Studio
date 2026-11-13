@@ -3,9 +3,9 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { BASS_FROM, BASS_RANGES, HUMANISE_CHOICES, type BandSettings, type BassFrom, type FollowSource, type HumaniseChoice } from "@/song/band/arrangement";
 import { DEFAULT_BASS_PARTS, type BassPart } from "@/song/band/bass-parts";
-import { STYLE_IDS, STYLES, type StyleId } from "@/song/band/styles";
+import type { StyleId } from "@/song/band/styles";
 import { PartToneChain } from "./PartToneChain";
-import { BASS_PART_LABELS } from "./band-labels";
+import { BASS_PART_LABELS, styleChoices } from "./band-labels";
 /**
  * The track of a band slider. The theme's muted track is nearly the colour of the glass dialog, so at a value of 0 only the thumb showed.
  * A lighter track keeps the full length visible at any value.
@@ -31,10 +31,12 @@ export interface BandSettingsFormProps {
   onStyle(id: StyleId): void;
   /** The song's length in seconds, for the tone chains' render-time estimates. */
   songSeconds?: number;
+  /** The song's beats per bar, to list the styles written for it first. */
+  beatsPerBar?: number;
 }
 
 /** The song-wide band settings. Changing one saves it; nothing is generated until Generate. */
-export function BandSettingsForm({ settings, followSources, onChange, onStyle, songSeconds = 0 }: BandSettingsFormProps) {
+export function BandSettingsForm({ settings, followSources, onChange, onStyle, songSeconds = 0, beatsPerBar }: BandSettingsFormProps) {
   return (
     <section aria-label="Band settings" className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
       <h3 className="font-semibold sm:col-span-2">Settings</h3>
@@ -55,9 +57,9 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, s
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {STYLE_IDS.map((id) => (
+            {styleChoices(beatsPerBar).map(({ id, label }) => (
               <SelectItem key={id} value={id}>
-                {STYLES[id].name}
+                {label}
               </SelectItem>
             ))}
           </SelectContent>

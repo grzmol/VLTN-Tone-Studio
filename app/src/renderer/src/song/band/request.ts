@@ -5,12 +5,13 @@ import type { Cue } from "../performance/chart";
 import type { Chord } from "../performance/chords";
 import type { Section } from "../performance/sections";
 import type { PcmAudio, Stems } from "../types";
-import { planSections, type BandSettings, type SectionBandHint } from "./arrangement";
+import { WHOLE_SONG_ID, planSections, type BandSettings, type SectionBandHint, type SectionPlan } from "./arrangement";
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
 import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
+import { findStyle } from "./styles";
 import { barBeats, barStarts } from "./timing";
 
 /**
@@ -115,7 +116,10 @@ function median(values: readonly number[]): number {
 export function gridThroughSections(grid: BeatGrid, sections: readonly Section[], songEnd: number): BeatGrid {
   if (grid.beats.length < 2) return grid;
   const lastBeat = grid.beats[grid.beats.length - 1];
-  const intervals = grid.beats.slice(-END_INTERVALS - 1).map((beat, i, beats) => (i === 0 ? 0 : beat - beats[i - 1])).slice(1);
+  const intervals = grid.beats
+    .slice(-END_INTERVALS - 1)
+    .map((beat, i, beats) => (i === 0 ? 0 : beat - beats[i - 1]))
+    .slice(1);
   const interval = median(intervals);
   if (!(interval > 0)) return grid;
   const later = sections.filter((section) => section.start > lastBeat + interval / 2);
@@ -149,6 +153,26 @@ export function gridThroughSections(grid: BeatGrid, sections: readonly Section[]
   return regular ? { ...grid, beats } : { ...grid, beats, barStarts: [...kept, ...added.filter((start) => start < beats.length)] };
 }
 
+/** The line the Band panel shows when a 3/4 song's plans were given the 3/4 style. */
+export const THREE_FOUR_NOTE = "3/4 song: playing the 3/4 style";
+
+/**
+ * The plans of a song with three beats to the bar. A section whose style the user did not choose, and whose style has four beats,
+ * plays the 3/4 style instead, so the four-beat groove is not squeezed into three beats. A section with a style of its own keeps it.
+ */
+export function plansForMeter(grid: BeatGrid, plans: readonly SectionPlan[], settings: BandSettings): SectionPlan[] {
+  if (barBeats(grid) !== 3) return [...plans];
+  return plans.map((plan) => {
+    const chosen = settings.sections[plan.sectionId ?? WHOLE_SONG_ID]?.style !== undefined;
+    return !chosen && findStyle(plan.style)?.meter.beatsPerBar === 4 ? { ...plan, style: "three-four" } : plan;
+  });
+}
+
+/** Whether the plans play the 3/4 style where the song's own style has four beats, so the panel can say so. */
+export function playsThreeFourDefault(request: BandRequest): boolean {
+  return request.plans.some((plan) => plan.style === "three-four") && findStyle(request.settings.style)?.meter.beatsPerBar === 4;
+}
+
 /**
  * The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. The grid is
  * continued through any section after its last beat (see gridThroughSections), so those sections get their parts too.
@@ -159,7 +183,7 @@ export function bandRequest(input: BandInputs): BandRequest {
   const request: BandRequest = {
     grid,
     harmony,
-    plans: planSections(input.sections, input.songEnd, input.settings, input.hints ?? []),
+    plans: plansForMeter(grid, planSections(input.sections, input.songEnd, input.settings, input.hints ?? []), input.settings),
     settings: input.settings,
     seed: input.settings.seed,
     lengthFrames: input.lengthFrames,

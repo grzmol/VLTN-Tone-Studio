@@ -33,7 +33,18 @@ import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/be
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import type { BassOverride } from "@/song/band/bass-overrides";
-import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
+import {
+  THREE_FOUR_NOTE,
+  bandHarmony,
+  bandRequest,
+  beatSources,
+  chartChordTimes,
+  followFor,
+  followSourcesIn,
+  levelStems,
+  playsThreeFourDefault,
+  previewMix,
+} from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
 import { renderPartChain } from "@/song/band/bass-chain";
@@ -458,6 +469,7 @@ function BandBody({
       };
       let request = bandRequest(input);
       const notes: string[] = [];
+      if (playsThreeFourDefault(request)) notes.push(THREE_FOUR_NOTE);
       if (using.parts.bass && !request.harmony.some((entry) => entry.chord)) {
         // Neither the chart nor the screen's analysis has chords, so the bass would rest all song. Detect them from the audio first.
         let found: Chord[] | null = [];
@@ -876,7 +888,14 @@ function BandBody({
           }}
         />
 
-        <BandSettingsForm settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} songSeconds={songEnd} />
+        <BandSettingsForm
+          settings={settings}
+          followSources={followSources}
+          onChange={change}
+          onStyle={changeStyle}
+          songSeconds={songEnd}
+          beatsPerBar={grid?.beatsPerBar}
+        />
 
         <section aria-label="Sections" className="flex flex-col gap-2">
           <h3 className="font-semibold">Sections</h3>
@@ -889,6 +908,7 @@ function BandBody({
               if (index !== null) setPreviewAt(null);
             }}
             onChange={changeRow}
+            beatsPerBar={grid?.beatsPerBar}
           />
         </section>
 

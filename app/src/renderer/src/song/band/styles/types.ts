@@ -2,7 +2,7 @@
 // read, tested and tuned without running any generator. The rules that play them live in ../drums.ts and ../bass.ts.
 
 /** Every style the engine knows. The list is the source of truth for parsing saved settings. */
-export const STYLE_IDS = ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "six-eight", "half-time"] as const;
+export const STYLE_IDS = ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "six-eight", "half-time", "three-four"] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 /**
