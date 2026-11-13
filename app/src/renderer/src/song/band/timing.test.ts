@@ -17,8 +17,8 @@ describe("stepAt on a grid whose bar has another number of beats", () => {
   });
 
   it("puts step 4 of a sixteenth style exactly on beat 2, whatever the grid's bar length", () => {
-    expect(stepAt(grid.beats, rock, 0, 4, 0)).toEqual({ beat: 1, time: 0.5 });
-    expect(stepAt(grid.beats, rock, 3, 6, 0).time).toBeCloseTo(1.5 + 0.5 + 0.25, 9);
+    expect(stepAt(grid.beats, rock, 0, 4, 3, 0)).toEqual({ beat: 1, time: 0.5 });
+    expect(stepAt(grid.beats, rock, 3, 6, 3, 0).time).toBeCloseTo(1.5 + 0.5 + 0.25, 9);
   });
 
   it("plays rock on a three-beat grid with the snare on beat 2 and no hit after beat 3", () => {

@@ -18,7 +18,7 @@ import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, fitStepsToBar, planOfBar, stepAt } from "./timing";
+import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat, stretchesToBar } from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
 export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
@@ -464,8 +464,8 @@ function buildSlots(
     // Steps are drawn the same way in every mode, so the variation a bar gets does not depend on the mode or on the kick.
     const steps = style.meter.beatsPerBar * style.meter.stepsPerBeat;
     // The bar's own steps: the pattern's steps, cut short or carried on to the bar's length.
-    const barSteps = Math.max(1, style.meter.stepsPerBeat * length);
-    const points = Array.from({ length: Math.max(steps, barSteps) }, (_, step) => stepAt(beats, style, start, step, settings.swing));
+    const barSteps = Math.max(1, Math.round(stepsPerGridBeat(style, perBar) * length));
+    const points = Array.from({ length: Math.max(steps, barSteps) }, (_, step) => stepAt(beats, style, start, step, perBar, settings.swing));
     const walking = part === "walking" || (part === "groove" && settings.bassMode === "walking" && style.bass.walking);
     const own = ownSteps(part, plan.busy, steps, style.meter.stepsPerBeat, barInPlan);
     const roles = new Map<number, "root" | "fifth">();
@@ -474,10 +474,10 @@ function buildSlots(
       rhythm = own.map((entry) => entry.step);
       for (const entry of own) roles.set(entry.step, entry.role);
     } else {
-      rhythm = walking ? quarterSteps(steps, style.meter.beatsPerBar) : variations[segment.rhythm];
+      rhythm = walking ? quarterSteps(steps, patternBeats(style, perBar)) : variations[segment.rhythm];
     }
     // A style written for another number of beats than the bar has plays the part of its pattern that fits the bar.
-    if (style.meter.beatsPerBar !== length)
+    if (!stretchesToBar(style) && style.meter.beatsPerBar !== length)
       rhythm = fitStepsToBar(
         rhythm.map((step) => ({ step })),
         steps,
@@ -499,7 +499,7 @@ function buildSlots(
         if (points[step].beat < beats.length && nameAt(points[step].beat) !== nameAt(points[step - 1].beat)) rhythm.push(step);
       }
     }
-    if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, style.meter.stepsPerBeat)];
+    if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, stepsPerGridBeat(style, perBar))];
 
     // The phrase variations and the lead-in. The lead-in takes the second half of the section's last bar, and the variation a phrase's last bar.
     const quality = chordAt(start)?.quality ?? "major";
