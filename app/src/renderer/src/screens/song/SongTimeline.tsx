@@ -158,7 +158,7 @@ export function SongTimeline({
                 i === currentIndex
                   ? `inset 0 0 0 2px ${sectionColours(section).edge}`
                   : showNext && i === currentIndex + 1
-                    ? `inset 0 0 0 2px ${sectionColours(section).edge}66`
+                    ? `inset 0 0 0 2px ${sectionColours(section).edge}, inset 0 0 0 4px rgb(0 0 0 / 0.55)`
                     : undefined,
             }}
           />
