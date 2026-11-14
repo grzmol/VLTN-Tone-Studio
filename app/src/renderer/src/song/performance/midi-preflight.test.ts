@@ -132,3 +132,15 @@ it("says a raw CC matching an assigned trigger is skipped by the chase unless it
   expect(report("[00:03] {midi:cc 2 70 127}").issues.map((i) => i.code)).toEqual(["chase-assigned-trigger"]);
   expect(report("[00:03] {chase} {midi:cc 2 70 127}").issues).toEqual([]);
 });
+
+it("checks output and saved profile channels for preparation-only songs", () => {
+  const report = midiPreflight(parseChart("{label:Pedal A: recall} {midi@prepare:pc 2 4}"), {
+    ...options,
+    outputName: undefined,
+    tempoChannel: 1,
+    pedals: [{ name: "Pedal A", channel: 1 }],
+  });
+  expect(report.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(["saved-channel", "output", "tempo-channel"]));
+  expect(report.commands).toBe(1);
+  expect(report.channels).toEqual([[2, 1]]);
+});
