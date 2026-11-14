@@ -119,7 +119,7 @@ const mocks = vi.hoisted(() => ({
 const noTracks = vi.hoisted(() => ({}));
 vi.mock("@/song/store", () => ({
   useSong: Object.assign((select: (s: unknown) => unknown) => select({ source: mocks.source, stems: null, tracks: noTracks, status: { kind: "idle" } }), {
-    getState: () => ({ source: mocks.source }),
+    getState: () => ({ source: mocks.source, checkMissingParts: vi.fn() }),
   }),
   selectWholeSongStems: (s: { stems: unknown }) => s.stems,
   partSplitNote: () => null,

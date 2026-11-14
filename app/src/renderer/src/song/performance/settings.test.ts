@@ -7,9 +7,11 @@ import {
   getSetting,
   migrateLocalSettings,
   readSettings,
+  savedSongSettings,
   seedSettings,
   setSetting,
   writeSettings,
+  subscribeSettings,
 } from "./settings";
 
 const api = vi.hoisted(() => ({ updateSettings: vi.fn() }));
@@ -61,6 +63,35 @@ it("does not send values that did not change", async () => {
   writeSettings(key, { ":bpm": "100" });
   await flushSettings();
   expect(api.updateSettings).not.toHaveBeenCalled();
+});
+
+it("notifies changes and invalidates generated parts only for musical dependencies", () => {
+  const listener = vi.fn();
+  const stop = subscribeSettings(key, listener);
+  const options = { generatedParts: { drums: "track0" }, band: { style: "rock" }, trimStart: 0 };
+  setSetting(key, ":options", JSON.stringify(options));
+  setSetting(key, ":bpm", "120");
+  expect(JSON.parse(getSetting(key, ":options")).bandOutOfDate).toBe(true);
+  setSetting(key, ":options", JSON.stringify({ ...options, bandOutOfDate: false, trimStart: 2, trimEnd: 20 }));
+  expect(JSON.parse(getSetting(key, ":options")).bandOutOfDate).toBe(false);
+  setSetting(key, "", "[00:00] Words {midi:pc 1 2}");
+  expect(JSON.parse(getSetting(key, ":options")).bandOutOfDate).toBe(false);
+  setSetting(key, "", "[00:00] [Am] Words {midi:pc 1 2}");
+  expect(JSON.parse(getSetting(key, ":options")).bandOutOfDate).toBe(true);
+  expect(listener).toHaveBeenCalled();
+  stop();
+  const count = listener.mock.calls.length;
+  setSetting(key, ":lyrics", "Updated words");
+  expect(listener).toHaveBeenCalledTimes(count);
+});
+
+it("reads playlist settings with unsaved edits and deliberately cleared fields ahead of the saved index", () => {
+  const saved = { "": "old chart", ":options": "{}", ":bpm": "120" };
+  expect(savedSongSettings(id, saved)).toEqual(saved);
+  seedSettings(id, saved);
+  setSetting(key, "", "");
+  setSetting(key, ":bpm", "140");
+  expect(savedSongSettings(id, saved)).toEqual({ ...saved, "": "", ":bpm": "140" });
 });
 
 it("keeps an unsaved song's settings in localStorage", async () => {
