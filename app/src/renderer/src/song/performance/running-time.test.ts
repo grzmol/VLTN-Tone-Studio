@@ -35,3 +35,8 @@ it("counts a trim that runs past the end as nothing, and never a negative time",
 it("reads a song whose options are broken as its full length", () => {
   expect(runningSeconds({ ...song(90), settings: { ":options": "{not json" } })).toBe(90);
 });
+
+it("leaves out the silence at the start that the song skips by default", () => {
+  expect(runningSeconds(song(200, { analysis: { silence: { start: 4, end: 200 } } }))).toBe(196);
+  expect(runningSeconds(song(200, { analysis: { silence: { start: 4, end: 200 } }, trimStart: 0 }))).toBe(200);
+});

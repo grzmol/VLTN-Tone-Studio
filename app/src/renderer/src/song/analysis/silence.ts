@@ -1,5 +1,5 @@
-// Finds the silence at the start and end of a song, so the performer can trim it with one click. Nothing is trimmed automatically: the
-// result is saved with the analysis and offered in the shape controls.
+// Finds silence at the ends of a song and saves it with the analysis. With no explicit trim start, playback skips the detected start
+// silence. The shape controls show that state, allow playback from the very start, and offer the end silence as an optional trim.
 
 import type { PcmAudio } from "../types";
 

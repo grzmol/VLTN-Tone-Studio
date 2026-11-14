@@ -3,7 +3,7 @@ import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings } from "./arrang
 import { fixedBeatGrid, type BeatGrid } from "./beat-grid";
 import type { Section } from "../performance/sections";
 import { generateDrums } from "./drums";
-import { DRUM_PITCHES } from "./note";
+import { DRUM_PITCHES, KICK } from "./note";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import { sectionPreviewBars, previewWindow, runBandJob, runBandPreview, transferables, type BandRequest } from "./band-job";
 import { loudnessOf } from "./level";
@@ -265,5 +265,44 @@ describe("sectionPreviewBars", () => {
   it("uses 4 and 8 bars as asked", () => {
     expect(sectionPreviewBars(grid, sections, 0, 4)).toBe(4);
     expect(sectionPreviewBars(grid, sections, 0, 8)).toBe(8);
+  });
+});
+
+describe("runBandJob following the drummer", () => {
+  const flat: BandSettings = { ...DEFAULT_BAND_SETTINGS, humanise: { amount: 0, feel: "style" } };
+  const EARLY = 0.02;
+
+  /** A drums stem with a kick burst EARLY seconds before each kick the settings generate. */
+  function stemEarlyKicks(): PcmAudio {
+    const kicks = runBandJob(request({ settings: { ...flat, followDrummer: false } }), stubSamples()).notes.drums.filter((note) => note.pitch === KICK);
+    const out = new Float32Array(SONG_SECONDS * RATE);
+    for (const kick of kicks) {
+      const start = Math.round((kick.time - EARLY) * RATE);
+      for (let i = 0; i < 0.2 * RATE && start + i < out.length; i++)
+        out[start + i] += 0.8 * Math.cos((2 * Math.PI * 60 * i) / RATE) * Math.exp(-i / (0.05 * RATE));
+    }
+    return { sampleRate: RATE, channels: [out] };
+  }
+
+  const plain = (settings: BandSettings) => runBandJob(request({ settings }), stubSamples()).notes;
+
+  it("moves the kicks and the bass locked to them onto the original drummer's hits", () => {
+    const original = plain({ ...flat, followDrummer: false });
+    const followed = runBandJob(request({ settings: flat, originals: { drums: stemEarlyKicks() } }), stubSamples()).notes;
+    // The kick at 0 s has no early hit to move to (it would be before the start), so the checks begin after it.
+    const kicks = (notes: typeof original) => notes.drums.filter((note) => note.pitch === KICK && note.time > 0.1);
+    expect(kicks(followed)).toHaveLength(kicks(original).length);
+    kicks(followed).forEach((kick, index) => expect(Math.abs(kick.time - (kicks(original)[index].time - EARLY))).toBeLessThan(0.0015));
+    const locked = original.bass.findIndex((note) => note.time > 0.1 && kicks(original).some((kick) => Math.abs(kick.time - note.time) < 0.001));
+    expect(locked).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(followed.bass[locked].time - (original.bass[locked].time - EARLY))).toBeLessThan(0.0015);
+  });
+
+  it("changes nothing without original drums, with a silent drums stem, or with the setting off", () => {
+    const original = plain(flat);
+    const silent: PcmAudio = { sampleRate: RATE, channels: [new Float32Array(SONG_SECONDS * RATE)] };
+    expect(runBandJob(request({ settings: flat, originals: {} }), stubSamples()).notes).toEqual(original);
+    expect(runBandJob(request({ settings: flat, originals: { drums: silent } }), stubSamples()).notes).toEqual(original);
+    expect(runBandJob(request({ settings: { ...flat, followDrummer: false }, originals: { drums: stemEarlyKicks() } }), stubSamples()).notes).toEqual(original);
   });
 });

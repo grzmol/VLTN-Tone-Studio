@@ -24,7 +24,7 @@ import { parseSections, saveLiveAsDefault, type Section } from "@/song/performan
 import { ownLeadIn, readLeadInDefaults, resolveLeadIn, saveLeadInDefaults, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
 import { type StemName } from "@/song/types";
 import { getSetting, performanceKey, readOptions, setSetting } from "@/song/performance/settings";
-import { playerShape, shapeFromOptions } from "@/song/performance/song-shape";
+import { playerShapeFromOptions } from "@/song/performance/song-shape";
 import { readTempoSource, type TempoSource } from "@/song/performance/tempo-source";
 import { useSongAnalysis } from "./use-song-analysis";
 import { generatedTrackKeysIn, parseAnalysis, songAudioId } from "@/song/analysis/song-analysis";
@@ -37,6 +37,7 @@ import { setSongPlaying } from "@/song/performance/playing-state";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { useBluetooth } from "@/bluetooth/connection";
 import { SongKey } from "./SongKey";
+import { SoloScales } from "./SoloScales";
 import { SongMapImport } from "./SongMapImport";
 import { ChordVoicings } from "./ChordVoicings";
 import { PerformanceTransport } from "./PerformanceTransport";
@@ -47,7 +48,7 @@ import { TrackImport } from "./TrackImport";
 import { SongLoudnessControl } from "./SongLoudnessControl";
 import { loudnessFromOptions, normalisingGain, type SongLoudness } from "@/song/audio/loudness";
 import { busDefaults, mixDefaults, type TrackInfo } from "@/song/tracks";
-import { applyPartChoices, defaultPartChoices, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
+import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
@@ -314,6 +315,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const shapeShift = shift + chordDisplayTranspose(speed.semitones, capo, speed.applyToChords);
   // The key the chord names are spelled by, from the SongKey readout (its override, then the library key, then a strong estimate).
   const [spellingKey, setSpellingKey] = useState<string | undefined>();
+  // Bumped when the reader's Solo scale dialog saves, so the This song section reads the choice again.
+  const [soloVersion, setSoloVersion] = useState(0);
   // Generated parts do not change the audio the chords were analysed under (see songAudioId), so the saved chords stay after Generate.
   const audioId = useMemo(
     () => (source ? songAudioId(source.audio, stems, generatedTrackKeysIn(readOptions<Record<string, unknown>>(key, {}))) : ""),
@@ -538,8 +541,12 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     }
   }, [session, key, bpm, tempoSource]);
   useEffect(() => {
-    setMix(withPartChoice({ ...mixDefaults(tracks), ...options.mix }));
-    setCountsAs(readCountsAs(options));
+    // Read the saved options again. `options` holds what was saved when the song opened, so after a change here (choosing the generated
+    // drums, say) it would bring the old mix back and the next save would write it over the new one.
+    const saved = readOptions(key, { mix: defaultMix(), partChoice: undefined as PartChoices | undefined });
+    const base = { ...mixDefaults(tracks), ...saved.mix };
+    setMix(saved.partChoice === undefined ? applyPartChoices(base, partChoiceNow.current, partKeysOf(tracks, stems)) : base);
+    setCountsAs(readCountsAs(readOptions(key, {})));
   }, [player]);
   // A normalised song is raised or lowered as a whole: every track gets the same gain, so the balance stays as it was mixed.
   const [loudness, setLoudness] = useState<SongLoudness>(() => loudnessFromOptions(getSetting(key, ":options")));
@@ -549,7 +556,11 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     () => ({ keys: player?.names ?? [], info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs }),
     [player, tracks, stems, countsAs],
   );
-  const playedMix = useMemo(() => effectiveMute(mix, practiceSet(practiceKinds), practiceTracks), [mix, practiceKinds, practiceTracks]);
+  // A track the drums and bass choice turns off never plays, whatever its saved mute says, so the player matches the mixer's badges.
+  const playedMix = useMemo(
+    () => effectiveMute(muteSilencedParts(mix, partChoice, partKeysOf(tracks, stems)), practiceSet(practiceKinds), practiceTracks),
+    [mix, partChoice, tracks, stems, practiceKinds, practiceTracks],
+  );
   useEffect(() => {
     player?.setMix(playedMix, songGain);
   }, [player, playedMix, songGain]);
@@ -595,9 +606,9 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
   }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
-  const playedShapeSignature = JSON.stringify(playerShape(shapeFromOptions(getSetting(key, ":options"))));
+  const playedShapeSignature = JSON.stringify(playerShapeFromOptions(getSetting(key, ":options")));
   useEffect(() => {
-    player?.setShape(playerShape(shapeFromOptions(getSetting(key, ":options"))));
+    player?.setShape(playerShapeFromOptions(getSetting(key, ":options")));
   }, [player, key, shapeVersion, playedShapeSignature]);
   useEffect(() => {
     try {
@@ -733,6 +744,8 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           libraryKey={savedSong?.key ?? undefined}
           onSpellingKey={setSpellingKey}
         />
+        <h3 className="text-sm font-semibold">Solo scale</h3>
+        <SoloScales key={`${key}:${soloVersion}`} songKey={spellingKey} shift={shapeShift} capo={capo} storageKey={key} />
         <SongMapImport
           songKey={key}
           libraryId={source?.libraryId}
@@ -791,6 +804,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
           speedNote={speedNote(speed)}
           pdf={pdfState}
+          soloScale={{ storageKey: key, capo, onChange: () => setSoloVersion((v) => v + 1) }}
         />
       </div>
       <div style={{ display: shownView("midi") }}>
