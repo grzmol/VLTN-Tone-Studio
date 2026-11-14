@@ -5,6 +5,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 ## [Unreleased]
 
 ### Added
+- **Song and stage layout.** A persistent transport bar, seekable waveform/section timeline, contextual Song controls and readable time/tempo values. Stage mode prioritises the chart, adds section/bar/preset status and a between-song set card, and uses hold-to-stop/panic actions.
 - **Show protection and recovery.** Closing or restarting for an update asks while a set runs. A crashed renderer reloads and offers a paused resume point. MIDI health shows renderer/system and song-buffer memory use.
 - **RC-10R rhythms.** Export native six-part rhythms or MIDI, plan song/playlist rhythm cues, track export and explicit transfer revisions, and prepare memory/tempo before playback.
 - **GP-150/GP-180 cue names and rig checks.** Cue pickers show live or cached preset names; preflight warns when a named preset changed, checks pedal MIDI routing, and offers setting fixes. Editor background reads wait until playback stops.

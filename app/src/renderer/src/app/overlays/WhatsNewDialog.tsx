@@ -23,27 +23,27 @@ interface Slide {
 const SLIDES: Slide[] = [
   {
     title: "A song library and live sets",
-    text: "Save a song with its stems, chart, tempo, key and mix, then put songs in playlists and sets. A set plays from one song to the next with crossfades or gapless joins, a queue shows what comes next, and a library backup takes everything with it.",
+    text: "Save a song with its stems, chart, tempo, key and mix, then put songs in playlists and sets. A set plays from one song to the next with crossfades or gapless joins, a queue shows what comes next, and the playlist check flags songs with missing band tones. A library backup takes everything with it.",
     image: songLibrary,
   },
   {
     title: "Play along with the stems",
-    text: "A split song plays in a mixer with solo, level and output for each stem. Add a metronome and a count-in, jump to or loop a section, change the speed or the key, and turn on Practice mute to take your own part out of every song.",
+    text: "A split song plays in a mixer with solo, level and output for each stem, under a transport bar and a timeline you can click or drag to seek. Add a metronome and a count-in, jump to or loop a section, change the speed or the key, and turn on Practice mute to take your own part out of every song.",
     image: stemMixer,
   },
   {
     title: "A band behind you",
-    text: "The Band panel finds the beat and writes drums and bass that follow the song's chords and sections. Choose the original, the generated part or both, fix a wrong bass note, give the drums and bass a tone, or import a song map that sets it all at once.",
+    text: "The Band panel finds the beat and writes drums that play in four-bar phrases, with fills sized to each change, and bass that follow the song's chords and sections, in tabs for each part. The bass plays repeating figures with a warm built-in tone, drums can end on a hit, a fill and hold, three hits or a slow-down, and a heavier kit and room are built in. Choose the original, the generated part or both, play 3/4 songs with a 3/4 style, and use Update… on an older song to get the newest bass. The Notes tab shows every bar, where you can mark a stop, a fill or a crash, or try another groove for one section. The drummer can count a song in, and a looped section ends with a proper fill when you release it.",
     image: band,
   },
   {
     title: "Your pedals follow the song",
-    text: "Put MIDI cues on song times or sections and they go out over USB or Bluetooth MIDI while the song plays: program changes, CCs and named commands for the GP-150, GP-180 and other pedals. Preflight checks the setup before the show.",
+    text: "Put MIDI cues on song times or sections and they go out over USB or Bluetooth MIDI while the song plays: program changes, CCs and named commands for the GP-150, GP-180 and other pedals. Cues name the GP-150 and GP-180 presets, and preflight checks the setup and warns if a recalled preset has changed.",
     image: midiCues,
   },
   {
     title: "Stage mode, lyrics and chords",
-    text: "Lyrics come from the vocals and chords from the stems, and the chart follows playback in large type. Stage mode locks editing, an audience window shows the words on a second screen, and bandmates can follow on their phones with Band sync.",
+    text: "Lyrics come from the vocals and chords from the stems, and the chart follows playback in large type. A status strip shows the section, the bars left, what comes next and the pedal preset, and Stop and Panic need a hold so a stray tap can't end the show. An audience window and Band sync share the words with the room and your bandmates.",
     image: stageMode,
   },
   {
