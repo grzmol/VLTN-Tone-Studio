@@ -2,12 +2,15 @@ import { pedalTempoMessages } from "./pedal-tempo";
 import { preparationSequence, type PreparationSequence } from "./preparation-sequence";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
-import { StemPlayer, type Lead, type RenderedBuffers } from "@/song/stems/player";
+import { StemPlayer, type ExitBar, type Lead, type RenderedBuffers } from "@/song/stems/player";
 import { RenderQueue, isPlainSpeed } from "@/song/audio/render-queue";
 import { DEFAULT_SPEED, clampRate, clampSpeed, effectiveBpm, speedFromOptions, speedOptions, type SpeedSettings } from "./speed";
 import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
+import { extraKeysIn, loadExtras, type ExtrasPart, type LoadedExtras } from "@/song/band/extras";
+import { parseBandSettings } from "@/song/band/arrangement";
+import { countLeadSeconds, type DrummerCount } from "@/song/performance/drummer-count";
 import { useNav } from "@/state/nav";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
@@ -279,6 +282,24 @@ const RENDER_SWAP_LEAD_S = 0.3;
 const CLOCK_LEAD_MS = 150;
 
 /** A song's options as an object. Anything that is not an object reads as empty. */
+/** An exit bar plays this long before its bar begins at the latest, which is the margin the player needs to place it. */
+const EXIT_LEAD_S = 0.4;
+/** A pass that begins this long before its exit bar can still place it: the tick that does so runs every 50 ms. */
+const EXIT_TICK_MARGIN_S = 0.1;
+
+/** The exit bars of a song's generated parts, joined by section: one bar with each part's audio on the track that part plays on. */
+function exitBarsOf(extras: Partial<Record<ExtrasPart, LoadedExtras>>): Record<string, ExitBar> {
+  const bars: Record<string, ExitBar> = {};
+  for (const loaded of Object.values(extras)) {
+    for (const [id, exit] of Object.entries(loaded.extras.exits)) {
+      const bar = (bars[id] ??= { from: exit.from, to: exit.to, tracks: {} });
+      // Two parts' exits are of the same bar. A part whose bar is somewhere else is left out rather than played against the other.
+      if (Math.abs(bar.from - exit.from) < 1e-3 && Math.abs(bar.to - exit.to) < 1e-3) bar.tracks[loaded.track] = exit.audio;
+    }
+  }
+  return bars;
+}
+
 function parseOptions(json: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(json || "{}");
@@ -360,6 +381,14 @@ export class PerformanceSession {
   private restartingLoop = false;
   /** The stems at 100%, which every render is made from */
   private baseStems: Stems | null = null;
+  /** The drummer's count and a vamp's exit bars of the loaded song's generated parts (band/extras.ts). Empty for a song without them. */
+  private bandExtras: Partial<Record<ExtrasPart, LoadedExtras>> = {};
+  /** Whether the loaded song's settings ask for the drummer's count. A count rendered earlier is not played once the setting is off. */
+  private drummerCounts = false;
+  /** The exit bar of each vamp of the loaded song, by section id: its audio for each generated track that has one (band/vamp.ts). */
+  private exitBars: Record<string, ExitBar> = {};
+  /** A loop release that came too late for its pass to be the last: the section loops once more, then the release is taken. A section id. */
+  private pendingRelease: string | null = null;
   /** The settings key of the song loaded, under which its speed is stored */
   private songSettingsKey = "";
   private bandPreparationKey: string | null = null;
@@ -540,7 +569,12 @@ export class PerformanceSession {
     const options = getSetting(performanceKey(source), ":options");
     const shape = playerShapeFromOptions(options);
     const speed = speedFromOptions(options);
-    this.baseStems = playableStems(stems, source.audio);
+    const saved = parseOptions(options);
+    this.baseStems = playableStems(stems, source.audio, extraKeysIn(saved));
+    this.bandExtras = loadExtras(saved, stems);
+    this.drummerCounts = parseBandSettings(saved.band).countIn.bars > 0;
+    this.exitBars = exitBarsOf(this.bandExtras);
+    this.pendingRelease = null;
     this.songSettingsKey = performanceKey(source);
     this.renders.clear();
     this.pendingRender = null;
@@ -952,6 +986,17 @@ export class PerformanceSession {
   }
 
   /** Waits out the start delay. Cancelling resolves the wait at once. */
+  /**
+   * The drummer's count for a start, or undefined when the song has none or its settings no longer ask for one. It plays through the
+   * generated drums' track, and only from stopped: a join into the next song passes no count (a count under a crossfade makes no sense).
+   */
+  private drummerCount(): DrummerCount | undefined {
+    const drums = this.bandExtras.drums;
+    const count = drums?.extras.countIn;
+    if (!drums || !count || !this.drummerCounts) return undefined;
+    return { track: drums.track, audio: count.audio, start: count.start };
+  }
+
   private waitStartDelay(seconds: number): Promise<void> {
     if (seconds <= 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -1204,11 +1249,14 @@ export class PerformanceSession {
       if (request !== this.playRequest) return;
       // The count-in is clicked before the audio starts, so it begins with the tempo message.
       const countIn = countInBeats(timing.countInBars, timing.beatsPerBar);
-      // The count-in is as long as the audio it leads: beats at the song tempo times the rate.
-      this.countInMs = bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0;
+      // The count-in is as long as the audio it leads: beats at the song tempo times the rate. The drummer's count, when it plays, leads the
+      // song too, and the longer of the two is what the tempo message and the cues wait for.
+      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
+      const drummer = this.drummerCount();
+      const drummerMs = countLeadSeconds(drummer, chaseStart, player.playbackRate) * 1000;
+      this.countInMs = Math.max(bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0, drummerMs);
       // A chase that the pedals need before the song begins holds the audio back by CHASE_LEAD_MS, so it goes out first. Nothing is held
       // when the output is not armed, or when there is no state to chase (a start from the beginning, or no cues before the position).
-      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
       const settled = new Set(this.openingPrepared?.messages.map((bytes) => bytes.join(",")));
       const chaseLead =
         armed &&
@@ -1216,10 +1264,10 @@ export class PerformanceSession {
           ? CHASE_LEAD_MS
           : 0;
       // Clock without a count-in has no lead-in to cover the scheduler's start, so the hold is CLOCK_LEAD_MS.
-      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 ? CLOCK_LEAD_MS : 0;
+      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 && drummerMs === 0 ? CLOCK_LEAD_MS : 0;
       const lead = Math.max(chaseLead, clockLead) / 1000;
       this.transportAt = lead ? midiNow() + lead * 1000 : null;
-      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}) });
+      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}), ...(drummer ? { drummer } : {}) });
       if (request !== this.playRequest) {
         player.pause();
         this.terminateWorker();
@@ -1611,10 +1659,59 @@ export class PerformanceSession {
 
   /** Forgets a decision because playback stopped. Any jump was dropped by the player, and the live state goes back to what it was. */
   private dropSectionPlan(): void {
+    this.pendingRelease = null;
     const plan = this.section;
     if (!plan) return;
     this.section = null;
     this.set({ sectionLive: plan.before, sectionNext: null });
+  }
+
+  /**
+   * Whether the exit bars are used at all: the song has some, and it plays at its own speed and pitch, which is what they were rendered at.
+   * At another speed or pitch a vamp keeps the audio it has, which loops cleanly and leaves without its fill.
+   */
+  private exitsUsable(): boolean {
+    return Object.keys(this.exitBars).length > 0 && isPlainSpeed(this.state.speed);
+  }
+
+  /** Whether the vamp's exit bar can still be placed for the pass that is playing: its bar is far enough ahead on the audio clock. */
+  private canExit(player: StemPlayer, bar: ExitBar): boolean {
+    return player.audioTimeOf(bar.from) - player.audioNow >= EXIT_LEAD_S;
+  }
+
+  /**
+   * In a vamp, once the pass that is playing is the one that leaves the section (a loop that was released, a repeat's second pass, or a
+   * section that continues), swaps the generated tracks' last bar for the exit bar, which has the fill and lead-in into the next section. The swap
+   * is scheduled on the audio clock one bar ahead and changes no song time, so the MIDI cues stay where they were. A release that comes too late
+   * for it is held until the next pass. An exit that is no longer the pass's way out (the loop was started again, a jump was armed) is taken back.
+   */
+  private tickExit(player: StemPlayer, sections: readonly Section[]): void {
+    // A release that was held for the exit bar is taken at once when the exit bars stop being used (a change of speed or pitch).
+    if (this.pendingRelease !== null && !this.exitsUsable()) {
+      const id = this.pendingRelease;
+      this.pendingRelease = null;
+      this.set({ sectionLive: releaseLoop(this.state.sectionLive, id) });
+    }
+    if (!this.exitsUsable() || !sections.length || player.position < 0) return;
+    const ordered = sortedSections(sections);
+    const section = ordered[sectionIndexAt(ordered, player.position)];
+    if (this.pendingRelease !== null && section?.id !== this.pendingRelease) this.pendingRelease = null;
+    const bar = section ? this.exitBars[section.id] : undefined;
+    if (!section || !bar) return;
+    if (this.pendingRelease === section.id && this.canExit(player, bar)) {
+      this.pendingRelease = null;
+      this.set({ sectionLive: releaseLoop(this.state.sectionLive, section.id) });
+    }
+    const boundary = nextBoundary(sections, player.position, this.state.sectionLive);
+    // A pause at the end of the section leaves it the same way a continue does.
+    const leaving = boundary !== null && (boundary.action.kind === "continue" || boundary.action.kind === "pause");
+    if (player.exitAt !== null) {
+      if (!leaving) player.cancelExit();
+      return;
+    }
+    // A jump that is waiting means this pass does not leave into the next section.
+    if (!leaving || this.pendingRelease === section.id || this.section?.kind === "jump") return;
+    player.scheduleExit(bar);
   }
 
   /** Every 50 ms while playing: carries out a decision once its boundary has passed, and decides the next boundary when it is close. */
@@ -1625,6 +1722,7 @@ export class PerformanceSession {
     try {
       this.tickRender(player);
       if (this.renderSwap) return;
+      this.tickExit(player, sections);
       const plan = this.section;
       if (plan) {
         if (plan.sections !== sections) {
@@ -1748,7 +1846,14 @@ export class PerformanceSession {
 
   /** Loops a section until it is released; tapping the looping section releases it. */
   toggleSectionLoop = (id: string) => {
+    // Tapping the looping section releases it, the same way the release action does.
+    const looping = sortedSections(this.playableSections).find((section) => section.id === id);
+    if (this.state.sectionLive.loop === id && looping) {
+      this.releaseLoopOf(looping);
+      return;
+    }
     this.cancelSectionPlan();
+    this.pendingRelease = null;
     const live = this.state.sectionLive;
     this.set({ sectionLive: live.loop === id ? releaseLoop(live, id) : startLoop(live, id) });
   };
@@ -1759,9 +1864,34 @@ export class PerformanceSession {
     const ordered = sortedSections(this.playableSections);
     const current = player ? ordered[sectionIndexAt(ordered, player.position)] : undefined;
     if (!current) return;
-    this.cancelSectionPlan();
-    this.set({ sectionLive: releaseLoop(this.state.sectionLive, current.id) });
+    this.releaseLoopOf(current);
   };
+
+  /** Whether another pass of `section` could place its exit bar: the bar begins far enough after the section does. A one-bar vamp has no such pass. */
+  private exitReachable(section: Section, bar: ExitBar): boolean {
+    return bar.from - section.start >= EXIT_LEAD_S + EXIT_TICK_MARGIN_S;
+  }
+
+  /**
+   * Releases a loop. A vamp leaves through its exit bar, placed a bar ahead. A release inside the last bar, or with the jump back already too
+   * close to take back, lets the section loop once more: the release is taken at the start of that pass, and its last bar is the exit. A vamp that
+   * cannot place its exit on a later pass either (its last bar is its first) is released at once and leaves by its plain last bar.
+   */
+  private releaseLoopOf(section: Section): void {
+    const { player } = this.state;
+    const bar = this.exitsUsable() ? this.exitBars[section.id] : undefined;
+    const later = bar !== undefined && this.exitReachable(section, bar);
+    if (bar && later && player && !this.canExit(player, bar)) {
+      this.pendingRelease = section.id;
+      return;
+    }
+    if (!this.cancelSectionPlan() && bar && later) {
+      this.pendingRelease = section.id;
+      return;
+    }
+    this.pendingRelease = null;
+    this.set({ sectionLive: releaseLoop(this.state.sectionLive, section.id) });
+  }
 
   /** Cancels the armed jump. A decision already made for it is put back too, where that is still possible. */
   cancelSectionJump = () => {

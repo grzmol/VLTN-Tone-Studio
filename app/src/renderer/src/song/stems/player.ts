@@ -1,4 +1,5 @@
 import type { PcmAudio, Stems } from "../types";
+import { countApplies, countLeadSeconds, type DrummerCount } from "../performance/drummer-count";
 import { orderedKeys } from "../tracks";
 import { beatSeconds, clicksWhilePlaying, clicksWhileStopped, preRollStart, type MetronomeMode } from "../performance/rhythm";
 import { audioTimeOf, beatAtOrAfter, gridClicks, gridStart, songTimeAt, type GridCursor, type Segment } from "../performance/timeline";
@@ -58,6 +59,22 @@ interface PreparedJump {
   restore: { rate: number; buffers: Partial<Record<string, AudioBuffer>> } | null;
 }
 
+/** A vamp's exit bar (band/vamp.ts): for each track that has one, its audio, and the span of song time it plays in place of. */
+export interface ExitBar {
+  from: number;
+  to: number;
+  tracks: Record<string, PcmAudio>;
+}
+
+/** An exit bar that is waiting on the audio clock or playing: the sources it uses, per track, and when it begins on the audio clock. */
+interface PendingExit {
+  when: number;
+  /** The audio time the song's own end was due, which a cancelled exit puts back */
+  end: number;
+  parts: { name: string; main: AudioBufferSourceNode; exit: AudioBufferSourceNode; resume: AudioBufferSourceNode }[];
+  timer: ReturnType<typeof setTimeout>;
+}
+
 /** A render of the song: the rate its buffers play at, and one buffer per stem, holding song time divided by the rate. */
 export interface RenderedBuffers {
   rate: number;
@@ -86,6 +103,11 @@ export interface Lead {
   preRollBeats?: number;
   /** Seconds from the call until the audio clock starts the song, so the MIDI chase can go out first. Missing means none. */
   startDelay?: number;
+  /**
+   * The drummer's count. It plays beside the metronome's count-in, each ending where the song begins, and only when the start is from the
+   * beginning of the song. A join does not pass it: a count-in makes no sense under a crossfade.
+   */
+  drummer?: DrummerCount;
 }
 
 /** One click as it is scheduled: `when` is on the main audio clock, and `beat` counts from 0 on the downbeat of a bar of `beats`. */
@@ -157,6 +179,8 @@ export class StemPlayer {
   /** The song's timeline on the audio clock. A jump appends a segment. Empty until something has been started. */
   private segments: Segment[] = [];
   private prepared: PreparedJump | null = null;
+  /** The exit bar of a vamp that is on its way or playing. At most one at a time. */
+  private exit: PendingExit | null = null;
   private offset = 0;
   /** The position the last start asked for. A pause during the count-in returns here, not to the pre-roll start. */
   private resumeAt = 0;
@@ -204,9 +228,10 @@ export class StemPlayer {
   constructor(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, fill: "now" | "later" = "now", rate = 1) {
     this.names = orderedKeys(Object.keys(stems).filter((name) => stems[name]));
     if (!this.names.length) throw new Error("There are no stems to play.");
-    const first = stems[this.names[0]]!;
     this.rate = clampRate(rate);
-    this.fileLength = (first.channels[0].length / first.sampleRate) * this.rate;
+    // The longest stem sets the length: a generated part may ring on past the song (spec 136), and the shorter stems just end.
+    const seconds = this.names.map((name) => stems[name]!.channels[0].length / stems[name]!.sampleRate);
+    this.fileLength = Math.max(...seconds) * this.rate;
     this.range = playRange(this.fileLength, shape);
     this.offset = this.range.start;
     this.fadeIn = fadeSeconds(shape.fadeIn);
@@ -346,7 +371,9 @@ export class StemPlayer {
     const bpm = lead.bpm ?? this.metronome.bpm;
     // The count-in is counted at the song's tempo times its rate, so it is as long as the audio it leads.
     const interval = beatInterval(bpm) / this.rate;
-    const start = clickAt + (lead.countInBeats ?? 0) * interval;
+    const clicks = (lead.countInBeats ?? 0) * interval;
+    const drummer = this.voices[lead.drummer?.track ?? ""] && countApplies(lead.drummer, from) ? lead.drummer : undefined;
+    const start = clickAt + Math.max(clicks, countLeadSeconds(drummer, from, this.rate));
     for (const name of this.names) {
       const v = this.voice(name);
       const source = this.ctx.createBufferSource();
@@ -360,9 +387,31 @@ export class StemPlayer {
     this.watchEnd();
     this.segments = [{ ctxStart: start, songStart: from, songEnd: this.duration, rate: this.rate }];
     this.playing = true;
-    if (lead.countInBeats) this.scheduleCountIn(clickAt, lead.countInBeats, interval);
+    // Each count ends where the song starts, so the longer of the two begins at clickAt.
+    if (lead.countInBeats) this.scheduleCountIn(start - clicks, lead.countInBeats, interval);
+    if (drummer) this.scheduleDrummer(drummer, start);
     this.startPlayingGrid();
     this.updateLoop();
+  }
+
+  /**
+   * Plays the drummer's count through its track's voice so that it follows the song's rate: a song at another speed is counted at that
+   * speed, with the pitch moving with it (the count is a click, not a stretched render).
+   */
+  private scheduleDrummer(count: DrummerCount, songStart: number): void {
+    const pcm = count.audio;
+    const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+    pcm.channels.forEach((channel, c) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, c));
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = this.rate;
+    source.connect(this.voice(count.track).gain);
+    source.start(songStart + count.start / this.rate);
+    this.countInClicks.add(source);
+    source.onended = () => {
+      this.countInClicks.delete(source);
+      source.disconnect();
+    };
   }
 
   /** Keeps the loop timer running while a looping song plays, and stops it otherwise. */
@@ -437,6 +486,8 @@ export class StemPlayer {
   chainNext(next: StemPlayer, join: Join): boolean {
     if (!this.playing || this.next || next.ctx !== this.ctx || join.startAt < this.ctx.currentTime) return false;
     this.next = next;
+    // An exit bar that has not begun is taken back; one that has begun ends with the hand-over.
+    if (!this.cancelExit()) this.dropExit(join.stopAt);
     this.stopMetronome();
     for (const name of this.names) {
       const { fade, source } = this.voice(name);
@@ -491,6 +542,9 @@ export class StemPlayer {
    */
   prepareJump(to: number, at: number, render?: RenderedBuffers): number | null {
     if (!this.playing || this.prepared) return null;
+    // An exit bar that has not begun is taken back, so a jump that is cancelled later finds the tracks as they were. One that has begun is cut at
+    // the jump (dropExit below).
+    this.cancelExit();
     const last = this.segments[this.segments.length - 1];
     const when = Math.max(this.ctx.currentTime + JUMP_MIN_S, audioTimeOf(this.segments, at));
     // A render swap plays the new buffers from the jump on, at their rate. The old buffers stay with the record for a cancel.
@@ -510,6 +564,7 @@ export class StemPlayer {
     }
     if (render) this.rate = render.rate;
     for (const old of previous) old.stop(when);
+    this.dropExit(when);
     this.watchEnd();
     const end = last.songEnd;
     last.songEnd = at;
@@ -523,6 +578,96 @@ export class StemPlayer {
     );
     this.prepared = { when, previous, end, timer, restore };
     return when;
+  }
+
+  /**
+   * Plays a vamp's exit bar in place of the vamp's last bar, for the tracks that have one: at song time `bar.from` each such track's own
+   * audio stops and its exit audio plays, and at `bar.to` the track's own audio carries on from there. The other tracks, the timeline and the
+   * metronome are not touched, so MIDI cues and clicks stay where they were. Scheduled on the audio clock, so the swap is sample-accurate.
+   * Returns the audio time the exit begins, or null when it cannot be placed: nothing is playing, a jump or another exit is waiting, the song
+   * is at another speed than the exit was rendered at, or the bar is less than JUMP_MIN_S away. The song then plays on as it is.
+   */
+  scheduleExit(bar: ExitBar): number | null {
+    if (!this.playing || this.next || this.prepared || this.exit || this.rate !== 1) return null;
+    const names = this.names.filter((name) => bar.tracks[name]);
+    const last = this.segments[this.segments.length - 1];
+    if (!names.length || !last || bar.from < last.songStart || bar.to > this.duration || !(bar.to > bar.from)) return null;
+    const when = audioTimeOf(this.segments, bar.from);
+    if (when < this.ctx.currentTime + JUMP_MIN_S) return null;
+    const resumeAt = when + (bar.to - bar.from);
+    const end = audioTimeOf(this.segments, this.duration);
+    const parts: PendingExit["parts"] = names.map((name) => {
+      const v = this.voice(name);
+      const pcm = bar.tracks[name];
+      const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+      pcm.channels.forEach((channel, c) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, c));
+      const exit = this.ctx.createBufferSource();
+      exit.buffer = buffer;
+      exit.connect(v.gain);
+      exit.start(when);
+      const main = v.source!;
+      main.stop(when);
+      const resume = this.ctx.createBufferSource();
+      resume.buffer = v.buffer;
+      resume.connect(v.gain);
+      resume.start(resumeAt, bar.to);
+      resume.stop(end);
+      v.source = resume;
+      return { name, main, exit, resume };
+    });
+    this.watchEnd();
+    // The record is forgotten once the exit has played, so the next pass of a loop can have its own.
+    const timer = setTimeout(() => {
+      if (this.exit?.when === when) this.exit = null;
+    }, (resumeAt - this.ctx.currentTime) * 1000 + 100);
+    this.exit = { when, end, parts, timer };
+    return when;
+  }
+
+  /** The audio time an exit bar begins at, or null when none is waiting or playing. */
+  get exitAt(): number | null {
+    return this.exit?.when ?? null;
+  }
+
+  /**
+   * Takes back an exit bar that has not begun: the track goes on playing its own audio. Returns false when the exit is too close to begin to
+   * take back cleanly, and it then plays. True when there was nothing to take back.
+   */
+  cancelExit(): boolean {
+    const exit = this.exit;
+    if (!exit) return true;
+    if (this.ctx.currentTime > exit.when - JUMP_CANCEL_S) return false;
+    clearTimeout(exit.timer);
+    this.exit = null;
+    for (const { name, main, exit: audio, resume } of exit.parts) {
+      audio.onended = null;
+      audio.stop(0);
+      audio.disconnect();
+      resume.onended = null;
+      resume.stop(0);
+      resume.disconnect();
+      main.stop(exit.end);
+      this.voice(name).source = main;
+    }
+    this.watchEnd();
+    return true;
+  }
+
+  /**
+   * A jump at audio time `when` ends an exit bar with it: what the exit bar plays and what follows it stop there, and an exit bar that
+   * had not begun is dropped. The track's own audio before the exit is stopped by the jump itself, as it is for any track.
+   */
+  private dropExit(when: number): void {
+    const exit = this.exit;
+    if (!exit) return;
+    clearTimeout(exit.timer);
+    this.exit = null;
+    for (const { main, exit: audio, resume } of exit.parts) {
+      // A stop later than the one the exit gave would let the track's own audio play again beside the exit.
+      if (when < exit.when) main.stop(when);
+      audio.stop(when);
+      resume.stop(when);
+    }
   }
 
   /**
@@ -923,6 +1068,17 @@ export class StemPlayer {
       v.source.stop();
       v.source.disconnect();
       v.source = null;
+    }
+    if (this.exit) {
+      clearTimeout(this.exit.timer);
+      for (const { main, exit, resume } of this.exit.parts) {
+        for (const source of [main, exit, resume]) {
+          source.onended = null;
+          source.stop();
+          source.disconnect();
+        }
+      }
+      this.exit = null;
     }
     if (this.prepared) {
       clearTimeout(this.prepared.timer);

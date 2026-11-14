@@ -139,6 +139,20 @@ describe("planSongMap: the values", () => {
     expect(band.sections["map-2"]).toEqual({ play: { drums: false, bass: false }, energy: 4, loud: 5 });
   });
 
+  it("writes a section's fill size with its band", () => {
+    const map = mapWith({ sections: [{ ...verse, fill: 2 }, { ...chorus, fill: true }], style: "pop" });
+    const band = optionsOf(planSongMap(blank, map).values(["sections", "band"])).band as { sections: Record<string, { fill?: unknown }> };
+    expect(band.sections["map-1"].fill).toBe(2);
+    expect(band.sections["map-2"].fill).toBe(true);
+  });
+
+  it("writes a section's shape with its band", () => {
+    const map = mapWith({ sections: [{ ...verse, shape: "build" }, chorus], style: "pop" });
+    const band = optionsOf(planSongMap(blank, map).values(["sections", "band"])).band as { sections: Record<string, { shape?: unknown }> };
+    expect(band.sections["map-1"].shape).toBe("build");
+    expect(band.sections["map-2"].shape).toBeUndefined();
+  });
+
   it("writes the song style with the band, and no section overrides, when the song has no sections yet", () => {
     const band = optionsOf(planSongMap(blank, full).values(["band"])).band as { style: string; sections: Record<string, unknown> };
     expect(band.style).toBe("pop");
@@ -287,5 +301,53 @@ describe("planSongMap: parts that would change nothing", () => {
       bassNotes: [{ start: 2, end: 4, pc: 7, octave: -1 }],
     });
     expect(planSongMap(saved, map).parts).toEqual([]);
+  });
+});
+
+describe("planSongMap: marks", () => {
+  // 120 BPM in 4/4 from 0: a bar is 2 s. The chorus starts at 20 s, which is bar 11.
+  const sections = [
+    { start: 0, end: 20, name: "Verse" },
+    { start: 20, end: 40, name: "Chorus 2" },
+  ];
+  const song: SavedSong = { bpm: "120", options: { firstBeat: 0, beats: 4 }, chart: "", lyrics: "" };
+
+  it("turns a named bar into the time of that bar, and keeps a timed one", () => {
+    const plan = planSongMap(song, mapWith({ sections, marks: [{ kind: "stop", beats: 2, bar: { section: "Chorus 2", number: 8 } }, { kind: "hit", time: 5 }] }));
+    const marks = plan.parts.find((part) => part.part === "marks");
+    expect(marks).toEqual({ part: "marks", summary: "2 marks", replaces: null });
+    // Bar 8 of a chorus that starts on bar 11 is the song's bar 18, which starts at 34 s.
+    expect(parseBandSettings(optionsOf(plan.values(["marks"])).band).marks).toEqual([
+      { time: 5, kind: "hit" },
+      { time: 34, kind: "stop", beats: 2 },
+    ]);
+  });
+
+  it("counts a named bar on the song's own beat grid when it has one", () => {
+    const grid = { beatsPerBar: 4, beats: Array.from({ length: 80 }, (_, i) => i * 0.5 + 0.1), downbeat: 0, bpm: 120, steady: null };
+    const plan = planSongMap({ ...song, options: { beatGrid: grid } }, mapWith({ sections, marks: [{ kind: "fill", bar: { section: "Chorus 2", number: 2 } }] }));
+    expect(parseBandSettings(optionsOf(plan.values(["marks"])).band).marks).toEqual([{ time: 22.1, kind: "fill" }]);
+  });
+
+  it("leaves out a mark whose bar is past the end of the song, or that has no tempo to count on", () => {
+    const past = planSongMap(song, mapWith({ sections, marks: [{ kind: "stop", bar: { section: "Chorus 2", number: 99 } }] }));
+    expect(past.parts.find((part) => part.part === "marks")).toBeUndefined();
+    const noTempo = planSongMap(blank, mapWith({ sections, marks: [{ kind: "stop", bar: { section: "Chorus 2", number: 2 } }] }));
+    expect(noTempo.parts.find((part) => part.part === "marks")).toBeUndefined();
+  });
+
+  it("says the marks it replaces, and offers nothing when the song has the same marks", () => {
+    const saved = { ...song, options: { ...song.options, band: { marks: [{ time: 5, kind: "hit" }] } } };
+    const plan = planSongMap(saved, mapWith({ marks: [{ kind: "crash", time: 8 }] }));
+    expect(plan.parts.find((part) => part.part === "marks")?.replaces).toBe("Replaces your 1 mark");
+    expect(planSongMap(saved, mapWith({ marks: [{ kind: "hit", time: 5 }] })).parts).toEqual([]);
+  });
+
+  it("writes only the marks, and keeps the rest of the band, when only they are chosen", () => {
+    const saved = { ...song, options: { ...song.options, band: { style: "metal", seed: 9 } } };
+    const plan = planSongMap(saved, mapWith({ marks: [{ kind: "crash", time: 8 }] }));
+    const band = parseBandSettings(optionsOf(plan.values(["marks"])).band);
+    expect(band).toMatchObject({ style: "metal", seed: 9, marks: [{ time: 8, kind: "crash" }] });
+    expect(plan.values([])).toEqual({});
   });
 });

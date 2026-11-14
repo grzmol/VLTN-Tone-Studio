@@ -521,3 +521,5 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - Chord estimates cover the common chord types only: no extended chords such as ninths or altered chords. Key estimates are less certain for modal music, relative keys and key changes, and a key in a section is only listed when it is clear. Lyrics from Whisper can be wrong. The project has not yet measured chord accuracy on real recordings.
 - Pedal profiles come from manuals and are tested at byte level. Only the GP-180 and TimeLine results above come from real hardware.
 - Bluetooth editor management and RTP-MIDI are not supported.
+
+New Band generations use drum engine 3, with section grooves and phrase turns; earlier songs retain their engine until updated. A rendered drummer count-in can lead into the song, and open-ended section loops play without repeated exit fills until released. The normal wrap and the release/exit bar are rendered separately.

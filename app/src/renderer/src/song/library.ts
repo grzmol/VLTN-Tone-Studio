@@ -39,6 +39,7 @@ import { mixDefaults } from "./tracks";
 import type { Mix } from "./stems/mix";
 import { StemPlayer, yieldToMain } from "./stems/player";
 import { playableStems } from "./stems/playable";
+import { extraKeysIn } from "./band/extras";
 import { RenderQueue, isPlainSpeed } from "./audio/render-queue";
 import { speedFromOptions } from "./performance/speed";
 import { bandChartKey, bandOptionsKey } from "./band/dependencies";
@@ -300,6 +301,16 @@ async function loadTrack(url: string, track: LibraryAudio, songId: string): Prom
   storedTrack.set(audio, { songId, track });
   return audio;
 }
+/** The saved options of a song as an object; a damaged entry reads as empty. */
+function parseExtrasOptions(json: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(json || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Loads a song's audio from the library, without changing anything in the app. A track that cannot be read is left out and named in
  * `skipped`, so the song still plays. When the source is the track that cannot be read, the source is rebuilt from the tracks that can.
@@ -513,7 +524,8 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         const options = next.settings[":options"] ?? "";
         const speed = speedFromOptions(options);
         // A song saved without a stem split plays its whole source, as the session does when it loads the song.
-        const playable = playableStems(next.stems, next.source.audio);
+        // The extras of the generated parts are not tracks of the song (band/extras.ts), so the player is built without them, as the session builds it.
+        const playable = playableStems(next.stems, next.source.audio, extraKeysIn(parseExtrasOptions(options)));
         let stems = playable;
         if (!isPlainSpeed(speed)) {
           stems = (await new RenderQueue().render(playable, speed)) ?? playable;

@@ -5,12 +5,15 @@
 
 import { parseBandSettings, type BandSettings, type SectionOverride } from "../band/arrangement";
 import { parseBassOverrides, type BassOverride } from "../band/bass-overrides";
+import { fixedBeatGrid, parseBeatGrid, type BeatGrid } from "../band/beat-grid";
+import { MAX_BAR_MARKS, parseBarMarks, type BarMark } from "../band/marks";
+import { barSpans } from "../band/timing";
 import { KEY_NAMES } from "../performance/key";
 import { parseSections, type Section } from "../performance/sections";
-import { formatTime, type SongMap, type SongMapBassNote, type SongMapSection } from "./songmap";
+import { formatTime, type SongMap, type SongMapBassNote, type SongMapMark, type SongMapSection } from "./songmap";
 
 /** The parts a song map can change. A part is offered only when the map holds it and it would change the song. */
-export type SongMapPart = "tempo" | "key" | "sections" | "band" | "bassNotes" | "chart" | "notes";
+export type SongMapPart = "tempo" | "key" | "sections" | "band" | "bassNotes" | "marks" | "chart" | "notes";
 
 /** A saved song as the import reads it: its tempo, its options (already parsed), its chart and its lyrics chart. */
 export interface SavedSong {
@@ -111,6 +114,8 @@ function overrideOf(section: SongMapSection, parts: BandSettings["parts"], previ
   if (section.style) next.style = section.style;
   if (section.energy) next.energy = section.energy;
   if (section.loud) next.loud = section.loud;
+  if (section.fill !== undefined) next.fill = section.fill;
+  if (section.shape !== undefined) next.shape = section.shape;
   if (section.busy) next.busy = section.busy;
   if (section.drums !== undefined || section.bass !== undefined) {
     next.play = {
@@ -229,6 +234,50 @@ function bassOverridesOf(notes: SongMapBassNote[]): BassOverride[] {
   return parseBassOverrides(notes.map(({ start, end, pc, octave }) => (octave === undefined ? { start, end, pc } : { start, end, pc, octave })));
 }
 
+/** The beat grid a named bar is counted on: the song's own, else one built from the map's tempo (or the saved tempo). Null when there is no tempo. */
+function gridForMarks(saved: SavedSong, map: SongMap): BeatGrid | null {
+  const own = parseBeatGrid(saved.options.beatGrid);
+  if (own && own.beats.length > 1) return own;
+  const options = saved.options;
+  const bpm = map.bpm ?? Number(saved.bpm);
+  const firstBeat = map.firstBeat ?? (typeof options.firstBeat === "number" ? options.firstBeat : 0);
+  const beats = map.beatsPerBar ?? (typeof options.beats === "number" ? options.beats : 4);
+  const end = Math.max(map.duration ?? 0, ...map.sections.map((section) => section.end), 1);
+  const grid = fixedBeatGrid(bpm, firstBeat, beats, end);
+  return grid.beats.length > 1 ? grid : null;
+}
+
+/** The time of a map mark's bar: its Time, or the start of bar `number` of its section on the grid. Null when the bar cannot be found. */
+function markTime(mark: SongMapMark, map: SongMap, grid: BeatGrid | null): number | null {
+  if (mark.time !== undefined) return mark.time;
+  if (!mark.bar || !grid) return null;
+  const { section: name, number } = mark.bar;
+  const section = map.sections.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+  if (!section) return null;
+  const spans = barSpans(grid);
+  if (spans.length === 0) return null;
+  // The section's first bar is the bar line nearest its start, and the bars of the section follow it.
+  let first = 0;
+  spans.forEach((span, index) => {
+    if (Math.abs(grid.beats[span.start] - section.start) < Math.abs(grid.beats[spans[first].start] - section.start)) first = index;
+  });
+  const span = spans[first + number - 1];
+  return span ? grid.beats[span.start] : null;
+}
+
+/** The marks of the map as the band saves them: a named bar becomes the time of that bar. A mark whose bar is not found is left out. */
+function marksOf(saved: SavedSong, map: SongMap): BarMark[] {
+  const marks = map.marks ?? [];
+  if (marks.length === 0) return [];
+  const grid = gridForMarks(saved, map);
+  const resolved: unknown[] = [];
+  for (const mark of marks.slice(0, MAX_BAR_MARKS)) {
+    const time = markTime(mark, map, grid);
+    if (time !== null) resolved.push(mark.beats === undefined ? { time, kind: mark.kind } : { time, kind: mark.kind, beats: mark.beats });
+  }
+  return parseBarMarks(resolved).sort((a, b) => a.time - b.time);
+}
+
 /**
  * Plans the write of a song map into a saved song: the parts the map would change, what each one does and replaces, and the values the
  * chosen parts write. Nothing is written here. `values` is pure, so applying the same map twice gives the same values.
@@ -255,6 +304,9 @@ export function planSongMap(saved: SavedSong, map: SongMap): SongMapPlan {
   const keyOffered = !!map.key && previousKey !== keyName(map);
   const savedBass = parseBandSettings(options.band).bassOverrides;
   const bassOffered = map.bassNotes.length > 0 && !sameValue(bassOverridesOf(map.bassNotes), savedBass);
+  const mapMarks = marksOf(saved, map);
+  const savedMarks = [...parseBandSettings(options.band).marks].sort((a, b) => a.time - b.time);
+  const marksOffered = mapMarks.length > 0 && !sameValue(mapMarks, savedMarks);
   const mapChart = map.chart?.trim() ?? "";
   // A chart that is only the song's lyrics is not a chart: the lyrics stay in their own track.
   const chartOffered = mapChart !== "" && saved.chart.trim() !== mapChart && !(saved.chart.trim() === "" && mapChart === saved.lyrics.trim());
@@ -277,6 +329,13 @@ export function planSongMap(saved: SavedSong, map: SongMap): SongMapPlan {
       part: "bassNotes",
       summary: counted(map.bassNotes.length, "bass note"),
       replaces: savedBass.length ? `Replaces your ${counted(savedBass.length, "bass note")}` : null,
+    });
+  }
+  if (marksOffered) {
+    parts.push({
+      part: "marks",
+      summary: counted(mapMarks.length, "mark"),
+      replaces: savedMarks.length ? `Replaces your ${counted(savedMarks.length, "mark")}` : null,
     });
   }
   if (chartOffered) parts.push({ part: "chart", summary: "Chart", replaces: saved.chart.trim() ? "Replaces your chart" : null });
@@ -315,11 +374,13 @@ export function planSongMap(saved: SavedSong, map: SongMap): SongMapPlan {
       }
       const bandChosen = picked.has("band") && bandOffered;
       const bassChosen = picked.has("bassNotes") && bassOffered;
-      if (bandChosen || bassChosen || sectionsChosen) {
+      const marksChosen = picked.has("marks") && marksOffered;
+      if (bandChosen || bassChosen || marksChosen || sectionsChosen) {
         // With the sections written, the band is pruned to the sections the song now has. Its drums and bass are written only when chosen.
         const targets = sectionsChosen ? fullTargets : matchedTargets;
         const band = bandWith(options, map, bandChosen ? targets : [], sectionsChosen ? sectionsPlan.ids : null, bandChosen);
         if (bassChosen) band.bassOverrides = bassOverridesOf(map.bassNotes);
+        if (marksChosen) band.marks = mapMarks;
         next.band = band;
         optionsChanged = true;
       }

@@ -1,4 +1,3 @@
-import { clearSettingsCache } from "./settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StemPlayer } from "@/song/stems/player";
 import type { Stems } from "@/song/types";
@@ -14,6 +13,10 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { registerBandRefresh } from "@/song/band/refresh";
+import { clearSettingsCache, performanceKey, setSetting } from "./settings";
+import { packExtras } from "@/song/band/extras";
+import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
@@ -29,6 +32,10 @@ const mocks = vi.hoisted(() => ({
   lead: undefined as unknown,
   rate: 1,
   swaps: [] as unknown[],
+  /** The exit bars the session asked the player to place, and when the player says the next one begins (null: none waiting). */
+  exits: [] as { from: number; to: number; tracks: Record<string, unknown> }[],
+  exitAt: null as number | null,
+  exitCancels: 0,
   applied: [] as unknown[],
   configs: [] as {
     prepared?: { position: number; messages: number[][] }; rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
@@ -191,6 +198,19 @@ vi.mock("@/song/stems/player", () => ({
       return null;
     }
     cancelChain() {}
+    scheduleExit(bar: { from: number; to: number; tracks: Record<string, unknown> }) {
+      mocks.exits.push(bar);
+      mocks.exitAt = mocks.audioNow + (bar.from - mocks.position);
+      return mocks.exitAt;
+    }
+    cancelExit() {
+      mocks.exitCancels++;
+      mocks.exitAt = null;
+      return true;
+    }
+    get exitAt() {
+      return mocks.exitAt;
+    }
     async dispose() {
       this.disposed = true;
     }
@@ -312,6 +332,9 @@ beforeEach(() => {
   mocks.library.queue = [];
   mocks.rate = 1;
   mocks.swaps.length = 0;
+  mocks.exits.length = 0;
+  mocks.exitAt = null;
+  mocks.exitCancels = 0;
   mocks.applied.length = 0;
   mocks.configs.length = 0;
   useMidiDiagnostics.getState().reset();
@@ -905,6 +928,60 @@ it("waits out the start delay, cancels it with a second Play press, and starts w
   vi.useRealTimers();
 });
 
+/** A song with generated drums, and the drummer's count packed beside them as the song store saves it. `start` is the count's song time. */
+function songWithCount(bars: 0 | 1 | 2, start = -2) {
+  const pcm = (frames: number) => ({ sampleRate: 44100, channels: [new Float32Array(frames), new Float32Array(frames)] });
+  const packed = packExtras({ countIn: { audio: pcm(44100), start }, exits: {} })!;
+  const own = { ...source, libraryId: undefined, name: `count-${bars}.wav` };
+  setSetting(
+    performanceKey(own),
+    ":options",
+    JSON.stringify({
+      band: { ...DEFAULT_BAND_SETTINGS, countIn: { bars, sound: "sticks" } },
+      generatedParts: { drums: "track1", drumsExtras: "track2" },
+      bandExtras: { drums: packed.manifest },
+    }),
+  );
+  return { own, stems: { track1: pcm(100), track2: packed.audio } as unknown as Stems };
+}
+
+it("starts a song with the drummer's count through the drums' track, and the count leads the song", async () => {
+  vi.useFakeTimers();
+  mocks.lead = undefined;
+  const { own, stems } = songWithCount(1);
+  const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+  const unload = session.loadSong(own, stems);
+  await session.play();
+  const lead = mocks.lead as { drummer?: { track: string; start: number; audio: { channels: Float32Array[] } } };
+  expect(lead.drummer?.track).toBe("track1");
+  expect(lead.drummer?.start).toBe(-2);
+  expect(lead.drummer?.audio.channels[0]).toHaveLength(44100);
+  session.pause();
+  unload();
+  vi.useRealTimers();
+});
+
+it("plays no count when the song's settings no longer ask for one, or when the song has none", async () => {
+  vi.useFakeTimers();
+  for (const [bars, withStems] of [[0, true], [1, false]] as const) {
+    mocks.lead = undefined;
+    const { own, stems } = songWithCount(bars);
+    const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+    const unload = session.loadSong(own, withStems ? stems : null);
+    await session.play();
+    expect((mocks.lead as { drummer?: unknown }).drummer).toBeUndefined();
+    session.pause();
+    unload();
+  }
+  vi.useRealTimers();
+});
+
+it("joins a playlist song gaplessly without the drummer's count, even when its settings ask for one", async () => {
+  const lead = await chainLeadFor({ ":bpm": "90", ":options": JSON.stringify({ band: { countIn: { bars: 2, sound: "hat" } } }) });
+  expect(lead).toEqual({ bpm: 90, countInBeats: 0, preRollBeats: 0 });
+  expect(lead).not.toHaveProperty("drummer");
+});
+
 it("applies the saved outputs to a new player, again when they change, and shows a warning as a toast", () => {
   const session = new PerformanceSession({ initial: inputs(), carried: null, initialClock: false });
   const unload = session.loadSong(source, null);
@@ -1016,6 +1093,190 @@ describe("sections", () => {
     session.releaseSectionLoop();
     expect(session.state.sectionLive.loop).toBeNull();
     expect(session.state.sectionLive.released).toEqual(["verse"]);
+  });
+});
+
+describe("vamp exit bars", () => {
+  const solo = (mode: Section["mode"]): Section => ({ id: "solo", name: "Solo", start: 8, end: 16, mode });
+  const pcm = (frames: number) => ({ sampleRate: 44100, channels: [new Float32Array(frames), new Float32Array(frames)] });
+  let count = 0;
+  /** A session on a song whose generated drums have an exit bar for the solo, which is bar 14 to 16 s. `withExit: false` is a song made before exit bars. */
+  function vampSession(mode: Section["mode"], withExit = true, section: Section = solo(mode)) {
+    const packed = packExtras({ exits: { solo: { audio: pcm(100), from: 14, to: 16 } } })!;
+    const own = { ...source, libraryId: undefined, name: `vamp-${count++}.wav` };
+    setSetting(
+      performanceKey(own),
+      ":options",
+      JSON.stringify({ generatedParts: { drums: "track1", drumsExtras: "track2" }, ...(withExit ? { bandExtras: { drums: packed.manifest } } : {}) }),
+    );
+    const access = Object.assign(new EventTarget(), { outputs: new Map([["usb", output()]]), inputs: new Map() }) as unknown as MIDIAccess;
+    const out = output();
+    const session = new PerformanceSession({
+      initial: inputs({ sections: [section] }),
+      carried: { access, portId: "usb", inputId: "", armed: true, output: out },
+      initialClock: false,
+    });
+    session.loadSong(own, { track1: pcm(100), track2: packed.audio } as unknown as Stems);
+    session.bind();
+    return session;
+  }
+  /** Moves the song and the audio clock to `position`, then runs one 50 ms section tick. */
+  function at(position: number) {
+    mocks.position = position;
+    mocks.audioNow = position;
+    vi.advanceTimersByTime(50);
+  }
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("places the exit bar for the generated track once a loop is released well before its last bar", () => {
+    const session = vampSession("loop");
+    at(9);
+    session.store.setState({ playing: true });
+    at(9);
+    expect(mocks.exits).toHaveLength(0);
+    session.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exits).toHaveLength(1);
+    expect(mocks.exits[0]).toMatchObject({ from: 14, to: 16 });
+    expect(Object.keys(mocks.exits[0].tracks)).toEqual(["track1"]);
+    // It is a per-track swap on the audio clock: no jump, and the MIDI schedule is told nothing.
+    expect(mocks.jumps).toHaveLength(0);
+    expect(mocks.plans).toHaveLength(0);
+  });
+
+  it("places no exit bar while the loop is going, and the loop jumps back as it always did", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(9);
+    at(13);
+    at(14.1);
+    expect(mocks.exits).toHaveLength(0);
+    expect(mocks.jumps).toEqual([{ to: 8, at: 16 }]);
+  });
+
+  it("lets the section loop once more when the release comes inside the last bar, and the exit plays on that pass", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(14.6);
+    // The jump back is already waiting: the release is held, the loop stays as it was, and nothing is cancelled.
+    expect(mocks.jumps).toHaveLength(1);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual([]);
+    expect(mocks.exits).toHaveLength(0);
+    at(15.5);
+    expect(mocks.exits).toHaveLength(0);
+    // The audio clock passes the jump while the song position is back at the start of the section.
+    mocks.position = 8.1;
+    mocks.audioNow = 16.1;
+    vi.advanceTimersByTime(50);
+    // The loop wraps. On the new pass the release is taken at once and the exit bar is placed.
+    at(9);
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+    expect(mocks.exits).toHaveLength(1);
+    expect(mocks.exits[0]).toMatchObject({ from: 14, to: 16 });
+  });
+
+  it("takes the held release back when the performer starts the loop again, or leaves the section", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(15);
+    session.releaseSectionLoop();
+    session.toggleSectionLoop("solo");
+    at(9);
+    expect(session.state.sectionLive.loop).toBe("solo");
+    expect(mocks.exits).toHaveLength(0);
+    const other = vampSession("loop");
+    other.store.setState({ playing: true });
+    at(15);
+    other.releaseSectionLoop();
+    at(17);
+    at(9);
+    expect(other.state.sectionLive.released).toEqual([]);
+  });
+
+  it("takes the exit bar back when the performer starts the loop again before it begins", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(9);
+    session.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exitAt).not.toBeNull();
+    session.toggleSectionLoop("solo");
+    at(10);
+    expect(mocks.exitCancels).toBe(1);
+    expect(mocks.exitAt).toBeNull();
+  });
+
+  it("plays the exit bar on the second pass of a section that repeats once, and not on the first", () => {
+    const session = vampSession("repeat-once");
+    session.store.setState({ playing: true });
+    at(9);
+    expect(mocks.exits).toHaveLength(0);
+    // The first pass jumps back; the second is the last.
+    at(14.1);
+    at(16.1);
+    session.store.setState({ sectionLive: { ...session.state.sectionLive, repeated: ["solo"] } });
+    at(9);
+    expect(mocks.exits).toHaveLength(1);
+  });
+
+  it("releases a vamp at once when its last bar is its first, since no later pass could place the exit", () => {
+    const session = vampSession("loop", true, { ...solo("loop"), start: 14 });
+    session.store.setState({ playing: true });
+    at(14.5);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+  });
+
+  it("holds a late tap on the looping section the way it holds the release action", () => {
+    const session = vampSession("continue");
+    session.store.setState({ playing: true });
+    at(10);
+    session.toggleSectionLoop("solo");
+    expect(session.state.sectionLive.loop).toBe("solo");
+    at(15);
+    session.toggleSectionLoop("solo");
+    expect(session.state.sectionLive.loop).toBe("solo");
+    expect(session.state.sectionLive.released).toEqual([]);
+  });
+
+  it("releases an early tap on the looping section and places the exit", () => {
+    const session = vampSession("continue");
+    session.store.setState({ playing: true });
+    at(10);
+    session.toggleSectionLoop("solo");
+    session.toggleSectionLoop("solo");
+    at(10.5);
+    expect(session.state.sectionLive.loop).toBeNull();
+    expect(mocks.exits).toHaveLength(1);
+  });
+
+  it("takes a held release at once when a change of speed stops the exit bars being used", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(15);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual([]);
+    session.store.setState({ speed: { ...session.state.speed, rate: 0.8 } });
+    at(15.2);
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+  });
+
+  it("leaves a song made before exit bars as it was, and a song at another speed", () => {
+    const old = vampSession("loop", false);
+    old.store.setState({ playing: true });
+    at(9);
+    old.releaseSectionLoop();
+    expect(old.state.sectionLive.released).toEqual(["solo"]);
+    at(9.5);
+    expect(mocks.exits).toHaveLength(0);
+    const slow = vampSession("loop");
+    slow.store.setState({ playing: true, speed: { ...slow.state.speed, rate: 0.8 } });
+    at(9);
+    slow.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exits).toHaveLength(0);
   });
 });
 

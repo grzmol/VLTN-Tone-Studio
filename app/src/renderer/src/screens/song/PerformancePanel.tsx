@@ -790,6 +790,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           onPartChoice={choosePart}
           bassLine={bassLine}
           sectionHints={suggested}
+          libraryKey={savedSong?.key ?? undefined}
         />
         <SectionEditor
           sections={sectionList}

@@ -8,6 +8,7 @@
 import type { PcmAudio } from "../types";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, PEDAL_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
 import { ATTACK_ENVELOPE_SAMPLES } from "./beat-grid";
+import { STICK_SECONDS, STICK_TRANSPOSE, STICK_CLICK } from "./count-in";
 import { pickBassLayers, pickDrumSample, type SampleSet } from "./samples";
 
 /** The sample rate of a rendered part: the song's rate. */
@@ -181,12 +182,13 @@ function drumVoices(notes: readonly NoteEvent[], samples: SampleSet, sampleRate:
   const cutFade = Math.round(CUT_SECONDS * sampleRate);
   return notes.map((note) => {
     const start = Math.round(note.time * sampleRate);
-    const pick = pickDrumSample(samples, note.pitch, note.velocity);
+    const stick = note.pitch === STICK_CLICK;
+    const pick = pickDrumSample(samples, stick ? SIDE_STICK : note.pitch, note.velocity);
     const [left, right] = panGains(DRUM_PAN[note.pitch] ?? 0);
-    const cutAt = note.pitch === OPEN_HAT ? nextAfter(chokes, start) : Infinity;
+    const cutAt = stick ? start + Math.round(STICK_SECONDS * sampleRate) : note.pitch === OPEN_HAT ? nextAfter(chokes, start) : Infinity;
     return {
       sample: pick.audio,
-      rate: rateOf(pick.transpose, pick.audio.sampleRate, sampleRate),
+      rate: rateOf(pick.transpose + (stick ? STICK_TRANSPOSE : 0), pick.audio.sampleRate, sampleRate),
       gain: pick.gain,
       left,
       right,

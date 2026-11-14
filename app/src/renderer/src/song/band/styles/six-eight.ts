@@ -1,8 +1,9 @@
 // Six-eight: two dotted-quarter beats to the bar, each split into three steps. The step is an eighth note, so the grid is a triplet
 // grid (stepsPerBeat 3) and the bar has six steps. The backbeat falls on the second beat, step 3.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane } from "./notation";
+import { VEL, bar, groove, lane, ramp } from "./notation";
 import type { Style } from "./types";
 
 const ALL = [0, 1, 2, 3, 4, 5];
@@ -101,18 +102,35 @@ export const SIX_EIGHT: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(6, ramp(SNARE, [3, 4, 5], 70, 106)),
+      bar(6, lane(HIGH_TOM, 80, [3]), lane(MID_TOM, 90, [4]), lane(LOW_TOM, 100, [5])),
+      bar(6, lane(KICK, VEL.normal, [3]), lane(SNARE, 84, [4]), lane(SNARE, VEL.accent, [5])),
+    ],
     half: [
       bar(6, lane(SNARE, VEL.normal, [3, 4]), lane(HIGH_TOM, VEL.normal, [5])),
       bar(6, lane(HIGH_TOM, VEL.normal, [3]), lane(MID_TOM, VEL.normal, [4]), lane(LOW_TOM, VEL.normal, [5])),
+      bar(6, ramp(SNARE, [3, 4, 5], 64, 108)),
+      bar(6, lane(KICK, VEL.normal, [3]), lane(HIGH_TOM, 80, [4]), lane(LOW_TOM, 100, [5])),
     ],
     bar: [
       bar(6, lane(KICK, VEL.accent, [0]), lane(HIGH_TOM, VEL.normal, [0, 1]), lane(MID_TOM, VEL.normal, [2, 3]), lane(LOW_TOM, VEL.normal, [4, 5])),
       bar(6, lane(KICK, VEL.accent, [0, 3]), lane(SNARE, VEL.normal, [1, 2, 3, 4, 5])),
+      bar(6, lane(KICK, VEL.accent, [0]), ramp(SNARE, [1, 2, 3, 4, 5], 62, 110)),
+      bar(6, lane(KICK, VEL.accent, [0]), lane(HIGH_TOM, 72, [1]), lane(MID_TOM, 84, [2, 3]), lane(LOW_TOM, 96, [4]), lane(SNARE, VEL.accent, [5])),
     ],
   },
+  turnarounds: [bar(6, lane(OPEN_HAT, VEL.hat, [5])), bar(6, lane(KICK, VEL.normal, [5])), bar(6, lane(SNARE, VEL.normal, [3]), lane(SNARE, VEL.accent, [5]))],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(6, "1 . . . . ."), figure(6, "1 . . 5 . ."), figure(6, "1 . . . . .", "1 . . 5 . .")],
+      2: [figure(6, "1 . . 1 . ."), figure(6, "1 . . 5 . ."), figure(6, "1 . 1 . . 5")],
+      3: [figure(6, "1 . . 1 . 5"), figure(6, "1 . 1 5 . ."), figure(6, "1 . . 1 . .", "1 . . 5 . app")],
+      4: [figure(6, "1 . 5 1 . 5"), figure(6, "1 . 1 5 . 3"), figure(6, "1 . 1 1 . 5")],
+      5: [figure(6, "1 1 1 1 1 5"), figure(6, "1 . 5 1 . 5", "1 . 5 8 . app"), figure(6, "1 1 5 1 1 5")],
+    },
     rhythms: {
       1: [[0], [0, 3]],
       2: [

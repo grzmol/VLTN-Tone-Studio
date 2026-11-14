@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Drum, LoaderCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -12,10 +11,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { host } from "@/host";
 import { selectWholeSongStems, useSong } from "@/song/store";
 import {
+  CURRENT_ENGINE,
   planSections,
   RENDERED_KINDS,
   WHOLE_SONG_ID,
@@ -25,6 +24,7 @@ import {
   type SectionBandHint,
   type SectionOverride,
 } from "@/song/band/arrangement";
+import { hasExtras, type ExitAudio } from "@/song/band/extras";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import type { NoteEvent } from "@/song/band/note";
 import { encodeSmf } from "@/song/performance/smf";
@@ -33,39 +33,75 @@ import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/be
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
 import type { ChordAtBeat } from "@/song/band/harmony";
 import type { BassOverride } from "@/song/band/bass-overrides";
-import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, followSourcesIn, levelStems, previewMix } from "@/song/band/request";
+import {
+  THREE_FOUR_NOTE,
+  bandHarmony,
+  bandRequest,
+  beatSources,
+  chartChordTimes,
+  followFor,
+  followSourcesIn,
+  levelStems,
+  extendedRangeNote,
+  keysFromOptions,
+  playsThreeFourDefault,
+  previewMix,
+} from "@/song/band/request";
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
+import { automaticUpdateBlock, cleanFallbackQuestion, generatedLabel, missingToneFiles } from "@/song/band/tone-check";
+import { storedShape } from "@/song/performance/song-shape";
 import { renderPartChain } from "@/song/band/bass-chain";
 import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
+import { barBeats } from "@/song/band/timing";
 import { findStyle, type StyleId } from "@/song/band/styles";
-import { sectionPreviewBars, type BandStage, type PreviewLength } from "@/song/band/band-job";
+import { sectionPreviewBars, type PreviewLength } from "@/song/band/band-job";
 import type { PcmAudio } from "@/song/types";
 import { parseChart, type Cue } from "@/song/performance/chart";
 import type { Chord } from "@/song/performance/chords";
 import type { Section } from "@/song/performance/sections";
 import { readStoredBand, writeStoredBand } from "@/song/band/stored";
+import { updatedBandNotes, type BandNotes } from "@/song/band/stored-notes";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { registerBandRefresh, useBandRefreshStatus } from "@/song/band/refresh";
-import { performanceKey, readOptions } from "@/song/performance/settings";
+import { readOptions } from "@/song/performance/settings";
 import { useSongLibrary } from "@/song/library";
 import { bandAudioId } from "@/song/band/dependencies";
 import { chartChordEvents } from "@/song/band/harmony";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
 import { ORIGINAL_PARTS, partKeysOf, type PartChoices } from "@/song/band/part-choice";
-import { bandEntryStatus, hasGeneratedParts, presenceLine, type PartKind } from "./band-status";
-import { PartChoiceRows } from "./PartChoiceRows";
-import { useBandPanel } from "./band-panel-state";
-import { BandSections, type BandSectionRow } from "./BandSections";
-import { BandGridSection } from "./BandGridSection";
-import { BandSettingsForm } from "./BandSettingsForm";
-import { RenderedPartRow, type PendingLineUp } from "./RenderedPartRow";
+import { asNotice, hasGeneratedParts, info, presenceLine, type BandNotice, type PartKind } from "./band-status";
+import {
+  BAND_ENTRY_ID,
+  BASS_TONE_TEXT,
+  DRUM_TONE_TEXT,
+  PLAYHEAD,
+  PLAYHEAD_BARS,
+  PLAY_OFFER_MS,
+  newSeed,
+  ownParts,
+  PLAYING_TEXT,
+  pendingLineUp,
+  playOnce,
+  replaceTitle,
+  stageText,
+  type PendingRendered,
+} from "./band-panel-helpers";
+import { BAND_TAB_LABELS, BAND_TABS, isBandTab, useBandPanel } from "./band-panel-state";
+import { sectionKind, type BandSectionRow } from "./BandSections";
+import { BandFooter, type PreviewChoice } from "./BandFooter";
+import { BandTabFeel } from "./BandTabFeel";
+import { BandTabNotes } from "./BandTabNotes";
+import { BandTabParts } from "./BandTabParts";
+import { BandTabSound } from "./BandTabSound";
+import { BandTabTiming } from "./BandTabTiming";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { decodeAudioFile } from "@/song/decode";
 import { MAX_IMPORT_SECONDS } from "@/song/import/import-tracks";
-import { checkRenderedLength, firstOnsetSeconds, fitToLength, lineUpOffer, shiftAudio, type LineUp } from "@/song/band/rendered";
+import { checkRenderedLength, firstOnsetSeconds, fitToLength, lineUpOffer } from "@/song/band/rendered";
 
 /** The Band panel's inputs from the Performance screen: the song's chart, chords, sections and metronome. */
 export interface BandPanelProps {
@@ -99,94 +135,11 @@ export interface BandPanelProps {
   bassLine?: readonly BassLineBeat[] | null;
   /** The song analysis's sections: where the song's own drums or bass stop, and how loud each is. The plans default to follow them. */
   sectionHints?: readonly SectionBandHint[];
+  /** The key saved on the song's library entry. The bass uses it when the performer set no key and the song analysis found none. */
+  libraryKey?: string;
 }
 
-/** The preview target that is not a section: the song position now. */
-const PLAYHEAD = "playhead";
-/** The bars a preview from the playhead plays when the length is "Whole section", since the playhead is not in a section. */
-const PLAYHEAD_BARS = 4;
-/** A rendered file that is waiting for the performer's line-up choice (spec 84). */
-interface PendingRendered {
-  kind: RenderedKind;
-  name: string;
-  /** The decoded file, before it is fitted to the song, so a shift does not lose its end twice. */
-  decoded: PcmAudio;
-  line: LineUp;
-  notices: string[];
-}
-/** The title of the prompt before Generate replaces rendered audio. */
-function replaceTitle(kinds: readonly RenderedKind[]): string {
-  if (kinds.length === 1) return `Replace your rendered ${kinds[0]} with new generated ${kinds[0]}?`;
-  return "Replace your rendered drums and bass with new generated parts?";
-}
-/** The step the bass tone takes after the render, while it is read and rendered through the capture. */
-const BASS_TONE_TEXT = "Bass tone…";
-/** The step the drum tone takes after the render (spec 104), before the bass tone. */
-const DRUM_TONE_TEXT = "Applying the drum tone…";
-const PLAYING_TEXT = "Stop playback to generate parts.";
-const NO_SONG_TEXT = "Open a song to generate parts.";
-
-/** Plays a mixed buffer once through a short-lived AudioContext. Returns a function that stops it early. */
-function playOnce(audio: PcmAudio, onDone: () => void): () => void {
-  const context = new AudioContext();
-  const buffer = context.createBuffer(audio.channels.length, audio.channels[0].length, audio.sampleRate);
-  audio.channels.forEach((channel, i) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, i));
-  const node = context.createBufferSource();
-  node.buffer = buffer;
-  node.connect(context.destination);
-  let finished = false;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    void context.close();
-    onDone();
-  };
-  node.onended = finish;
-  node.start();
-  return () => {
-    try {
-      node.stop();
-    } catch {
-      // Already stopped.
-    }
-    finish();
-  };
-}
-
-export interface BandPanelButtonProps {
-  /** The song's sections, which name the section a partly found part is missing from. */
-  sections: Section[];
-  /** Which drums and bass play, so the entry point can say what is playing. */
-  partChoices: PartChoices;
-}
-
-/**
- * The Band entry point, above the mixer: a card that opens the panel. Its label and status follow the song's generated parts, and a
- * part the split missed is named here too.
- */
-export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps) {
-  const show = useBandPanel((s) => s.show);
-  const stems = useSong(selectWholeSongStems);
-  const tracks = useSong((s) => s.tracks);
-  const missing = useSong((s) => s.missingParts);
-  const generated = hasGeneratedParts(tracks);
-  const source = useSong((s) => s.source);
-  const updating = useBandRefreshStatus((s) => (s.key === performanceKey(source) ? s.message : ""));
-  const status = bandEntryStatus(partKeysOf(tracks ?? {}, stems), partChoices, missing, sections);
-  return (
-    <section aria-label="Band parts" className="flex flex-wrap items-center gap-3 rounded-lg border border-seam px-3 py-2 text-sm">
-      <Drum className="size-5 shrink-0 text-silkscreen-3" aria-hidden />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-muted-foreground">Make drum and bass parts that follow this song, and choose what plays.</p>
-        {status && <p>{status}.</p>}
-        {updating && <p role="status">Updating generated parts: {updating}</p>}
-      </div>
-      <Button variant="secondary" size="sm" onClick={() => show(true)}>
-        {generated ? "Drums & bass…" : "Generate drums & bass…"}
-      </Button>
-    </section>
-  );
-}
+export { BandPanelButton, type BandPanelButtonProps } from "./BandPanelButton";
 
 /** The Band panel: the song's beat grid, its band settings and sections, and the actions that generate, preview and remove the parts. */
 export function BandPanel(props: BandPanelProps) {
@@ -217,6 +170,7 @@ function BandBody({
   onPartChoice,
   bassLine = null,
   sectionHints = [],
+  libraryKey,
 }: BandPanelProps) {
   // On by default when the tempo was set by hand: the beat is then found near it, not from the tracker's own pick.
   const [useMyTempo, setUseMyTempo] = useState(true);
@@ -225,6 +179,7 @@ function BandBody({
   // The latest settings for the steps that finish later (a render, a rendered file), which would otherwise write the settings they started with.
   const settingsRef = useRef<BandSettings>(stored.settings);
   const [pendingRendered, setPendingRendered] = useState<PendingRendered | null>(null);
+  const [confirmClean, setConfirmClean] = useState<{ question: string; run(): void } | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<{ kinds: RenderedKind[]; run(): void } | null>(null);
   const [grid, setGrid] = useState<BeatGrid | null>(stored.grid);
   const settingsVersion = useSongSettingsRevision(songKey);
@@ -235,7 +190,8 @@ function BandBody({
   const failedInputs = useRef<string | null>(null);
   const musicalTempo = useRef({ bpm, firstBeat, beats });
   const [outOfDate, setOutOfDate] = useState(stored.outOfDate);
-  const [notices, setNotices] = useState<string[]>([]);
+  const [notices, setNoticeList] = useState<BandNotice[]>([]);
+  const setNotices = (list: readonly (string | BandNotice)[]) => setNoticeList(list.map(asNotice));
   const [work, setWork] = useState<string | null>(null);
   const dialogOpen = useBandPanel((s) => s.open);
   const [selected, setSelected] = useState<number | null>(null);
@@ -243,14 +199,18 @@ function BandBody({
   const [previewing, setPreviewing] = useState<string | null>(null);
   // The section menu's choice: a row index as text, "playhead", or null for the selected row (the first when none is selected).
   const [previewAt, setPreviewAt] = useState<string | null>(null);
-  const [previewLength, setPreviewLength] = useState<"whole" | "4" | "8">("whole");
+  const [previewLength, setPreviewLength] = useState<PreviewChoice>("whole");
   // True after a Generate that went through, until the next action. The footer then offers Close and Play from.
   const [done, setDone] = useState(false);
   // True while Find the beat runs, so its progress stays in the beat grid section and the footer shows the rest.
   const [finding, setFinding] = useState(false);
   const show = useBandPanel((s) => s.show);
+  const tab = useBandPanel((s) => s.tab);
+  const setTab = useBandPanel((s) => s.setTab);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The notes of the last Generate, kept so they can be exported as a MIDI file.
+  // The notes saved with the song at the last Generate, for the part view. Songs generated before they were kept have none.
+  const [savedNotes, setSavedNotes] = useState<BandNotes | null>(stored.notes);
   const [lastNotes, setLastNotes] = useState<{ drums: NoteEvent[]; bass: NoteEvent[] } | null>(null);
   const job = useRef<{ cancel(): void } | null>(null);
   const active = useRef(true);
@@ -305,7 +265,8 @@ function BandBody({
   const blocked = busy || playing || source === null;
   // Audio bookkeeping changes after Generate are not musical edits. Everything that determines the notes belongs to this key.
   const generationInputs = (using: BandSettings) => {
-    const { firstNote: _firstNote, rendered: _rendered, ...musical } = using;
+    // What a part was rendered with is a result of Generate, not an input to it.
+    const { firstNote: _firstNote, rendered: _rendered, renderedTone: _renderedTone, ...musical } = using;
     const originalAudio = Object.entries(stems ?? {})
       .filter(([key]) => tracks?.[key]?.kind !== "user")
       .map(([key, audio]) => [key, audio ? bandAudioId(audio) : null]);
@@ -356,6 +317,23 @@ function BandBody({
     save({ ...settings, sections: { ...settings.sections, [key]: { ...current, ...patch } } });
   };
 
+  /** Gives every section of the same kind (Verse 1, Verse 2 …) the overrides this one has. Other sections keep theirs. */
+  const copyToSameKind = (sectionId: string | null) => {
+    const from = settings.sections[sectionId ?? WHOLE_SONG_ID];
+    const source = rows.find((row) => row.plan.sectionId === sectionId);
+    if (!from || !source) return;
+    const next = { ...settings.sections };
+    for (const row of rows) {
+      if (row.plan.sectionId !== null && sectionKind(row.name) === sectionKind(source.name)) next[row.plan.sectionId] = { ...from };
+    }
+    save({ ...settings, sections: next });
+  };
+  /** Takes a section's overrides away, so its plan is automatic again. */
+  const resetRow = (sectionId: string | null) => {
+    const { [sectionId ?? WHOLE_SONG_ID]: _removed, ...rest } = settings.sections;
+    save({ ...settings, sections: rest });
+  };
+
   const applyGrid = (next: BeatGrid | null) => {
     setGrid(next);
     setOutOfDate(true);
@@ -380,11 +358,21 @@ function BandBody({
     }
   };
 
-  const rows: BandSectionRow[] = plans.map((plan) => ({
-    plan,
-    name: plan.sectionId === null ? "Whole song" : (sections.find((section) => section.id === plan.sectionId)?.name ?? "Section"),
-    choice: settings.sections[plan.sectionId ?? WHOLE_SONG_ID]?.bassPart ?? "auto",
-  }));
+  const rows: BandSectionRow[] = plans.map((plan) => {
+    const section = sections.find((candidate) => candidate.id === plan.sectionId);
+    const override = settings.sections[plan.sectionId ?? WHOLE_SONG_ID] ?? {};
+    return {
+      plan,
+      name: plan.sectionId === null ? "Whole song" : (section?.name ?? "Section"),
+      choice: override.bassPart ?? "auto",
+      override,
+      color: section?.color,
+      bars: grid ? Math.max(1, Math.round(((plan.end - plan.start) * grid.bpm) / 60 / barBeats(grid))) : null,
+    };
+  });
+
+  /** The row the part view shows: the selected one, or the first. */
+  const shownRow = rows[Math.min(selected ?? 0, Math.max(0, rows.length - 1))];
 
   /** Finds the beat in the song's audio. The drums stem is read when present, else the pitched stems, else the mix. */
   const findBeat = async () => {
@@ -432,6 +420,9 @@ function BandBody({
    * Generates the parts. With `only`, just that part is generated and the other part's track is left alone: Back to generated uses this,
    * since the generated audio is not kept, so the part is rendered again.
    */
+  /** The song's saved Trim end, so the ending lands on the last full bar before it. */
+  const savedTrimEnd = (): number | undefined => storedShape(readOptions<Record<string, unknown>>(songKey, {})).trimEnd;
+
   const generate = async (requested: BandSettings, only?: RenderedKind) => {
     const using: BandSettings = only ? { ...requested, parts: { drums: only === "drums", bass: only === "bass" } } : requested;
     const current = useSong.getState().source;
@@ -448,6 +439,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
+        trimEnd: savedTrimEnd(),
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
@@ -455,9 +447,13 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {}), libraryKey),
       };
       let request = bandRequest(input);
-      const notes: string[] = [];
+      const notes: (string | BandNotice)[] = [];
+      if (playsThreeFourDefault(request)) notes.push(info(THREE_FOUR_NOTE));
+      const lowKeyNote = using.parts.bass ? extendedRangeNote(request) : null;
+      if (lowKeyNote) notes.push(info(lowKeyNote));
       if (using.parts.bass && !request.harmony.some((entry) => entry.chord)) {
         // Neither the chart nor the screen's analysis has chords, so the bass would rest all song. Detect them from the audio first.
         let found: Chord[] | null = [];
@@ -484,26 +480,51 @@ function BandBody({
       // leaves the clean bass and a notice.
       let bass = result.bass;
       let drums = result.drums;
+      let countIn = result.countIn;
+      const renderedTone: BandSettings["renderedTone"] = {};
       if (drums && using.drumTone.kind === "chain") {
         setWork(DRUM_TONE_TEXT);
         const toned = await applyPartTone(drums, using.drumTone, host.tones, renderPartChain, "drums");
         drums = toned.audio;
+        renderedTone.drums = toned.tone;
         if (toned.notice) notes.push(toned.notice);
+        // The drummer's count goes through the same kit tone, so it sounds like the drums it leads into.
+        if (countIn && toned.tone === "chain") countIn = { ...countIn, audio: (await applyPartTone(countIn.audio, using.drumTone, host.tones, renderPartChain, "drums")).audio };
       }
-      if (bass && using.bassTone.kind === "chain") {
+      if (bass && using.bassTone.kind !== "clean") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyPartTone(bass, using.bassTone, host.tones, renderPartChain, "bass");
         bass = toned.audio;
+        renderedTone.bass = toned.tone;
         if (toned.notice) notes.push(toned.notice);
       }
-      if (result.follow) notes.push(followStatus(result.follow));
+      // A vamp's exit bar goes through the same tone as its part, so the swap on the last pass has no change of sound.
+      const exits: Record<"drums" | "bass", Record<string, ExitAudio>> = { drums: {}, bass: {} };
+      for (const [id, exit] of Object.entries(result.exits ?? {})) {
+        for (const kind of ["drums", "bass"] as const) {
+          let audio = exit[kind];
+          if (!audio) continue;
+          const tone = kind === "drums" ? using.drumTone : using.bassTone;
+          if (tone.kind !== "clean" && renderedTone[kind] === "chain") audio = (await applyPartTone(audio, tone, host.tones, renderPartChain, kind)).audio;
+          exits[kind][id] = { audio, from: exit.from, to: exit.to };
+        }
+      }
+      if (result.follow) notes.push(info(followStatus(result.follow)));
       const levels = levelStatus(result.levels);
-      if (levels) notes.push(levels);
+      if (levels) notes.push(info(levels));
       // A part that is turned off loses its generated track in the same update as the parts that are applied.
       if (!active.current || useSong.getState().source !== current) return;
       if (requestedInputs.current !== null && requestedInputs.current !== startedInputs) return;
       const turnedOff = only ? [] : (["drums", "bass"] as const).filter((kind) => !using.parts[kind]);
-      const applied = useSong.getState().applyGeneratedParts({ drums, bass }, { playing: playingNow.current, remove: turnedOff });
+      // The drummer's count and the vamps' exit bars travel with their part. Nothing is passed for a song that has none.
+      const partExtras = { drums: { countIn, exits: exits.drums }, bass: { exits: exits.bass } };
+      const withExtras = {
+        ...(drums && hasExtras(partExtras.drums) ? { drums: partExtras.drums } : {}),
+        ...(bass && hasExtras(partExtras.bass) ? { bass: partExtras.bass } : {}),
+      };
+      const applied = useSong
+        .getState()
+        .applyGeneratedParts({ drums, bass, ...(Object.keys(withExtras).length > 0 ? { extras: withExtras } : {}) }, { playing: playingNow.current, remove: turnedOff });
       if (applied.length === 0) {
         if (current.libraryId) await useSongLibrary.getState().saveBeforePlayback(true);
         if (!active.current || useSong.getState().source !== current || requestedInputs.current !== startedInputs) return;
@@ -517,7 +538,7 @@ function BandBody({
         const switched = (["drums", "bass"] as const).filter((kind) => using.parts[kind] && result[kind] && partChoices[kind] === "original");
         for (const kind of switched) patch[kind] = "generated";
         if (Object.keys(patch).length) onPartChoice(patch);
-        if (switched.length) notes.push(`Now playing the generated ${switched.join(" and ")}. Switch back under What plays.`);
+        if (switched.length) notes.push(info(`Now playing the generated ${switched.join(" and ")}. Switch back under What plays.`));
       }
       setNotices([...notes, ...applied]);
       setDone(applied.length === 0);
@@ -526,14 +547,23 @@ function BandBody({
       const latest = settingsRef.current;
       const firstNote = { ...latest.firstNote };
       const rendered = { ...latest.rendered };
+      // What each generated part was rendered with, so the Sound tab can say when a part is clean because its tone files were missing.
+      const toneNow: BandSettings["renderedTone"] = { ...latest.renderedTone };
+      for (const part of ["drums", "bass"] as const) {
+        if (!using.parts[part]) continue;
+        toneNow[part] = renderedTone[part] ?? "clean";
+      }
       for (const kind of RENDERED_KINDS) {
         const times = (result.notes[kind] ?? []).map((note) => note.time);
         if (using.parts[kind] && times.length) firstNote[kind] = Math.min(...times);
         else if (using.parts[kind]) delete firstNote[kind];
         if (applied.length === 0 && (using.parts[kind] || turnedOff.includes(kind))) delete rendered[kind];
       }
-      commitBand({ ...latest, firstNote, rendered });
+      commitBand({ ...latest, firstNote, rendered, ...(applied.length === 0 ? { renderedTone: toneNow } : {}) });
       if (applied.length === 0) {
+        const bandNotes = updatedBandNotes(savedNotes, result.notes, using.parts, latest.parts, using.engine, using.seed);
+        setSavedNotes(bandNotes);
+        writeStoredBand(songKey, { bandNotes });
         setOutOfDate(false);
         writeStoredBand(songKey, { bandOutOfDate: false, bandTempoChanged: false });
 
@@ -587,6 +617,15 @@ function BandBody({
       return; // Imported rendered parts belong to the performer and are never replaced automatically.
     }
     const run = (async () => {
+      // An automatic update never swaps good audio for a clean part: with a tone file missing it stops and says so.
+      const blocked = await automaticUpdateBlock(settings, host.tones);
+      if (blocked) {
+        // A missing tone must never stop playback: the parts already there are kept and play, and the notice says why they were not updated.
+        // The automatic effect does not try again for these inputs.
+        failedInputs.current = musicalInputs;
+        setNotices([blocked]);
+        return;
+      }
       const protectsRendered = RENDERED_KINDS.some((kind) => settings.parts[kind] && settings.rendered[kind]);
       const ok = protectsRendered ? await generate(settings, kinds[0]) : await generate(settings);
       if (!ok) throw new Error("Automatic band update could not finish. Open Drums & bass for the reason; playback will wait.");
@@ -620,14 +659,21 @@ function BandBody({
   }, [musicalInputs, outOfDate, audioPlaying, busy, generated, needsSnapshot]);
 
   /** Generate replaces a part that is the performer's rendered audio, so it asks first. */
-  const generateOrAsk = (next: BandSettings) => {
+  const generateOrAsk = async (next: BandSettings) => {
     const replacing = RENDERED_KINDS.filter((kind) => next.parts[kind] && settingsRef.current.rendered[kind]);
-    if (replacing.length) setConfirmReplace({ kinds: replacing, run: () => void generate(next) });
-    else void generate(next);
+    const go = () => {
+      if (replacing.length) setConfirmReplace({ kinds: replacing, run: () => void generate(next) });
+      else void generate(next);
+    };
+    // Only an explicit Generate may fall back to a clean part, and it asks first.
+    if (next.bassTone.kind !== "chain" && next.drumTone.kind !== "chain") return go();
+    const question = cleanFallbackQuestion(await missingToneFiles(next, host.tones));
+    if (question) setConfirmClean({ question, run: go });
+    else go();
   };
 
   /** Puts a rendered file in place of a part's generated audio, or offers the line-up first when the file's first hit is off the first note. */
-  const applyRendered = (kind: RenderedKind, name: string, audio: PcmAudio, notices: string[]) => {
+  const applyRendered = (kind: RenderedKind, name: string, audio: PcmAudio, notices: BandNotice[]) => {
     const parts = kind === "drums" ? { drums: audio } : { bass: audio };
     const applied = useSong.getState().applyGeneratedParts(parts, { playing: playingNow.current });
     setPendingRendered(null);
@@ -639,7 +685,7 @@ function BandBody({
     if (partChoices[kind] === "original") {
       const patch: Partial<PartChoices> = kind === "drums" ? { drums: "generated" } : { bass: "generated" };
       onPartChoice(patch);
-      rendering.push(`Now playing your rendered ${kind}. Switch back under What plays.`);
+      rendering.push(info(`Now playing your rendered ${kind}. Switch back under What plays.`));
     }
     setNotices(rendering);
   };
@@ -656,7 +702,7 @@ function BandBody({
       const frames = current.audio.channels[0].length;
       const check = checkRenderedLength(file.name, decoded.channels[0].length / decoded.sampleRate, frames / current.audio.sampleRate);
       if (!check.accepted) return setNotices([check.notice ?? `${file.name} was not used.`]);
-      const notices = check.notice ? [check.notice] : [];
+      const notices: BandNotice[] = check.notice ? [asNotice(check.notice)] : [];
       const firstNote = settingsRef.current.firstNote[kind] ?? null;
       const line = lineUpOffer(firstOnsetSeconds(decoded), firstNote);
       if (line?.offer) {
@@ -664,8 +710,8 @@ function BandBody({
         setPendingRendered({ kind, name: file.name, decoded, line, notices });
         return setNotices(notices);
       }
-      if (line) notices.push(line.text);
-      else notices.push("No generated part to line up with, so the file is used as it is.");
+      if (line) notices.push(info(line.text));
+      else notices.push(info("No generated part to line up with, so the file is used as it is."));
       applyRendered(kind, file.name, fitToLength(decoded, frames), notices);
     } catch (error) {
       setNotices([error instanceof Error ? error.message : String(error)]);
@@ -677,10 +723,17 @@ function BandBody({
   /** Back to generated renders the part again with the current settings: the generated audio is not kept, so this is Generate for it alone. */
   const backToGenerated = (kind: RenderedKind) => void generate(settingsRef.current, kind);
 
-  const tryAnother = () => {
-    const next = { ...settings, seed: 1 + Math.floor(Math.random() * 0xfffffffe) };
+  /** A song saved with the earlier band patterns moves to the newest ones, and generates again with them, so the replace and tone questions still apply. */
+  const updateEngine = () => {
+    const next = { ...settingsRef.current, engine: CURRENT_ENGINE };
     save(next);
-    generateOrAsk(next);
+    void generateOrAsk(next);
+  };
+
+  const tryAnother = () => {
+    const next = { ...settings, seed: newSeed() };
+    save(next);
+    void generateOrAsk(next);
   };
 
   /**
@@ -702,6 +755,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
+        trimEnd: savedTrimEnd(),
         lengthFrames: current.audio.channels[0].length,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
@@ -709,6 +763,7 @@ function BandBody({
         originals: levelStems(selectWholeSongStems(useSong.getState())),
         bassLine,
         hints: sectionHints,
+        ...keysFromOptions(readOptions<Record<string, unknown>>(songKey, {}), libraryKey),
       });
       const rendering: BandJob = renderPreview(request, from, bars);
       job.current = rendering;
@@ -723,7 +778,7 @@ function BandBody({
         drums = toned.audio;
         if (toned.notice) toneNotices.push(toned.notice);
       }
-      if (bass && settings.bassTone.kind === "chain") {
+      if (bass && settings.bassTone.kind !== "clean") {
         setWork(BASS_TONE_TEXT);
         const toned = await applyPartTone(bass, settings.bassTone, host.tones, renderPartChain, "bass");
         bass = toned.audio;
@@ -788,6 +843,8 @@ function BandBody({
       const refused = useSong.getState().removeGeneratedParts({ playing: playingNow.current });
       setNotices(refused);
       if (refused.length === 0) {
+        setSavedNotes(null);
+        writeStoredBand(songKey, { bandNotes: undefined });
         // The rendered audio went with the generated tracks.
         commitBand({ ...settingsRef.current, rendered: {} });
         onPartChoice(ORIGINAL_PARTS);
@@ -809,190 +866,212 @@ function BandBody({
     const tempo = Math.round(grid.steady.bpm * 100) / 100;
     if (tempo < 30 || tempo > 300) return setNotices(["The tempo is outside the metronome's range of 30 to 300 BPM."]);
     onMetronome(tempo, Math.round(Math.max(0, grid.steady.firstBeat) * 1000) / 1000);
-    setNotices(["The metronome now runs at this tempo."]);
+    setNotices([info("The metronome now runs at this tempo.")]);
   };
 
+  // Play from the start is offered in Preview's place for five seconds after a Generate.
+  const [offerPlay, setOfferPlay] = useState(false);
+  useEffect(() => {
+    if (!done) return setOfferPlay(false);
+    setOfferPlay(true);
+    const timer = setTimeout(() => setOfferPlay(false), PLAY_OFFER_MS);
+    return () => clearTimeout(timer);
+  }, [done]);
+  const playFrom =
+    offerPlay && onPlayFrom
+      ? {
+          label: selected !== null ? `Play from ${rows[selected].name}` : "Play from the start",
+          run: () => {
+            show(false);
+            onPlayFrom(selected !== null ? rows[selected].plan.start : 0);
+          },
+        }
+      : null;
+  const cancelWork = () => {
+    failedInputs.current = musicalInputs;
+    job.current?.cancel();
+  };
   const partLine = (kind: PartKind) => presenceLine(kind, missing?.[kind] ?? "unknown", missing?.absentSections[kind] ?? [], sections);
 
   return (
-    <DialogContent className="flex max-h-[90vh] min-w-0 flex-col gap-4 overflow-hidden sm:max-w-4xl">
+    <DialogContent
+      className="flex h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] min-w-0 flex-col gap-1.5 overflow-hidden px-4 pb-2.5 pt-4 sm:max-w-none"
+      onCloseAutoFocus={(event) => {
+        // The panel is opened from the store, not from a trigger, so Radix has nothing to return focus to: give it back to the entry button.
+        const entry = document.getElementById(BAND_ENTRY_ID);
+        if (entry) {
+          event.preventDefault();
+          entry.focus();
+        }
+      }}
+    >
       <DialogHeader>
         <DialogTitle>Band</DialogTitle>
         <DialogDescription>
           Generated parts update automatically after musical changes while playback is stopped. Generate also makes new parts on demand.
         </DialogDescription>
       </DialogHeader>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto text-sm">
-        <section aria-label="Band status" className="flex flex-col gap-1 rounded-lg border border-seam px-3 py-2">
-          <p>{partLine("drums")}</p>
-          <p>{partLine("bass")}</p>
-          {(missing?.drums === "present" || missing?.bass === "present") && <p>You can still generate your own and switch between them under What plays.</p>}
-          <p>{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
-          {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
-        </section>
-
-        {source !== null && <PartChoiceRows choices={partChoices} keys={partKeys} disabled={busy} onChange={onPartChoice} />}
-
-        {source !== null && (
-          <section aria-label="Rendered parts" className="flex flex-col gap-3">
-            {RENDERED_KINDS.map((kind) => (
-              <RenderedPartRow
-                key={kind}
-                kind={kind}
-                rendered={settings.rendered[kind]}
-                disabled={blocked}
-                pending={pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, source.audio.channels[0].length)}
-                onFile={(file) => void importRendered(kind, file)}
-                onBack={() => void backToGenerated(kind)}
-              />
-            ))}
-          </section>
-        )}
-
-        <BandGridSection
-          grid={grid}
-          harmony={harmony}
-          blocked={blocked}
-          busy={busy && finding}
-          work={finding ? work : null}
-          onGrid={applyGrid}
-          onFind={() => void findBeat()}
-          onCancel={() => {
-            failedInputs.current = musicalInputs;
-            job.current?.cancel();
-          }}
-          onFixed={usesFixed}
-          onSetTempo={setTo}
-          myTempo={typedTempo ? { bpm, use: useMyTempo, onUse: setUseMyTempo } : undefined}
-          bassNotes={{
-            overrides: settings.bassOverrides,
-            bassFrom: settings.bassFrom,
-            bassLine,
-            sections,
-            songEnd,
-            disabled: blocked,
-            onChange: (next) => change({ bassOverrides: next }),
-            onListen: (from, next) => void listen(from, next),
-          }}
-        />
-
-        <BandSettingsForm settings={settings} followSources={followSources} onChange={change} onStyle={changeStyle} songSeconds={songEnd} />
-
-        <section aria-label="Sections" className="flex flex-col gap-2">
-          <h3 className="font-semibold">Sections</h3>
-          <BandSections
-            rows={rows}
-            disabled={blocked}
-            selected={selected}
-            onSelect={(index) => {
-              setSelected(index);
-              if (index !== null) setPreviewAt(null);
-            }}
-            onChange={changeRow}
-          />
-        </section>
-
-        <p className="text-silkscreen-3">Render it with your own instruments, then use it here.</p>
-      </div>
-
-      <footer aria-label="Band actions" className="flex shrink-0 flex-col gap-2 border-t border-seam pt-3 text-sm">
-        {source === null && (
-          <p role="note" className="text-led-warn">
-            {NO_SONG_TEXT}
+      <section aria-label="Band status" className="flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
+        {ownParts(missing) && <p>{ownParts(missing)}</p>}
+        {(["drums", "bass"] as const).map((kind) => missing?.[kind] !== "present" && <p key={kind}>{partLine(kind)}</p>)}
+        <p className="text-silkscreen-3">{generated ? "Generated drum and bass tracks are in the mixer." : "No generated parts yet."}</p>
+        {settings.engine < CURRENT_ENGINE && (
+          <p className="flex items-center gap-2">
+            This song uses the earlier band patterns.
+            <Button type="button" size="sm" variant="outline" disabled={blocked} onClick={updateEngine}>
+              Update…
+            </Button>
           </p>
         )}
-        {playing && (
-          <p role="note" className="text-led-warn">
-            {PLAYING_TEXT}
-          </p>
-        )}
-        {work && !finding && (
-          <div className="flex items-center gap-2" role="status">
-            <LoaderCircle aria-hidden className="size-4 animate-spin" />
-            <span>{work}</span>
-            <Button
-              size="sm"
-              variant="ghost"
+        {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
+      </section>
+      <Tabs value={tab} onValueChange={(value) => isBandTab(value) && setTab(value)} className="min-h-0 flex-1 gap-2">
+        <TabsList aria-label="Band sections">
+          {BAND_TABS.map((id) => (
+            <TabsTrigger key={id} value={id}>
+              {BAND_TAB_LABELS[id]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {/* Every tab stays mounted and is hidden with CSS, so nothing typed or chosen in one is lost when the performer switches. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto text-sm">
+          <TabsContent forceMount value="parts" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabParts
+              rows={rows}
+              disabled={blocked}
+              selected={selected}
+              onSelect={(index) => {
+                setSelected(index);
+                if (index !== null) setPreviewAt(null);
+              }}
+              onChange={changeRow}
+              onCopyToSameKind={copyToSameKind}
+              onReset={resetRow}
+              beatsPerBar={grid?.beatsPerBar}
+              drumPhrases={settings.engine >= 3}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="feel" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabFeel
+              settings={settings}
+              followSources={followSources}
+              onChange={change}
+              onStyle={changeStyle}
+              beatsPerBar={grid?.beatsPerBar}
+              sections={rows.flatMap((row) => (row.plan.sectionId === null ? [] : [{ id: row.plan.sectionId, name: row.name }]))}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="sound" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabSound
+              settings={settings}
+              onChange={change}
+              hasSong={source !== null}
+              partChoices={partChoices}
+              partKeys={partKeys}
+              generatedNotes={{ drums: generatedLabel(settings, "drums"), bass: generatedLabel(settings, "bass") }}
+              onPartChoice={onPartChoice}
+              busy={busy}
+              blocked={blocked}
+              pendingLineUp={(kind) =>
+                source && pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, source.audio.channels[0].length)
+              }
+              onFile={(kind, file) => void importRendered(kind, file)}
+              onBack={(kind) => void backToGenerated(kind)}
+              songSeconds={songEnd}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="notes" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabNotes
+              grid={grid}
+              harmony={harmony}
+              blocked={blocked}
+              busy={false}
+              work={null}
+              onGrid={applyGrid}
+              onFind={() => void findBeat()}
+              onCancel={cancelWork}
+              onFixed={usesFixed}
+              onSetTempo={setTo}
+              bassNotes={{
+                overrides: settings.bassOverrides,
+                bassFrom: settings.bassFrom,
+                bassLine,
+                sections,
+                songEnd,
+                disabled: blocked,
+                onChange: (next) => change({ bassOverrides: next }),
+                onListen: (from, next) => void listen(from, next),
+              }}
+            />
+          </TabsContent>
+          <TabsContent forceMount value="timing" className="min-w-0 data-[state=inactive]:hidden">
+            <BandTabTiming
+              grid={grid}
+              harmony={harmony}
+              blocked={blocked}
+              busy={busy && finding}
+              work={finding ? work : null}
+              onGrid={applyGrid}
+              onFind={() => void findBeat()}
+              onCancel={cancelWork}
+              onFixed={usesFixed}
+              onSetTempo={setTo}
+              myTempo={typedTempo ? { bpm, use: useMyTempo, onUse: setUseMyTempo } : undefined}
+            />
+          </TabsContent>
+        </div>
+      </Tabs>
+
+      <BandFooter
+        noSong={source === null}
+        playing={playing}
+        work={work}
+        finding={finding}
+        previewing={previewing}
+        done={done}
+        playFrom={playFrom}
+        notices={notices}
+        blocked={blocked}
+        hasGrid={grid !== null}
+        hasGeneratedParts={generated}
+        canExportMidi={lastNotes !== null}
+        previewLength={previewLength}
+        fromPlayhead={target === PLAYHEAD}
+        onPreviewLength={setPreviewLength}
+        onFromPlayhead={(on) => setPreviewAt(on ? PLAYHEAD : null)}
+        onCancel={cancelWork}
+        onGenerate={() => void generateOrAsk(settings)}
+        onTryAnother={tryAnother}
+        onPreview={() => void preview()}
+        onStopPreview={() => stopPreview.current?.()}
+        onRemove={() => setConfirmRemove(true)}
+        onExportMidi={() => void exportMidi()}
+      />
+
+
+
+      <AlertDialog open={confirmClean !== null} onOpenChange={(open) => !open && setConfirmClean(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmClean?.question}</AlertDialogTitle>
+            <AlertDialogDescription>
+              A tone file is missing on this computer, so the part is rendered without its tone. Download the file or switch the tone to Clean to avoid this.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep what I have</AlertDialogCancel>
+            <AlertDialogAction
               onClick={() => {
-                failedInputs.current = musicalInputs;
-                job.current?.cancel();
+                const run = confirmClean?.run;
+                setConfirmClean(null);
+                run?.();
               }}
             >
-              Cancel
-            </Button>
-          </div>
-        )}
-        {previewing && !work && <p role="status">{previewing}</p>}
-        {done && !work && (
-          <div className="flex flex-wrap items-center gap-2" role="status">
-            <span>Done. Drums and bass are in the mixer.</span>
-            <Button size="sm" variant="outline" onClick={() => show(false)}>
-              Close
-            </Button>
-            {onPlayFrom && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  show(false);
-                  onPlayFrom(selected !== null ? rows[selected].plan.start : 0);
-                }}
-              >
-                {selected !== null ? `Play from ${rows[selected].name}` : "Play from the start"}
-              </Button>
-            )}
-          </div>
-        )}
-        {notices.length > 0 && (
-          <ul role="status" className="flex list-disc flex-col gap-1 pl-5 text-led-warn">
-            {notices.map((notice) => (
-              <li key={notice}>{notice}</li>
-            ))}
-          </ul>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button disabled={blocked || !grid} onClick={() => generateOrAsk(settings)}>
-            Generate
-          </Button>
-          <Button variant="outline" disabled={blocked || !grid} onClick={tryAnother}>
-            Try another
-          </Button>
-          <Button variant="outline" disabled={blocked || !grid} onClick={() => (previewing ? stopPreview.current?.() : void preview())}>
-            {previewing ? "Stop preview" : "Preview"}
-          </Button>
-          <Select value={target} onValueChange={setPreviewAt} disabled={blocked || previewing !== null}>
-            <SelectTrigger aria-label="Preview section" className="h-9 w-auto min-w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {rows.map(({ name }, index) => (
-                <SelectItem key={index} value={String(index)}>
-                  {name}
-                </SelectItem>
-              ))}
-              <SelectItem value={PLAYHEAD}>From the playhead</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={previewLength} onValueChange={(value) => setPreviewLength(value as "whole" | "4" | "8")} disabled={blocked || previewing !== null}>
-            <SelectTrigger aria-label="Preview length" className="h-9 w-auto min-w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="whole">Whole section</SelectItem>
-              <SelectItem value="4">4 bars</SelectItem>
-              <SelectItem value="8">8 bars</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" disabled={blocked || !generated} onClick={() => setConfirmRemove(true)}>
-            Remove generated parts
-          </Button>
-          <Button variant="outline" disabled={playing || lastNotes === null} onClick={() => void exportMidi()}>
-            Export MIDI…
-          </Button>
-
-        </div>
-      </footer>
-
-
+              Generate clean
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmReplace !== null} onOpenChange={(open) => !open && setConfirmReplace(null)}>
         <AlertDialogContent>
@@ -1029,30 +1108,4 @@ function BandBody({
       </AlertDialog>
     </DialogContent>
   );
-}
-
-/** The line-up offer of a rendered file for one part, or null when the pending file is for the other part. */
-function pendingLineUp(
-  pending: PendingRendered | null,
-  kind: RenderedKind,
-  dismiss: () => void,
-  apply: (kind: RenderedKind, name: string, audio: PcmAudio, notices: string[]) => void,
-  frames: number,
-): PendingLineUp | null {
-  if (!pending || pending.kind !== kind) return null;
-  return {
-    text: pending.line.text,
-    shiftSeconds: pending.line.shiftSeconds,
-    onLineUp: () => apply(kind, pending.name, shiftAudio(pending.decoded, pending.line.shiftSeconds, frames), pending.notices),
-    onUseAsIs: () => {
-      apply(kind, pending.name, fitToLength(pending.decoded, frames), pending.notices);
-      dismiss();
-    },
-  };
-}
-
-function stageText(stage: BandStage): string {
-  if (stage === "loading") return "Loading the drum and bass samples…";
-  if (stage === "generating") return "Writing the notes…";
-  return "Rendering the parts…";
 }
