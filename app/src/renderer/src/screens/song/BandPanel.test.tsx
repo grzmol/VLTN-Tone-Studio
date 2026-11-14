@@ -220,7 +220,7 @@ describe("Band panel", () => {
     // Funk's own swing default is saved with the style.
     expect(savedOptions().band.swing).toBe(0);
 
-    const complexity = screen.getAllByRole("slider")[0];
+    const complexity = within(screen.getByLabelText("Complexity")).getByRole("slider");
     fireEvent.keyDown(complexity, { key: "ArrowRight" });
     expect(savedOptions().band.complexity).toBeCloseTo(0.55, 5);
     expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
@@ -229,8 +229,7 @@ describe("Band panel", () => {
 
   it("the humanise amount and feel save, and mark the parts out of date", () => {
     renderPanel();
-    // The sliders come in order: complexity, swing, then humanise. The aria-label sits on the root, not the thumb.
-    fireEvent.keyDown(screen.getAllByRole("slider")[2], { key: "ArrowRight" });
+    fireEvent.keyDown(within(screen.getByLabelText("Humanise")).getByRole("slider"), { key: "ArrowRight" });
     expect(savedOptions().band.humanise.amount).toBeCloseTo(0.55, 5);
     expect(savedOptions().bandOutOfDate).toBe(true);
     pick(screen.getByRole("combobox", { name: "Humanise feel" }), "Pushed");
