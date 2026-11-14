@@ -255,7 +255,7 @@ function renderExits(
     for (const kind of ["drums", "bass"] as const) {
       if (!request.parts[kind]) continue;
       const dry = renderPart(notesInBar(notes[kind], bar.from, bar.to), kind, samples, frames, RENDER_RATE).audio;
-      const rendered = kind === "drums" && !hasOwnSpace(request.settings.drumTone) ? addRoom(dry, samples.room, Math.min(1, request.settings.drumRoom * (samples.roomScale ?? 1))) : dry;
+      const rendered = dry;
       exit[kind] = withGain(rendered, levels[kind]?.gainDb ?? 0);
     }
     exits[bar.sectionId] = exit;
@@ -269,12 +269,12 @@ function withGain(audio: PcmAudio, gainDb: number): PcmAudio {
   return { sampleRate: audio.sampleRate, channels: audio.channels.map((channel) => channel.map((value) => value * gain)) };
 }
 
-/** The drummer's count as audio: the drums' own render, room and level, so it sits with them. Undefined when the song has no count. */
+/** The drummer's count as audio: the drums' own render and level, so it sits with them. Undefined when the song has no count. */
 function renderCountIn(request: BandRequest, samples: SampleSet, drumsGainDb: number): BandResult["countIn"] {
   const count = countInOf(request.grid, request.settings.countIn);
   if (!count) return undefined;
   const dry = renderPart(count.notes, "drums", samples, Math.ceil(count.length * RENDER_RATE), RENDER_RATE).audio;
-  const rendered = hasOwnSpace(request.settings.drumTone) ? dry : addRoom(dry, samples.room, Math.min(1, request.settings.drumRoom * (samples.roomScale ?? 1)));
+  const rendered = dry;
   return { audio: withGain(rendered, drumsGainDb), start: count.start };
 }
 

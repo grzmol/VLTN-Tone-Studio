@@ -372,7 +372,6 @@ function BandBody({
   });
 
   /** The row the part view shows: the selected one, or the first. */
-  const shownRow = rows[Math.min(selected ?? 0, Math.max(0, rows.length - 1))];
 
   /** Finds the beat in the song's audio. The drums stem is read when present, else the pitched stems, else the mix. */
   const findBeat = async () => {
