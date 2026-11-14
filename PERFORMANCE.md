@@ -521,3 +521,5 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - Chord estimates cover the common chord types only: no extended chords such as ninths or altered chords. Key estimates are less certain for modal music, relative keys and key changes, and a key in a section is only listed when it is clear. Lyrics from Whisper can be wrong. The project has not yet measured chord accuracy on real recordings.
 - Pedal profiles come from manuals and are tested at byte level. Only the GP-180 and TimeLine results above come from real hardware.
 - Bluetooth editor management and RTP-MIDI are not supported.
+
+The Band workspace groups Parts, Feel, Sound, Notes and Timing. Notes shows saved generated parts bar by bar, with fill/stop/crash/rest marks and per-section re-roll or keep. Bass figures follow the key and keep a register, with an extended low range. Endings can hit, hold, play three hits, slow down or be left unchanged. Missing tone files are reported while usable generated audio is kept. Song maps can carry bar marks.
