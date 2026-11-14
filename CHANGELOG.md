@@ -78,6 +78,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **Window and file safety.** The main window runs sandboxed, and MIDI, SysEx and audio capture are granted only to Tone Studio's own pages.
 
 ### Fixed
+- **GP-150/GP-180 preset reads:** backup, rename and export ignore unsolicited replies for another preset; mismatched reads fail rather than using the wrong sound. Hardware confirmation of stored-read reply slots is still pending.
 - **Generated drums follow the drummer.** When a song has a drums stem, each generated kick, snare and hat moves onto the original drummer's hit, so the guitar and vocals no longer sound like they stutter against the beat. "Play with the drummer's timing" in the Band panel turns it off.
 - **Generated hits land on the beat.** Each drum and bass sample starts on its attack, and a tone chain's delay (an amp capture, a wet room) is taken out, so the generated parts no longer drag a few milliseconds behind. Generate the band again for songs you already made.
 - **Doubled drums and bass no longer play.** A song set to play its generated drums or bass could also play the original part underneath, which made a playlist sound stuttery. The original now stays off whenever its generated part plays, including for the next song in a playlist from its very first beat.
