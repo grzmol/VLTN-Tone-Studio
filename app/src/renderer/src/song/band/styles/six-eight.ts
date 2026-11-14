@@ -1,6 +1,7 @@
 // Six-eight: two dotted-quarter beats to the bar, each split into three steps. The step is an eighth note, so the grid is a triplet
 // grid (stepsPerBeat 3) and the bar has six steps. The backbeat falls on the second beat, step 3.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane } from "./notation";
 import type { Style } from "./types";
@@ -113,6 +114,13 @@ export const SIX_EIGHT: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(6, "1 . . . . ."), figure(6, "1 . . 5 . ."), figure(6, "1 . . . . .", "1 . . 5 . .")],
+      2: [figure(6, "1 . . 1 . ."), figure(6, "1 . . 5 . ."), figure(6, "1 . 1 . . 5")],
+      3: [figure(6, "1 . . 1 . 5"), figure(6, "1 . 1 5 . ."), figure(6, "1 . . 1 . .", "1 . . 5 . app")],
+      4: [figure(6, "1 . 5 1 . 5"), figure(6, "1 . 1 5 . 3"), figure(6, "1 . 1 1 . 5")],
+      5: [figure(6, "1 1 1 1 1 5"), figure(6, "1 . 5 1 . 5", "1 . 5 8 . app"), figure(6, "1 1 5 1 1 5")],
+    },
     rhythms: {
       1: [[0], [0, 3]],
       2: [

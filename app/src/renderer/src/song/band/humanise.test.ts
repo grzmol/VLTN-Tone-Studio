@@ -151,3 +151,24 @@ describe("humanise", () => {
     for (const note of out) expect(Math.abs(note.velocity - 90)).toBeLessThanOrEqual(4);
   });
 });
+
+describe("humanise bass techniques", () => {
+  const slide: NoteEvent = { time: 2, pitch: 40, velocity: 90, duration: 0.4, slideFrom: 2 };
+  const dead: NoteEvent = { time: 3.4, pitch: 40, velocity: 30, duration: 0.04, dead: true };
+
+  it("keeps a slide and a dead note, and leaves the dead note's velocity and length alone", () => {
+    for (const amount of [0.5, 1]) {
+      const [first, second] = humanise([slide, dead], "bass", grid, rockPlans, settingsOf(amount, "laid-back"), 7);
+      expect(first.slideFrom).toBe(2);
+      expect(second.dead).toBe(true);
+      expect(second.velocity).toBe(30);
+      expect(second.duration).toBe(0.04);
+    }
+  });
+
+  it("still moves a dead note in time", () => {
+    const [out] = humanise([dead], "bass", grid, rockPlans, settingsOf(1, "laid-back"), 7);
+    expect(out.time).not.toBe(dead.time);
+  });
+});
+

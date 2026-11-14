@@ -203,13 +203,16 @@ export function humanise(
     const jitter = 2 * random.next() - 1;
     const accent = part === "drums" ? accentOf(note, grid, runs.has(index)) : 0;
 
+    // A dead note keeps its own velocity and length: only its timing moves, so it stays just before the note it belongs to.
+    if (note.dead) return { ...note, time: Math.max(0, note.time + offsetMs / 1000) };
+
     let velocity = note.velocity + amount * (accent + spread * jitter);
     // A ghost stays a ghost: its humanised velocity stays under GHOST_BELOW.
     if (note.velocity < GHOST_BELOW) velocity = Math.min(velocity, GHOST_BELOW - 1);
 
     const shift = offsetMs / 1000;
     const duration = part === "bass" && shift > 0 ? Math.min(note.duration, Math.max(MIN_BASS_DURATION, note.duration - shift)) : note.duration;
-    return { time: Math.max(0, note.time + shift), pitch: note.pitch, velocity: clampVelocity(velocity), duration };
+    return { ...note, time: Math.max(0, note.time + shift), velocity: clampVelocity(velocity), duration };
   });
 
   // Array sort is stable, so notes that now share a time keep the order they came in.

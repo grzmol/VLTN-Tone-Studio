@@ -139,6 +139,10 @@ describe("bass notes from", () => {
   it("takes the original bass by default, and keeps a valid choice", () => {
     expect(DEFAULT_BAND_SETTINGS.bassFrom).toBe("original");
     expect(parseBandSettings({ bassFrom: "chords" }).bassFrom).toBe("chords");
+    // A song saved before the engine existed keeps the earlier bass; a song with nothing saved starts on the newest.
+    expect(parseBandSettings({ bassFrom: "chords" }).engine).toBe(1);
+    expect(parseBandSettings({ engine: 2 }).engine).toBe(2);
+    expect(parseBandSettings(undefined).engine).toBe(2);
     expect(parseBandSettings({ bassFrom: "piano" }).bassFrom).toBe("original");
     expect(parseBandSettings({}).bassFrom).toBe("original");
   });
@@ -532,5 +536,22 @@ describe("planSections with what the song's own band does", () => {
 
   it("plans the same as before without hints", () => {
     expect(planSections(sections, 60, settings(), [])).toEqual(planSections(sections, 60, settings()));
+  });
+});
+
+describe("a section's own seed", () => {
+  const sections = [section("a", "Verse", 0, 10), section("b", "Chorus", 10, 20)];
+
+  it("goes onto the plan of the section that has one, and onto no other", () => {
+    const plans = planSections(sections, 20, settings({ sections: { b: { seed: 77 } } }));
+    expect(plans[1].seed).toBe(77);
+    expect("seed" in plans[0]).toBe(false);
+  });
+
+  it("is saved with the section's override, and an invalid seed is dropped", () => {
+    const saved = parseBandSettings({ ...DEFAULT_BAND_SETTINGS, sections: { a: { seed: 5, energy: 4 }, b: { seed: -1 }, c: { seed: 1.5 } } });
+    expect(saved.sections).toEqual({ a: { seed: 5, energy: 4 } });
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, sections: { a: { seed: 5 } } })).toBe(true);
+    expect(isBandSettings({ ...DEFAULT_BAND_SETTINGS, sections: { a: { seed: "5" } } })).toBe(false);
   });
 });

@@ -5,8 +5,10 @@
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
 import { endBeforeNext, generateBass } from "./bass";
+import type { BandKey } from "./bass-phrases";
 import { drumOnsets, followDrummer } from "./drummer-timing";
 import { generateDrums } from "./drums";
+import { ENDING_TAIL, HOLD_BARS, SLOW_TEMPO } from "./ending";
 import { beatLevelsDb, followFeel, type Feel } from "./feel";
 import type { ChordAtBeat } from "./harmony";
 import { humanise } from "./humanise";
@@ -36,6 +38,13 @@ export interface BandRequest {
   seed: number;
   /** The song's length in frames at RENDER_RATE. The parts are rendered to exactly this length. */
   lengthFrames: number;
+  /**
+   * The song's keys, in song seconds, covering the song (one entry when it has one key). The bass keeps its fills in them. An empty list
+   * means no key is known, and the fills use the chord's own scale.
+   */
+  keys: BandKey[];
+  /** The song's trim end in seconds, when it has one. The ending goes on the last full bar before it (ending.ts). */
+  trimEnd?: number;
   parts: { drums: boolean; bass: boolean };
   /** Where the worker fetches each sample file, by its path in map.json. */
   sampleUrls: Record<string, string>;
@@ -123,8 +132,8 @@ function snapToDrummer(request: BandRequest, drums: NoteEvent[], bass: NoteEvent
 function generate(request: BandRequest): Generated {
   const { feel, follow } = feelFor(request);
   const { grid, plans, settings, seed } = request;
-  const drums = generateDrums(grid, plans, settings, seed, feel);
-  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel) : [];
+  const drums = generateDrums(grid, plans, settings, seed, feel, request.trimEnd);
+  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel, request.trimEnd, request.keys) : [];
   const humanDrums = humanise(drums, "drums", grid, plans, settings.humanise, seed);
   const humanBass = humanise(bass, "bass", grid, plans, settings.humanise, seed);
   const snapped = snapToDrummer(request, humanDrums, humanBass);
@@ -146,8 +155,27 @@ function levelPart(kind: LevelKind, audio: PcmAudio, request: BandRequest, songL
   return { audio: match.audio, report: { gainDb: match.gainDb, belowSongDb: songLufs - match.lufs, limitedByPeak: match.limitedByPeak } };
 }
 
-function render(request: BandRequest, generated: Generated, samples: SampleSet, lengthFrames: number, onStage?: (stage: BandStage) => void): BandResult {
+/**
+ * How long the rendered parts are. A hold, three hits or a slow ending play past the song's own end, so the parts grow to fit them: a
+ * hold or three hits by at most HOLD_BARS bars, and a slow ending by the bars it slows over as well. Other endings keep the song's length.
+ */
+export function renderLength(request: BandRequest, notes: Notes): number {
+  const { kind, bars } = request.settings.ending;
+  if (kind === "hit" || kind === "none") return request.lengthFrames;
+  const all = [...notes.drums.map((note) => ({ ...note, duration: Math.max(note.duration, ENDING_TAIL) })), ...notes.bass];
+  const latest = all.reduce((end, note) => Math.max(end, note.time + note.duration), 0);
+  const wanted = Math.max(request.lengthFrames, Math.ceil(latest * RENDER_RATE));
+  const beats = request.grid.beats;
+  if (beats.length < 2) return request.lengthFrames;
+  const bar = barBeats(request.grid) * (beats[beats.length - 1] - beats[beats.length - 2]);
+  // A slow ending's bars are stretched to the slowest tempo at most, and so is the hold after them.
+  const allowed = kind === "slow" ? ((bars ?? 1) + HOLD_BARS) / SLOW_TEMPO + 1 : HOLD_BARS;
+  return Math.min(wanted, request.lengthFrames + Math.ceil(allowed * bar * RENDER_RATE));
+}
+
+function render(request: BandRequest, generated: Generated, samples: SampleSet, songFrames: number, onStage?: (stage: BandStage) => void): BandResult {
   onStage?.("rendering");
+  const lengthFrames = Math.max(songFrames, renderLength(request, generated.notes));
   const { notes } = generated;
   const result: BandResult = generated.follow ? { notes, follow: generated.follow } : { notes };
   const songLufs = request.mix ? loudnessOf(request.mix) : -Infinity;

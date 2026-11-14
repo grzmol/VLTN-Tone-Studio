@@ -47,6 +47,7 @@ function request(overrides: Partial<BandRequest> = {}): BandRequest {
   return {
     grid,
     harmony,
+    keys: [],
     plans: planSections([], SONG_SECONDS, DEFAULT_BAND_SETTINGS),
     settings: DEFAULT_BAND_SETTINGS,
     seed: 7,
@@ -86,6 +87,32 @@ describe("runBandJob", () => {
     const stages: string[] = [];
     runBandJob(request(), stubSamples(), (stage) => stages.push(stage));
     expect(stages).toEqual(["generating", "rendering"]);
+  });
+});
+
+describe("runBandJob: the song's key", () => {
+  /** Eight seconds of C, then eight of G, with a lead-in from the first section into the second at busy 3. */
+  function leadRequest(keys: BandRequest["keys"]): BandRequest {
+    const grid = steadyGrid();
+    const harmony: ChordAtBeat[] = grid.beats.map((time, beat) => ({ beat, time, chord: parseChordName(time < 8 ? "C" : "G") }));
+    const sections: Section[] = [
+      { id: "a", name: "Verse", start: 0, end: 8, mode: "continue" },
+      { id: "b", name: "Chorus", start: 8, end: 16, mode: "continue" },
+    ];
+    const settings: BandSettings = { ...DEFAULT_BAND_SETTINGS, lockToKick: false, sections: { a: { busy: 3, fills: 3 } } };
+    return request({ grid, harmony, keys, settings, plans: planSections(sections, SONG_SECONDS, settings) });
+  }
+  const leadNotes = (keys: BandRequest["keys"]): number[] =>
+    runBandJob(leadRequest(keys), stubSamples())
+      .notes.bass.filter((note) => note.time >= 7 && note.time < 8)
+      .map((note) => note.pitch % 12);
+
+  it("walks the lead-in into G in the key of C, where without a key it walks G major", () => {
+    const withoutKey = leadNotes([]);
+    const inC = leadNotes([{ start: 0, end: SONG_SECONDS, tonic: 0, mode: "major" }]);
+    expect(withoutKey).toContain(6);
+    expect(inC).not.toContain(6);
+    expect(inC).toContain(5);
   });
 });
 
@@ -189,6 +216,35 @@ describe("runBandJob humanising", () => {
     expect(pitches(humanised.notes.drums)).toEqual(pitches(flat.notes.drums));
     expect(pitches(humanised.notes.bass)).toEqual(pitches(flat.notes.bass));
     expect(humanised.notes.drums.map((note) => note.time)).not.toEqual(flat.notes.drums.map((note) => note.time));
+  });
+});
+
+describe("runBandJob bass techniques", () => {
+  it("keeps the slides and dead notes the bass generator makes when humanising is on", () => {
+    const settings: BandSettings = {
+      ...DEFAULT_BAND_SETTINGS,
+      humanise: { amount: 0.5, feel: "style" },
+      bassMode: "roots",
+      complexity: 1,
+      sections: {
+        funk: { style: "funk", bassPart: "ring", busy: 3, deadNotes: true, slides: false, fills: 0 },
+        ballad: { style: "ballad", bassPart: "pulse", busy: 2, loud: 1, deadNotes: false, slides: true, fills: 0 },
+      },
+    };
+    const sections: Section[] = [
+      { id: "funk", name: "Verse", start: 0, end: 16, mode: "continue" },
+      { id: "ballad", name: "Chorus", start: 16, end: 64, mode: "continue" },
+    ];
+    const seconds = 64;
+    const grid = steadyGrid(seconds);
+    const chord = parseChordName("C");
+    const harmony: ChordAtBeat[] = grid.beats.map((time, beat) => ({ beat, time, chord }));
+    const result = runBandJob(
+      request({ grid, harmony, settings, plans: planSections(sections, seconds, settings), lengthFrames: seconds * RATE, parts: { drums: false, bass: true } }),
+      stubSamples(),
+    );
+    expect(result.notes.bass.some((note) => note.dead)).toBe(true);
+    expect(result.notes.bass.some((note) => note.slideFrom !== undefined)).toBe(true);
   });
 });
 
@@ -304,5 +360,31 @@ describe("runBandJob following the drummer", () => {
     expect(runBandJob(request({ settings: flat, originals: {} }), stubSamples()).notes).toEqual(original);
     expect(runBandJob(request({ settings: flat, originals: { drums: silent } }), stubSamples()).notes).toEqual(original);
     expect(runBandJob(request({ settings: { ...flat, followDrummer: false }, originals: { drums: stemEarlyKicks() } }), stubSamples()).notes).toEqual(original);
+  });
+});
+
+describe("runBandJob with an ending that rings on", () => {
+  const withEnding = (ending: BandSettings["ending"]) => request({ settings: { ...DEFAULT_BAND_SETTINGS, ending } });
+  const length = (result: ReturnType<typeof runBandJob>) => result.drums?.channels[0].length ?? 0;
+  // Four beats at 0.5 s make a bar of two seconds.
+  const BAR = 2 * RATE;
+
+  it("keeps the song's length for a hit", () => {
+    const result = runBandJob(withEnding({ kind: "hit" }), stubSamples());
+    expect(length(result)).toBe(SONG_SECONDS * RATE);
+    expect(result.bass?.channels[0].length).toBe(SONG_SECONDS * RATE);
+  });
+
+  it("makes the parts longer than the song by at most two bars for a hold", () => {
+    const result = runBandJob(withEnding({ kind: "hold" }), stubSamples());
+    expect(length(result)).toBeGreaterThan(SONG_SECONDS * RATE);
+    expect(length(result)).toBeLessThanOrEqual(SONG_SECONDS * RATE + 2 * BAR);
+    expect(result.bass?.channels[0].length).toBe(length(result));
+  });
+
+  it("makes the parts longer by at most two bars for three hits", () => {
+    const result = runBandJob(withEnding({ kind: "hits" }), stubSamples());
+    expect(length(result)).toBeGreaterThan(SONG_SECONDS * RATE);
+    expect(length(result)).toBeLessThanOrEqual(SONG_SECONDS * RATE + 2 * BAR);
   });
 });

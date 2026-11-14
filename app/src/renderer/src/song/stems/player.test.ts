@@ -894,3 +894,10 @@ it("plays your own samples on the right beats, and the blip for an empty slot", 
   expect(loadDrumSample).not.toHaveBeenCalled();
   await player.dispose();
 });
+
+it("plays to the end of the longest stem, so a generated part that rings past the song is not cut", () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: pcm(1000), bass: pcm(1300) });
+  expect(player.length).toBe(13);
+  expect(player.duration).toBe(13);
+});

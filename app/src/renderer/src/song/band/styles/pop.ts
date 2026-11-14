@@ -1,5 +1,6 @@
 // Pop: a backbeat on 2 and 4 with kick patterns on the one and the and of two. Busier energies add 16th hats, open hats and crashes.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -132,6 +133,13 @@ export const POP: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . ."), figure(16, "1 . . . 1 . . ."), figure(16, "1 . . . . . . 5")],
+      2: [figure(16, "1 . . . . 1 . ."), figure(16, "1 . . . 1 . . ."), figure(16, "1 . . . 1 . 5 .")],
+      3: [figure(16, "1 . . 1 . . 5 ."), figure(16, "1 . . . 1 . 1 5"), figure(16, "1 . . 1 . . 1 .", "1 . . 1 . . 5 app")],
+      4: [figure(16, "1 . . 1 . . 1 5"), figure(16, "1 . 1 . 1 . 5 ."), figure(16, "1 . . 1 . 1 . 5", "1 . . 1 . 1 5 app")],
+      5: [figure(16, "1 1 . 1 1 . 5 ."), figure(16, "1 . 1 1 . 1 1 5"), figure(16, "1 1 1 1 1 1 5 5")],
+    },
     rhythms: {
       1: [[0], [0, 8]],
       2: [

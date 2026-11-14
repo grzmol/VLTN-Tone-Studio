@@ -14,13 +14,15 @@ import {
   type BassPartChoice,
   type OctaveShift,
 } from "./bass-parts";
+import { DEFAULT_ENDING, isEnding, parseEnding, type EndingSettings } from "./ending";
 import { parseBassOverrides, type BassOverride } from "./bass-overrides";
+import { parseBarMarks, type BarMark } from "./marks";
 import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
 export const DRUM_KITS = ["standard"] as const;
 export const BASS_SOUNDS = ["finger", "pick"] as const;
-export const BASS_RANGES = ["low", "normal", "high"] as const;
+export const BASS_RANGES = ["low", "normal", "high", "extended"] as const;
 export const BASS_MODES = ["roots", "fifths", "octaves", "melodic", "walking"] as const;
 /** Where the generated bass's notes come from: the bass the song's own bassist played (when the song has a bass stem), or the chords. */
 export const BASS_FROM = ["original", "chords"] as const;
@@ -129,7 +131,15 @@ export interface ToneBlock {
  * A part's tone. "clean" is the generated sample as it is. "chain" plays it through its blocks in order, then mixes the result with the
  * dry sample by `dryWet` (0 dry, 1 all chain). `fast` renders captures at their Lite size where the file has one.
  */
-export type PartTone = { kind: "clean" } | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean };
+export type PartTone =
+  | { kind: "clean" }
+  | { kind: "chain"; blocks: ToneBlock[]; dryWet: number; fast: boolean }
+  /** A tone that needs no download: the bass is played through a fixed chain in code (builtin-bass-tone.ts). */
+  | { kind: "builtin"; id: BuiltinToneId };
+
+/** The built-in tones. "warm" is the bass's: a gentle compressor and saturation with a rolled-off top. */
+export const BUILTIN_TONES = ["warm"] as const;
+export type BuiltinToneId = (typeof BUILTIN_TONES)[number];
 export type BassTone = PartTone;
 
 /** The key the overrides of a song without sections are kept under. Section ids are UUIDs, so this cannot clash with one. */
@@ -178,6 +188,11 @@ export interface SectionPlan {
   /** A fill on the section's last bar. */
   fill: boolean;
   play: PartToggles;
+  /**
+   * The section's own seed, when the performer tried another for this section or kept it. The section then draws its groove, fills, figure and
+   * variations from it, so a new seed for the song leaves it alone. Left out, the section draws from the song's seed.
+   */
+  seed?: number;
 }
 
 /** What a section can change. Anything not set falls back to the song's settings or to the section's own name and position. */
@@ -207,6 +222,8 @@ export interface BandSettings {
   swing: number;
   ghostNotes: boolean;
   crashOnSections: boolean;
+  /** How the song ends (ending.ts, spec 136). A song saved before this existed ends with a hit. */
+  ending: EndingSettings;
   kit: DrumKit;
   bassSound: BassSound;
   bassRange: BassRange;
@@ -215,6 +232,8 @@ export interface BandSettings {
   bassFrom: BassFrom;
   /** Bass notes the performer set by hand, over stretches of the song. They win over the original bass and the chords (bass-overrides.ts). */
   bassOverrides: BassOverride[];
+  /** Marks the performer put on single bars: a fill, a stop, a crash, a rest. They win over the section's settings (marks.ts). */
+  marks: BarMark[];
   /** The bass part a section plays when it is on Auto and Auto has no rule of its own. A song saved before this existed takes it from bassMode. */
   defaultBassPart: BassPart;
   lockToKick: boolean;
@@ -233,13 +252,24 @@ export interface BandSettings {
   drumTone: PartTone;
   /** Parts brought back as rendered audio (spec 84). A kind is here while its track is the rendered audio, not a generated part. */
   rendered: Partial<Record<RenderedKind, RenderedPart>>;
+  /** What each generated part was last rendered with: "clean" when its tone asked for a chain whose files were missing (spec 136). */
+  renderedTone: Partial<Record<TonePart, "clean" | "chain">>;
   /** The time of each generated part's first note at the last Generate, so a rendered file can be lined up with it. */
   firstNote: Partial<Record<RenderedKind, number>>;
   /** Each generation uses this seed, so a song regenerates the same way. "Try another" picks a new one. */
   seed: number;
+  /**
+   * Which generation rules the song plays by. 1 is the earlier bass (fills in the chord's own scale, no figure, the octave from the note
+   * before). 2 is the bass of spec 134 (fills in the song's key, a figure per section, a register per section). A song saved without the
+   * field keeps 1, so it does not change until the performer updates it; a new song starts on 2.
+   */
+  engine: number;
   /** Per-section changes, keyed by section id. Style, energy, loud, busy, bass part, octave, fill and play can be overridden. */
   sections: Record<string, SectionOverride>;
 }
+
+/** The newest generation rules. A new song starts on them; a saved song without an engine plays by the earlier ones (engine 1). */
+export const CURRENT_ENGINE = 2;
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   parts: { drums: true, bass: true },
@@ -248,12 +278,14 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   swing: 0,
   ghostNotes: true,
   crashOnSections: true,
+  ending: { ...DEFAULT_ENDING },
   kit: "standard",
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
   bassFrom: "original",
   bassOverrides: [],
+  marks: [],
   defaultBassPart: "pulse",
   bassFeel: 0.5,
   lockToKick: true,
@@ -264,8 +296,10 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassTone: { kind: "clean" },
   drumTone: { kind: "clean" },
   rendered: {},
+  renderedTone: {},
   firstNote: {},
   seed: 1,
+  engine: CURRENT_ENGINE,
   sections: {},
 };
 
@@ -325,6 +359,7 @@ function playFields(name: string, override: SectionOverride, settings: BandSetti
     deadNotes: override.deadNotes ?? technique.deadNotes,
     pickups: override.pickups ?? technique.pickups,
     play: override.play ? { ...override.play } : { ...settings.parts },
+    ...(override.seed !== undefined ? { seed: override.seed } : {}),
   };
 }
 
@@ -413,6 +448,7 @@ const isInRange = (value: unknown, min: number, max: number): value is number =>
 const isUnit = (value: unknown): value is number => isInRange(value, 0, 1);
 const isSwing = (value: unknown): value is number => isInRange(value, 0, SWING_MAX);
 const isSeed = (value: unknown): value is number => isInRange(value, 0, 0xffffffff) && Number.isInteger(value);
+const isEngine = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= CURRENT_ENGINE;
 const isEnergy = (value: unknown): value is Energy => ENERGIES.includes(value as Energy);
 const isOctave = (value: unknown): value is OctaveShift => OCTAVE_SHIFTS.includes(value as OctaveShift);
 const isFills = (value: unknown): value is Fills => FILLS.includes(value as Fills);
@@ -449,7 +485,8 @@ function isSectionOverride(value: unknown): value is SectionOverride {
     optional(value.pickups, isBool) &&
     optional(value.bassPart, isBassPartChoice) &&
     optional(value.fill, isBool) &&
-    optional(value.play, isPartToggles)
+    optional(value.play, isPartToggles) &&
+    optional(value.seed, isSeed)
   );
 }
 
@@ -483,6 +520,16 @@ function parseFirstNote(value: unknown): Partial<Record<RenderedKind, number>> {
   for (const kind of RENDERED_KINDS) if (isTime(value[kind])) out[kind] = value[kind];
   return out;
 }
+
+/** The tone each part was rendered with, keeping each valid entry. */
+function parseRenderedTone(value: unknown): Partial<Record<TonePart, "clean" | "chain">> {
+  const out: Partial<Record<TonePart, "clean" | "chain">> = {};
+  if (!isRecord(value)) return out;
+  for (const part of ["bass", "drums"] as const) if (value[part] === "clean" || value[part] === "chain") out[part] = value[part];
+  return out;
+}
+const isRenderedTone = (value: unknown): boolean =>
+  isRecord(value) && Object.entries(value).every(([key, tone]) => (key === "bass" || key === "drums") && (tone === "clean" || tone === "chain"));
 
 /** True when every entry of the rendered and first-note records is valid. */
 const isRendered = (value: unknown): boolean =>
@@ -541,6 +588,7 @@ function isToneBlock(value: unknown, part: TonePart): boolean {
 function isPartTone(value: unknown, part: TonePart): value is PartTone {
   if (!isRecord(value)) return false;
   if (value.kind === "clean") return true;
+  if (value.kind === "builtin") return part === "bass" && (BUILTIN_TONES as readonly unknown[]).includes(value.id);
   return (
     value.kind === "chain" &&
     Array.isArray(value.blocks) &&
@@ -575,6 +623,8 @@ export function parsePartTone(value: unknown, part: TonePart): PartTone {
     if (cab) blocks.push({ type: "ir", role: "cab", file: cab, inputDb: 0, outputDb: 0, mix: 1, on: true });
     return { kind: "chain", blocks, dryWet: isUnit(value.blend) ? value.blend : 1, fast: false };
   }
+  if (value.kind === "builtin" && part === "bass" && (BUILTIN_TONES as readonly unknown[]).includes(value.id))
+    return { kind: "builtin", id: value.id as BuiltinToneId };
   if (value.kind !== "chain") return { kind: "clean" };
   const blocks = Array.isArray(value.blocks)
     ? value.blocks
@@ -600,12 +650,14 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isSwing(value.swing) &&
     isBool(value.ghostNotes) &&
     isBool(value.crashOnSections) &&
+    isEnding(value.ending) &&
     isDrumKit(value.kit) &&
     isBassSound(value.bassSound) &&
     isBassRange(value.bassRange) &&
     isBassMode(value.bassMode) &&
     isBassFrom(value.bassFrom) &&
     Array.isArray(value.bassOverrides) &&
+    Array.isArray(value.marks) &&
     DEFAULT_BASS_PARTS.includes(value.defaultBassPart as BassPart) &&
     isBool(value.lockToKick) &&
     isBool(value.followPlaying) &&
@@ -616,8 +668,10 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isPartTone(value.bassTone, "bass") &&
     isPartTone(value.drumTone, "drums") &&
     isRendered(value.rendered) &&
+    isRenderedTone(value.renderedTone) &&
     isFirstNote(value.firstNote) &&
     isSeed(value.seed) &&
+    isEngine(value.engine) &&
     isRecord(value.sections) &&
     Object.values(value.sections).every(isSectionOverride)
   );
@@ -648,6 +702,7 @@ function parseSectionOverride(value: Record<string, unknown>): SectionOverride {
   if (isBassPartChoice(value.bassPart)) override.bassPart = value.bassPart;
   if (isBool(value.fill)) override.fill = value.fill;
   if (isPartToggles(value.play)) override.play = { drums: value.play.drums, bass: value.play.bass };
+  if (isSeed(value.seed)) override.seed = value.seed;
   return override;
 }
 
@@ -676,12 +731,14 @@ export function parseBandSettings(value: unknown): BandSettings {
     swing: isSwing(source.swing) ? source.swing : defaults.swing,
     ghostNotes: isBool(source.ghostNotes) ? source.ghostNotes : defaults.ghostNotes,
     crashOnSections: isBool(source.crashOnSections) ? source.crashOnSections : defaults.crashOnSections,
+    ending: parseEnding(source.ending),
     kit: isDrumKit(source.kit) ? source.kit : defaults.kit,
     bassSound: isBassSound(source.bassSound) ? source.bassSound : defaults.bassSound,
     bassRange: isBassRange(source.bassRange) ? source.bassRange : defaults.bassRange,
     bassMode: isBassMode(source.bassMode) ? source.bassMode : defaults.bassMode,
     bassFrom: isBassFrom(source.bassFrom) ? source.bassFrom : defaults.bassFrom,
     bassOverrides: parseBassOverrides(source.bassOverrides),
+    marks: parseBarMarks(source.marks),
     defaultBassPart: DEFAULT_BASS_PARTS.includes(source.defaultBassPart as BassPart)
       ? (source.defaultBassPart as BassPart)
       : isBassMode(source.bassMode)
@@ -696,8 +753,10 @@ export function parseBandSettings(value: unknown): BandSettings {
     bassTone: parseBassTone(source.bassTone),
     drumTone: parseDrumTone(source.drumTone),
     rendered: parseRendered(source.rendered),
+    renderedTone: parseRenderedTone(source.renderedTone),
     firstNote: parseFirstNote(source.firstNote),
     seed: isSeed(source.seed) ? source.seed : defaults.seed,
+    engine: isEngine(source.engine) ? source.engine : isRecord(value) ? 1 : defaults.engine,
     sections,
   };
 }

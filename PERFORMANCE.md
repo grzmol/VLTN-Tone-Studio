@@ -182,6 +182,19 @@ To send cues, pick an output, then switch on **Send cues**. This is called armin
 
 **MIDI preflight & timing** (collapsible) lists cues beyond the audio, conflicting or dense commands, missing note-offs and channel clashes. Warnings are advice; they never change or disable a cue. The app cannot read a pedal's receive channel, so check those yourself.
 
+### Before song preparation
+
+**Prepare pedals** sends the opening presets and your **Before song** MIDI commands, waits for loading, sets automatic song BPM, and stops at **Ready to play**. **Play** reuses valid preparation without sending it twice, then starts the count-in and music. Play on its own can prepare automatically. Ready confirms sending and waiting, not a pedal acknowledgement.
+
+In **Song MIDI cues**, choose **When → Before song** for named commands, raw MIDI or macros. Move existing commands with **Before song** and reorder whole command lines with the arrow buttons. Bank-select and program-change groups stay together. Song settings control a loading wait and a gap between command groups; individual lines also have **Wait after**, each from zero to ten seconds. Automatic opening preparation only moves presets early; notes and transport actions retain their times unless explicitly made preparation commands.
+
+Choose **Every start**, **Only from beginning**, or **Once per song load** for each preparation line. Once commands are consumed when sending starts, even if cancellation or a failure follows; **Reset once commands** explicitly permits them again without sending anything. Chart syntax includes `{midi@prepare:pc 1 5}`, `{midi@prepare-beginning:pc 1 5}` and `{midi@prepare-once wait=0.5:$INIT}`.
+
+**Next preparation sequence** previews the send order, waits, skipped repeat commands and total configured time without sending MIDI. **Check playlist** previews each saved entry and totals its preparation waits, assuming fresh song loads. Reports refresh after settings changes. Conflicting recalls and early trigger commands produce advice without changing intentional sequences.
+
+Preparation progress and **Cancel start** are available in the transport and stage view. Cancellation prevents the remaining commands and music; it cannot undo commands already received by a pedal. Output or setup changes cancel pending preparation and invalidate Ready. Preparation runs between playlist songs; disable it to use crossfades.
+Playlist and song MIDI checks show playback errors and performance warnings first. Optional section navigation and intentional trim advice appear separately under **Arrangement advice**. Configured loop, repeat, skip and pause risks remain warnings. Checks include pre-roll and allow 10 ms for rounded boundaries without changing playback times.
+
 ### Tempo and clock
 
 For the GP-180, send the tempo once and let the pedal generate the clock. Apply the **GP-150 / GP-180 + pedals** setup preset (below), or add **Valeton GP-180 → Set tempo (BPM)** at time zero. On the pedal, set Clock Source to Internal and TRS clock output to On. Update a saved tempo cue by hand if you change the Song BPM. The preset uses the current BPM (40–300) automatically.
@@ -420,7 +433,7 @@ If the grid is wrong, correct it:
 
 **Generate, Try another, Remove, Preview and Export MIDI.**
 
-- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Changing a setting does not regenerate anything. The panel says "Parts out of date" until you press Generate again.
+- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Once generated parts exist, musical changes refresh them automatically while stopped, even with the panel closed. Play waits for the update and save to finish. Trims and mixer changes reuse the full-length audio. Imported rendered parts are preserved.
 - **Try another** keeps your settings and makes a different take.
 - **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
 - **Preview** plays the parts over the song, from the section you pick in the menu next to it (or from the playhead), for the whole section, 4 bars or 8 bars. **Stop preview** ends it early. The buttons stay at the bottom of the dialog, and after **Generate** the bar offers **Close** and **Play from** the selected section.
@@ -508,3 +521,5 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - Chord estimates cover the common chord types only: no extended chords such as ninths or altered chords. Key estimates are less certain for modal music, relative keys and key changes, and a key in a section is only listed when it is clear. Lyrics from Whisper can be wrong. The project has not yet measured chord accuracy on real recordings.
 - Pedal profiles come from manuals and are tested at byte level. Only the GP-180 and TimeLine results above come from real hardware.
 - Bluetooth editor management and RTP-MIDI are not supported.
+
+The Band workspace groups Parts, Feel, Sound, Notes and Timing. Notes shows saved generated parts bar by bar, with fill/stop/crash/rest marks and per-section re-roll or keep. Bass figures follow the key and keep a register, with an extended low range. Endings can hit, hold, play three hits, slow down or be left unchanged. Missing tone files are reported while usable generated audio is kept. Song maps can carry bar marks.

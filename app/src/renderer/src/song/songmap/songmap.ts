@@ -4,6 +4,7 @@
 
 import { BASS_PART_CHOICES, type BassPartChoice } from "@/song/band/bass-parts";
 import { MAX_BASS_OVERRIDES, type OverrideOctave } from "@/song/band/bass-overrides";
+import { BAR_MARK_KINDS, FILL_BEATS, MAX_BAR_MARKS, STOP_BEATS, hasBeats, type BarMarkKind } from "@/song/band/marks";
 import { parseChordName } from "@/song/band/harmony";
 import { ENERGIES, STYLE_IDS, type Energy, type StyleId } from "@/song/band/styles/types";
 import { NOTE_NAMES } from "@/song/analysis/chord-templates";
@@ -62,6 +63,19 @@ export interface SongMapBassNote {
   octave?: OverrideOctave;
 }
 
+/**
+ * A mark on one bar (spec 135): a kind, and where. The bar is a `Time` (the bar's start, in song seconds) or a `Bar` named by its section and
+ * its number counted from the section's start, such as `Chorus 2:8`. A named bar is turned into a time when the map is imported, from the
+ * song's beat grid.
+ */
+export interface SongMapMark {
+  kind: BarMarkKind;
+  /** For a fill (1, 2 or 4) and a stop (1 to 4). */
+  beats?: number;
+  time?: number;
+  bar?: { section: string; number: number };
+}
+
 /** The key of the song: the tonic pitch class, the mode, and the name as written, such as `F# minor`. */
 export interface SongMapKey {
   tonic: number;
@@ -82,6 +96,8 @@ export interface SongMap {
   style?: StyleId;
   sections: SongMapSection[];
   bassNotes: SongMapBassNote[];
+  /** Marks on bars. Left out when the map has none. */
+  marks?: SongMapMark[];
   /** The chart text, verbatim, in the app's chart format. */
   chart?: string;
   notes?: string;
@@ -344,18 +360,25 @@ function splitBlocks(lines: SourceLine[]): Block[] {
 /** Reads each `##` section by its title. The first section with a known title is used. Later repeats, and unknown titles, are ignored. */
 function readBody(map: SongMap, lines: SourceLine[], problems: SongMapProblem[]): void {
   const seen = new Set<string>();
+  // The marks are read after the sections, since a named bar must name one of them.
+  let marksLines: SourceLine[] | null = null;
   for (const block of splitBlocks(lines)) {
     const title = block.heading.toLowerCase();
     if (!title) continue;
-    if (!["sections", "bass notes", "chart", "notes"].includes(title) || seen.has(title)) {
+    if (!["sections", "bass notes", "marks", "chart", "notes"].includes(title) || seen.has(title)) {
       map.ignored.push(block.heading);
       continue;
     }
     seen.add(title);
     if (title === "sections") map.sections = readSectionsBlock(block.lines, map.duration, problems);
     else if (title === "bass notes") map.bassNotes = readBassBlock(block.lines, problems);
+    else if (title === "marks") marksLines = block.lines;
     else if (title === "chart") setChart(map, block.lines, problems);
     else setNotes(map, block.lines, problems);
+  }
+  if (marksLines) {
+    const marks = readMarksBlock(marksLines, map.sections, problems);
+    if (marks.length > 0) map.marks = marks;
   }
 }
 
@@ -601,6 +624,79 @@ function resolveBassNotes(drafts: BassDraft[], problems: SongMapProblem[]): Song
   return notes;
 }
 
+/** A bar named by its section and number, such as `Chorus 2:8`. The last colon splits them, so a section name may hold one. */
+const BAR_TEXT = /^(.*\S)\s*:\s*(\d+)$/;
+
+/** The kind a Mark cell names. Spaces and hyphens are the same, so `no fill` and `No-fill` read as `no-fill`. */
+function readMarkKind(raw: string): BarMarkKind | null {
+  const value = raw.trim().toLowerCase().replace(/\s+/g, "-");
+  return BAR_MARK_KINDS.find((kind) => kind === value) ?? null;
+}
+
+/** Reads the Marks table: a Bar (`Chorus 2:8`) or a Time, a Mark, and for a fill or a stop its Beats. A row with a problem is skipped. */
+function readMarksBlock(lines: SourceLine[], sections: readonly SongMapSection[], problems: SongMapProblem[]): SongMapMark[] {
+  const table = readTable(lines);
+  if (!table) return [];
+  if ((!table.columns.has("bar") && !table.columns.has("time")) || !table.columns.has("mark")) {
+    problems.push({ line: table.headerLine, message: `Line ${table.headerLine}: the Marks table needs a Bar or a Time column, and a Mark column.` });
+    return [];
+  }
+  const marks: SongMapMark[] = [];
+  for (const row of table.rows) {
+    if (isBlankRow(row)) continue;
+    const fail = (message: string): void => {
+      problems.push({ line: row.line, message: `Line ${row.line}: ${message}` });
+    };
+    if (marks.length === MAX_BAR_MARKS) {
+      fail(`a song map keeps at most ${MAX_BAR_MARKS} marks, so this row and the rest are skipped.`);
+      break;
+    }
+    const kind = readMarkKind(cell(row, table, "mark"));
+    if (!kind) {
+      fail(`"${cell(row, table, "mark").trim()}" is not a mark. Use ${BAR_MARK_KINDS.join(", ")}.`);
+      continue;
+    }
+    const time = readTimeCell(cell(row, table, "time"));
+    if (!time.ok) {
+      fail(time.message);
+      continue;
+    }
+    const barText = cell(row, table, "bar").trim();
+    const named = barText ? BAR_TEXT.exec(barText) : null;
+    if (barText && !named) {
+      fail(`"${barText}" is not a bar. Write the section and the bar number, such as Chorus 2:8.`);
+      continue;
+    }
+    if (named && !sections.some((section) => section.name.toLowerCase() === named[1].trim().toLowerCase())) {
+      fail(`"${named[1].trim()}" is not a section of this map, so the mark on ${barText} is skipped.`);
+      continue;
+    }
+    if (named && Number(named[2]) < 1) {
+      fail(`bars are counted from 1, so the mark on ${barText} is skipped.`);
+      continue;
+    }
+    if (!named && time.value === undefined) {
+      fail(`a mark has no Bar and no Time, so the row is skipped.`);
+      continue;
+    }
+    const beatsText = cell(row, table, "beats").trim();
+    const beats = beatsText === "" ? undefined : Number(beatsText);
+    if (hasBeats(kind) && beats !== undefined && !(kind === "fill" ? FILL_BEATS : STOP_BEATS).includes(beats)) {
+      fail(`${beatsText} beats is not allowed for a ${kind}. A fill is 1, 2 or 4 beats and a stop is 1 to 4.`);
+      continue;
+    }
+    marks.push(
+      withoutUndefined({
+        kind,
+        beats: hasBeats(kind) ? beats : undefined,
+        bar: named ? { section: named[1].trim(), number: Number(named[2]) } : undefined,
+        time: named ? undefined : time.value,
+      }),
+    );
+  }
+  return marks;
+}
+
 /**
  * Reads the chart: the first fenced block under the heading whose info text is empty or `chart`. A chart that does not parse is a
  * problem, and it is dropped, so the song still loads without it.
@@ -667,6 +763,7 @@ export function writeSongMap(map: SongMap): string {
     `# ${map.title ?? "Song map"}`,
     sectionsBlock(map.sections),
     bassBlock(map.bassNotes),
+    marksBlock(map.marks ?? []),
     map.chart === undefined ? "" : chartBlock(map.chart),
     map.notes ? `## Notes\n\n${map.notes}` : "",
   ];
@@ -734,6 +831,18 @@ function bassBlock(notes: SongMapBassNote[]): string {
     note.octave === 1 ? "up" : note.octave === -1 ? "down" : "",
   ]);
   return tableBlock("Bass notes", ["Start", "End", "Note", "Octave"], rows);
+}
+
+/** The Marks table, left out when there are none. A named bar is written in the Bar column and a timed one in the Time column. */
+function marksBlock(marks: SongMapMark[]): string {
+  if (marks.length === 0) return "";
+  const rows = marks.map((mark) => [
+    mark.bar ? cellText(`${mark.bar.section}:${mark.bar.number}`) : "",
+    mark.time === undefined ? "" : formatTime(mark.time),
+    mark.kind,
+    mark.beats === undefined ? "" : String(mark.beats),
+  ]);
+  return tableBlock("Marks", ["Bar", "Time", "Mark", "Beats"], rows);
 }
 
 /** The chart, in a fence with the `chart` info text. */
