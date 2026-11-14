@@ -5,7 +5,7 @@ import type { PcmAudio } from "../types";
 import { DEFAULT_BAND_SETTINGS } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandHarmony, bandRequest, beatSources, levelStems, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandRequest, beatSources, gridThroughSections, levelStems, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -130,5 +130,48 @@ describe("sumAudio", () => {
   it("adds the sources and pads the shorter ones with silence", () => {
     const sum = sumAudio([audio([0.5, 0.5, 0.5]), audio([0.25])]);
     expect(Array.from(sum.channels[0])).toEqual([0.75, 0.5, 0.5]);
+  });
+});
+
+describe("gridThroughSections", () => {
+  // Beats every half second up to 7.5 s, as when the drums stop there, in a song twelve seconds long.
+  const grid = fixedBeatGrid(120, 0, 4, 8);
+  const section = (id: string, start: number, end: number): Section => ({ id, name: id, start, end, mode: "continue" });
+
+  it("leaves a grid alone when every section starts inside it, so a song that ends on a last hit keeps its ending", () => {
+    expect(gridThroughSections(grid, [section("a", 0, 6), section("b", 6, 12)], 12)).toBe(grid);
+  });
+
+  it("carries the beats on through a section that starts after the last beat, at the grid's tempo", () => {
+    const longer = gridThroughSections(grid, [section("a", 0, 8), section("outro", 10, 12)], 12);
+    expect(longer.beats).toHaveLength(24);
+    expect(longer.beats.at(-1)).toBeCloseTo(11.5, 6);
+    // The outro starts on a bar line, so the bars stay regular and need no bar starts.
+    expect(longer.barStarts).toBeUndefined();
+  });
+
+  it("starts a bar where the later section starts, even off the grid's bar lines", () => {
+    const longer = gridThroughSections(grid, [section("a", 0, 8), section("outro", 9, 12)], 12);
+    expect(longer.barStarts).toEqual([0, 4, 8, 12, 16, 18, 22]);
+  });
+
+  it("stops at the end of the last section, never past the song", () => {
+    expect(gridThroughSections(grid, [section("outro", 9, 10)], 12).beats.at(-1)).toBeCloseTo(9.5, 6);
+    expect(gridThroughSections(grid, [section("outro", 9, 20)], 12).beats.at(-1)).toBeCloseTo(11.5, 6);
+  });
+
+  it("is the grid a band request plays on", () => {
+    const request = bandRequest({
+      grid,
+      cues: [{ time: 0, text: "[Am]", messages: [] }],
+      chords: [],
+      sections: [section("a", 0, 8), section("outro", 10, 12)],
+      settings: DEFAULT_BAND_SETTINGS,
+      songEnd: 12,
+      lengthFrames: 12 * 44100,
+      sampleUrls: {},
+    });
+    expect(request.grid.beats).toHaveLength(24);
+    expect(request.harmony).toHaveLength(24);
   });
 });

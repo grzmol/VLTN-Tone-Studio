@@ -28,6 +28,7 @@ export function StageView({
   beat,
   speedNote,
   pdf,
+  soloScale,
 }: {
   session: PerformanceSession;
   stage: boolean;
@@ -45,6 +46,8 @@ export function StageView({
   speedNote: string | null;
   /** The song's PDF chart, when it is a saved song with one (or can take one) */
   pdf?: PdfReaderState;
+  /** For the reader's Solo scale button */
+  soloScale?: { storageKey: string; capo: number; onChange?: () => void };
 }) {
   const library = useSongLibrary();
   const source = useSong((s) => s.source);
@@ -68,6 +71,7 @@ export function StageView({
         stage={stage}
         onExitStage={onExitStage}
         pdf={pdf}
+        soloScale={soloScale}
         chart={chart}
         lyrics={lyrics}
         chords={chords}

@@ -213,6 +213,15 @@ describe("isBandSettings and parseBandSettings", () => {
   });
 });
 
+describe("follow-the-drummer setting", () => {
+  it("is on by default, a saved choice is kept, and a damaged or older value falls back to on", () => {
+    expect(DEFAULT_BAND_SETTINGS.followDrummer).toBe(true);
+    expect(parseBandSettings({ followDrummer: false })).toMatchObject({ followDrummer: false });
+    expect(parseBandSettings({ followDrummer: "no" })).toMatchObject({ followDrummer: true });
+    expect(parseBandSettings({ bassMode: "roots" })).toMatchObject({ followDrummer: true });
+  });
+});
+
 describe("follow-my-playing settings", () => {
   it("are on and automatic by default, and a saved choice is kept", () => {
     expect(DEFAULT_BAND_SETTINGS.followPlaying).toBe(true);
