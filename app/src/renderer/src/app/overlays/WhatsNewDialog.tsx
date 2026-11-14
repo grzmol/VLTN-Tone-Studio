@@ -9,6 +9,7 @@ import stemMixer from "@/assets/whats-new/stem-mixer.webp";
 import band from "@/assets/whats-new/band.webp";
 import midiCues from "@/assets/whats-new/midi-cues.webp";
 import stageMode from "@/assets/whats-new/stage-mode.webp";
+import soloScales from "@/assets/whats-new/solo-scales.webp";
 import { host } from "@/host";
 
 interface Slide {
@@ -44,6 +45,11 @@ const SLIDES: Slide[] = [
     title: "Stage mode, lyrics and chords",
     text: "Lyrics come from the vocals and chords from the stems, and the chart follows playback in large type. Stage mode locks editing, an audience window shows the words on a second screen, and bandmates can follow on their phones with Band sync.",
     image: stageMode,
+  },
+  {
+    title: "Where to solo",
+    text: "Solo scale shows the song's scale on the neck, for the key as you play it, with the pitch shift and capo taken in. It opens on the minor pentatonic, offers seven other scales, lights up one box position at a time, and writes fret numbers or note names.",
+    image: soloScales,
   },
 ];
 

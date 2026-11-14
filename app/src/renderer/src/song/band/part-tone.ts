@@ -216,6 +216,44 @@ function rms(samples: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, samples.length));
 }
 
+/** The longest delay a tone chain is allowed to have removed. A room IR's direct sound arrives at about 20 ms; nothing sane is later than this. */
+export const MAX_CHAIN_LATENCY_MS = 60;
+
+/** How far below the response's peak the first arrival is read: -20 dB, a tenth of the peak. */
+const ARRIVAL_THRESHOLD_DB = -20;
+
+/** The length of the click the chain is measured with, and how long a response is read for. */
+const CLICK_MILLISECONDS = 1;
+const PROBE_SECONDS = 0.25;
+const PROBE_LEVEL = 0.5;
+
+/**
+ * The index of the first sample whose absolute value reaches -20 dB of the largest one: where a response to a click begins. The sign does
+ * not matter, since a capture or an IR can flip the polarity. A response that is silent gives 0.
+ */
+export function firstArrival(response: Float32Array): number {
+  let peak = 0;
+  for (let i = 0; i < response.length; i++) peak = Math.max(peak, Math.abs(response[i]));
+  if (!(peak > 0)) return 0;
+  const threshold = peak * 10 ** (ARRIVAL_THRESHOLD_DB / 20);
+  return response.findIndex((value) => Math.abs(value) >= threshold);
+}
+
+/**
+ * How many frames of the part's rate the chain delays a hit by: the first arrival of the chain's response to a click, compared with the
+ * click's own. A block whose mix is below 1 passes part of the hit with no delay, so the first arrival is at the start and the chain
+ * delays nothing, whatever its room does later. A wet IR gives its direct sound's delay and a capture gives its own latency. The click is
+ * rendered through the same blocks with the same chain as the part. The result is at most MAX_CHAIN_LATENCY_MS.
+ */
+export async function chainLatency(blocks: LoadedBlock[], chain: PartChain, fast: boolean, sampleRate: number): Promise<number> {
+  const click = new Float32Array(Math.round(PROBE_SECONDS * CHAIN_RATE));
+  const width = Math.round((CLICK_MILLISECONDS / 1000) * CHAIN_RATE);
+  for (let i = 0; i < width; i++) click[i] = PROBE_LEVEL * Math.sin((Math.PI * (i + 0.5)) / width);
+  const frames = firstArrival(await chain(blocks, click, fast)) - firstArrival(click);
+  const atPartRate = Math.round((Math.max(0, frames) * sampleRate) / CHAIN_RATE);
+  return Math.min(atPartRate, Math.round((MAX_CHAIN_LATENCY_MS / 1000) * sampleRate));
+}
+
 /** Runs of blocks of one kind: captures play on the mid signal, IRs play on each channel. */
 function runs(blocks: readonly LoadedBlock[]): LoadedBlock[][] {
   const out: LoadedBlock[][] = [];
@@ -289,7 +327,10 @@ export async function renderPartTone(audio: PcmAudio, tone: LoadedPartTone, chai
   } else {
     wets = [toRate(await chain(tone.blocks, toRate(padded(dry), audio.sampleRate, CHAIN_RATE), tone.fast), CHAIN_RATE, audio.sampleRate)];
   }
-  wets = wets.map((wet) => fit(wet, frames));
+  // The chain delays the part (a room IR's direct sound arrives at about 20 ms), which would put every hit behind the beat grid, so the wet
+  // part moves earlier by the chain's delay, which is the first arrival of its response to a click (a chain that mixes dry in has none). Every channel moves by the same amount, which keeps the stereo image.
+  const latency = tone.blocks.length > 0 ? await chainLatency(tone.blocks, chain, tone.fast, audio.sampleRate) : 0;
+  wets = wets.map((wet) => fit(wet.subarray(latency), frames));
   const gain = irLevelGain(dry, monoOf(wets));
   for (const wet of wets) for (let i = 0; i < frames; i++) wet[i] *= gain;
   const channels = audio.channels.map((channel, c) => {
