@@ -174,7 +174,7 @@ describe("harmony with the performer's notes", () => {
 
   it("an override sets the bass of its beats, and keeps the chord's root and quality", () => {
     const harmony = plain([{ start: 0, end: 1.5, pc: 11 }]);
-    expect(harmony[0].chord).toEqual({ ...parseChordName("G")!, bass: 11 });
+    expect(harmony[0].chord).toEqual({ ...parseChordName("G")!, bass: 11, byHand: true });
     expect(harmony[2].chord?.bass).toBe(11);
     expect(harmony[3].chord?.bass).toBe(parseChordName("C")!.bass);
   });
@@ -218,5 +218,16 @@ describe("an override on a beat with no chord", () => {
     expect(result[1].chord?.bass).toBe(4);
     expect(result[1].chord?.root).toBe(4);
     expect(result[0].chord?.bass).toBe(9);
+  });
+});
+
+describe("an override written a little after its beat", () => {
+  it("still takes that beat, and leaves the beat at its end alone", async () => {
+    const { withBassOverrides } = await import("./harmony");
+    const perBeat: ChordAtBeat[] = [0, 0.5, 1, 1.5].map((time, beat) => ({ beat, time, chord: parseChordName("A") }));
+    // Rounded times: the note is meant for the beats at 0.5 and 1, but both times sit 4 ms after their beats.
+    const result = withBassOverrides(perBeat, [{ start: 0.504, end: 1.504, pc: 4 }]);
+    expect(result.map((entry) => entry.chord?.bass)).toEqual([9, 4, 4, 9]);
+    expect(result.map((entry) => entry.chord?.byHand === true)).toEqual([false, true, true, false]);
   });
 });

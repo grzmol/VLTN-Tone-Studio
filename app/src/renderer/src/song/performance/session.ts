@@ -19,7 +19,7 @@ import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/perform
 import { readCrossfade } from "@/song/performance/crossfade";
 import { songCountIn, type SongCountIn } from "@/song/performance/lead-in";
 import { getSetting, performanceKey, setSetting } from "@/song/performance/settings";
-import { playerShape, shapeFromOptions, type EndBehaviour } from "@/song/performance/song-shape";
+import { playerShapeFromOptions, type EndBehaviour } from "@/song/performance/song-shape";
 import { startMidiScheduler, prepareMidiScheduler, midiNow, type SchedulerDegraded } from "@/song/performance/midi-scheduler-client";
 import { CHASE_LEAD_MS, chaseTriggerSet, computeChaseState, type TriggerCc } from "@/song/performance/midi-chase";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
@@ -519,7 +519,7 @@ export class PerformanceSession {
     this.playedRecorded = false;
     this.autoplayPending = useSongLibrary.getState().takeAutoplay(source.libraryId);
     const options = getSetting(performanceKey(source), ":options");
-    const shape = playerShape(shapeFromOptions(options));
+    const shape = playerShapeFromOptions(options);
     const speed = speedFromOptions(options);
     this.baseStems = playableStems(stems, source.audio);
     this.songSettingsKey = performanceKey(source);

@@ -6,6 +6,7 @@ import {
   defaultPartChoice,
   defaultPartChoices,
   effectiveChoice,
+  muteSilencedParts,
   ORIGINAL_PARTS,
   partKeysOf,
   readPartChoices,
@@ -160,6 +161,31 @@ describe("silencedByChoice", () => {
 
   it("marks nothing for a part with no generated track, since its original is the only track", () => {
     expect(silencedByChoice(choices("generated"), { drums: { original: "drums" } })).toEqual({});
+  });
+});
+
+describe("muteSilencedParts", () => {
+  it("mutes an original stem left unmuted while its generated part plays", () => {
+    const mix: Mix = { drums: { volume: 0.4, mute: false, solo: false, pan: 0.2 }, bass: { volume: 1, mute: false, solo: false } };
+    const out = muteSilencedParts(mix, choices("generated", "generated"), BOTH);
+    expect(out.drums).toEqual({ volume: 0.4, mute: true, solo: false, pan: 0.2 });
+    expect(out.bass?.mute).toBe(true);
+  });
+
+  it("mutes the generated tracks when the originals play", () => {
+    const out = muteSilencedParts({}, choices("original"), BOTH);
+    expect(out.track1?.mute).toBe(true);
+    expect(out.track2?.mute).toBe(true);
+  });
+
+  it("never unmutes a track the choice plays", () => {
+    const mix: Mix = { track1: { volume: 1, mute: true, solo: false } };
+    expect(muteSilencedParts(mix, choices("generated"), BOTH).track1?.mute).toBe(true);
+  });
+
+  it("returns the same mix when a part plays both", () => {
+    const mix: Mix = { drums: { volume: 1, mute: false, solo: false } };
+    expect(muteSilencedParts(mix, choices("both", "both"), BOTH)).toBe(mix);
   });
 });
 

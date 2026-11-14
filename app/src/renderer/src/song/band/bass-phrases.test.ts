@@ -4,7 +4,7 @@ import type { BeatGrid } from "./beat-grid";
 import { generateBass } from "./bass";
 import { chooseVariation, isPhraseEnd, leadSteps, phraseBars, variationSeed, variationSteps, walkDown } from "./bass-phrases";
 import type { Feel } from "./feel";
-import { parseChordName, type ChordAtBeat } from "./harmony";
+import { parseChordName, withBassOverrides, type ChordAtBeat } from "./harmony";
 import { createRandom } from "./random";
 import type { Section } from "../performance/sections";
 import type { NoteEvent } from "./note";
@@ -176,6 +176,17 @@ describe("lead-ins and hit the one", () => {
     const last = lastVerseBar.at(-1)!;
     expect(last.time).toBeLessThan(8);
     expect(((last.pitch % 12) + 12) % 12).toBe(7);
+  });
+
+  it("keeps a note set by hand where the lead-in would go", () => {
+    // E set by hand on the last two beats of the verse, where the lead-in into the chorus's G would play.
+    const settings = settingsWith({});
+    const plans = planSections(sections, names.length * 2, settings);
+    const harmony = withBassOverrides(harmonyOf(names), [{ start: 7, end: 8, pc: 4 }]);
+    const notes = generateBass(gridOf(names.length), harmony, plans, settings, [], 9);
+    const handSet = notes.filter((note) => note.time >= 7 - 1e-9 && note.time < 8);
+    expect(handSet.length).toBeGreaterThan(0);
+    expect(handSet.every((note) => ((note.pitch % 12) + 12) % 12 === 4)).toBe(true);
   });
 
   it("plays no lead-in when the verse is followed by a stop", () => {

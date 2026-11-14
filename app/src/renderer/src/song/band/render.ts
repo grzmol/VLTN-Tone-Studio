@@ -7,6 +7,7 @@
 
 import type { PcmAudio } from "../types";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, PEDAL_HAT, RIDE, SIDE_STICK, SNARE, type NoteEvent } from "./note";
+import { ATTACK_ENVELOPE_SAMPLES } from "./beat-grid";
 import { pickBassLayers, pickDrumSample, type SampleSet } from "./samples";
 
 /** The sample rate of a rendered part: the song's rate. */
@@ -22,6 +23,49 @@ export const SLIDE_SECONDS = 0.04;
 /** A dead note is cut after its duration with this fade, and its one-pole low-pass sits at this frequency so it reads as a muted thump. */
 const DEAD_RELEASE_SECONDS = 0.01;
 export const DEAD_CUTOFF_HZ = 800;
+
+/** How far into a sample its attack is looked for. */
+const ATTACK_WINDOW_SECONDS = 0.06;
+
+/** The attack of each sample buffer, in frames of its own rate, so a sample is measured once however many notes play it. */
+const attackCache = new WeakMap<Float32Array, number>();
+
+/**
+ * Where a sample's attack is, in frames of its own rate: the first point where a short envelope (the mean of ATTACK_ENVELOPE_SAMPLES
+ * absolute values, as the beat grid reads the original drums) reaches half of the sample's peak within its first 60 ms. The envelope looks
+ * forward, so its point is moved by half its length, as snapToAttack does. A kick's attack sits 5 ms into its sample, so a note placed on
+ * the grid would play 5 ms late if the sample simply started at the note's time.
+ */
+export function sampleAttack(sample: PcmAudio): number {
+  const first = sample.channels[0];
+  const cached = attackCache.get(first);
+  if (cached !== undefined) return cached;
+  const reach = Math.min(first.length, Math.round(ATTACK_WINDOW_SECONDS * sample.sampleRate));
+  const envelope: number[] = [];
+  let peak = 0;
+  for (let i = 0; i + ATTACK_ENVELOPE_SAMPLES <= reach; i++) {
+    let sum = 0;
+    for (let k = 0; k < ATTACK_ENVELOPE_SAMPLES; k++)
+      sum += sample.channels.reduce((total, channel) => total + Math.abs(channel[i + k]), 0) / sample.channels.length;
+    envelope.push(sum / ATTACK_ENVELOPE_SAMPLES);
+    peak = Math.max(peak, envelope[envelope.length - 1]);
+  }
+  const half = peak > 0 ? envelope.findIndex((value) => value >= 0.5 * peak) : -1;
+  const attack = half < 0 ? 0 : half + ATTACK_ENVELOPE_SAMPLES / 2;
+  attackCache.set(first, attack);
+  return attack;
+}
+
+/**
+ * Moves a voice earlier by its sample's attack, so the attack (not the first frame of the sample) lands on the note's time. The start can't
+ * go before frame 0, and the hold, release and cut move with it, so the voice still lasts as long as it did.
+ */
+function onAttack(voice: Voice): Voice {
+  const advance = Math.min(Math.max(0, voice.shape.start), Math.round(sampleAttack(voice.sample) / voice.rate));
+  if (advance === 0) return voice;
+  const { start, holdEnd, release, cutAt, cutFade } = voice.shape;
+  return { ...voice, shape: { start: start - advance, holdEnd: holdEnd - advance, release, cutAt: cutAt - advance, cutFade } };
+}
 
 /** Where each kit piece sits, from -1 (left) to 1 (right), as a drummer hears it. Pitches not listed are centred. */
 export const DRUM_PAN: Readonly<Record<number, number>> = {
@@ -203,7 +247,7 @@ export function renderPart(
   sampleRate = RENDER_RATE,
 ): RenderedPart {
   const sorted = [...notes].sort((a, b) => a.time - b.time);
-  const voices = kind === "drums" ? drumVoices(sorted, samples, sampleRate) : bassVoices(sorted, samples, sampleRate);
+  const voices = (kind === "drums" ? drumVoices(sorted, samples, sampleRate) : bassVoices(sorted, samples, sampleRate)).map(onAttack);
   const left = new Float32Array(lengthFrames);
   const right = new Float32Array(lengthFrames);
   for (const voice of voices) mixVoice(left, right, voice);

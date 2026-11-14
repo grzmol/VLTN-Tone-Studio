@@ -243,6 +243,8 @@ function walkingPitch(slot: Slot, chord: ParsedChord, next: Slot | undefined, pr
 /** The note for one step, and whether it is an approach. Rests are not passed in. */
 function pitchOf(slot: Slot, chord: ParsedChord, next: Slot | undefined, previous: number, range: Range, settings: BandSettings): Picked {
   if (slot.ending) return { pitch: nearestOctave(chord.bass, previous, range, true), approach: false };
+  // A note the performer set by hand is played as set: no approach, walking tone or fifth takes its place.
+  if (chord.byHand) return { pitch: nearestOctave(chord.bass, previous, range, slot.strong), approach: false };
   if (slot.method === "walking" && slot.walking) return walkingPitch(slot, chord, next, previous, range);
   if (slot.method === "melodic" && approachApplies(slot, chord, next)) {
     const target = nearestOctave(next.chord.bass, previous, range, false);
@@ -543,10 +545,12 @@ function buildSlots(
       const forced = !pedal && previousBeat >= 0 && nameAt(previousBeat) !== nameAt(point.beat);
       if (!strong && !forced) offBeat += 1;
       const hitOne = plan.hitTheOne && barInPlan === 0 && index === 0;
+      // A beat with a note set by hand keeps that note: a pedal, a fill or a lead-in into the next section plays around it, not over it.
+      const byHand = chordAt(point.beat)?.byHand === true;
       slots.push({
         time: point.time,
         beat: point.beat,
-        chord: pedal && !variants.has(step) ? pedalChord : chordAt(point.beat),
+        chord: pedal && !variants.has(step) && !byHand ? pedalChord : chordAt(point.beat),
         style,
         plan: planIndex,
         part,
@@ -570,7 +574,7 @@ function buildSlots(
         forced,
         fifth: !strong && !forced && offBeat % 2 === 1,
         role: roles.get(step) ?? "root",
-        variant: variants.get(step),
+        variant: byHand ? undefined : variants.get(step),
         ending: false,
         barEnd: end,
         nextBarBass,

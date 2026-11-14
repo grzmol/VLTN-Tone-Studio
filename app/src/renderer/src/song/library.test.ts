@@ -864,10 +864,16 @@ describe("the practice mute on a prepared song", () => {
     expect(song.player.setMix.mock.calls.at(-1)?.[0].vocals).toBeUndefined();
   });
 
-  it("makes no call when nothing is muted", () => {
-    const song = prepared();
+  it("plays the saved mix, with the original drums off when the generated drums play", () => {
+    const mix = { drums: { volume: 1, mute: false, solo: false }, vocals: { volume: 0.5, mute: false, solo: false } };
+    const song = prepared({ ":options": JSON.stringify({ mix, partChoice: { drums: "generated", bass: "original" } }) });
+    song.player.names.push("t1");
+    (song as { tracks: Record<string, unknown> }).tracks = { t1: { kind: "user", name: "Drums (generated)" } };
     applyPracticeMute(song);
-    expect(song.player.setMix).not.toHaveBeenCalled();
+    const played = song.player.setMix.mock.calls.at(-1)?.[0];
+    expect(played.drums.mute).toBe(true);
+    expect(played.t1?.mute ?? false).toBe(false);
+    expect(played.vocals.volume).toBe(0.5);
   });
 
   it("follows a change made while the song waits, and brings the track back when the mute is turned off", () => {
