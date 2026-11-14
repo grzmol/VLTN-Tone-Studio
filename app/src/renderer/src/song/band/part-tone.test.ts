@@ -4,6 +4,8 @@ import type { BassTone, BassToneFile, ToneBlock } from "./arrangement";
 import {
   applyBassTone,
   applyPartTone,
+  chainLatency,
+  firstArrival,
   BASS_TONE_PRESETS,
   DRUM_TONE_PRESETS,
   loadPartTone,
@@ -138,7 +140,10 @@ describe("renderBassTone", () => {
     const chain = vi.fn(identity);
     const cab: LoadedBlock = { type: "ir", role: "cab", ir: new Float32Array([1, 0.5]), on: true, inputDb: 2, outputDb: -4, mix: 1 };
     await renderBassTone(sine(2000, 110, 0.4), loaded({ blocks: [amp("prepared"), cab], fast: true }), chain);
-    expect(chain).toHaveBeenCalledTimes(1);
+    // The part is rendered once, then a click is rendered through the same blocks to measure the chain's delay.
+    expect(chain).toHaveBeenCalledTimes(2);
+    expect(chain.mock.calls[1][0]).toEqual([amp("prepared"), cab]);
+    expect(chain.mock.calls[1][2]).toBe(true);
     const [blocks, input, fast] = chain.mock.calls[0];
     expect(blocks).toEqual([amp("prepared"), cab]);
     expect(input.length).toBeGreaterThanOrEqual(Math.round((2000 * CHAIN_RATE) / RATE));
@@ -429,10 +434,11 @@ describe("renderPartTone for stereo drums", () => {
     const left = Float32Array.of(1, 0.5);
     const right = Float32Array.of(0.25, 0.1);
     await renderPartTone(drums, loaded({ blocks: [roomBlock(left, right)] }), record, true);
-    expect(calls.map((call) => call.ir)).toEqual([left, right]);
+    // The third call is the click that measures the chain's delay, once for both channels, on the left IR.
+    expect(calls.map((call) => call.ir)).toEqual([left, right, left]);
     calls.length = 0;
     await renderPartTone(drums, loaded({ blocks: [roomBlock(left)] }), record, true);
-    expect(calls.map((call) => call.ir)).toEqual([left, left]);
+    expect(calls.map((call) => call.ir)).toEqual([left, left, left]);
   });
 
   it("applies dry/wet and the output of the blend as it does for the bass", async () => {
@@ -451,8 +457,10 @@ describe("renderPartTone for stereo drums", () => {
   it("leaves a mono part as it was: one chain call with every block", async () => {
     const chain = vi.fn<PartChain>(async (_blocks, input) => input.slice());
     await renderPartTone(sine(2000, 110, 0.4), loaded({ blocks: [outboardBlock(), roomBlock(Float32Array.of(1))] }), chain);
-    expect(chain).toHaveBeenCalledTimes(1);
+    // One call for the part and one for the click that measures the delay.
+    expect(chain).toHaveBeenCalledTimes(2);
     expect(chain.mock.calls[0][0]).toHaveLength(2);
+    expect(chain.mock.calls[1][0]).toHaveLength(2);
   });
 });
 
@@ -519,5 +527,182 @@ describe("the drum tone's files, presets and estimate", () => {
     const drums = kit(100);
     const result = await applyPartTone(drums, { kind: "clean" }, noFiles(), identity, "drums");
     expect(result).toEqual({ audio: drums, notice: null });
+  });
+});
+
+/** Repeatable noise in -1..1, so the tests don't depend on Math.random. */
+function noise(length: number, seed = 1): Float32Array {
+  let state = seed;
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    out[i] = state / 0x80000000 - 1;
+  }
+  return out;
+}
+
+/** Short decaying noise bursts every `period` frames, from `first`: hits with a sharp attack, like a kit's. */
+function hits(frames: number, period: number, first = 2000): Float32Array {
+  const out = new Float32Array(frames);
+  const burst = noise(1200, 7);
+  for (let at = first; at < frames; at += period) {
+    for (let i = 0; i < burst.length && at + i < frames; i++) out[at + i] = 0.8 * burst[i] * Math.exp(-i / 250);
+  }
+  return out;
+}
+
+/** `samples` delayed by `delay` frames, plus a quieter reverb-like tail of a few decaying taps after the direct one. */
+function delayed(samples: Float32Array, delay: number, tail = false): Float32Array {
+  const out = new Float32Array(samples.length);
+  const taps = tail ? [[0, 1], ...[1, 2, 3, 4, 5, 6, 7, 8].map((k) => [k * 211, 0.35 * Math.exp(-k / 3)])] : [[0, 1]];
+  for (const [offset, gain] of taps) for (let i = 0; i + delay + offset < samples.length; i++) out[i + delay + offset] += samples[i] * gain;
+  return out;
+}
+
+/** The first frame at or after `from` where the channel passes a fifth of its peak in the next `span` frames. */
+function attackAfter(channel: Float32Array, from: number, span = 1500): number {
+  let peak = 0;
+  for (let i = from; i < from + span; i++) peak = Math.max(peak, Math.abs(channel[i]));
+  for (let i = from; i < from + span; i++) if (Math.abs(channel[i]) > peak * 0.2) return i;
+  return -1;
+}
+
+const ms = (milliseconds: number, rate = RATE) => Math.round((milliseconds / 1000) * rate);
+
+/** A chain that mixes `dry` of the input with no delay and `1 - dry` of it delayed by `delay` frames, as an IR block at mix 0.3 does. */
+const mixing =
+  (dry: number, delay: number): PartChain =>
+  async (_blocks, input) => {
+    const wet = delayed(input, delay);
+    return input.map((v, i) => v * dry + wet[i] * (1 - dry));
+  };
+
+describe("firstArrival", () => {
+  it("finds the first sample within 20 dB of the peak, whatever its sign", () => {
+    const response = new Float32Array(1000);
+    response[300] = -0.05; // 26 dB under the peak: noise before the arrival
+    response[400] = -0.2; // 20 dB under: this is the arrival
+    response[450] = 1;
+    expect(firstArrival(response)).toBe(400);
+  });
+
+  it("gives 0 for a silent response", () => {
+    expect(firstArrival(new Float32Array(100))).toBe(0);
+  });
+});
+
+describe("chainLatency", () => {
+  const blocks = [amp()];
+
+  for (const delay of [0, 3, 21]) {
+    it(`finds a ${delay} ms delay of a click to the sample`, async () => {
+      const found = await chainLatency(blocks, async (_b, input) => delayed(input, ms(delay, CHAIN_RATE)), false, CHAIN_RATE);
+      expect(found).toBe(ms(delay, CHAIN_RATE));
+    });
+  }
+
+  it("converts the delay to the part's rate", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(21, CHAIN_RATE)), false, RATE)).toBeCloseTo(ms(21), -0.5);
+  });
+
+  it("finds a room that is fully wet, with its tail after the direct sound", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(20.4, CHAIN_RATE), true), false, CHAIN_RATE)).toBe(ms(20.4, CHAIN_RATE));
+  });
+
+  it("gives 0 for 70% dry plus 30% of a room at 21 ms: the dry path arrives first", async () => {
+    expect(await chainLatency(blocks, mixing(0.7, ms(21, CHAIN_RATE)), false, CHAIN_RATE)).toBe(0);
+  });
+
+  it("finds the delay of a chain that flips the polarity", async () => {
+    const flipped: PartChain = async (_b, input) => delayed(input, ms(21, CHAIN_RATE)).map((v) => -v);
+    expect(await chainLatency(blocks, flipped, false, CHAIN_RATE)).toBe(ms(21, CHAIN_RATE));
+  });
+
+  it("gives 0 for a silent chain, and never more than the cap", async () => {
+    expect(await chainLatency(blocks, async (_b, input) => new Float32Array(input.length), false, CHAIN_RATE)).toBe(0);
+    expect(await chainLatency(blocks, async (_b, input) => delayed(input, ms(100, CHAIN_RATE)), false, CHAIN_RATE)).toBe(ms(60, CHAIN_RATE));
+  });
+
+  it("renders the click through the same blocks and the same fast flag", async () => {
+    const chain = vi.fn<PartChain>(async (_b, input) => input.slice());
+    await chainLatency(blocks, chain, true, CHAIN_RATE);
+    expect(chain).toHaveBeenCalledWith(blocks, expect.any(Float32Array), true);
+  });
+});
+
+describe("renderPartTone lines the part up with the beat", () => {
+  const frames = RATE * 3;
+  const period = ms(500);
+  const kitHits = hits(frames, period);
+  const mono: PcmAudio = { sampleRate: RATE, channels: [kitHits, kitHits.slice()] };
+  const stereoKit: PcmAudio = { sampleRate: RATE, channels: [kitHits, hits(frames, period).map((v) => v * 0.7)] };
+  const clicks = Array.from({ length: 5 }, (_, k) => 2000 + k * period);
+
+  /** A chain that delays its input by `delay` frames at the chain rate. */
+  const delaying =
+    (delay: number): PartChain =>
+    async (_blocks, input) =>
+      delayed(input, delay);
+
+  /** A chain that convolves with an IR whose direct tap is at `delay` frames and whose few later taps decay. */
+  const room =
+    (delay: number): PartChain =>
+    async (_blocks, input) =>
+      delayed(input, delay, true);
+
+  const expectOnTheBeat = (out: PcmAudio, reference: PcmAudio) => {
+    for (let c = 0; c < out.channels.length; c++) {
+      for (const at of clicks) expect(Math.abs(attackAfter(out.channels[c], at - 200) - attackAfter(reference.channels[c], at - 200))).toBeLessThanOrEqual(2);
+    }
+  };
+
+  for (const [name, chain] of [
+    ["a delay of 21 ms", delaying(ms(21, CHAIN_RATE))],
+    ["a room IR with its direct sound at 20 ms and a tail", room(ms(20, CHAIN_RATE))],
+  ] as const) {
+    it(`puts a mono part's attacks where the dry part's are through ${name}`, async () => {
+      expectOnTheBeat(await renderPartTone(mono, loaded({ blocks: [amp()] }), chain), mono);
+    });
+
+    it(`puts a stereo part's attacks where the dry part's are through ${name}`, async () => {
+      const out = await renderPartTone(stereoKit, loaded({ blocks: [outboardBlock()] }), chain, true);
+      expectOnTheBeat(out, stereoKit);
+    });
+  }
+
+  it("moves nothing for a room that is mixed 30% wet inside the chain: the dry kit passes with no delay and stays on the beat", async () => {
+    const chain = mixing(0.7, ms(21, CHAIN_RATE));
+    expectOnTheBeat(await renderPartTone(stereoKit, loaded({ blocks: [outboardBlock()] }), chain, true), stereoKit);
+    expectOnTheBeat(await renderPartTone(mono, loaded({ blocks: [amp()] }), chain), mono);
+  });
+
+  it("keeps a blend of 0.5 through a delaying chain as loud as the dry part, within 1 dB", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()], dryWet: 0.5 }), delaying(ms(21, CHAIN_RATE)));
+    const rmsOf = (samples: Float32Array) => Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    expect(20 * Math.log10(rmsOf(out.channels[0]) / rmsOf(mono.channels[0]))).toBeGreaterThan(-1);
+  });
+
+  it("does not cancel a blend of dry and delayed hits: the attack stays as sharp as the dry one", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()], dryWet: 0.5 }), delaying(ms(21, CHAIN_RATE)));
+    expectOnTheBeat(out, mono);
+  });
+
+  it("shifts nothing for a chain that adds no delay", async () => {
+    const out = await renderPartTone(mono, loaded({ blocks: [amp()] }), async (_blocks, input) => input.slice());
+    expectOnTheBeat(out, mono);
+  });
+
+  it("returns a clean tone and an empty chain unchanged", async () => {
+    const files = noFiles();
+    expect((await applyPartTone(mono, { kind: "clean" }, files, delaying(1000), "bass")).audio).toBe(mono);
+    const empty = await renderPartTone(mono, loaded({ blocks: [] }), delaying(1000));
+    for (let c = 0; c < 2; c++) for (const i of [0, 2100, 5000, frames - 1]) expect(empty.channels[c][i]).toBeCloseTo(mono.channels[c][i], 5);
+  });
+
+  it("renders a silent part without throwing", async () => {
+    const silence: PcmAudio = { sampleRate: RATE, channels: [new Float32Array(RATE), new Float32Array(RATE)] };
+    const out = await renderPartTone(silence, loaded({ blocks: [amp()] }), delaying(ms(21, CHAIN_RATE)));
+    expect(out.channels[0]).toHaveLength(RATE);
+    expect(Math.max(...out.channels[0].map(Math.abs))).toBe(0);
   });
 });

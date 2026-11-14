@@ -102,7 +102,7 @@ const FLAT_MAJOR_PITCHES = new Set([1, 3, 5, 8, 10]);
 const FLAT_MINOR_PITCHES = new Set([0, 2, 3, 5, 7, 8, 10]);
 
 /** The root, pitch class, minor flag and accidental of a key name such as "Bb", "A minor", "F#m" or "Eb major", or null when it does not parse. */
-function keyParts(key: string): { pitch: number; minor: boolean; accidental: string } | null {
+export function keyParts(key: string): { pitch: number; minor: boolean; accidental: string } | null {
   const match = /^([A-G])([#b]?)(.*)$/.exec(key.trim());
   if (!match) return null;
   const pitch = (NOTE_INDEX[match[1]] + (match[2] === "#" ? 1 : match[2] === "b" ? -1 : 0) + 12) % 12;

@@ -753,7 +753,7 @@ function extendBeats(beats: readonly number[], onset: Float64Array, frameRate: n
 /** How far either side of a tracked beat the attack is searched for, in seconds. Frame-based onsets are only good to a few milliseconds. */
 export const ATTACK_SEARCH_SECONDS = 0.012;
 /** Length of the envelope the attack is read from, in samples. About 0.7 ms at 44.1 kHz, short enough to find the start of a click. */
-const ATTACK_ENVELOPE_SAMPLES = 32;
+export const ATTACK_ENVELOPE_SAMPLES = 32;
 
 /**
  * Moves each beat to the attack of the audio near it. The attack is the first sample whose short envelope reaches half of the envelope's
