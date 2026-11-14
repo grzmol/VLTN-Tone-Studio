@@ -136,15 +136,26 @@ export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** Players that have not been disposed, for the memory estimate (spec 127). Holds no audio itself. */
-const livePlayers = new Set<StemPlayer>();
+/**
+ * Players that have not been disposed, for the memory estimate (spec 127). Weak references: measuring must never keep a player, and
+ * the audio it holds, alive after the rest of the app has let go of it.
+ */
+const livePlayers = new Set<WeakRef<StemPlayer>>();
 
 /** The audio each live player holds, by song: what the memory line in MIDI health adds up. */
 export function liveAudio(): { player: StemPlayer; rate: number; tracks: { channels: number; frames: number; key: object }[] }[] {
-  return [...livePlayers].map((player) => ({ player, rate: player.playbackRate, tracks: player.bufferShapes() }));
+  const players: StemPlayer[] = [];
+  for (const ref of livePlayers) {
+    const player = ref.deref();
+    if (player) players.push(player);
+    else livePlayers.delete(ref);
+  }
+  return players.map((player) => ({ player, rate: player.playbackRate, tracks: player.bufferShapes() }));
 }
 
 export class StemPlayer {
+  /** This player's entry in `livePlayers`. */
+  private readonly liveRef = new WeakRef<StemPlayer>(this);
   /** The playable range, in song seconds. Trim and the file's length both set it. */
   private range: PlayRange;
   /** The song's length in song seconds, before any trim. The buffers may be a render of it, so this is not their own length. */
@@ -225,7 +236,7 @@ export class StemPlayer {
     this.ctx = this.engine.ctx;
     this.router = this.engine.router;
     this.unlisten = this.engine.onWarning((message) => this.onOutputWarning?.(message));
-    livePlayers.add(this);
+    livePlayers.add(this.liveRef);
     this.voices = Object.fromEntries(
       this.names.map((name) => {
         const pcm = stems[name]!;
@@ -889,7 +900,7 @@ export class StemPlayer {
 
   /** Frees the song's nodes. `stop` is false after a hand-over, whose stems have already been scheduled to end. */
   private async release(stop: boolean): Promise<void> {
-    livePlayers.delete(this);
+    livePlayers.delete(this.liveRef);
     this.unlisten();
     if (stop) this.stopSources();
     else this.stopMetronome();
