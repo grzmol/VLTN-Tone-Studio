@@ -20,6 +20,19 @@ it("reports simultaneous conflicts/duplicates without rewriting intentional comm
   expect(report.issues.map((i) => i.code)).toEqual(["conflict", "duplicate"]);
   expect(JSON.stringify(cues)).toBe(before);
 });
+it("accepts RC-10R pulses spaced by the output but still warns about duplicates and unrecognized pairs", () => {
+  const chart = "[00:01] {nochase} {midi:cc 2 80 127} {midi:cc 2 80 0}";
+  const pedals = [{ name: "BOSS RC-10R", channel: 2, triggers: [[2, 80] as [number, number]] }];
+  expect(midiPreflight(parseChart(chart), { ...options, pedals }).issues).toEqual([]);
+  expect(
+    midiPreflight(
+      parseChart(chart).map((cue) => ({ ...cue, managed: "rhythm" })),
+      options,
+    ).issues,
+  ).toEqual([]);
+  expect(midiPreflight(parseChart(chart), options).issues.some((issue) => issue.code === "conflict")).toBe(true);
+  expect(midiPreflight(parseChart(chart + " {midi:cc 2 80 0}"), { ...options, pedals }).issues.map((issue) => issue.code)).toEqual(["duplicate"]);
+});
 it("finds configured pedal-channel collisions, saved-channel mismatches and automatic tempo conflicts", () => {
   const cues = parseChart("[00:00] {label:Pedal A: recall} {midi:pc 1 1}\n[00:01] {label:Pedal B: recall} {midi:pc 2 1}\n[00:02] {midi:cc 1 74 90}");
   const report = midiPreflight(cues, {
@@ -131,4 +144,73 @@ it("says a raw CC matching an assigned trigger is skipped by the chase unless it
   const report = (text: string) => midiPreflight(parseChart(text), { ...options, pedals });
   expect(report("[00:03] {midi:cc 2 70 127}").issues.map((i) => i.code)).toEqual(["chase-assigned-trigger"]);
   expect(report("[00:03] {chase} {midi:cc 2 70 127}").issues).toEqual([]);
+});
+
+it("counts preparation commands and warns when automatic tempo will overwrite a custom setup tempo", () => {
+  const report = midiPreflight(parseChart("{midi@prepare:cc 16 73 1}\n{midi@prepare:cc 16 74 12}"), {
+    duration: 10,
+    clock: false,
+    tempoChannel: 16,
+    pedals: [],
+    outputName: "GP-180",
+  });
+  expect(report.commands).toBe(2);
+  expect(report.issues.some((issue) => issue.code === "preparation-tempo")).toBe(true);
+});
+
+it("checks output and saved profile channels for preparation-only songs", () => {
+  const report = midiPreflight(parseChart("{label:Pedal A: recall} {midi@prepare:pc 2 4}"), {
+    ...options,
+    outputName: undefined,
+    tempoChannel: 1,
+    pedals: [{ name: "Pedal A", channel: 1 }],
+  });
+  expect(report.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(["saved-channel", "output", "tempo-channel"]));
+  expect(report.commands).toBe(1);
+  expect(report.channels).toEqual([[2, 1]]);
+});
+
+const preparation = { enabled: true, settleMs: 1000, openingPresets: true };
+it("accounts for bank/preset state restored before a trimmed start, keeping mixed and unprepared commands visible", () => {
+  const chart = "[00:00] {midi:cc 1 0 2} {midi:pc 1 4}";
+  const setup = { ...options, range: { start: 2, end: 8 }, preparation };
+  expect(midiPreflight(parseChart(chart), setup).warnings).toEqual([]);
+  expect(midiPreflight(parseChart(chart), { ...setup, preparation: { ...preparation, enabled: false } }).warnings.map((issue) => issue.code)).toContain(
+    "cue-trim",
+  );
+  expect(midiPreflight(parseChart(chart), { ...setup, preparation: { ...preparation, openingPresets: false } }).warnings.map((issue) => issue.code)).toContain(
+    "cue-trim",
+  );
+  for (const extra of ["{midi:cc 1 10 127}", "{midi:note 1 60 100}"])
+    expect(midiPreflight(parseChart(chart + " " + extra), setup).warnings.map((issue) => issue.code)).toContain("cue-trim");
+  expect(midiPreflight(parseChart("[00:00] {nochase} {midi:pc 1 4}"), setup).warnings.map((issue) => issue.code)).toContain("cue-trim");
+  // The same preset later than the trimmed end still never plays; an earlier prepared copy cannot excuse it.
+  expect(midiPreflight(parseChart(chart + "\n[00:09] {midi:pc 1 4}"), setup).warnings.map((issue) => issue.code)).toContain("cue-trim");
+});
+it("uses the actual pre-roll start and a 10ms reporting tolerance without editing cue timestamps", () => {
+  const cues = parseChart("[00:01.995] {midi:cc 1 10 4}\n[00:06.005] {midi:cc 1 11 4}");
+  const before = JSON.stringify(cues);
+  expect(midiPreflight(cues, { ...options, range: { start: 2, end: 6 } }).warnings).toEqual([]);
+  expect(JSON.stringify(cues)).toBe(before);
+  expect(midiPreflight(parseChart("[00:01.98] {midi:cc 1 10 4}"), { ...options, range: { start: 2, end: 6 } }).warnings.map((issue) => issue.code)).toEqual([
+    "cue-trim",
+  ]);
+  expect(midiPreflight(parseChart("[00:03] {midi:cc 1 10 4}"), { ...options, range: { start: 4, end: 8 }, playbackStart: 3 }).warnings).toEqual([]);
+  expect(midiPreflight(parseChart("[00:10.005] {midi:pc 1 2}"), options).warnings).toEqual([]);
+  expect(midiPreflight(parseChart("[00:10.02] {midi:pc 1 2}"), { ...options, range: { start: 2, end: 10 } }).warnings.map((issue) => issue.code)).toEqual([
+    "past-end",
+  ]);
+});
+it("keeps missing note-offs visible even after the arrangement-advice limit is reached", () => {
+  const sections = Array.from({ length: 120 }, (_, i) => ({
+    id: String(i),
+    name: `Verse ${i}`,
+    start: i * 4 + 0.2,
+    end: i * 4 + 3.2,
+    mode: "continue" as const,
+  }));
+  const report = midiPreflight(parseChart("[00:01] {midi:note 1 60 100}"), { ...options, duration: 1000, sections, bpm: 120, beats: 4 });
+  expect(report.advice).toHaveLength(100);
+  expect(report.warnings.map((issue) => issue.code)).toEqual(["note-off"]);
+  expect(report.issues[0].code).toBe("note-off");
 });

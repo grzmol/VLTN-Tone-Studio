@@ -5,6 +5,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 ## [Unreleased]
 
 ### Added
+- **RC-10R rhythms.** Export native six-part rhythms or MIDI, plan song/playlist rhythm cues, track export and explicit transfer revisions, and prepare memory/tempo before playback.
 - **Solo scales.** See where to solo on the neck for the song's key. It opens on the minor pentatonic (the relative minor in a major key), with other scales, a root, box positions, and fret numbers or note names. It follows the pitch shift and the capo, shows in **This song** and from a **Solo scale** button in Lyrics & chords, and is saved with the song ([Solo scales](PERFORMANCE.md#solo-scales)).
 - **Song maps.** A song map sets a song's sections, the drums and bass for each section, bass note fixes, timed chords and lyrics in one go. Export a song brief from **This song → Song map**, have it filled in, then import the reply; the import shows what will change and can be undone ([Song maps](SONG-MAP.md)).
 - **Audio saves itself.** Generated drums and bass, imported tracks, rendered parts and stem splits in a song from the library are saved as soon as they exist, one save at a time and never while music plays. The Song header shows Saved, Saving… with the step, Not saved or Couldn't save, with a button to save or try again. Opening another song, or closing the window, asks first when audio isn't saved; a playlist that is playing never stops for it ([Song library](SONG-LIBRARY.md)).

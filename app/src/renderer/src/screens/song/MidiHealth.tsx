@@ -1,3 +1,5 @@
+import { ArrangementAdvice } from "./ArrangementAdvice";
+import type { PreparationSettings } from "@/song/performance/start-preparation";
 import { useEffect, useMemo, useState } from "react";
 import type { Cue } from "@/song/performance/chart";
 import { midiPreflight } from "@/song/performance/midi-preflight";
@@ -16,6 +18,11 @@ export function MidiHealth({
   sections,
   duration,
   range,
+  playbackStart,
+  preparation,
+  bpm,
+  beats,
+  firstBeat,
   clock,
   tempoChannel,
   outputName,
@@ -28,6 +35,11 @@ export function MidiHealth({
   duration: number;
   /** The part of a trimmed song that plays, when the song is trimmed */
   range?: { start: number; end: number };
+  playbackStart?: number;
+  preparation?: PreparationSettings;
+  bpm?: number;
+  beats?: number;
+  firstBeat?: number;
   clock: boolean;
   tempoChannel?: number;
   outputName?: string;
@@ -42,13 +54,35 @@ export function MidiHealth({
         duration,
         sections,
         range,
+        playbackStart,
+        preparation,
+        bpm,
+        beats,
+        firstBeat,
         clock,
         tempoChannel,
         outputName,
         timecode,
         pedals: configuredPedals(library),
       }),
-    [cues, sections, duration, range, clock, tempoChannel, outputName, timecode, library.channels, library.profiles],
+    [
+      cues,
+      sections,
+      duration,
+      range,
+      playbackStart,
+      preparation,
+      bpm,
+      beats,
+      firstBeat,
+      clock,
+      tempoChannel,
+      outputName,
+      timecode,
+      library.channels,
+      library.profiles,
+      library.assignments,
+    ],
   );
   const [timing, setTiming] = useState(() => useMidiDiagnostics.getState());
   const [ble, setBle] = useState(() => useBluetooth.getState().diagnostics);
@@ -72,7 +106,8 @@ export function MidiHealth({
   return (
     <details className="rounded border border-seam p-3" aria-label="MIDI health">
       <summary className="cursor-pointer">
-        MIDI preflight & timing · {parseError ? "chart error" : `${report.issues.length} warnings`} · {timing.failures} timing/dispatch failures
+        MIDI preflight & timing · {parseError ? "chart error" : `${report.warnings.length} warnings · ${report.advice.length} arrangement notes`} ·{" "}
+        {timing.failures} timing/dispatch failures
       </summary>
       <div className="space-y-3 pt-3 text-sm">
         <p>
@@ -80,21 +115,23 @@ export function MidiHealth({
         </p>
         <HelpNote>
           <p>
-            Warnings are advisory; intentional sequences are preserved. Up to 100 warnings are shown. Profile channels are app settings, not a readback of
-            physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical routing and receive channels before the set.
+            Warnings are advisory; intentional sequences are preserved. Up to 100 performance warnings and 100 arrangement notes are shown separately. Profile
+            channels are app settings, not a readback of physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical
+            routing and receive channels before the set.
           </p>
         </HelpNote>
         {parseError ? (
           <p className="text-red-400">{parseError}</p>
-        ) : report.issues.length ? (
+        ) : report.warnings.length ? (
           <ul className="max-h-60 list-disc overflow-auto pl-5">
-            {report.issues.map((issue, i) => (
+            {report.warnings.map((issue, i) => (
               <li key={i}>{issue.text}</li>
             ))}
           </ul>
         ) : (
           <p>No static cue issues found. This does not verify pedal response or physical MIDI routing.</p>
         )}
+        {!parseError && <ArrangementAdvice items={report.advice.map((issue) => issue.text)} />}
         <p aria-label="MIDI timing totals">
           Queued: {timing.queued} · More than 5 ms late: {timing.late} · Worst dispatch lateness: {timing.maxLateMs.toFixed(1)} ms · Failures: {timing.failures}
         </p>

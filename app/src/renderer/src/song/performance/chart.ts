@@ -1,13 +1,15 @@
+import { MIDI_TRIGGER_PATTERN, preparationWaitMs } from "./preparation-wait";
+import type { PreparationRepeat } from "./preparation-repeat";
 import { expandCommand, isLegacyCommand, type MidiMacro } from "./midi-macros";
 import { isChordName, transposeChordName } from "./speed";
 
 export { midiCommand } from "./midi-command";
 
-/** When a trigger cue is sent: on load (armed), when playback starts or resumes, on pause or stop, or when the song reaches its end. */
-export type MidiTrigger = "load" | "play" | "stop" | "end";
+/** When a trigger cue is sent: on load (armed), before the count-in, when playback starts or resumes, on pause or stop, or when the song reaches its end. */
+export type MidiTrigger = "load" | "prepare" | "play" | "stop" | "end";
 
 /**
- * A cue on song sections, `{midi@section Chorus: …}`. It is kept apart from the four triggers above because it has a time of its own once
+ * A cue on song sections, `{midi@section Chorus: …}`. It is kept apart from the event triggers above because it has a time of its own once
  * the song's sections are known: `expandSectionCues` turns it into timed cues. `exact` is the quoted form, `"Chorus 2"`, which names one section.
  */
 export interface SectionTarget {
@@ -39,10 +41,16 @@ export interface Cue {
   text: string;
   messages: number[][];
   label?: string;
+  /** Recomputed from the song's current settings; edited through its automatic setup instead of as a frozen chart token. */
+  managed?: "rhythm";
   /** `{chase}` forces this cue's PC/CC/SysEx to be replayed when starting mid-song; `{nochase}` never replays them. Unset uses the defaults. */
   chase?: boolean;
   /** Set on a `{midi@…}` trigger, which has no song time. `time` is 0 and is never used for scheduling. A section cue has `"section"`. */
   trigger?: MidiTrigger | "section";
+  /** How a Before song command repeats. Missing preserves Every start. */
+  prepareRepeat?: PreparationRepeat;
+  /** Loading time after this preparation command line, in milliseconds. */
+  prepareWaitMs?: number;
   /** Set with `trigger: "section"`: the section or sections the cue fires on. The cue has no time until `expandSectionCues` gives it one. */
   section?: SectionTarget;
   /**
@@ -113,7 +121,7 @@ export function timedCues(cues: readonly Cue[]): Cue[] {
 }
 
 const TIMESTAMP = /\[(\d+):([0-5]\d(?:\.\d+)?)\]/g;
-const TRIGGER = /\{midi@(load|play|stop|end):([^}]*)\}/g;
+const TRIGGER = new RegExp(String.raw`\{midi@(${MIDI_TRIGGER_PATTERN}):([^}]*)\}`, "g");
 /** `{midi@section Chorus: pc 1 5}` or, for one section, `{midi@section "Chorus 2": pc 1 5}`. */
 const SECTION_TRIGGER = /\{midi@section\s+(?:"([^"}]*)"|([^":}]*?))\s*:([^}]*)\}/g;
 const MIDI_TOKEN = /\{midi:([^}]+)\}/g;
@@ -169,23 +177,29 @@ export function parseChart(text: string, macros: readonly MidiMacro[] = []): Cue
       const labelled = label ? { label } : {};
       if (/\{midi@/.test(content.replace(TRIGGER, "").replace(SECTION_TRIGGER, "")))
         throw new Error(
-          `Line ${index + 1}: a MIDI trigger is {midi@load: …}, {midi@play: …}, {midi@stop: …}, {midi@end: …} or {midi@section Name: …} with one command.`,
+          `Line ${index + 1}: a MIDI trigger is {midi@load: …}, {midi@prepare: …}, {midi@prepare-beginning: …}, {midi@prepare-once: …}, {midi@play: …}, {midi@stop: …}, {midi@end: …} or {midi@section Name: …} with one command.`,
         );
       // Positions are read from the code part of the original line, since the label is cut out of `content`.
       const triggerCues: Cue[] = [...code.matchAll(TRIGGER)].map((t) => {
-        const command = t[2].trim();
+        const command = t[2].trim(),
+          header = t[1].split(/\s+/)[0],
+          wait = preparationWaitMs(t[1]);
         if (!command) throw new Error(`Line ${index + 1}: MIDI triggers need contents.`);
         const source = { line: index, start: t.index, end: t.index + t[0].length, text: t[0] };
         return {
           time: 0,
           text: "",
           messages: expandCommand(command, macros),
-          trigger: t[1] as Cue["trigger"],
+          trigger: (t[1].startsWith("prepare") ? "prepare" : t[1]) as Cue["trigger"],
+          ...(header === "prepare-once" ? { prepareRepeat: "once" as const } : header === "prepare-beginning" ? { prepareRepeat: "beginning" as const } : {}),
+          ...(wait !== undefined ? { prepareWaitMs: wait } : {}),
           tokens: [`@${t[1]} ${command}`],
           ...labelled,
           source,
         };
       });
+      if (triggerCues.filter((cue) => cue.prepareWaitMs !== undefined).length > 1)
+        throw new Error(`Line ${index + 1}: use one Wait after per preparation command line. Put separate waits on separate lines.`);
       const sectionCues: Cue[] = [...code.matchAll(SECTION_TRIGGER)].map((t): Cue => {
         const exact = t[1] !== undefined,
           name = (t[1] ?? t[2]).trim(),

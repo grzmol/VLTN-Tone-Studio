@@ -107,3 +107,7 @@ Supported substitutions:
 - `$msb` and `$lsb`: high and low seven-bit parts of `$value`, for documented paired-controller values.
 
 Imports validate version, ids, integer ranges, substitutions and resulting MIDI bytes. Limits are 500 KB, 1,000 actions and 16 messages per action. Imported data is never executable HTML/code. The source field records provenance, not certification: verify definitions against the manual and test them before a performance.
+
+### Repeat rules for Before song commands
+
+The Song MIDI cues builder offers **Every start**, **Only from beginning** and **Once per song load** for preparation commands. Use once for actions that must not repeat on a resume, and **Reset once commands** to deliberately allow another attempt. The policy is saved in chart tokens: `{midi@prepare:…}`, `{midi@prepare-beginning:…}` or `{midi@prepare-once:…}`. A macro keeps its message order, and a command line's bank/preset messages share the rule. Once sending begins, cancellation or a lost connection does not automatically re-enable that line. See [Preparation command repeat rules](PERFORMANCE.md#preparation-command-repeat-rules).

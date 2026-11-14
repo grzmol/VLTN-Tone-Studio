@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PcmAudio } from "@/song/types";
 import type { BeatGrid } from "@/song/band/beat-grid";
@@ -10,6 +10,8 @@ import { ORIGINAL_PARTS, type PartChoices } from "@/song/band/part-choice";
 import type { TrackInfo } from "@/song/tracks";
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
+import { setSetting } from "@/song/performance/settings";
+import { refreshBandBeforePlay } from "@/song/band/refresh";
 
 const mocks = vi.hoisted(() => ({
   startBeatGrid: vi.fn(),
@@ -148,6 +150,150 @@ afterEach(() => {
 });
 
 describe("Band panel", () => {
+  it("automatically refreshes existing generated audio after musical edits while its dialog is closed", async () => {
+    stored({ beatGrid: grid, generatedParts: { drums: "track0" } });
+    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel();
+    act(() => useBandPanel.getState().show(false));
+    act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), band: { ...DEFAULT_BAND_SETTINGS, complexity: 0.8 } })));
+    await waitFor(() => expect(mocks.startBandRender).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(savedOptions().bandOutOfDate).toBe(false));
+    expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1);
+    act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), trimStart: 0.5, trimEnd: 7.5 })));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
+  });
+  it("updates the fixed grid after a BPM change and completes its automatic render before Play", async () => {
+    stored({ beatGrid: grid, generatedParts: { drums: "track0" } });
+    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    const view = renderPanel();
+    view.rerender(<BandPanel {...view.props} bpm={140} />);
+    await act(async () => {
+      await refreshBandBeforePlay(KEY);
+    });
+    expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
+    expect(mocks.startBandRender.mock.calls[0][0].grid.bpm).toBe(140);
+    expect(savedOptions().bandOutOfDate).toBe(false);
+  });
+  it("refreshes between playlist songs while the playlist remains active", async () => {
+    stored({ beatGrid: grid, generatedParts: { drums: "track0" }, bandOutOfDate: true });
+    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+    renderPanel({ playing: true, audioPlaying: false });
+    await act(async () => {
+      await refreshBandBeforePlay(KEY);
+    });
+    expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1);
+    expect(savedOptions().bandOutOfDate).toBe(false);
+  });
+  it("exports bars from the generation grid when it was continued through a later section", async () => {
+    stored({ beatGrid: fixedBeatGrid(120, 0, 4, 4) });
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({
+        notes: {
+          drums: [
+            { time: 0, pitch: 36, velocity: 100, duration: 0.1 },
+            { time: 6, pitch: 38, velocity: 100, duration: 0.1 },
+          ],
+          bass: [],
+        },
+      }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    renderPanel({
+      sections: [
+        { id: "verse", name: "Verse", start: 0, end: 4, mode: "continue" },
+        { id: "outro", name: "Outro", start: 4, end: 8, mode: "continue" },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const exporting = screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement;
+    await waitFor(() => expect(exporting.disabled).toBe(false));
+    fireEvent.click(exporting);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Intro source" }), { key: "Enter" });
+    expect(screen.getByRole("option", { name: "Whole song (4 bars)" })).toBeTruthy();
+  });
+
+  it("keeps rhythm export fresh when generated tracks are added, and invalidates it if a source stem is replaced", async () => {
+    stored({ beatGrid: grid });
+    const audio = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    useSong.setState({
+      stems: { drums: audio },
+      applyGeneratedParts: vi.fn(() => {
+        useSong.setState({ stems: { drums: audio, track0: audio }, tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
+        return [];
+      }),
+    });
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({ drums: audio, notes: { drums: [{ time: 0, pitch: 36, velocity: 100, duration: 0.1 }], bass: [] } }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const exporting = screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement;
+    await waitFor(() => expect(exporting.disabled).toBe(false));
+    act(() => useSong.setState({ stems: { drums: { ...audio, channels: [new Float32Array(44100 * SECONDS)] }, track0: audio } }));
+    expect(exporting.disabled).toBe(true);
+  });
+
+  it("enables rhythm export only for current generated drums, and invalidates it when the grid changes", async () => {
+    stored({ beatGrid: grid });
+    const silent = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({ drums: silent, notes: { drums: [{ time: 0, pitch: 36, velocity: 100, duration: 0.1 }], bass: [] } }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    renderPanel();
+    const exporting = screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement;
+    expect(exporting.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(exporting.disabled).toBe(false));
+    fireEvent.click(exporting);
+    expect(screen.getByRole("heading", { name: "Export for BOSS RC-10R" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close export" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nudge +10 ms" }));
+    expect(exporting.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(exporting.disabled).toBe(false));
+  });
+
+  it("does not offer rhythm export after bass-only generation", async () => {
+    stored({ beatGrid: grid, band: { ...DEFAULT_BAND_SETTINGS, parts: { drums: false, bass: true } } });
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({ notes: { drums: [], bass: [{ time: 0, pitch: 40, velocity: 90, duration: 0.1 }] } }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await screen.findByText("Done. Drums and bass are in the mixer.");
+    expect((screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("invalidates rhythm export when the chart or song key changes, and on reopening the panel", async () => {
+    stored({ beatGrid: grid });
+    mocks.startBandRender.mockReturnValue({
+      done: Promise.resolve({ notes: { drums: [{ time: 0, pitch: 36, velocity: 100, duration: 0.1 }], bass: [] } }),
+      onProgress: vi.fn(),
+      cancel: vi.fn(),
+    });
+    const view = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement).disabled).toBe(false));
+    view.rerender(<BandPanel {...view.props} chart="[00:00] [C]Changed" />);
+    expect((screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement).disabled).toBe(true);
+    view.rerender(<BandPanel {...view.props} songKey={`${KEY}-another-song`} />);
+    expect((screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement).disabled).toBe(true);
+    view.unmount();
+    renderPanel();
+    expect((screen.getByRole("button", { name: "Export for BOSS RC-10R…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("exports the last Generate's notes as a MIDI file named after the song, and only after Generate", async () => {
     stored({ beatGrid: grid, bandOutOfDate: true });
     const silent = { sampleRate: 44100, channels: [new Float32Array(44100 * SECONDS)] };
