@@ -1,5 +1,5 @@
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { usePracticeMute } from "@/song/performance/practice-mute";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { clearSettingsCache, setSetting } from "@/song/performance/settings";
