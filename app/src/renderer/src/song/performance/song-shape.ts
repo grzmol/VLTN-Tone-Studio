@@ -59,7 +59,17 @@ export function playerShape(shape: StoredShape): SongShape {
   return { trimStart: shape.trimStart, trimEnd: shape.trimEnd, fadeIn: shape.fadeIn, fadeOut: shape.fadeOut, endBehaviour: shape.endBehaviour };
 }
 
-/** Reads a song's shape from its stored `:options` JSON. A missing or broken JSON is the default shape. */
+/** A song's `:options` JSON as an object. A missing or broken JSON is an empty one. */
+function parseOptions(json: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(json || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Reads a song's stored shape from its `:options` JSON. A missing or broken JSON is the default shape. */
 export function shapeFromOptions(json: string): StoredShape {
   try {
     const parsed: unknown = JSON.parse(json || "{}");
@@ -67,4 +77,28 @@ export function shapeFromOptions(json: string): StoredShape {
   } catch {
     return DEFAULT_SHAPE;
   }
+}
+
+/** The silence the song analysis found at the start of the song, in seconds, or undefined when it found none. */
+export function startSilence(raw: Record<string, unknown>): number | undefined {
+  const analysis = raw.analysis;
+  if (!analysis || typeof analysis !== "object") return undefined;
+  const silence = (analysis as Record<string, unknown>).silence;
+  if (!silence || typeof silence !== "object") return undefined;
+  const start = (silence as Record<string, unknown>).start;
+  return typeof start === "number" && Number.isFinite(start) && start > 0 ? start : undefined;
+}
+
+/** Where a song starts playing: its own trim start, or else just after the silence the analysis found at its start. */
+export function playedTrimStart(raw: Record<string, unknown>): number | undefined {
+  return storedShape(raw).trimStart ?? startSilence(raw);
+}
+
+/**
+ * The shape the player takes from a song's `:options` JSON. A song with no trim start of its own skips the silence at its start, so it
+ * starts on its first sound by default. A trim start of 0 plays the file from its very start.
+ */
+export function playerShapeFromOptions(json: string): SongShape {
+  const raw = parseOptions(json);
+  return { ...playerShape(storedShape(raw)), trimStart: playedTrimStart(raw) };
 }

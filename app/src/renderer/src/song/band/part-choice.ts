@@ -119,3 +119,16 @@ export function silencedByChoice(choices: PartChoices, keys: PartKeys): Record<s
   }
   return off;
 }
+
+/**
+ * The mix with every track that "What plays" silences muted, so the player never plays a track the mixer shows as off. Unlike
+ * applyPartChoices it only mutes: a track the choice plays keeps the mute the user gave it. A saved mix that drifted from the saved
+ * choice (an original stem left unmuted while its generated part plays) is corrected here, before it reaches the speakers.
+ */
+export function muteSilencedParts(mix: Mix, choices: PartChoices, keys: PartKeys): Mix {
+  const silenced = Object.keys(silencedByChoice(choices, keys));
+  if (silenced.length === 0) return mix;
+  const next: Mix = { ...mix };
+  for (const key of silenced) next[key] = { ...(next[key] ?? defaultStemMix()), mute: true };
+  return next;
+}
