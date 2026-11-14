@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { pedalDrumMix, usePedalDrums } from "./performance/pedal-drums";
 import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
 import { selectWholeSongStems, useSong } from "./store";
@@ -401,7 +402,7 @@ export function applyPracticeMute(song: PreparedSong): void {
   const tracks = { keys: song.player.names, info: song.tracks, split: Object.keys(song.stems).length > 0, countsAs: readCountsAs(saved) };
   const loudness = loudnessFromOptions(options);
   const gain = loudness.normalise && loudness.lufs !== null ? normalisingGain(loudness.lufs, loudness.peakDb) : 1;
-  song.player.setMix(effectiveMute(mix, practiceSet(usePracticeMute.getState().kinds), tracks), gain);
+  song.player.setMix(pedalDrumMix(effectiveMute(mix, practiceSet(usePracticeMute.getState().kinds), tracks), tracks, usePedalDrums.getState().enabled), gain);
 }
 const api = () => {
   if (!host.song.library) throw new Error("Saved songs are available in the desktop app.");
@@ -1108,4 +1109,10 @@ useSong.subscribe((state, previous) => {
   if (state.stems === previous.stems && state.source === previous.source) return;
   if (!state.source?.libraryId || ["decoding", "model", "splitting"].includes(state.status.kind)) return;
   useSongLibrary.getState().autosave();
+});
+
+usePedalDrums.subscribe((state, previous) => {
+  if (state.enabled === previous.enabled) return;
+  const prepared = useSongLibrary.getState().prepared;
+  if (prepared) applyPracticeMute(prepared);
 });

@@ -7,11 +7,12 @@ import { PreparationHistory } from "./preparation-repeat";
 import { preparationSequence, presetGroups } from "./preparation-sequence";
 import { preparationLine, setPreparationRepeat, setPreparationWait, movePreparationLine } from "./start-preparation";
 const settings = { enabled: true, settleMs: 1000, commandGapMs: 100, openingPresets: true };
-it("builds automatic presets, custom groups, per-line waits and tempo in one timed sequence", () => {
+it("builds automatic memory/presets, custom groups, per-line waits and tempo in one timed sequence", () => {
   const cues = parseChart(
-    "[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{label:Delay} {midi@prepare:cc 1 0 0} {midi@prepare wait=0.5:pc 1 4}\n{label:Macro} {midi@prepare wait=0.2:$FX}",
+    "{midi@load:pc 2 0}\n[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{label:Delay} {midi@prepare:cc 1 0 0} {midi@prepare wait=0.5:pc 1 4}\n{label:Macro} {midi@prepare wait=0.2:$FX}",
     [{ code: "FX", label: "FX", commands: ["cc 3 20 127", "cc 3 21 64"] }],
   );
+  cues[0].managed = "rhythm";
   const plan = preparationSequence({
     cues,
     position: 0,
@@ -25,9 +26,10 @@ it("builds automatic presets, custom groups, per-line waits and tempo in one tim
     ],
   });
   expect(plan.steps.filter((step) => step.kind === "send").map((step) => [step.label, step.atMs, step.commands.map((command) => command.bytes)])).toEqual([
+    ["RC-10R memory", 0, [[0xc1, 0]]],
     [
       "Opening preset",
-      0,
+      100,
       [
         [0xbf, 0, 0],
         [0xcf, 6],
@@ -35,7 +37,7 @@ it("builds automatic presets, custom groups, per-line waits and tempo in one tim
     ],
     [
       "Delay",
-      100,
+      200,
       [
         [0xb0, 0, 0],
         [0xc0, 4],
@@ -43,7 +45,7 @@ it("builds automatic presets, custom groups, per-line waits and tempo in one tim
     ],
     [
       "Macro",
-      700,
+      800,
       [
         [0xb2, 20, 127],
         [0xb2, 21, 64],
@@ -51,14 +53,14 @@ it("builds automatic presets, custom groups, per-line waits and tempo in one tim
     ],
     [
       "Song tempo",
-      1900,
+      2000,
       [
         [0xbf, 73, 1],
         [0xbf, 74, 12],
       ],
     ],
   ]);
-  expect(plan.totalWaitMs).toBe(2000);
+  expect(plan.totalWaitMs).toBe(2100);
   expect(
     presetGroups([
       [0xb0, 0, 1],

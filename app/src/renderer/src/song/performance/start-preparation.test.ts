@@ -20,8 +20,9 @@ it("moves opening presets and banks early but keeps notes and drum/looper starts
   expect(startPreparation(cues, 0, { ...enabled, openingPresets: false }).opening).toEqual([]);
   expect(() => startPreparation(cues, 0, { ...enabled, enabled: false })).toThrow("Enable Before song");
 });
-it("reapplies user load presets before the opening state without replaying load triggers", () => {
-  const cues = parseChart("{midi@load:pc 1 4}\n{midi@load:cc 2 80 127}\n[00:00] {midi:pc 1 5}");
+it("reapplies user load presets before the opening state without replaying load triggers or managed memory", () => {
+  const cues = parseChart("{midi@load:pc 1 4}\n{midi@load:cc 2 80 127}\n{midi@load:pc 2 1}\n[00:00] {midi:pc 1 5}");
+  cues[2].managed = "rhythm";
   expect(startPreparation(cues, 0, enabled).opening).toEqual([
     [0xc0, 4],
     [0xc0, 5],

@@ -138,7 +138,8 @@ export const PEDAL_PROFILES: PedalProfile[] = [
     source: "RC-10R MIDI Implementation v1.00, pp. 2–3; BOSS RC-10R Parameter Guide, pp. 9–11",
     notes:
       "Use RX CONTROL CH for memories and assigned controls. Memory numbers 1–99 correspond to wire PC 0–98; bank select is ignored. " +
-      "Set each chosen CC assignment on the pedal. RX NOTE CH is a separate channel for rhythm notes/kit changes, not this control profile.",
+      "Set each chosen CC assignment on the pedal. RX NOTE CH is a separate channel for rhythm notes/kit changes, not this control profile. " +
+      "Configured momentary press/release pairs are held for at least 100 ms at the output so the pedal recognizes them.",
     actions: [
       ...memories(99, false),
       ...[

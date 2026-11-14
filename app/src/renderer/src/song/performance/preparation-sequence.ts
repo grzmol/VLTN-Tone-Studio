@@ -2,6 +2,7 @@ import type { Cue } from "./chart";
 import type { TriggerCc } from "./midi-chase";
 import { orderForPedal } from "./midi-pedal-order";
 import { PreparationHistory, type PreparationCommand } from "./preparation-repeat";
+import { hasPedalRhythm, rhythmMemory, RHYTHM_MEMORY_SETTLE_MS } from "./rhythm-runtime";
 import { isPresetMessage, startPreparation, type PreparationSettings } from "./start-preparation";
 
 export type PreparationStep =
@@ -76,6 +77,13 @@ export function preparationSequence({
     groupsSent++;
     wait(waitAfterMs, `Wait after ${label}`);
   };
+  const memory = rhythmMemory(cues);
+  if (memory.length)
+    send(
+      memory.map((bytes) => ({ bytes })),
+      "RC-10R memory",
+      "automatic",
+    );
   for (const group of presetGroups(orderForPedal(opening.opening, pedalChannel, (bytes) => bytes)))
     send(
       group.map((bytes) => ({ bytes })),
@@ -86,7 +94,7 @@ export function preparationSequence({
     if (group.skipped) skipped.push({ label: group.label, reason: group.skipped });
     else send(group.commands, group.label, "custom", group.waitAfterMs);
   }
-  if (groupsSent) wait(settings.settleMs, "Waiting for pedals");
+  if (groupsSent) wait(Math.max(settings.settleMs, hasPedalRhythm(cues) ? RHYTHM_MEMORY_SETTLE_MS : 0), "Waiting for pedals");
   if (tempo?.length) {
     steps.push({ kind: "send", origin: "tempo", label: "Song tempo", atMs, commands: tempo.map((bytes) => ({ bytes })) });
     wait(groupsSent ? 100 : settings.settleMs, "Setting song tempo");

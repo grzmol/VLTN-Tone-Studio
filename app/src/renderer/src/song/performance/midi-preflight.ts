@@ -1,11 +1,14 @@
 import { PREFLIGHT_TIME_TOLERANCE_S } from "./preflight-timing";
+import { isPresetMessage, startPreparation, type PreparationSettings } from "./start-preparation";
 import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./chart";
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
 export interface PreflightOptions {
   duration: number;
+  /** Actual initial MIDI position, including pre-roll; defaults to the playable range start. */
   playbackStart?: number;
+  preparation?: PreparationSettings;
   tempoChannel?: number;
   clock: boolean;
   outputName?: string;
@@ -72,6 +75,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   // Triggers have no time, so they are checked below rather than on the timeline.
   // The chase replays a controller unless it is an assigned trigger here or a fixed one (see midi-chase.ts).
   const triggers = chaseTriggerSet(options.pedals.flatMap((pedal) => pedal.triggers ?? []));
+  const rc10rTriggers = chaseTriggerSet(options.pedals.filter((pedal) => pedal.name === "BOSS RC-10R").flatMap((pedal) => pedal.triggers ?? []));
   const events = timedCues(cues)
     .filter((c) => c.messages.length)
     .slice()
@@ -120,7 +124,8 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   for (let i = 0; i < events.length; i++) {
     const cue = events[i];
     if (!Number.isFinite(cue.time) || cue.time < 0) add("time", "A MIDI cue has an invalid timestamp.");
-    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
+    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S)
+      add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
     windowBytes += cue.messages.reduce((sum, b) => sum + b.length, 0);
     while (events[windowStart].time < cue.time - 0.02) {
       windowBytes -= events[windowStart++].messages.reduce((sum, b) => sum + b.length, 0);
@@ -134,7 +139,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         channel = (bytes[0] & 15) + 1;
       if (bytes[0] < 240) channels.set(channel, (channels.get(channel) || 0) + 1);
       if (bytes.length > 256) add("sysex", "A long SysEx command can delay subsequent commands. Rehearse it with the actual device.");
-      if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) continue;
+      if (cue.time > options.duration) continue;
       if (kind === 144 && bytes[2] > 0) {
         if (notes.has(`${channel}:${bytes[1]}`))
           add("retrigger", `Note ${bytes[1]} on channel ${channel} is retriggered before its previous note-off. Verify the receiver’s behavior.`);
@@ -147,7 +152,13 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         const id = `${cue.time}:${channel}:${kind}:${kind === 176 ? bytes[1] : ""}`,
           value = bytes.join(",");
         const previous = conflicts.get(id);
-        if (previous)
+        // The output gives recognized RC-10R press/release pairs a real hold time, even when their chart timestamps match.
+        const spacedPulse =
+          kind === 176 &&
+          bytes[2] === 0 &&
+          previous === `${bytes[0]},${bytes[1]},127` &&
+          (cue.managed === "rhythm" || rc10rTriggers.has(triggerKey(channel, bytes[1])));
+        if (previous && !spacedPulse)
           add(
             previous === value ? "duplicate" : "conflict",
             `${previous === value ? "Repeated" : "Conflicting"} ${kind === 192 ? "program change" : "CC" + bytes[1]} ` +
@@ -201,14 +212,30 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       }
     }
   }
-  const start = options.playbackStart ?? options.range?.start ?? 0;
+  const playbackStart = options.playbackStart ?? options.range?.start ?? 0;
+  const prepared = options.preparation?.enabled
+    ? new Set(
+        startPreparation(
+          cues,
+          playbackStart,
+          options.preparation,
+          options.pedals.flatMap((pedal) => pedal.triggers ?? []),
+        ).opening.map((bytes) => bytes.join(",")),
+      )
+    : new Set<string>();
   const end = options.range?.end ?? options.duration;
-  const outside = events.filter((cue) =>
-    cue.time <= options.duration + PREFLIGHT_TIME_TOLERANCE_S &&
-    (cue.time < start - PREFLIGHT_TIME_TOLERANCE_S || cue.time > end + PREFLIGHT_TIME_TOLERANCE_S),
-  );
+  const outside = events.filter((cue) => {
+    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) return false; // Already reported as past-end.
+    if (cue.time > end + PREFLIGHT_TIME_TOLERANCE_S) return true;
+    if (cue.time >= playbackStart - PREFLIGHT_TIME_TOLERANCE_S) return false;
+    // Only bank/PC bytes restored by the sender are accounted for. A mixed cue still warns about any unsent notes or controls.
+    return cue.messages.some((bytes) => !isPresetMessage(bytes) || !prepared.has(bytes.join(",")));
+  });
   if (outside.length)
-    add("cue-trim", `${outside.length} cues outside the trimmed range (${start.toFixed(2)}–${end.toFixed(2)} s) will not play, starting at ${outside[0].time.toFixed(2)} s.`);
+    add(
+      "cue-trim",
+      `${outside.length} cue${outside.length === 1 ? "" : "s"} outside the trimmed range (${playbackStart.toFixed(2)}–${end.toFixed(2)} s) ${outside.length === 1 ? "has" : "have"} commands that will not play, starting at ${outside[0].time.toFixed(2)} s.`,
+    );
   for (const issue of sectionIssues(options.sections ?? [], {
     duration: options.duration,
     bpm: options.bpm,
@@ -219,6 +246,13 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     add(issue.code, issue.text, issue.level);
   for (const [note, time] of notes)
     add("note-off", `Note ${note.split(":")[1]} on channel ${note.split(":")[0]} at ${time.toFixed(2)} s has no later note-off before the audio ends.`);
-  const warnings = issues.filter((issue) => !issue.level), advice = issues.filter((issue) => issue.level === "advice");
-  return { issues: [...warnings, ...advice], warnings, advice, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: [...events, ...preparation].reduce((n, c) => n + c.messages.length, 0) };
+  const warnings = issues.filter((issue) => !issue.level),
+    advice = issues.filter((issue) => issue.level === "advice");
+  return {
+    issues: [...warnings, ...advice],
+    warnings,
+    advice,
+    channels: [...channels].sort((a, b) => a[0] - b[0]),
+    commands: [...events, ...preparation].reduce((n, c) => n + c.messages.length, 0),
+  };
 }

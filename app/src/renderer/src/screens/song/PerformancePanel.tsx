@@ -1,4 +1,3 @@
-import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { partSplitNote, selectWholeSongStems, useSong } from "@/song/store";
@@ -23,7 +22,7 @@ import { isMetronomeMode, recordTap, tapBpm, type MetronomeMode } from "@/song/p
 import { parseSections, saveLiveAsDefault, type Section } from "@/song/performance/sections";
 import { ownLeadIn, readLeadInDefaults, resolveLeadIn, saveLeadInDefaults, type LeadIn, type LeadInKey, type LeadInOwn } from "@/song/performance/lead-in";
 import { type StemName } from "@/song/types";
-import { getSetting, performanceKey, readOptions, setSetting } from "@/song/performance/settings";
+import { getSetting, performanceKey, readOptions, readSettings, setSetting } from "@/song/performance/settings";
 import { playerShapeFromOptions } from "@/song/performance/song-shape";
 import { readTempoSource, type TempoSource } from "@/song/performance/tempo-source";
 import { useSongAnalysis } from "./use-song-analysis";
@@ -51,8 +50,14 @@ import { busDefaults, mixDefaults, type TrackInfo } from "@/song/tracks";
 import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
+import { RhythmTransferStatus } from "./RhythmTransferStatus";
+import { RhythmAutomationSetup } from "./RhythmAutomationSetup";
+import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
+import { usePedalLibrary } from "@/song/performance/pedal-library";
+import { currentRhythmAutomation, rhythmControlOverrides } from "@/song/performance/rhythm-automation";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
 import { preparationSettings, usePreparationDefaults } from "@/song/performance/start-preparation";
+import { pedalDrumMix, usePedalDrums } from "@/song/performance/pedal-drums";
 import { effectiveMute, noTrackNote, practiceSet, readCountsAs, usePracticeMute, type CountsAs, type PracticeTracks } from "@/song/performance/practice-mute";
 import { PracticeMuteBanner, PracticeMuteMenu } from "./PracticeMute";
 import { StageView } from "./StageView";
@@ -239,6 +244,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   // What each imported track counts as for the practice mute. It is saved with the song, since only that song's tracks have these names.
   const [countsAs, setCountsAs] = useState<Record<string, CountsAs>>(() => readCountsAs(options));
   const practiceKinds = usePracticeMute((s) => s.kinds);
+  const pedalDrums = usePedalDrums((s) => s.enabled);
   const [trackBuses, setTrackBuses] = useState<TrackBuses>(() => ({ ...busDefaults(tracks), ...options.trackBuses }));
   useEffect(() => {
     setMix((current) => ({ ...mixDefaults(tracks), ...current }));
@@ -251,14 +257,49 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const bass = useMemo(() => bassOf(stems), [stems]);
   // The song's MIDI file is saved with its options, so it is read back here when the song is shown.
   const [midiFile, setMidiFile] = useState<MidiFileOption | null>(() => midiFileFromOptions(options));
-  useSongSettingsRevision(key);
-  const cueOptions = readOptions<Record<string, unknown>>(key, {});
+  const pedalSettings = usePedalLibrary();
+  const rhythmControls = rhythmControlOverrides(pedalSettings);
+  const cueOptions = useMemo(() => readOptions<Record<string, unknown>>(key, {}), [key, settingsVersion]);
   const preparationDefaults = usePreparationDefaults((s) => s.settings);
-  const beforeSong = useMemo(() => preparationSettings(cueOptions.preparation, preparationDefaults), [JSON.stringify(cueOptions.preparation), preparationDefaults]);
+  const beforeSong = useMemo(() => preparationSettings(cueOptions.preparation, preparationDefaults), [cueOptions.preparation, preparationDefaults]);
+  // Mixer and display edits must not restart an armed scheduler. Only dependencies of the automatic rhythm change its cues.
+  const rhythmCueSignature = JSON.stringify(
+    cueOptions.rhythmAutomation
+      ? [
+          cueOptions.rhythmAutomation,
+          cueOptions.rhythmExport,
+          cueOptions.trimStart,
+          cueOptions.trimEnd,
+          (cueOptions.analysis as { silence?: unknown } | undefined)?.silence,
+          cueOptions.endBehaviour,
+          bpm,
+          beats,
+          firstBeat,
+          sectionList,
+          rhythmControls,
+        ]
+      : null,
+  );
   const parsed = useMemo(() => {
-    const cued = songCues(chart, midiConfig.macros, midiFile);
-    return { cues: cued.cues, error: cued.error };
-  }, [chart, midiConfig.macros, midiFile]);
+    const settings = {
+      ...readSettings(key),
+      ":bpm": String(bpm),
+      ":options": JSON.stringify({ ...readOptions(key, {}), sections: sectionList, beats, firstBeat }),
+    };
+    const cued = songCues(chart, midiConfig.macros, midiFile, {
+      duration: source ? source.audio.channels[0].length / source.audio.sampleRate : 0,
+      settings,
+      rhythmControls,
+    });
+    return {
+      cues: cued.cues,
+      error: cued.error,
+      rhythmTempo: cued.error
+        ? null
+        : (currentRhythmAutomation({ key, title: "", duration: source ? source.audio.channels[0].length / source.audio.sampleRate : 0, settings })?.draft.bpm ??
+          null),
+    };
+  }, [chart, midiConfig.macros, midiFile, key, source, rhythmCueSignature]);
   // The song's MIDI timecode offset, saved with its options. Empty means 00:00:00:00.
   const [timecodeOffset, setTimecodeOffset] = useState(options.timecodeOffset);
   const saveTimecodeOffset = (value: string) => {
@@ -300,6 +341,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           cues: parsed.cues,
           parseError: parsed.error,
           bpm,
+          rhythmTempo: parsed.rhythmTempo,
           preparationSettings: beforeSong,
           sections: sectionList,
           bindings: midiConfig.bindings,
@@ -395,6 +437,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       cues: parsed.cues,
       parseError: parsed.error,
       bpm,
+      rhythmTempo: parsed.rhythmTempo,
       preparationSettings: beforeSong,
       timing,
       sections: sectionList,
@@ -565,8 +608,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   );
   // A track the drums and bass choice turns off never plays, whatever its saved mute says, so the player matches the mixer's badges.
   const playedMix = useMemo(
-    () => effectiveMute(muteSilencedParts(mix, partChoice, partKeysOf(tracks, stems)), practiceSet(practiceKinds), practiceTracks),
-    [mix, partChoice, tracks, stems, practiceKinds, practiceTracks],
+    () =>
+      pedalDrumMix(
+        effectiveMute(muteSilencedParts(mix, partChoice, partKeysOf(tracks, stems)), practiceSet(practiceKinds), practiceTracks),
+        practiceTracks,
+        pedalDrums,
+      ),
+    [mix, partChoice, tracks, stems, practiceKinds, practiceTracks, pedalDrums],
   );
   useEffect(() => {
     player?.setMix(playedMix, songGain);
@@ -622,7 +670,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       session.cancelStart();
       session.invalidatePreparation();
     }
-  }, [player, key, shapeVersion, playedShapeSignature, JSON.stringify(cueOptions)]);
+  }, [player, key, shapeVersion, playedShapeSignature]);
   useEffect(() => {
     try {
       localStorage.setItem("vltn.performance.metronome", String(metronome));
@@ -822,6 +870,22 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       </div>
       <div style={{ display: shownView("midi") }}>
         <SessionMidiHealth session={session} firstBeat={firstBeat} />
+        {source && (
+          <RhythmAutomationSetup
+            key={key}
+            current={{
+              key,
+              title: source.name.replace(/\.[^.]+$/, ""),
+              duration: source.audio.channels[0].length / source.audio.sampleRate,
+              settings: { ...readSettings(key), "": chart },
+            }}
+            locked={playing || library.playlistPlaying}
+            onSaveChart={saveChart}
+          />
+        )}
+        {source && !!(cueOptions.rhythmAutomation || cueOptions.rhythmExport || cueOptions.rhythmTransfer) && (
+          <RhythmTransferStatus songKey={key} locked={playing || !!library.playlistPlaying} />
+        )}
         <PerformanceMidiSetup
           session={session}
           songKey={key}

@@ -1,3 +1,4 @@
+import { automaticRhythmSettings, suggestRhythmAutomation } from "./rhythm-automation";
 import { expect, it } from "vitest";
 import { playlistPreflight } from "./playlist-preflight";
 import type { LibraryPreflightSong } from "@shared/song-library";
@@ -196,4 +197,69 @@ it("flags early trigger actions and conflicting recalls, and handles songs with 
   expect(result.warnings.join(" ")).toContain("last recall wins");
   expect(result.warnings.join(" ")).toContain("matching a configured trigger");
   expect(missing.errors).toContain("Song has no playable audio tracks.");
+});
+
+it("includes current managed RC-10R memory and native tempo, with the minimum memory loading wait", () => {
+  const input = {
+    key: "one",
+    title: "Opening",
+    duration: 10,
+    settings: {
+      ":bpm": "140",
+      ":options": JSON.stringify({
+        rhythmExport: { version: 1, bpm: 140, meter: "4/4", parts: {} },
+        sections: [{ id: "v", name: "Verse", start: 0, end: 10, mode: "continue" }],
+        speed: 1.1,
+      }),
+      "": "",
+    },
+  };
+  const draft = suggestRhythmAutomation(input, 6);
+  const song = {
+    ...saved.song!,
+    settings: {
+      ...input.settings,
+      ":options": JSON.stringify({
+        ...JSON.parse(input.settings[":options"]),
+        rhythmAutomation: automaticRhythmSettings(input, draft, { channel: 2, start: 80, division: 81, fill: 82, stop: 83 }),
+      }),
+    },
+  };
+  const [result] = playlistPreflight(["one"], [{ ...saved, song }], { ...config, preparationDefaults: { enabled: true, settleMs: 0, openingPresets: true } });
+  expect(result.errors).toEqual([]);
+  const sends = result.preparation?.steps.filter((step) => step.kind === "send");
+  expect(sends?.map((step) => step.commands.map((command) => command.bytes))).toEqual([
+    [[193, 5]],
+    [
+      [191, 73, 1],
+      [191, 74, 26],
+    ],
+  ]);
+  expect(result.preparation?.totalWaitMs).toBe(250);
+});
+
+it("separates arrangement advice and accounts for prepared presets using saved trims and pre-roll", () => {
+  const song = {
+    ...saved.song!,
+    settings: {
+      ":bpm": "120",
+      ":options": JSON.stringify({
+        trimStart: 4,
+        trimEnd: 8,
+        preRollBeats: 2,
+        tempoSource: "manual",
+        analysis: {},
+        sections: [{ id: "v", name: "Verse", start: 0, end: 10, mode: "continue" }],
+      }),
+      "": "[00:00] {midi:pc 1 3}\n[00:03] {midi:cc 3 10 64}",
+    },
+  };
+  const [result] = playlistPreflight(["one"], [{ ...saved, song }], config);
+  expect(result.warnings).toEqual([]);
+  expect(result.advice.join(" ")).toContain("outside the playable range");
+  const disabled = {
+    ...song,
+    settings: { ...song.settings, ":options": JSON.stringify({ ...JSON.parse(song.settings[":options"]), preparation: { openingPresets: false } }) },
+  };
+  expect(playlistPreflight(["one"], [{ ...saved, song: disabled }], config)[0].warnings.join(" ")).toContain("commands that will not play");
 });

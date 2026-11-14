@@ -6,6 +6,7 @@ import { clearSettingsCache, setSetting } from "@/song/performance/settings";
 import { PerformancePanel } from "./PerformancePanel";
 import { readMidiConfiguration, useMidiConfiguration } from "@/song/performance/midi-configuration";
 import type { SchedulerConfig, ScheduledMessage } from "@/song/performance/midi-scheduler";
+import { automaticRhythmSettings, buildRhythmAutomation, suggestRhythmAutomation } from "@/song/performance/rhythm-automation";
 vi.mock("@/song/performance/midi-scheduler-client", async () => {
   const { MidiSchedule } = await import("@/song/performance/midi-scheduler");
   const now = () => performance.timeOrigin + performance.now();
@@ -73,6 +74,35 @@ it("drops an opening cue that is overdue at start without disarming the session"
   expect(mocks.send).not.toHaveBeenCalled();
   expect((screen.getByLabelText("Send cues") as HTMLInputElement).checked).toBe(true);
   expect(screen.getByText(/late MIDI command dropped/)).toBeTruthy();
+});
+it("recalls the automatic rhythm memory when armed and sends start/stop controls only during the performance", async () => {
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  const key = "vltn.performance.v1:clock-test.wav:44100:44100";
+  const song = {
+    key,
+    title: "Test",
+    duration: 20,
+    settings: { ":bpm": "120", ":options": JSON.stringify({ sections: [{ id: "verse", name: "Verse", start: 0, end: 20, mode: "continue" }] }) },
+  };
+  localStorage.setItem(key, buildRhythmAutomation(song, suggestRhythmAutomation(song, 4), { channel: 2, start: 80, division: 81, fill: 82, stop: 83 }).chart);
+  render(<PerformancePanel />);
+  expect(mocks.send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText("Send cues"));
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([[0xc1, 3]]);
+  mocks.send.mockClear();
+  await act(async () => {
+    fireEvent.click(screen.getByText("Play song"));
+  });
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([
+    [0xb1, 80, 127],
+    [0xb1, 80, 0],
+  ]);
+  mocks.send.mockClear();
+  fireEvent.click(screen.getByText("Pause"));
+  expect(mocks.send.mock.calls.map((call) => call[0])).toEqual([
+    [0xb1, 83, 127],
+    [0xb1, 83, 0],
+  ]);
 });
 it("keeps timing faults and disarming visible in expanded performance view", async () => {
   vi.useFakeTimers();
@@ -212,7 +242,10 @@ vi.mock("@/song/stems/player", () => ({
       mocks.metronome(value);
     }
     start = 0;
-    setShape(shape: { trimStart?: number; trimEnd?: number }) { this.start = shape.trimStart ?? 0; this.duration = shape.trimEnd ?? 60; }
+    setShape(shape: { trimStart?: number; trimEnd?: number }) {
+      this.start = shape.trimStart ?? 0;
+      this.duration = shape.trimEnd ?? 60;
+    }
     setCustomClickSamples() {}
     setClickListener() {}
     async dispose() {}
@@ -949,6 +982,40 @@ it("shows the practice mute banner and never mutes a song that has no split", ()
   expect(screen.getByRole("status", { name: "Practice mute" }).textContent).toContain("Guitar muted in every song. This song has no guitar track to mute");
   fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
   expect(screen.queryByRole("status", { name: "Practice mute" })).toBeNull();
+});
+
+it("uses a managed 6/8 plan's quarter-note tempo in the rendered panel and actual outgoing commands", async () => {
+  const original = mocks.source.audio.channels[0];
+  mocks.source.audio.channels[0] = new Float32Array(44100 * 20);
+  const key = "vltn.performance.v1:clock-test.wav:882000:44100";
+  const controls = { channel: 2, start: 80, division: 81, fill: 82, stop: 83 };
+  const options = {
+    firstBeat: 0,
+    beats: 2,
+    sections: [{ id: "v", name: "Verse", start: 0, end: 20, mode: "continue" }],
+    rhythmExport: { version: 1, bpm: 90, meter: "6/8" },
+  };
+  const song = { key, title: "Compound", duration: 20, settings: { ":bpm": "90", ":options": JSON.stringify(options) } };
+  const draft = suggestRhythmAutomation(song, 1);
+  localStorage.setItem(key, buildRhythmAutomation(song, draft, controls).chart);
+  localStorage.setItem(key + ":bpm", "90");
+  localStorage.setItem(key + ":options", JSON.stringify({ ...options, rhythmAutomation: automaticRhythmSettings(song, draft, controls) }));
+  mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
+  useMidiConfiguration.setState({ tempoOnStart: true, tempoChannel: 16 });
+  try {
+    render(<PerformancePanel />);
+    expect(screen.getByText(/Clock target: 135 quarter-note BPM/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Send cues"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Play song"));
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
+    expect(mocks.send.mock.calls.map((call) => call[0])).toContainEqual([0xbf, 73, 1]);
+    expect(mocks.send.mock.calls.map((call) => call[0])).toContainEqual([0xbf, 74, 7]);
+  } finally {
+    cleanup();
+    mocks.source.audio.channels[0] = original;
+  }
 });
 
 it("prepares an opening preset before audio and does not repeat it at song time zero", async () => {

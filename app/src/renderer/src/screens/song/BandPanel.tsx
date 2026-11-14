@@ -28,6 +28,8 @@ import {
 import { GENERATED_PART_NAMES } from "@/song/band/generated-names";
 import type { NoteEvent } from "@/song/band/note";
 import { encodeSmf } from "@/song/performance/smf";
+import type { RhythmSnapshot } from "@/song/band/rhythm-export";
+import { RhythmExportDialog } from "./RhythmExportDialog";
 import { startBeatGrid, type BeatGridJob } from "@/song/band/beat-grid-client";
 import { chordChangeTimesOf, fixedBeatGrid, type BeatGrid } from "@/song/band/beat-grid";
 import { bandSampleUrls, renderPreview, startBandRender, type BandJob } from "@/song/band/band-client";
@@ -252,6 +254,13 @@ function BandBody({
   const [confirmRemove, setConfirmRemove] = useState(false);
   // The notes of the last Generate, kept so they can be exported as a MIDI file.
   const [lastNotes, setLastNotes] = useState<{ drums: NoteEvent[]; bass: NoteEvent[] } | null>(null);
+  const [rhythmOpen, setRhythmOpen] = useState(false);
+  const [rhythmGeneration, setRhythmGeneration] = useState<{
+    snapshot: RhythmSnapshot;
+    source: typeof source;
+    stems: typeof stems;
+    inputs: string;
+  } | null>(null);
   const job = useRef<{ cancel(): void } | null>(null);
   const active = useRef(true);
   const stopPreview = useRef<(() => void) | null>(null);
@@ -321,7 +330,12 @@ function BandBody({
       musical,
     ]);
   };
-
+  const rhythmFresh =
+    rhythmGeneration !== null &&
+    rhythmGeneration.source === source &&
+    rhythmGeneration.inputs === generationInputs(settings) &&
+    Object.keys(rhythmGeneration.stems ?? {}).length === Object.keys(stems ?? {}).length &&
+    Object.entries(rhythmGeneration.stems ?? {}).every(([kind, audio]) => audio === stems?.[kind]);
   const generated = hasGeneratedParts(tracks);
   const partKeys = partKeysOf(tracks ?? {}, stems);
   const followSources: FollowSource[] = ["auto", ...(followSourcesIn(stems) as FollowSource[])];
@@ -536,7 +550,23 @@ function BandBody({
       if (applied.length === 0) {
         setOutOfDate(false);
         writeStoredBand(songKey, { bandOutOfDate: false, bandTempoChanged: false });
-
+        setRhythmGeneration(
+          result.notes.drums.length
+            ? {
+                snapshot: {
+                  name: current.name,
+                  duration: songEnd,
+                  grid: structuredClone(request.grid),
+                  notes: structuredClone(result.notes.drums),
+                  sections: structuredClone(sections),
+                  plans: structuredClone(request.plans),
+                },
+                source: current,
+                stems: { ...selectWholeSongStems(useSong.getState()) },
+                inputs: generationInputs(requested),
+              }
+            : null,
+        );
       }
     });
     return succeeded;
@@ -567,7 +597,7 @@ function BandBody({
   const musicalInputs = generationInputs(settings);
   if (appliedInputs.current === null) appliedInputs.current = musicalInputs;
   requestedInputs.current = musicalInputs;
-  const needsSnapshot = dialogOpen && settings.parts.drums && !settings.rendered.drums && lastNotes === null && hydratedInputs.current !== musicalInputs;
+  const needsSnapshot = dialogOpen && settings.parts.drums && !settings.rendered.drums && rhythmGeneration === null && hydratedInputs.current !== musicalInputs;
   const refreshNow = useRef<() => Promise<void>>(async () => {});
   refreshNow.current = async () => {
     if (automaticPromise.current) return automaticPromise.current;
@@ -788,6 +818,7 @@ function BandBody({
       const refused = useSong.getState().removeGeneratedParts({ playing: playingNow.current });
       setNotices(refused);
       if (refused.length === 0) {
+        setRhythmGeneration(null);
         // The rendered audio went with the generated tracks.
         commitBand({ ...settingsRef.current, rendered: {} });
         onPartChoice(ORIGINAL_PARTS);
@@ -988,11 +1019,20 @@ function BandBody({
           <Button variant="outline" disabled={playing || lastNotes === null} onClick={() => void exportMidi()}>
             Export MIDI…
           </Button>
-
+          <Button
+            variant="outline"
+            disabled={blocked || previewing !== null || !rhythmFresh}
+            title={rhythmFresh ? "Choose six drum passages and export them for RC-10R Rhythm Converter" : "Generate drums with the current song settings first"}
+            onClick={() => setRhythmOpen(true)}
+          >
+            Export for BOSS RC-10R…
+          </Button>
         </div>
       </footer>
 
-
+      {rhythmOpen && rhythmGeneration && (
+        <RhythmExportDialog snapshot={rhythmGeneration.snapshot} songKey={songKey} disabled={blocked || !rhythmFresh} onClose={() => setRhythmOpen(false)} />
+      )}
 
       <AlertDialog open={confirmReplace !== null} onOpenChange={(open) => !open && setConfirmReplace(null)}>
         <AlertDialogContent>

@@ -72,8 +72,8 @@ export function startPreparation(
   const opening: number[][] = [];
   if (settings.openingPresets) {
     // Reapply load presets so an immediate Play still gives them their full loading wait.
-    // Only load presets are repeated; other load actions remain one-shot.
-    opening.push(...cues.filter((cue) => cue.trigger === "load").flatMap((cue) => cue.messages.filter(isPresetMessage)));
+    // Managed rhythm memory has its own preparation, and other load actions remain one-shot.
+    opening.push(...cues.filter((cue) => cue.trigger === "load" && !cue.managed).flatMap((cue) => cue.messages.filter(isPresetMessage)));
     opening.push(
       ...computeChaseState(cues, position, chaseTriggerSet(triggers))
         .map((message) => message.bytes)
@@ -126,7 +126,7 @@ export function savedPreparation(settings: Record<string, string>, defaults = us
 
 /** Move a user cue without changing its MIDI bytes or deleting the lyric line it accompanies. */
 export function moveCueToPreparation(chart: string, cue: Cue): string | null {
-  if (cue.fromFile || cue.trigger === "prepare" || cue.trigger === "section") return null;
+  if (cue.managed || cue.fromFile || cue.trigger === "prepare" || cue.trigger === "section") return null;
   const removed = removeCueToken(chart, cue);
   if (removed === null) return null;
   let line: string;
@@ -142,7 +142,7 @@ export function moveCueToPreparation(chart: string, cue: Cue): string | null {
 /** Change the repeat policy for the complete preparation line, keeping bank/PC pairs together. */
 export function setPreparationRepeat(chart: string, cue: Cue, repeat: PreparationRepeat): string | null {
   const source = cue.source;
-  if (!source || cue.trigger !== "prepare") return null;
+  if (!source || cue.trigger !== "prepare" || cue.managed) return null;
   const lines = chart.split(/\r?\n/),
     line = lines[source.line];
   if (line === undefined || line.slice(source.start, source.end) !== source.text) return null;
@@ -156,7 +156,7 @@ export function setPreparationRepeat(chart: string, cue: Cue, repeat: Preparatio
 /** Set the wait on a complete preparation line without moving its lyrics, comment or repeat rules. */
 export function setPreparationWait(chart: string, cue: Cue, milliseconds: number): string | null {
   const source = cue.source;
-  if (!source || cue.trigger !== "prepare") return null;
+  if (!source || cue.trigger !== "prepare" || cue.managed) return null;
   const lines = chart.split(/\r?\n/),
     line = lines[source.line];
   if (line === undefined || line.slice(source.start, source.end) !== source.text) return null;
