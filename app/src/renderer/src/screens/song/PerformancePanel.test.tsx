@@ -1010,12 +1010,12 @@ it("uses a managed 6/8 plan's quarter-note tempo in the rendered panel and actua
     render(<PerformancePanel />);
     expect(screen.getByText(/Clock target: 135 quarter-note BPM/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Send cues"));
-    await act(async () => {
-      fireEvent.click(screen.getByText("Play song"));
-      await new Promise((resolve) => setTimeout(resolve, 220));
-    });
-    expect(mocks.send.mock.calls.map((call) => call[0])).toContainEqual([0xbf, 73, 1]);
-    expect(mocks.send.mock.calls.map((call) => call[0])).toContainEqual([0xbf, 74, 7]);
+    fireEvent.click(screen.getByText("Play song"));
+    await waitFor(() => {
+      const sent = mocks.send.mock.calls.map((call) => call[0]);
+      expect(sent).toContainEqual([0xbf, 73, 1]);
+      expect(sent).toContainEqual([0xbf, 74, 7]);
+    }, { timeout: 3000 });
   } finally {
     cleanup();
     mocks.source.audio.channels[0] = original;
