@@ -29,6 +29,7 @@ const PART_NAMES: Record<SongMapPart, string> = {
   sections: "sections",
   band: "drums and bass",
   bassNotes: "bass notes",
+  marks: "bar marks",
   chart: "chart",
   notes: "notes",
 };
@@ -148,7 +149,7 @@ export function SongMapImport({
     const before = entries.map(([suffix]): [string, string] => [suffix, getSetting(songKey, suffix)]);
     // A part is named by its plan's summary where the summary has the count (the bass notes), and by its name otherwise.
     const applied = choice.map((part) =>
-      part === "bassNotes" ? (plan.parts.find((item) => item.part === part)?.summary ?? PART_NAMES[part]) : PART_NAMES[part],
+      part === "bassNotes" || part === "marks" ? (plan.parts.find((item) => item.part === part)?.summary ?? PART_NAMES[part]) : PART_NAMES[part],
     );
     try {
       writeEntries(songKey, entries);

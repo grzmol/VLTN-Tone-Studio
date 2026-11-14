@@ -1,11 +1,16 @@
+import { pedalTempoMessages } from "./pedal-tempo";
+import { preparationSequence, type PreparationSequence } from "./preparation-sequence";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
-import { StemPlayer, type Lead, type RenderedBuffers } from "@/song/stems/player";
+import { StemPlayer, type ExitBar, type Lead, type RenderedBuffers } from "@/song/stems/player";
 import { RenderQueue, isPlainSpeed } from "@/song/audio/render-queue";
 import { DEFAULT_SPEED, clampRate, clampSpeed, effectiveBpm, speedFromOptions, speedOptions, type SpeedSettings } from "./speed";
 import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
+import { extraKeysIn, loadExtras, type ExtrasPart, type LoadedExtras } from "@/song/band/extras";
+import { parseBandSettings } from "@/song/band/arrangement";
+import { countLeadSeconds, type DrummerCount } from "@/song/performance/drummer-count";
 import { useNav } from "@/state/nav";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
@@ -23,6 +28,9 @@ import { playerShapeFromOptions, type EndBehaviour } from "@/song/performance/so
 import { startMidiScheduler, prepareMidiScheduler, midiNow, type SchedulerDegraded } from "@/song/performance/midi-scheduler-client";
 import { CHASE_LEAD_MS, chaseTriggerSet, computeChaseState, type TriggerCc } from "@/song/performance/midi-chase";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
+import { PreparationHistory, preparationHistoryFor } from "./preparation-repeat";
+import { savedPreparation, type PreparationSettings } from "./start-preparation";
+import { refreshBandBeforePlay } from "@/song/band/refresh";
 import { BLUETOOTH_LOOKAHEAD, SYSTEM_LOOKAHEAD, type SchedulerJump, type TimecodeTail } from "@/song/performance/midi-scheduler";
 import { orderForPedal } from "@/song/performance/midi-pedal-order";
 import { NO_TIMECODE, timecodeOffsetFrames, type TimecodeSetting } from "@/song/performance/timecode";
@@ -68,16 +76,7 @@ import {
   type Route,
   type SongHit,
 } from "./bindings";
-import {
-  bindingClaiming,
-  describeTrigger,
-  songEntries,
-  songForEvent,
-  songLearnStep,
-  songsInScope,
-  triggerClashes,
-  type SongEntry,
-} from "./song-triggers";
+import { bindingClaiming, describeTrigger, songEntries, songForEvent, songLearnStep, songsInScope, triggerClashes, type SongEntry } from "./song-triggers";
 
 /*
  * Everything that keeps a song's MIDI cues, transport and remote input running during a performance, without React.
@@ -158,6 +157,11 @@ export interface SessionState {
   cues: Cue[];
   parseError: string;
   bpm: number;
+  preparationSettings: PreparationSettings | null;
+  preparing: { label: string; until: number; commands: number; step?: number } | null;
+  preparationPlan: PreparationSequence | null;
+  pedalsReady: boolean;
+  preparationOnceUsed: number;
   timing: Timing;
   /** A start is waiting: the start delay, or the scheduler worker. A Play press cancels it. */
   starting: boolean;
@@ -181,7 +185,7 @@ export type SessionInputs = Pick<
   SessionState,
   "bluetooth" | "tempoOnStart" | "tempoChannel" | "savedOutput" | "savedInput" | "queued" | "playlistPlaying" | "busy" | "cues" | "parseError" | "bpm"
 > &
-  Partial<Pick<SessionState, "timing" | "sections" | "bindings" | "timecode">>;
+  Partial<Pick<SessionState, "timing" | "sections" | "bindings" | "timecode" | "preparationSettings">>;
 
 /** The actions the session carries out itself: transport, songs, sections and arming. The screen supplies the rest (see `setView`). */
 export type SessionHost = Omit<ActionHost, keyof ViewHost>;
@@ -278,6 +282,24 @@ const RENDER_SWAP_LEAD_S = 0.3;
 const CLOCK_LEAD_MS = 150;
 
 /** A song's options as an object. Anything that is not an object reads as empty. */
+/** An exit bar plays this long before its bar begins at the latest, which is the margin the player needs to place it. */
+const EXIT_LEAD_S = 0.4;
+/** A pass that begins this long before its exit bar can still place it: the tick that does so runs every 50 ms. */
+const EXIT_TICK_MARGIN_S = 0.1;
+
+/** The exit bars of a song's generated parts, joined by section: one bar with each part's audio on the track that part plays on. */
+function exitBarsOf(extras: Partial<Record<ExtrasPart, LoadedExtras>>): Record<string, ExitBar> {
+  const bars: Record<string, ExitBar> = {};
+  for (const loaded of Object.values(extras)) {
+    for (const [id, exit] of Object.entries(loaded.extras.exits)) {
+      const bar = (bars[id] ??= { from: exit.from, to: exit.to, tracks: {} });
+      // Two parts' exits are of the same bar. A part whose bar is somewhere else is left out rather than played against the other.
+      if (Math.abs(bar.from - exit.from) < 1e-3 && Math.abs(bar.to - exit.to) < 1e-3) bar.tracks[loaded.track] = exit.audio;
+    }
+  }
+  return bars;
+}
+
 function parseOptions(json: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(json || "{}");
@@ -323,6 +345,9 @@ export class PerformanceSession {
   private playRequest = 0;
   private playPending = false;
   private startTempo: number[][] | null = null;
+  private preparationHistory = new PreparationHistory();
+  private readySetup: { player: StemPlayer; output: MidiOutput; key: string; opening: { position: number; messages: number[][] } } | null = null;
+  private openingPrepared: { position: number; messages: number[][] } | undefined;
   private startPosition: number | null = null;
   /** The count-in before the audio of the current start, in ms. The start tempo is due at its beginning. */
   private countInMs = 0;
@@ -356,8 +381,18 @@ export class PerformanceSession {
   private restartingLoop = false;
   /** The stems at 100%, which every render is made from */
   private baseStems: Stems | null = null;
+  /** The drummer's count and a vamp's exit bars of the loaded song's generated parts (band/extras.ts). Empty for a song without them. */
+  private bandExtras: Partial<Record<ExtrasPart, LoadedExtras>> = {};
+  /** Whether the loaded song's settings ask for the drummer's count. A count rendered earlier is not played once the setting is off. */
+  private drummerCounts = false;
+  /** The exit bar of each vamp of the loaded song, by section id: its audio for each generated track that has one (band/vamp.ts). */
+  private exitBars: Record<string, ExitBar> = {};
+  /** A loop release that came too late for its pass to be the last: the section loops once more, then the release is taken. A section id. */
+  private pendingRelease: string | null = null;
   /** The settings key of the song loaded, under which its speed is stored */
   private songSettingsKey = "";
+  private bandPreparationKey: string | null = null;
+  private speedPreparation: Promise<void> | null = null;
   private renders = new RenderQueue();
   /** Counts speed requests, so a render that a newer request has overtaken is dropped */
   private renderRequest = 0;
@@ -380,6 +415,11 @@ export class PerformanceSession {
   private view: ViewHost = NO_VIEW;
   /** What the session does for the remote actions. Each returns a hint when the action does not apply now. */
   private readonly sessionActions: SessionHost = {
+    prepare: () => {
+      if (!this.state.player) return "No song is loaded.";
+      if (this.state.starting || this.state.playing) return "Stop playback before preparing pedals.";
+      void this.preparePedals();
+    },
     play: () => {
       if (!this.state.player) return "No song is loaded.";
       this.startPlayback();
@@ -473,6 +513,11 @@ export class PerformanceSession {
       error: "",
       lateNotice: null,
       portsVersion: 0,
+      preparationSettings: null,
+      preparing: null,
+      preparationPlan: null,
+      pedalsReady: false,
+      preparationOnceUsed: 0,
       timing: NO_TIMING,
       starting: false,
       sections: [],
@@ -515,13 +560,21 @@ export class PerformanceSession {
   loadSong(source: SongSource | null, stems: Stems | null): () => void {
     const handover = this.claimHandover(source);
     if (!source) return () => {};
+    this.preparationHistory = preparationHistoryFor(source.audio);
+    this.set({ preparationOnceUsed: this.preparationHistory.size });
+    if (this.bandPreparationKey !== null && this.bandPreparationKey !== performanceKey(source)) this.cancelPendingStart();
     this.loadedSongId = source.libraryId;
     this.playedRecorded = false;
     this.autoplayPending = useSongLibrary.getState().takeAutoplay(source.libraryId);
     const options = getSetting(performanceKey(source), ":options");
     const shape = playerShapeFromOptions(options);
     const speed = speedFromOptions(options);
-    this.baseStems = playableStems(stems, source.audio);
+    const saved = parseOptions(options);
+    this.baseStems = playableStems(stems, source.audio, extraKeysIn(saved));
+    this.bandExtras = loadExtras(saved, stems);
+    this.drummerCounts = parseBandSettings(saved.band).countIn.bars > 0;
+    this.exitBars = exitBarsOf(this.bandExtras);
+    this.pendingRelease = null;
     this.songSettingsKey = performanceKey(source);
     this.renders.clear();
     this.pendingRender = null;
@@ -540,7 +593,7 @@ export class PerformanceSession {
         setClockPosition(0);
       });
       // A song saved at another speed is rendered now. It plays at 100% until its render is in place.
-      if (!isPlainSpeed(speed)) void this.renderSpeed(speed);
+      this.speedPreparation = !isPlainSpeed(speed) ? this.renderSpeed(speed) : null;
     }
     this.playedTimer = setInterval(this.checkPlayed, PLAYED_CHECK_MS);
     return () => {
@@ -550,7 +603,8 @@ export class PerformanceSession {
       stopWiring();
       // A hand-over keeps the worker, which the next song's scheduler is about to use.
       if (this.handingOver === null) {
-        this.cancelPendingStart();
+        // Replacing this song's generated buffers is part of its pending Play, rather than a cancellation of that Play.
+        if (this.bandPreparationKey !== performanceKey(source)) this.cancelPendingStart();
         this.terminateWorker();
       }
       void player.dispose();
@@ -680,6 +734,7 @@ export class PerformanceSession {
 
   /** Runs every effect cleanup, which stops the scheduler and sends the final panic. */
   dispose() {
+    if (this.playPending) this.cancelPendingStart();
     this.dropSectionPlan();
     this.dropChained();
     this.unsubscribe?.();
@@ -697,7 +752,23 @@ export class PerformanceSession {
   /** Pushes values owned by other stores. Only changed values cause effects to re-run. */
   update(inputs: Partial<SessionInputs>) {
     const changed = (Object.keys(inputs) as (keyof SessionInputs)[]).some((key) => !Object.is(this.state[key], inputs[key]));
-    if (changed) this.set(inputs);
+    if (changed) {
+      if (
+        this.playPending &&
+        this.state.preparing &&
+        ((inputs.cues !== undefined && inputs.cues !== this.state.cues) ||
+          (inputs.bpm !== undefined && inputs.bpm !== this.state.bpm) ||
+          (inputs.preparationSettings !== undefined && JSON.stringify(inputs.preparationSettings) !== JSON.stringify(this.state.preparationSettings)) ||
+          (inputs.timecode !== undefined && JSON.stringify(inputs.timecode) !== JSON.stringify(this.state.timecode)) ||
+          (inputs.tempoOnStart !== undefined && inputs.tempoOnStart !== this.state.tempoOnStart) ||
+          (inputs.tempoChannel !== undefined && inputs.tempoChannel !== this.state.tempoChannel) ||
+          (inputs.timing !== undefined && JSON.stringify(inputs.timing) !== JSON.stringify(this.state.timing)))
+      ) {
+        this.pause();
+        this.fail("Song setup changed during preparation. Press Play again to prepare the updated commands.");
+      }
+      this.set(inputs);
+    }
   }
 
   // ---- triggers ------------------------------------------------------------------------------------------------
@@ -760,7 +831,63 @@ export class PerformanceSession {
 
   // ---- state helpers -------------------------------------------------------------------------------------------
 
+  private preparationKey(state = this.state): string {
+    const player = state.player;
+    return JSON.stringify({
+      song: this.songSettingsKey,
+      position: player?.position,
+      start: player?.start,
+      end: player?.duration,
+      rate: player?.playbackRate,
+      cues: this.playCues(state),
+      parseError: state.parseError,
+      bpm: state.bpm,
+      preparation: state.preparationSettings,
+      timing: state.timing,
+      tempo: state.tempoOnStart,
+      channel: state.tempoChannel,
+      clock: state.clock,
+      timecode: state.timecode,
+      speed: state.speed,
+    });
+  }
+
+  private readyFor(state = this.state): boolean {
+    return (
+      !!this.readySetup &&
+      this.readySetup.player === state.player &&
+      this.readySetup.output === selectOutput(state) &&
+      selectArmed(state) &&
+      selectOutput(state)?.state === "connected" &&
+      this.readySetup.key === this.preparationKey(state)
+    );
+  }
+
+  /** Readiness describes what we sent on this connection, never a hardware acknowledgement. */
+  invalidatePreparation = () => {
+    if (!this.readySetup && !this.state.pedalsReady) return;
+    this.readySetup = null;
+    this.openingPrepared = undefined;
+    this.store.setState({ pedalsReady: false });
+  };
+
+  /** Explicitly allows once commands again. It sends nothing until the next Prepare or Play. */
+  resetPreparationCommands = () => {
+    if (this.playPending || this.state.playing) {
+      this.fail("Stop playback or cancel preparation before resetting once commands.");
+      return;
+    }
+    this.preparationHistory.reset();
+    this.invalidatePreparation();
+    this.set({ preparationOnceUsed: 0 });
+  };
+
   private set(patch: Partial<SessionState>) {
+    if (this.readySetup && (!this.readyFor({ ...this.state, ...patch }) || patch.playing)) {
+      this.readySetup = null;
+      if (!patch.playing) this.openingPrepared = undefined;
+      patch = { ...patch, pedalsReady: false };
+    }
     this.store.setState(patch);
   }
 
@@ -822,11 +949,17 @@ export class PerformanceSession {
 
   setMidiStatus = (midiStatus: string) => this.set({ midiStatus });
   setClock = (clock: boolean) => this.set({ clock });
-  setPortId = (portId: string) => this.set({ portId });
+  setPortId = (portId: string) => {
+    if (portId !== this.state.portId && this.state.preparing) this.pause();
+    this.set({ portId });
+  };
   setInputId = (inputId: string) => this.set({ inputId });
   setAccess = (access: MIDIAccess | null) => this.set({ access });
   /** Arms or disarms this session only. Faults and output changes use it, so they leave the remembered preference alone. */
-  setArmed = (value: boolean) => this.set({ armedOutput: value ? (this.output ?? null) : null, armedByPreference: false });
+  setArmed = (value: boolean) => {
+    if (this.playPending && this.state.preparing) this.pause();
+    this.set({ armedOutput: value ? (this.output ?? null) : null, armedByPreference: false });
+  };
 
   /** The Send cues choice: arms or disarms, and remembers it for the selected output so later songs and sessions follow. */
   sendCues = (on: boolean) => {
@@ -853,6 +986,17 @@ export class PerformanceSession {
   }
 
   /** Waits out the start delay. Cancelling resolves the wait at once. */
+  /**
+   * The drummer's count for a start, or undefined when the song has none or its settings no longer ask for one. It plays through the
+   * generated drums' track, and only from stopped: a join into the next song passes no count (a count under a crossfade makes no sense).
+   */
+  private drummerCount(): DrummerCount | undefined {
+    const drums = this.bandExtras.drums;
+    const count = drums?.extras.countIn;
+    if (!drums || !count || !this.drummerCounts) return undefined;
+    return { track: drums.track, audio: count.audio, start: count.start };
+  }
+
   private waitStartDelay(seconds: number): Promise<void> {
     if (seconds <= 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
@@ -870,9 +1014,10 @@ export class PerformanceSession {
 
   /** Invalidates the pending start (if any) so it does nothing when it resumes. */
   private cancelPendingStart() {
+    this.invalidatePreparation();
     this.playRequest++;
     this.playPending = false;
-    this.set({ starting: false });
+    this.set({ starting: false, preparing: null, preparationPlan: null });
     const cancel = this.cancelDelay;
     this.cancelDelay = null;
     cancel?.();
@@ -880,12 +1025,14 @@ export class PerformanceSession {
 
   /** Cancels a start that is still waiting (the start delay, or a worker). A second Play press does this. Once audio has begun it does nothing. */
   cancelStart = () => {
-    if (this.playPending) this.cancelPendingStart();
+    if (this.playPending) this.pause();
   };
 
   /** Stops the scheduler and releases anything this session started. A second call for one stop does nothing. */
   panic = (context: PanicContext = this.context()) => {
+    this.invalidatePreparation();
     this.startPosition = null;
+    this.openingPrepared = undefined;
     this.scheduler?.stop();
     this.scheduler = null;
     const { output, armed, clock } = context;
@@ -931,6 +1078,7 @@ export class PerformanceSession {
   }
 
   sendPerformance = (bytes: number[], timestamp?: number, label = "Manual / transport") => {
+    if (!this.playPending) this.invalidatePreparation();
     this.clearedOutput = undefined;
     if (this.state.armedOutput && portIsDead(this.output)) {
       this.deadOutput("MIDI output is no longer connected. Cues disarmed.");
@@ -1000,22 +1148,47 @@ export class PerformanceSession {
     });
   };
 
-  play = async () => {
+  /** Prepare the pedals and stop at Ready, without count-in, audio or Play triggers. */
+  preparePedals = () => this.start(true);
+  play = () => this.start(false);
+
+  private start = async (prepareOnly: boolean) => {
     const loopPass = this.restartingLoop;
     this.restartingLoop = false;
-    const { player } = this.state;
+    let { player } = this.state;
     if (!player || this.state.parseError || this.playPending || player.isPlaying) return;
+    if (prepareOnly && (!this.armed || this.output?.state !== "connected" || !this.state.preparationSettings?.enabled)) {
+      this.fail("Connect a MIDI output, enable Send cues and Before song preparation, then prepare again.");
+      return;
+    }
+    if (prepareOnly && this.readyFor()) return;
     const request = ++this.playRequest;
     this.playPending = true;
     this.set({ starting: true });
-    const armed = this.armed,
+    let armed = this.armed,
       output = this.output;
     try {
-      const { bpm, timing } = this.state;
-      const tempoMessages = this.tempoMessages(armed, output);
+      this.bandPreparationKey = this.songSettingsKey;
+      try {
+        await refreshBandBeforePlay(this.songSettingsKey);
+      } finally {
+        this.bandPreparationKey = null;
+      }
+      await useSongLibrary.getState().saveBeforePlayback?.();
+      let speedPreparation: Promise<void> | null;
+      do {
+        speedPreparation = this.speedPreparation;
+        if (speedPreparation) await speedPreparation;
+      } while (speedPreparation !== this.speedPreparation);
+      if (request !== this.playRequest) return;
+      player = this.state.player;
+      if (!player || this.state.parseError) return;
+      armed = this.armed;
+      output = this.output;
+      const cached = !prepareOnly && this.readyFor() ? this.readySetup : null;
       // An offset that is not valid at the rate stops the start, rather than sending the wrong position.
       if (armed) timecodeOffsetFrames(this.state.timecode);
-      if (armed) {
+      if (armed && !this.readyWorker) {
         const warm = this.prepared ?? prepareMidiScheduler();
         this.prepared = warm;
         await warm.ready;
@@ -1023,33 +1196,89 @@ export class PerformanceSession {
         this.readyWorker = warm.worker;
         this.prepared = null;
       }
+      armed = this.armed;
+      output = this.output;
+      const { bpm, timing } = this.state;
+      const tempoMessages = this.tempoMessages(armed, output);
+      const requestedPosition = player.position >= player.duration ? player.start : Math.max(0, player.position);
+      const preparationPosition = preRollStart(requestedPosition, timing.preRollBeats, bpm);
+      const preparation = loopPass ? null : this.state.preparationSettings;
+      let prepared = !!cached;
+      if (cached) this.openingPrepared = cached.opening;
+      if (armed && preparation && !cached) {
+        const sequence = preparationSequence({
+          cues: this.playCues(this.state),
+          position: preparationPosition,
+          requestedPosition,
+          start: player.start,
+          settings: preparation,
+          triggers: this.chaseTriggers(),
+          history: this.preparationHistory,
+          pedalChannel: this.state.tempoChannel,
+          tempo: tempoMessages,
+        });
+        if (preparation.enabled) {
+          prepared = true;
+          const check = () => request === this.playRequest && this.armed && this.output === output && output?.state === "connected";
+          const commands = sequence.steps.reduce((total, step) => total + (step.kind === "send" ? step.commands.length : 0), 0);
+          this.set({ preparationPlan: sequence });
+          for (const [index, step] of sequence.steps.entries()) {
+            this.set({ preparing: { label: step.label, until: performance.now() + (step.kind === "wait" ? step.durationMs : 0), commands, step: index } });
+            if (step.kind === "wait") {
+              await this.waitStartDelay(step.durationMs / 1000);
+              if (request !== this.playRequest) return;
+            } else
+              for (const command of step.commands) {
+                if (!check()) throw new Error("MIDI preparation was interrupted. Check the output and press Play again.");
+                // A failed send may still have reached a pedal, so once commands are consumed before the first attempt.
+                if (this.preparationHistory.started(command.onceKey)) this.set({ preparationOnceUsed: this.preparationHistory.size });
+                this.sendPerformance(command.bytes, undefined, step.origin === "tempo" ? "Song tempo" : `Before song: ${step.label}`);
+              }
+            if (!check()) throw new Error("MIDI output changed during preparation. Check it and press Play again.");
+          }
+          this.openingPrepared = { position: preparationPosition, messages: sequence.suppressed };
+        }
+      }
+      if (prepareOnly) {
+        if (!armed || !this.openingPrepared || !this.output || !this.armed) throw new Error("MIDI preparation is no longer valid. Prepare again.");
+        this.readySetup = { player, output: this.output, key: this.preparationKey(), opening: this.openingPrepared };
+        this.set({ pedalsReady: true, preparing: null });
+        return;
+      }
       await this.waitStartDelay(timing.startDelay);
       if (request !== this.playRequest) return;
-      const requestedPosition = player.position >= player.duration ? 0 : Math.max(0, player.position);
       // The count-in is clicked before the audio starts, so it begins with the tempo message.
       const countIn = countInBeats(timing.countInBars, timing.beatsPerBar);
-      // The count-in is as long as the audio it leads: beats at the song tempo times the rate.
-      this.countInMs = bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0;
+      // The count-in is as long as the audio it leads: beats at the song tempo times the rate. The drummer's count, when it plays, leads the
+      // song too, and the longer of the two is what the tempo message and the cues wait for.
+      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
+      const drummer = this.drummerCount();
+      const drummerMs = countLeadSeconds(drummer, chaseStart, player.playbackRate) * 1000;
+      this.countInMs = Math.max(bpm > 0 ? (countIn * beatSeconds(bpm) * 1000) / player.playbackRate : 0, drummerMs);
       // A chase that the pedals need before the song begins holds the audio back by CHASE_LEAD_MS, so it goes out first. Nothing is held
       // when the output is not armed, or when there is no state to chase (a start from the beginning, or no cues before the position).
-      const chaseStart = preRollStart(requestedPosition, timing.preRollBeats, bpm);
-      const chaseLead = armed && computeChaseState(this.playCues(this.state), chaseStart, chaseTriggerSet(this.chaseTriggers())).length ? CHASE_LEAD_MS : 0;
+      const settled = new Set(this.openingPrepared?.messages.map((bytes) => bytes.join(",")));
+      const chaseLead =
+        armed &&
+        computeChaseState(this.playCues(this.state), chaseStart, chaseTriggerSet(this.chaseTriggers())).some((message) => !settled.has(message.bytes.join(",")))
+          ? CHASE_LEAD_MS
+          : 0;
       // Clock without a count-in has no lead-in to cover the scheduler's start, so the hold is CLOCK_LEAD_MS.
-      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 ? CLOCK_LEAD_MS : 0;
+      const clockLead = armed && this.state.clock && !this.state.timecode.enabled && countIn === 0 && drummerMs === 0 ? CLOCK_LEAD_MS : 0;
       const lead = Math.max(chaseLead, clockLead) / 1000;
       this.transportAt = lead ? midiNow() + lead * 1000 : null;
-      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}) });
+      await player.play({ bpm, countInBeats: countIn, preRollBeats: timing.preRollBeats, ...(lead ? { startDelay: lead } : {}), ...(drummer ? { drummer } : {}) });
       if (request !== this.playRequest) {
         player.pause();
         this.terminateWorker();
         return;
       }
-      this.startTempo = tempoMessages;
+      this.startTempo = prepared ? null : tempoMessages;
       // Every start and resume sends the play trigger, except a loop pass, which is not a new play press.
       this.startPlay = loopPass ? null : this.triggerBytes("play");
       // Cues start from where the audio really starts: a pre-roll puts that before the requested position.
       this.startPosition = armed ? preRollStart(requestedPosition, timing.preRollBeats, bpm) : null;
-      this.set({ playing: true });
+      this.set({ playing: true, preparing: null });
     } catch (e) {
       this.terminateWorker();
       if (request === this.playRequest) {
@@ -1066,7 +1295,7 @@ export class PerformanceSession {
     } finally {
       if (request === this.playRequest) {
         this.playPending = false;
-        this.set({ starting: false });
+        this.set({ starting: false, preparing: null, preparationPlan: null });
       }
     }
   };
@@ -1113,17 +1342,35 @@ export class PerformanceSession {
 
   /** The one-time tempo message a start sends, or null when it sends none. Throws when the tempo is out of range. */
   private tempoMessages(armed: boolean, output: MidiOutput | undefined, rate = this.state.player?.playbackRate ?? 1): number[][] | null {
-    const { tempoOnStart, tempoChannel, bpm } = this.state;
+    const { tempoOnStart } = this.state;
     if (!armed || !tempoOnStart || output?.state !== "connected") return null;
     // The pedal is sent the tempo the song plays at, so the range is checked on the effective BPM.
+    return this.configuredTempoMessages(rate);
+  }
+
+  private configuredTempoMessages(rate = this.state.player?.playbackRate ?? 1): number[][] {
+    const { tempoChannel, bpm } = this.state;
     const tempoBpm = effectiveBpm(bpm, rate);
-    if (tempoBpm < 40 || tempoBpm > 300) throw new Error("GP-150 / GP-180 one-time tempo supports 40–300 BPM.");
-    const tempo = Math.round(tempoBpm),
-      status = 0xb0 + tempoChannel - 1;
-    return [
-      [status, 73, tempo >> 7],
-      [status, 74, tempo & 127],
-    ];
+    return pedalTempoMessages(tempoBpm, tempoChannel);
+  }
+
+  /** Read-only: this never consumes repeat rules or sends MIDI. */
+  preparationPreview(): PreparationSequence | null {
+    if (this.state.preparationPlan) return this.state.preparationPlan;
+    const { player, preparationSettings: settings, bpm, timing } = this.state;
+    if (!player || !settings?.enabled) return null;
+    const requestedPosition = player.position >= player.duration ? player.start : Math.max(0, player.position);
+    return preparationSequence({
+      cues: this.playCues(this.state),
+      position: preRollStart(requestedPosition, timing.preRollBeats, bpm),
+      requestedPosition,
+      start: player.start,
+      settings,
+      triggers: this.chaseTriggers(),
+      history: this.preparationHistory,
+      pedalChannel: this.state.tempoChannel,
+      tempo: this.state.tempoOnStart ? this.configuredTempoMessages() : null,
+    });
   }
 
   /** Crossfades into the next playlist song now. Returns false when no next song is ready, or a join is already planned. */
@@ -1131,6 +1378,10 @@ export class PerformanceSession {
     const { player, queued, playlistPlaying } = this.state;
     const next = useSongLibrary.getState().preparedNext();
     if (!player?.isPlaying || this.chained || !queued || !playlistPlaying || !next) return false;
+    if (this.armed && this.state.preparationSettings && (this.state.preparationSettings.enabled || savedPreparation(next.settings).enabled)) {
+      this.fail("Pedal preparation runs between songs. Disable Before song preparation to crossfade, or let the current song finish.");
+      return false;
+    }
     // The count-in is the incoming song's: its clicks start at the outgoing song's end.
     const timing = songCountIn(next.settings);
     const countIn = countInBeats(timing.countInBars, timing.beatsPerBar);
@@ -1152,6 +1403,8 @@ export class PerformanceSession {
     const { player, queued, playlistPlaying } = this.state;
     // A song set to stop, or to loop, does not hand over to the next one.
     if (!player?.isPlaying || this.behaviourOf(player) !== "next" || this.chained || !queued || !playlistPlaying) return;
+    // Pedal setup must finish between songs before incoming audio starts.
+    if (this.armed && this.state.preparationSettings?.enabled) return;
     const library = useSongLibrary.getState();
     // An entry that waits for Play is not chained: it would start on the clock at the join.
     if (library.queueOverrides[library.position + 1]?.autoplay === false) return;
@@ -1198,6 +1451,7 @@ export class PerformanceSession {
     const { player } = this.state;
     if (!player) return;
     // The next song's buffers were built when it was prepared, so the join only starts them.
+    if (this.armed && this.state.preparationSettings && savedPreparation(next.settings).enabled) return;
     const incoming = next.player;
     const unwire = this.wirePlayer(incoming, next.source);
     const countInBeatsNow = plan.kind === "countIn" ? countInBeats(timing.countInBars, timing.beatsPerBar) : 0;
@@ -1405,10 +1659,59 @@ export class PerformanceSession {
 
   /** Forgets a decision because playback stopped. Any jump was dropped by the player, and the live state goes back to what it was. */
   private dropSectionPlan(): void {
+    this.pendingRelease = null;
     const plan = this.section;
     if (!plan) return;
     this.section = null;
     this.set({ sectionLive: plan.before, sectionNext: null });
+  }
+
+  /**
+   * Whether the exit bars are used at all: the song has some, and it plays at its own speed and pitch, which is what they were rendered at.
+   * At another speed or pitch a vamp keeps the audio it has, which loops cleanly and leaves without its fill.
+   */
+  private exitsUsable(): boolean {
+    return Object.keys(this.exitBars).length > 0 && isPlainSpeed(this.state.speed);
+  }
+
+  /** Whether the vamp's exit bar can still be placed for the pass that is playing: its bar is far enough ahead on the audio clock. */
+  private canExit(player: StemPlayer, bar: ExitBar): boolean {
+    return player.audioTimeOf(bar.from) - player.audioNow >= EXIT_LEAD_S;
+  }
+
+  /**
+   * In a vamp, once the pass that is playing is the one that leaves the section (a loop that was released, a repeat's second pass, or a
+   * section that continues), swaps the generated tracks' last bar for the exit bar, which has the fill and lead-in into the next section. The swap
+   * is scheduled on the audio clock one bar ahead and changes no song time, so the MIDI cues stay where they were. A release that comes too late
+   * for it is held until the next pass. An exit that is no longer the pass's way out (the loop was started again, a jump was armed) is taken back.
+   */
+  private tickExit(player: StemPlayer, sections: readonly Section[]): void {
+    // A release that was held for the exit bar is taken at once when the exit bars stop being used (a change of speed or pitch).
+    if (this.pendingRelease !== null && !this.exitsUsable()) {
+      const id = this.pendingRelease;
+      this.pendingRelease = null;
+      this.set({ sectionLive: releaseLoop(this.state.sectionLive, id) });
+    }
+    if (!this.exitsUsable() || !sections.length || player.position < 0) return;
+    const ordered = sortedSections(sections);
+    const section = ordered[sectionIndexAt(ordered, player.position)];
+    if (this.pendingRelease !== null && section?.id !== this.pendingRelease) this.pendingRelease = null;
+    const bar = section ? this.exitBars[section.id] : undefined;
+    if (!section || !bar) return;
+    if (this.pendingRelease === section.id && this.canExit(player, bar)) {
+      this.pendingRelease = null;
+      this.set({ sectionLive: releaseLoop(this.state.sectionLive, section.id) });
+    }
+    const boundary = nextBoundary(sections, player.position, this.state.sectionLive);
+    // A pause at the end of the section leaves it the same way a continue does.
+    const leaving = boundary !== null && (boundary.action.kind === "continue" || boundary.action.kind === "pause");
+    if (player.exitAt !== null) {
+      if (!leaving) player.cancelExit();
+      return;
+    }
+    // A jump that is waiting means this pass does not leave into the next section.
+    if (!leaving || this.pendingRelease === section.id || this.section?.kind === "jump") return;
+    player.scheduleExit(bar);
   }
 
   /** Every 50 ms while playing: carries out a decision once its boundary has passed, and decides the next boundary when it is close. */
@@ -1419,6 +1722,7 @@ export class PerformanceSession {
     try {
       this.tickRender(player);
       if (this.renderSwap) return;
+      this.tickExit(player, sections);
       const plan = this.section;
       if (plan) {
         if (plan.sections !== sections) {
@@ -1477,6 +1781,8 @@ export class PerformanceSession {
   setSpeed = (requested: Partial<SpeedSettings>): void => {
     const speed = clampSpeed({ ...this.state.speed, ...requested });
     if (JSON.stringify(speed) === JSON.stringify(this.state.speed)) return;
+
+    if (this.playPending && this.state.preparing) this.pause();
     this.set({ speed });
     try {
       const key = this.songSettingsKey;
@@ -1485,7 +1791,7 @@ export class PerformanceSession {
     } catch (e) {
       this.fail(e);
     }
-    void this.renderSpeed(speed);
+    this.speedPreparation = this.renderSpeed(speed);
   };
 
   /** Builds the render for `speed` from the stems at 100%, and hands it to the player. Stale results are dropped. */
@@ -1540,7 +1846,14 @@ export class PerformanceSession {
 
   /** Loops a section until it is released; tapping the looping section releases it. */
   toggleSectionLoop = (id: string) => {
+    // Tapping the looping section releases it, the same way the release action does.
+    const looping = sortedSections(this.playableSections).find((section) => section.id === id);
+    if (this.state.sectionLive.loop === id && looping) {
+      this.releaseLoopOf(looping);
+      return;
+    }
     this.cancelSectionPlan();
+    this.pendingRelease = null;
     const live = this.state.sectionLive;
     this.set({ sectionLive: live.loop === id ? releaseLoop(live, id) : startLoop(live, id) });
   };
@@ -1551,9 +1864,34 @@ export class PerformanceSession {
     const ordered = sortedSections(this.playableSections);
     const current = player ? ordered[sectionIndexAt(ordered, player.position)] : undefined;
     if (!current) return;
-    this.cancelSectionPlan();
-    this.set({ sectionLive: releaseLoop(this.state.sectionLive, current.id) });
+    this.releaseLoopOf(current);
   };
+
+  /** Whether another pass of `section` could place its exit bar: the bar begins far enough after the section does. A one-bar vamp has no such pass. */
+  private exitReachable(section: Section, bar: ExitBar): boolean {
+    return bar.from - section.start >= EXIT_LEAD_S + EXIT_TICK_MARGIN_S;
+  }
+
+  /**
+   * Releases a loop. A vamp leaves through its exit bar, placed a bar ahead. A release inside the last bar, or with the jump back already too
+   * close to take back, lets the section loop once more: the release is taken at the start of that pass, and its last bar is the exit. A vamp that
+   * cannot place its exit on a later pass either (its last bar is its first) is released at once and leaves by its plain last bar.
+   */
+  private releaseLoopOf(section: Section): void {
+    const { player } = this.state;
+    const bar = this.exitsUsable() ? this.exitBars[section.id] : undefined;
+    const later = bar !== undefined && this.exitReachable(section, bar);
+    if (bar && later && player && !this.canExit(player, bar)) {
+      this.pendingRelease = section.id;
+      return;
+    }
+    if (!this.cancelSectionPlan() && bar && later) {
+      this.pendingRelease = section.id;
+      return;
+    }
+    this.pendingRelease = null;
+    this.set({ sectionLive: releaseLoop(this.state.sectionLive, section.id) });
+  }
 
   /** Cancels the armed jump. A decision already made for it is put back too, where that is still possible. */
   cancelSectionJump = () => {
@@ -2093,6 +2431,7 @@ export class PerformanceSession {
           timecode: offset === null ? undefined : { fps: s.timecode.fps, offset },
           timecodeTail: timecodeTail ?? undefined,
           tempo: this.startTempo,
+          prepared: this.openingPrepared,
           playTriggers,
           lookahead: s.portId === BLUETOOTH_PORT_ID ? BLUETOOTH_LOOKAHEAD : SYSTEM_LOOKAHEAD,
           pedalChannel: s.tempoChannel,
@@ -2109,6 +2448,7 @@ export class PerformanceSession {
       );
       this.readyWorker = null;
       this.startTempo = null;
+      this.openingPrepared = undefined;
       this.scheduler = handle;
       this.sendPlan();
       // Audio position is a checkpoint, not the scheduling clock. A missing or

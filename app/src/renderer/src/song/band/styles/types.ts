@@ -1,8 +1,10 @@
+import type { Figure } from "../bass-figures";
+
 // Style data: a meter, a step grid, drum grooves per energy level, fills and bass rhythms. Styles are plain data so they can be
 // read, tested and tuned without running any generator. The rules that play them live in ../drums.ts and ../bass.ts.
 
 /** Every style the engine knows. The list is the source of truth for parsing saved settings. */
-export const STYLE_IDS = ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "six-eight", "half-time"] as const;
+export const STYLE_IDS = ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "six-eight", "half-time", "three-four"] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 /**
@@ -72,6 +74,8 @@ export interface BassStyle {
   walking: boolean;
   /** The bass techniques this style plays unless a section says otherwise. */
   techniques: BassTechniques;
+  /** Three or four figures for each energy level, one or two bars long (bass-figures.ts). A groove or melodic section plays one. */
+  figures: Record<Energy, Figure[]>;
 }
 
 export interface Style {
@@ -88,12 +92,18 @@ export interface Style {
   /** 2 to 4 variations per energy level. Each variation is one bar. */
   grooves: Record<Energy, DrumGroove[]>;
   /**
-   * Fills. A half fill is a whole-bar pattern whose hits all sit in its second half (`step >= steps / 2`). It replaces the second half
-   * of the last bar of a section. A bar fill replaces the whole bar.
+   * Fills. A short fill is a whole-bar pattern whose hits all sit in the last beat; it replaces that beat. A half fill has its hits in the
+   * second half (`step >= steps / 2`) and replaces the second half of the bar. A bar fill replaces the whole bar. The first
+   * `LEGACY_FILLS` half and bar fills are the ones songs on drum engine 2 or earlier were made with; they stay as they were.
    */
-  fills: { half: DrumPattern[]; bar: DrumPattern[] };
+  fills: { short: DrumPattern[]; half: DrumPattern[]; bar: DrumPattern[] };
+  /** Hits that replace the last beat of a groove in the last bar of a phrase that does not end a pair of phrases: one small change. */
+  turnarounds: DrumPattern[];
   bass: BassStyle;
 }
+
+/** How many half fills and bar fills a style had before the drum phrases (engine 3). Songs on engine 2 or earlier draw from these only. */
+export const LEGACY_FILLS = 2;
 
 /** A "lean" hit plays from this complexity up. */
 export const LEAN_FROM = 1 / 3;

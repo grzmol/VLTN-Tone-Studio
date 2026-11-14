@@ -13,6 +13,9 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { clearSettingsCache, performanceKey, setSetting } from "./settings";
+import { packExtras } from "@/song/band/extras";
+import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
@@ -28,8 +31,13 @@ const mocks = vi.hoisted(() => ({
   lead: undefined as unknown,
   rate: 1,
   swaps: [] as unknown[],
+  /** The exit bars the session asked the player to place, and when the player says the next one begins (null: none waiting). */
+  exits: [] as { from: number; to: number; tracks: Record<string, unknown> }[],
+  exitAt: null as number | null,
+  exitCancels: 0,
   applied: [] as unknown[],
-  configs: [] as { rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
+  configs: [] as {
+    prepared?: { position: number; messages: number[][] }; rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
   swapAt: 2.5,
   swapWhen: 2.6,
   faults: [] as ((message: string) => void)[],
@@ -189,6 +197,19 @@ vi.mock("@/song/stems/player", () => ({
       return null;
     }
     cancelChain() {}
+    scheduleExit(bar: { from: number; to: number; tracks: Record<string, unknown> }) {
+      mocks.exits.push(bar);
+      mocks.exitAt = mocks.audioNow + (bar.from - mocks.position);
+      return mocks.exitAt;
+    }
+    cancelExit() {
+      mocks.exitCancels++;
+      mocks.exitAt = null;
+      return true;
+    }
+    get exitAt() {
+      return mocks.exitAt;
+    }
     async dispose() {
       this.disposed = true;
     }
@@ -310,6 +331,9 @@ beforeEach(() => {
   mocks.library.queue = [];
   mocks.rate = 1;
   mocks.swaps.length = 0;
+  mocks.exits.length = 0;
+  mocks.exitAt = null;
+  mocks.exitCancels = 0;
   mocks.applied.length = 0;
   mocks.configs.length = 0;
   useMidiDiagnostics.getState().reset();
@@ -903,6 +927,60 @@ it("waits out the start delay, cancels it with a second Play press, and starts w
   vi.useRealTimers();
 });
 
+/** A song with generated drums, and the drummer's count packed beside them as the song store saves it. `start` is the count's song time. */
+function songWithCount(bars: 0 | 1 | 2, start = -2) {
+  const pcm = (frames: number) => ({ sampleRate: 44100, channels: [new Float32Array(frames), new Float32Array(frames)] });
+  const packed = packExtras({ countIn: { audio: pcm(44100), start }, exits: {} })!;
+  const own = { ...source, libraryId: undefined, name: `count-${bars}.wav` };
+  setSetting(
+    performanceKey(own),
+    ":options",
+    JSON.stringify({
+      band: { ...DEFAULT_BAND_SETTINGS, countIn: { bars, sound: "sticks" } },
+      generatedParts: { drums: "track1", drumsExtras: "track2" },
+      bandExtras: { drums: packed.manifest },
+    }),
+  );
+  return { own, stems: { track1: pcm(100), track2: packed.audio } as unknown as Stems };
+}
+
+it("starts a song with the drummer's count through the drums' track, and the count leads the song", async () => {
+  vi.useFakeTimers();
+  mocks.lead = undefined;
+  const { own, stems } = songWithCount(1);
+  const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+  const unload = session.loadSong(own, stems);
+  await session.play();
+  const lead = mocks.lead as { drummer?: { track: string; start: number; audio: { channels: Float32Array[] } } };
+  expect(lead.drummer?.track).toBe("track1");
+  expect(lead.drummer?.start).toBe(-2);
+  expect(lead.drummer?.audio.channels[0]).toHaveLength(44100);
+  session.pause();
+  unload();
+  vi.useRealTimers();
+});
+
+it("plays no count when the song's settings no longer ask for one, or when the song has none", async () => {
+  vi.useFakeTimers();
+  for (const [bars, withStems] of [[0, true], [1, false]] as const) {
+    mocks.lead = undefined;
+    const { own, stems } = songWithCount(bars);
+    const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+    const unload = session.loadSong(own, withStems ? stems : null);
+    await session.play();
+    expect((mocks.lead as { drummer?: unknown }).drummer).toBeUndefined();
+    session.pause();
+    unload();
+  }
+  vi.useRealTimers();
+});
+
+it("joins a playlist song gaplessly without the drummer's count, even when its settings ask for one", async () => {
+  const lead = await chainLeadFor({ ":bpm": "90", ":options": JSON.stringify({ band: { countIn: { bars: 2, sound: "hat" } } }) });
+  expect(lead).toEqual({ bpm: 90, countInBeats: 0, preRollBeats: 0 });
+  expect(lead).not.toHaveProperty("drummer");
+});
+
 it("applies the saved outputs to a new player, again when they change, and shows a warning as a toast", () => {
   const session = new PerformanceSession({ initial: inputs(), carried: null, initialClock: false });
   const unload = session.loadSong(source, null);
@@ -1014,6 +1092,190 @@ describe("sections", () => {
     session.releaseSectionLoop();
     expect(session.state.sectionLive.loop).toBeNull();
     expect(session.state.sectionLive.released).toEqual(["verse"]);
+  });
+});
+
+describe("vamp exit bars", () => {
+  const solo = (mode: Section["mode"]): Section => ({ id: "solo", name: "Solo", start: 8, end: 16, mode });
+  const pcm = (frames: number) => ({ sampleRate: 44100, channels: [new Float32Array(frames), new Float32Array(frames)] });
+  let count = 0;
+  /** A session on a song whose generated drums have an exit bar for the solo, which is bar 14 to 16 s. `withExit: false` is a song made before exit bars. */
+  function vampSession(mode: Section["mode"], withExit = true, section: Section = solo(mode)) {
+    const packed = packExtras({ exits: { solo: { audio: pcm(100), from: 14, to: 16 } } })!;
+    const own = { ...source, libraryId: undefined, name: `vamp-${count++}.wav` };
+    setSetting(
+      performanceKey(own),
+      ":options",
+      JSON.stringify({ generatedParts: { drums: "track1", drumsExtras: "track2" }, ...(withExit ? { bandExtras: { drums: packed.manifest } } : {}) }),
+    );
+    const access = Object.assign(new EventTarget(), { outputs: new Map([["usb", output()]]), inputs: new Map() }) as unknown as MIDIAccess;
+    const out = output();
+    const session = new PerformanceSession({
+      initial: inputs({ sections: [section] }),
+      carried: { access, portId: "usb", inputId: "", armed: true, output: out },
+      initialClock: false,
+    });
+    session.loadSong(own, { track1: pcm(100), track2: packed.audio } as unknown as Stems);
+    session.bind();
+    return session;
+  }
+  /** Moves the song and the audio clock to `position`, then runs one 50 ms section tick. */
+  function at(position: number) {
+    mocks.position = position;
+    mocks.audioNow = position;
+    vi.advanceTimersByTime(50);
+  }
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("places the exit bar for the generated track once a loop is released well before its last bar", () => {
+    const session = vampSession("loop");
+    at(9);
+    session.store.setState({ playing: true });
+    at(9);
+    expect(mocks.exits).toHaveLength(0);
+    session.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exits).toHaveLength(1);
+    expect(mocks.exits[0]).toMatchObject({ from: 14, to: 16 });
+    expect(Object.keys(mocks.exits[0].tracks)).toEqual(["track1"]);
+    // It is a per-track swap on the audio clock: no jump, and the MIDI schedule is told nothing.
+    expect(mocks.jumps).toHaveLength(0);
+    expect(mocks.plans).toHaveLength(0);
+  });
+
+  it("places no exit bar while the loop is going, and the loop jumps back as it always did", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(9);
+    at(13);
+    at(14.1);
+    expect(mocks.exits).toHaveLength(0);
+    expect(mocks.jumps).toEqual([{ to: 8, at: 16 }]);
+  });
+
+  it("lets the section loop once more when the release comes inside the last bar, and the exit plays on that pass", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(14.6);
+    // The jump back is already waiting: the release is held, the loop stays as it was, and nothing is cancelled.
+    expect(mocks.jumps).toHaveLength(1);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual([]);
+    expect(mocks.exits).toHaveLength(0);
+    at(15.5);
+    expect(mocks.exits).toHaveLength(0);
+    // The audio clock passes the jump while the song position is back at the start of the section.
+    mocks.position = 8.1;
+    mocks.audioNow = 16.1;
+    vi.advanceTimersByTime(50);
+    // The loop wraps. On the new pass the release is taken at once and the exit bar is placed.
+    at(9);
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+    expect(mocks.exits).toHaveLength(1);
+    expect(mocks.exits[0]).toMatchObject({ from: 14, to: 16 });
+  });
+
+  it("takes the held release back when the performer starts the loop again, or leaves the section", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(15);
+    session.releaseSectionLoop();
+    session.toggleSectionLoop("solo");
+    at(9);
+    expect(session.state.sectionLive.loop).toBe("solo");
+    expect(mocks.exits).toHaveLength(0);
+    const other = vampSession("loop");
+    other.store.setState({ playing: true });
+    at(15);
+    other.releaseSectionLoop();
+    at(17);
+    at(9);
+    expect(other.state.sectionLive.released).toEqual([]);
+  });
+
+  it("takes the exit bar back when the performer starts the loop again before it begins", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(9);
+    session.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exitAt).not.toBeNull();
+    session.toggleSectionLoop("solo");
+    at(10);
+    expect(mocks.exitCancels).toBe(1);
+    expect(mocks.exitAt).toBeNull();
+  });
+
+  it("plays the exit bar on the second pass of a section that repeats once, and not on the first", () => {
+    const session = vampSession("repeat-once");
+    session.store.setState({ playing: true });
+    at(9);
+    expect(mocks.exits).toHaveLength(0);
+    // The first pass jumps back; the second is the last.
+    at(14.1);
+    at(16.1);
+    session.store.setState({ sectionLive: { ...session.state.sectionLive, repeated: ["solo"] } });
+    at(9);
+    expect(mocks.exits).toHaveLength(1);
+  });
+
+  it("releases a vamp at once when its last bar is its first, since no later pass could place the exit", () => {
+    const session = vampSession("loop", true, { ...solo("loop"), start: 14 });
+    session.store.setState({ playing: true });
+    at(14.5);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+  });
+
+  it("holds a late tap on the looping section the way it holds the release action", () => {
+    const session = vampSession("continue");
+    session.store.setState({ playing: true });
+    at(10);
+    session.toggleSectionLoop("solo");
+    expect(session.state.sectionLive.loop).toBe("solo");
+    at(15);
+    session.toggleSectionLoop("solo");
+    expect(session.state.sectionLive.loop).toBe("solo");
+    expect(session.state.sectionLive.released).toEqual([]);
+  });
+
+  it("releases an early tap on the looping section and places the exit", () => {
+    const session = vampSession("continue");
+    session.store.setState({ playing: true });
+    at(10);
+    session.toggleSectionLoop("solo");
+    session.toggleSectionLoop("solo");
+    at(10.5);
+    expect(session.state.sectionLive.loop).toBeNull();
+    expect(mocks.exits).toHaveLength(1);
+  });
+
+  it("takes a held release at once when a change of speed stops the exit bars being used", () => {
+    const session = vampSession("loop");
+    session.store.setState({ playing: true });
+    at(15);
+    session.releaseSectionLoop();
+    expect(session.state.sectionLive.released).toEqual([]);
+    session.store.setState({ speed: { ...session.state.speed, rate: 0.8 } });
+    at(15.2);
+    expect(session.state.sectionLive.released).toEqual(["solo"]);
+  });
+
+  it("leaves a song made before exit bars as it was, and a song at another speed", () => {
+    const old = vampSession("loop", false);
+    old.store.setState({ playing: true });
+    at(9);
+    old.releaseSectionLoop();
+    expect(old.state.sectionLive.released).toEqual(["solo"]);
+    at(9.5);
+    expect(mocks.exits).toHaveLength(0);
+    const slow = vampSession("loop");
+    slow.store.setState({ playing: true, speed: { ...slow.state.speed, rate: 0.8 } });
+    at(9);
+    slow.releaseSectionLoop();
+    at(9.5);
+    expect(mocks.exits).toHaveLength(0);
   });
 });
 
@@ -2138,5 +2400,334 @@ describe("Send cues stays on", () => {
     session.bind();
     await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
+  });
+});
+
+describe("Before song preparation", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  const preparationSettings = { enabled: true, settleMs: 1000, openingPresets: true };
+  const setup = () => {
+    const cues = parseChart("[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{midi@prepare:$READY}", [
+      { code: "READY", label: "Ready", commands: ["cc 3 12 0", "pc 3 7"] },
+    ]);
+    return armedSession(output(), { cues, preparationSettings, tempoOnStart: true, tempoChannel: 16, bpm: 140 });
+  };
+  it("prepares to Ready without audio or Play triggers, then starts immediately without repeating setup", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const preparing = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      await vi.advanceTimersByTimeAsync(1100);
+      await preparing;
+      expect(session.state.pedalsReady).toBe(true);
+      expect(session.state.playing).toBe(false);
+      expect(session.state.player?.isPlaying).toBe(false);
+      expect(mocks.configs).toHaveLength(0);
+      const sent = out.send.mock.calls.length;
+      await session.play();
+      expect(session.state.playing).toBe(true);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(out.send.mock.calls).toHaveLength(sent);
+      expect(mocks.configs.at(-1)?.prepared?.messages).toContainEqual([0xcf, 6]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it.each(["bpm", "cues", "settings", "tempo", "output", "disconnect", "seek", "manual"])("invalidates Ready after %s changes", async (change) => {
+    const { session, unload, out, access } = setup();
+    try {
+      const preparing = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      await vi.advanceTimersByTimeAsync(1100);
+      await preparing;
+      expect(session.state.pedalsReady).toBe(true);
+      if (change === "bpm") session.update({ bpm: 130 });
+      if (change === "cues") session.update({ cues: parseChart("{midi@prepare:pc 3 9}") });
+      if (change === "settings") session.update({ preparationSettings: { ...preparationSettings, settleMs: 2000 } });
+      if (change === "tempo") session.update({ tempoOnStart: false });
+      if (change === "output") session.setArmed(false);
+      if (change === "disconnect") {
+        out.state = "disconnected";
+        access.dispatchEvent(new Event("statechange"));
+      }
+      if (change === "seek") await session.seek(0.2);
+      if (change === "manual") session.sendPerformance([0xc2, 10]);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(session.state.playing).toBe(false);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("sends presets and custom macro messages before the loading wait, then tempo before audio", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Waiting for pedals"));
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xbf, 0, 0],
+        [0xcf, 6],
+        [0xb2, 12, 0],
+        [0xc2, 7],
+      ]);
+      expect(session.state.player?.isPlaying).toBe(false);
+      await vi.advanceTimersByTimeAsync(1100);
+      await playing;
+      expect(session.state.player?.isPlaying).toBe(true);
+      expect(session.state.preparing).toBeNull();
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xbf, 73, 1],
+        [0xbf, 74, 12],
+      ]);
+      expect(mocks.configs.at(-1)?.tempo).toBeNull();
+      expect(mocks.configs.at(-1)?.prepared?.messages).toContainEqual([0xcf, 6]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels the waiting start without playing audio or sending a later tempo", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      session.cancelStart();
+      await vi.advanceTimersByTimeAsync(2000);
+      await playing;
+      expect(session.state.player?.isPlaying).toBe(false);
+      expect(session.state.preparing).toBeNull();
+      expect(out.clear).toHaveBeenCalled();
+      expect(out.send.mock.calls.some((call) => call[0][1] === 74)).toBe(false);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels rather than running stale commands when setup changes during preparation", async () => {
+    const { session, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      session.update({ preparationSettings: { ...session.state.preparationSettings! }, timing: { ...session.state.timing } });
+      expect(session.state.starting).toBe(true);
+      session.update({ cues: parseChart("{midi@prepare:pc 3 8}") });
+      await vi.advanceTimersByTimeAsync(2000);
+      await playing;
+      expect(session.state.playing).toBe(false);
+      expect(session.state.error).toContain("setup changed during preparation");
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+  it("keeps bank/preset and macro messages together while spacing setup commands", async () => {
+    const { session, out, unload } = setup();
+    session.update({ preparationSettings: { ...preparationSettings, commandGapMs: 250 } });
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Between setup commands"));
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xbf, 0, 0],
+        [0xcf, 6],
+      ]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(out.send.mock.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xb2, 12, 0],
+        [0xc2, 7],
+      ]);
+      session.cancelStart();
+      await vi.advanceTimersByTimeAsync(3000);
+      await playing;
+      expect(session.state.playing).toBe(false);
+      expect(out.send.mock.calls.some((call) => call[0][1] === 73)).toBe(false);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+});
+
+describe("preparation command repeat rules", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  const setup = (chart: string, commandGapMs = 0) => {
+    const result = armedSession(output(), { cues: parseChart(chart), preparationSettings: { enabled: true, openingPresets: true, settleMs: 0, commandGapMs } });
+    result.session.resetPreparationCommands();
+    return result;
+  };
+  it("resumes with Every start only, and replays beginning commands only at the trimmed start", async () => {
+    const { session, out, unload } = setup("{midi@prepare:pc 1 5}\n{midi@prepare-beginning:cc 3 20 127}\n{midi@prepare-once:cc 4 21 127}");
+    Object.assign(session.state.player!, { start: 10 });
+    mocks.position = 10;
+    try {
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xc0, 5],
+        [0xb2, 20, 127],
+        [0xb3, 21, 127],
+      ]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+      await session.play();
+      expect(out.send.mock.calls).toHaveLength(3);
+      session.pause();
+      mocks.position = 10.02;
+      out.send.mockClear();
+      await session.play();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 5]]);
+      session.pause();
+      mocks.position = 10;
+      out.send.mockClear();
+      await session.play();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xc0, 5],
+        [0xb2, 20, 127],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("keeps an interrupted once line consumed, and resets it only on an explicit request", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:cc 3 20 127} {midi@prepare-once:cc 3 20 0}");
+    try {
+      out.send.mockImplementationOnce(() => session.cancelStart());
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xb2, 20, 127]]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+      await session.preparePedals();
+      expect(out.send.mock.calls).toHaveLength(1);
+      expect(session.state.pedalsReady).toBe(true);
+      session.resetPreparationCommands();
+      expect(session.state.preparationOnceUsed).toBe(0);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(out.send.mock.calls).toHaveLength(1);
+      await session.preparePedals();
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xb2, 20, 127],
+        [0xb2, 20, 0],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("does not consume a once command when preparation is cancelled before sending begins", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:pc 3 9}");
+    try {
+      const pending = session.preparePedals();
+      session.cancelStart();
+      await pending;
+      expect(session.state.preparationOnceUsed).toBe(0);
+      expect(out.send).not.toHaveBeenCalled();
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xc2, 9]]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("does not automatically repeat an ambiguous failed once send after rearming", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:cc 3 22 127}");
+    try {
+      out.send.mockImplementationOnce(() => {
+        throw new Error("link failed");
+      });
+      await session.preparePedals();
+      expect(session.state.preparationOnceUsed).toBe(1);
+      expect(session.state.pedalsReady).toBe(false);
+      session.setArmed(true);
+      await session.preparePedals();
+      expect(out.send).toHaveBeenCalledTimes(1);
+      expect(session.state.pedalsReady).toBe(true);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+});
+
+describe("individual preparation waits", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  it("uses the preview's exact wait plan, keeps a bank pair together, and stops at Ready without audio", async () => {
+    const { session, out, unload } = armedSession(output(), {
+      cues: parseChart("{label:Patch} {midi@prepare:cc 3 0 0} {midi@prepare wait=0.5:pc 3 5}\n{label:Effect} {midi@prepare wait=0.2:cc 3 12 64}"),
+      preparationSettings: { enabled: true, settleMs: 100, openingPresets: true },
+      tempoOnStart: true,
+      tempoChannel: 16,
+      bpm: 140,
+    });
+    try {
+      expect(session.preparationPreview()?.totalWaitMs).toBe(900);
+      expect(out.send).not.toHaveBeenCalled();
+      const pending = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Wait after Patch"));
+      expect(session.state.preparationPlan?.totalWaitMs).toBe(900);
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xb2, 0, 0],
+        [0xc2, 5],
+      ]);
+      await vi.advanceTimersByTimeAsync(350);
+      expect(out.send.mock.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(out.send.mock.calls.at(-1)?.[0]).toEqual([0xb2, 12, 64]);
+      await vi.advanceTimersByTimeAsync(400);
+      await pending;
+      expect(session.state.pedalsReady).toBe(true);
+      expect(session.state.playing).toBe(false);
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xbf, 73, 1],
+        [0xbf, 74, 12],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels a wait before the next command and keeps an attempted once action used", async () => {
+    const { session, out, unload } = armedSession(output(), {
+      cues: parseChart("{label:Once} {midi@prepare-once wait=0.5:cc 3 25 127}\n{midi@prepare:pc 3 4}"),
+      preparationSettings: { enabled: true, settleMs: 0, openingPresets: true },
+    });
+    session.resetPreparationCommands();
+    try {
+      const pending = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Wait after Once"));
+      session.cancelStart();
+      await pending;
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xb2, 25, 127]]);
+      expect(session.preparationPreview()?.totalWaitMs).toBe(0);
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xb2, 25, 127],
+        [0xc2, 4],
+      ]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
   });
 });

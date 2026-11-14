@@ -1,3 +1,5 @@
+import { PREFLIGHT_TIME_TOLERANCE_S } from "./preflight-timing";
+
 /*
  * Song sections: named spans of a song (Intro, Verse, Chorus …) and the rules that decide what happens when playback reaches
  * the end of one. Everything here is pure. The player schedules the audio and the session schedules the MIDI; neither decides
@@ -138,6 +140,8 @@ export function clampSections(sections: readonly Section[], range: { start: numb
 }
 
 export interface SectionIssue {
+  /** Advice for optional section navigation; stored arrangement actions remain warnings. */
+  level?: "advice";
   code: "section-range" | "section-overlap" | "section-bar" | "section-trim";
   text: string;
 }
@@ -154,12 +158,14 @@ export function sectionIssues(
   const ordered = sortedSections(sections);
   const range = options.range;
   for (const [i, section] of ordered.entries()) {
-    if (range && (section.start < range.start - EPSILON || section.end > range.end + EPSILON))
+    const advice = section.mode === "continue" ? { level: "advice" as const } : {};
+    if (range && (section.start < range.start - PREFLIGHT_TIME_TOLERANCE_S || section.end > range.end + PREFLIGHT_TIME_TOLERANCE_S))
       issues.push({
         code: "section-trim",
-        text: `${section.name} (${section.start.toFixed(2)}–${section.end.toFixed(2)} s) is partly outside the trimmed range, so it plays cut short.`,
+        ...advice,
+        text: `${section.name} (${section.start.toFixed(2)}–${section.end.toFixed(2)} s) is outside the playable range (${range.start.toFixed(2)}–${range.end.toFixed(2)} s); playback skips or cuts that part of the section.`,
       });
-    if (section.end > options.duration + EPSILON)
+    if (section.end > options.duration + PREFLIGHT_TIME_TOLERANCE_S)
       issues.push({ code: "section-range", text: `${section.name} ends at ${section.end.toFixed(2)} s, after the ${options.duration.toFixed(2)} s audio.` });
     if (i > 0 && section.start < ordered[i - 1].end - EPSILON)
       issues.push({ code: "section-overlap", text: `${section.name} overlaps ${ordered[i - 1].name}. Only one section plays at a time.` });
@@ -167,7 +173,11 @@ export function sectionIssues(
       const firstBeat = options.firstBeat ?? 0;
       const misaligned = [section.start, section.end].filter((t) => !isBarAligned(t, options.bpm!, options.beats!, firstBeat));
       if (misaligned.length)
-        issues.push({ code: "section-bar", text: `${section.name} does not start or end on a bar line. A loop or jump there lands off the beat.` });
+        issues.push({
+          code: "section-bar",
+          ...advice,
+          text: `${section.name} does not start or end on a bar line. ${section.mode === "continue" ? "If you loop or jump there, it may land off the beat." : `Its configured ${SECTION_MODE_LABELS[section.mode]} action can land off the beat.`}`,
+        });
     }
   }
   return issues;

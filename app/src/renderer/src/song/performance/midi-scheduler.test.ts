@@ -158,7 +158,11 @@ const chaseCues = "[00:00] {midi:cc 1 0 0} {midi:pc 1 1}\n[00:40] {midi:pc 1 2}\
 it("chases the patch in force when starting at 1:30, before the start tempo, 30 ms ahead of the start", () => {
   const f = fixture({ cues: parseChart(chaseCues), position: 90, origin: 1000 - 90_000, duration: 200, tempo: [[191, 74, 120]] });
   f.schedule.tick(1000);
-  expect(f.messages().map((m) => m.bytes)).toEqual([[176, 0, 0], [192, 3], [191, 74, 120]]);
+  expect(f.messages().map((m) => m.bytes)).toEqual([
+    [176, 0, 0],
+    [192, 3],
+    [191, 74, 120],
+  ]);
   expect(f.messages()[0].due).toBe(1000);
   f.schedule.tick(1020);
   expect(f.messages()).toHaveLength(3);
@@ -199,13 +203,7 @@ it("sends the start tempo at the start of a count-in, with the first cue at the 
  * Runs a schedule the way the worker does: a tick every 20 ms and a checkpoint every 50 ms, taken from `audio(now)`.
  * `actions` run at the given clock times, before that tick, so a test can plan a jump at a chosen moment.
  */
-function run(
-  f: ReturnType<typeof fixture>,
-  from: number,
-  to: number,
-  audio: (now: number) => number,
-  actions: [number, () => void][] = [],
-) {
+function run(f: ReturnType<typeof fixture>, from: number, to: number, audio: (now: number) => number, actions: [number, () => void][] = []) {
   for (let now = from; now <= to; now += 20) {
     for (const [time, action] of actions) if (time === now) action();
     f.schedule.tick(now);
@@ -346,7 +344,10 @@ it("sends the first clock pulses on the grid when the audio starts at the origin
   // The scheduler starts with its origin at the audio start (session.ts holds the audio back by CLOCK_LEAD_MS), so no pulse is overdue.
   const f = fixture({ clock: true, cues: [], duration: 10, origin: 1000 });
   run(f, 1000, 1400, (now) => (now - 1000) / 1000);
-  const pulses = f.messages().filter((m) => m.bytes[0] === 248).map((m) => m.due);
+  const pulses = f
+    .messages()
+    .filter((m) => m.bytes[0] === 248)
+    .map((m) => m.due);
   expect(pulses.length).toBeGreaterThan(1);
   const period = 60000 / 120 / 24;
   pulses.forEach((due, i) => expect(due).toBeCloseTo(1000 + i * period, 6));
@@ -383,7 +384,10 @@ it("re-anchors cues and clock pulses at a speed swap, with no duplicates and no 
   const cueMessages = f.messages().filter((m) => m.label === "Song cue");
   expect(new Set(cueMessages.map((m) => m.bytes[1])).size).toBe(cueMessages.length);
   expect(f.replies.some((r) => r.type === "fault")).toBe(false);
-  const clocks = f.messages().filter((m) => m.bytes[0] === 248).map((m) => m.due);
+  const clocks = f
+    .messages()
+    .filter((m) => m.bytes[0] === 248)
+    .map((m) => m.due);
   expect(new Set(clocks).size).toBe(clocks.length);
   const before = clocks.filter((t) => t < 4000);
   const after = clocks.filter((t) => t > 4100);
@@ -404,7 +408,10 @@ it("carries out a due speed-swap jump when the plan is cleared before the next t
     f.schedule.sync(3 + ((t - 4000) / 1000) * 0.77, t, t);
     f.schedule.tick(t);
   }
-  const clocks = f.messages().filter((m) => m.bytes[0] === 248).map((m) => m.due);
+  const clocks = f
+    .messages()
+    .filter((m) => m.bytes[0] === 248)
+    .map((m) => m.due);
   // Pulses after the swap follow the new rate, not the 120 BPM spacing the clear would have left behind.
   const after = clocks.filter((t) => t > 4100);
   expect(after.length).toBeGreaterThan(10);
@@ -425,7 +432,10 @@ it("still cancels a jump that is not due yet", () => {
     f.schedule.sync((t - 1000) / 1000, t, t);
     f.schedule.tick(t);
   }
-  const clocks = f.messages().filter((m) => m.bytes[0] === 248).map((m) => m.due);
+  const clocks = f
+    .messages()
+    .filter((m) => m.bytes[0] === 248)
+    .map((m) => m.due);
   const after = clocks.filter((t) => t > 4100);
   expect(after.length).toBeGreaterThan(10);
   for (let i = 1; i < after.length; i++) expect(after[i] - after[i - 1]).toBeCloseTo(60000 / (24 * 120), 3);
@@ -452,7 +462,12 @@ it("a loop wrap sends the cue at the loop start once, and chases no state that c
   const audio = (now: number) => (now < 33000 ? (now - 1000) / 1000 : 16 + (now - 33000) / 1000);
   run(f, 1000, 40000, audio, [[31000, () => f.schedule.plan(32, { at: 33000, position: 16 }, 31000)]]);
   // The cue at 32 is held (it is not sent), and the cue at 16 goes out with no chase for pedal 1 or pedal 16 at the same time.
-  expect(f.messages().filter((m) => m.due === 33000).map((m) => m.bytes)).toEqual([
+  expect(
+    f
+      .messages()
+      .filter((m) => m.due === 33000)
+      .map((m) => m.bytes),
+  ).toEqual([
     [192, 0],
     [207, 68],
   ]);
@@ -770,4 +785,25 @@ it("takes no timed click messages once stopped", () => {
   f.schedule.addTimed([{ bytes: [153, 37, 100], due: 1010 }]);
   f.schedule.tick(1005);
   expect(f.messages()).toEqual([]);
+});
+
+it("does not replay prepared presets at audio start but keeps notes and restores presets on a loop", () => {
+  const f = fixture({
+    cues: parseChart("[00:00] {midi:pc 1 5} {midi:note 10 36 100}"),
+    position: 0,
+    origin: 3000,
+    duration: 10,
+    prepared: { position: 0, messages: [[0xc0, 5]] },
+  });
+  f.schedule.tick(1000);
+  f.schedule.tick(2900);
+  expect(f.messages().map((message) => message.bytes)).toEqual([[0x99, 36, 100]]);
+  f.schedule.plan(1, { at: 4000, position: 0 }, 3000);
+  f.schedule.tick(4000);
+  expect(
+    f
+      .messages()
+      .filter((message) => message.bytes[0] === 0xc0)
+      .map((message) => message.bytes),
+  ).toEqual([[0xc0, 5]]);
 });
