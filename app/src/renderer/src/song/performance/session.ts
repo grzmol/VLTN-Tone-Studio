@@ -23,6 +23,7 @@ import { playerShapeFromOptions, type EndBehaviour } from "@/song/performance/so
 import { startMidiScheduler, prepareMidiScheduler, midiNow, type SchedulerDegraded } from "@/song/performance/midi-scheduler-client";
 import { CHASE_LEAD_MS, chaseTriggerSet, computeChaseState, type TriggerCc } from "@/song/performance/midi-chase";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
+import { refreshBandBeforePlay } from "@/song/band/refresh";
 import { BLUETOOTH_LOOKAHEAD, SYSTEM_LOOKAHEAD, type SchedulerJump, type TimecodeTail } from "@/song/performance/midi-scheduler";
 import { orderForPedal } from "@/song/performance/midi-pedal-order";
 import { NO_TIMECODE, timecodeOffsetFrames, type TimecodeSetting } from "@/song/performance/timecode";
@@ -68,16 +69,7 @@ import {
   type Route,
   type SongHit,
 } from "./bindings";
-import {
-  bindingClaiming,
-  describeTrigger,
-  songEntries,
-  songForEvent,
-  songLearnStep,
-  songsInScope,
-  triggerClashes,
-  type SongEntry,
-} from "./song-triggers";
+import { bindingClaiming, describeTrigger, songEntries, songForEvent, songLearnStep, songsInScope, triggerClashes, type SongEntry } from "./song-triggers";
 
 /*
  * Everything that keeps a song's MIDI cues, transport and remote input running during a performance, without React.
@@ -358,6 +350,8 @@ export class PerformanceSession {
   private baseStems: Stems | null = null;
   /** The settings key of the song loaded, under which its speed is stored */
   private songSettingsKey = "";
+  private bandPreparationKey: string | null = null;
+  private speedPreparation: Promise<void> | null = null;
   private renders = new RenderQueue();
   /** Counts speed requests, so a render that a newer request has overtaken is dropped */
   private renderRequest = 0;
@@ -515,6 +509,7 @@ export class PerformanceSession {
   loadSong(source: SongSource | null, stems: Stems | null): () => void {
     const handover = this.claimHandover(source);
     if (!source) return () => {};
+    if (this.bandPreparationKey !== null && this.bandPreparationKey !== performanceKey(source)) this.cancelPendingStart();
     this.loadedSongId = source.libraryId;
     this.playedRecorded = false;
     this.autoplayPending = useSongLibrary.getState().takeAutoplay(source.libraryId);
@@ -540,7 +535,7 @@ export class PerformanceSession {
         setClockPosition(0);
       });
       // A song saved at another speed is rendered now. It plays at 100% until its render is in place.
-      if (!isPlainSpeed(speed)) void this.renderSpeed(speed);
+      this.speedPreparation = !isPlainSpeed(speed) ? this.renderSpeed(speed) : null;
     }
     this.playedTimer = setInterval(this.checkPlayed, PLAYED_CHECK_MS);
     return () => {
@@ -550,7 +545,8 @@ export class PerformanceSession {
       stopWiring();
       // A hand-over keeps the worker, which the next song's scheduler is about to use.
       if (this.handingOver === null) {
-        this.cancelPendingStart();
+        // Replacing this song's generated buffers is part of its pending Play, rather than a cancellation of that Play.
+        if (this.bandPreparationKey !== performanceKey(source)) this.cancelPendingStart();
         this.terminateWorker();
       }
       void player.dispose();
@@ -680,6 +676,7 @@ export class PerformanceSession {
 
   /** Runs every effect cleanup, which stops the scheduler and sends the final panic. */
   dispose() {
+    if (this.playPending) this.cancelPendingStart();
     this.dropSectionPlan();
     this.dropChained();
     this.unsubscribe?.();
@@ -1003,14 +1000,31 @@ export class PerformanceSession {
   play = async () => {
     const loopPass = this.restartingLoop;
     this.restartingLoop = false;
-    const { player } = this.state;
+    let { player } = this.state;
     if (!player || this.state.parseError || this.playPending || player.isPlaying) return;
     const request = ++this.playRequest;
     this.playPending = true;
     this.set({ starting: true });
-    const armed = this.armed,
+    let armed = this.armed,
       output = this.output;
     try {
+      this.bandPreparationKey = this.songSettingsKey;
+      try {
+        await refreshBandBeforePlay(this.songSettingsKey);
+      } finally {
+        this.bandPreparationKey = null;
+      }
+      await useSongLibrary.getState().saveBeforePlayback?.();
+      let speedPreparation: Promise<void> | null;
+      do {
+        speedPreparation = this.speedPreparation;
+        if (speedPreparation) await speedPreparation;
+      } while (speedPreparation !== this.speedPreparation);
+      if (request !== this.playRequest) return;
+      player = this.state.player;
+      if (!player || this.state.parseError) return;
+      armed = this.armed;
+      output = this.output;
       const { bpm, timing } = this.state;
       const tempoMessages = this.tempoMessages(armed, output);
       // An offset that is not valid at the rate stops the start, rather than sending the wrong position.
@@ -1485,7 +1499,7 @@ export class PerformanceSession {
     } catch (e) {
       this.fail(e);
     }
-    void this.renderSpeed(speed);
+    this.speedPreparation = this.renderSpeed(speed);
   };
 
   /** Builds the render for `speed` from the stems at 100%, and hands it to the player. Stale results are dropped. */

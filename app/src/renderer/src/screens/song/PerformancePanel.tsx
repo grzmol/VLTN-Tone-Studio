@@ -1,3 +1,4 @@
+import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { partSplitNote, selectWholeSongStems, useSong } from "@/song/store";
@@ -126,8 +127,12 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setTrackInfo = useSong((s) => s.setTrackInfo),
     missingParts = useSong((s) => s.missingParts);
   // A split of only part of the song is for Tone Match; Performance plays the whole song and says why the stems are missing.
-  const partNote = partSplitNote(useSong((s) => s.lastSplit), formatTime);
+  const partNote = partSplitNote(
+    useSong((s) => s.lastSplit),
+    formatTime,
+  );
   const key = performanceKey(source);
+  const settingsVersion = useSongSettingsRevision(key);
   const library = useSongLibrary();
   const queued = !!source?.libraryId && library.queue[library.position] === source.libraryId;
   const options = useMemo(
@@ -488,6 +493,26 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setLoudness(loudnessFromOptions(getSetting(key, ":options")));
     setSilence(saved?.silence ? { songKey: key, ends: saved.silence } : null);
   }, [analysis.revision, key]);
+  const observedSettings = useRef({
+    key,
+    bpm: getSetting(key, ":bpm"),
+    sections: JSON.stringify(readOptions(key, { sections: [] }).sections),
+    firstBeat: readOptions(key, { firstBeat: 0 }).firstBeat,
+    beats: readOptions(key, { beats: 4 }).beats,
+  });
+  useEffect(() => {
+    const saved = readOptions(key, { sections: [], firstBeat: 0, beats: 4 });
+    const next = { key, bpm: getSetting(key, ":bpm"), sections: JSON.stringify(saved.sections), firstBeat: saved.firstBeat, beats: saved.beats };
+    const previous = observedSettings.current;
+    observedSettings.current = next;
+    if (previous.key !== key) return;
+    // Read only fields that actually changed in storage, so unrelated saves cannot overwrite an in-progress local edit.
+    if (previous.bpm !== next.bpm) setBpm(readNumber(next.bpm, 120, 30, 300));
+    if (previous.firstBeat !== next.firstBeat) setFirstBeat(next.firstBeat);
+    if (previous.beats !== next.beats) setBeats(next.beats);
+    if (previous.sections !== next.sections)
+      setSectionList((current) => (JSON.stringify(current) === JSON.stringify(parseSections(saved.sections)) ? current : parseSections(saved.sections)));
+  }, [key, settingsVersion]);
   const detectTempo = (analyseAgain: boolean) => {
     if (analyseAgain) analysis.analyseAgain();
     else analysis.detect();
@@ -581,9 +606,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
   }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
+  const playedShapeSignature = JSON.stringify(playerShapeFromOptions(getSetting(key, ":options")));
   useEffect(() => {
     player?.setShape(playerShapeFromOptions(getSetting(key, ":options")));
-  }, [player, key, shapeVersion]);
+  }, [player, key, shapeVersion, playedShapeSignature]);
   useEffect(() => {
     try {
       localStorage.setItem("vltn.performance.metronome", String(metronome));
@@ -733,6 +759,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         <BandPanel
           songKey={key}
           playing={playing || library.playlistPlaying}
+          audioPlaying={playing}
           chart={chart}
           chords={chords}
           sections={sectionList}
