@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STYLE_IDS } from "./styles";
 import type { Section } from "../performance/sections";
 import {
   DEFAULT_BAND_SETTINGS,
@@ -149,7 +150,7 @@ describe("kitFor", () => {
   it("uses the heavier kit for metal, rock and half-time and the standard kit for the rest, when the song has not chosen", () => {
     expect(DEFAULT_BAND_SETTINGS.kit).toBeUndefined();
     for (const style of ["metal", "rock", "half-time"] as const) expect(kitFor({ kit: undefined, style }), style).toBe("rock");
-    for (const style of ["pop", "ballad", "funk", "shuffle", "country", "reggae", "six-eight", "three-four"] as const) expect(kitFor({ kit: undefined, style }), style).toBe("standard");
+    for (const style of STYLE_IDS.filter((style) => !["metal", "rock", "half-time"].includes(style))) expect(kitFor({ kit: undefined, style }), style).toBe("standard");
   });
 
   it("keeps a chosen kit, so a song saved with the standard kit keeps it under a rock style", () => {
