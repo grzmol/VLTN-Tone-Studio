@@ -19,7 +19,8 @@ import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import { registerClickSamplesIpc } from "./ipc/click-samples";
 import type { AppEvent } from "@shared/ipc";
-import { installBluetoothChooser } from './bluetooth';
+import { registerBluetoothSetupIpc } from "./bluetooth-setup";
+import { installBluetoothChooser } from "./bluetooth";
 import { isAudienceContents, registerDisplayIpc } from "./ipc/display";
 import { registerBandSyncIpc } from "./ipc/band-sync";
 import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
@@ -186,7 +187,7 @@ async function createWindow() {
       backgroundThrottling: false, // backups and writes must not be throttled
     },
   });
-  installBluetoothChooser(win);
+  if (process.platform !== "darwin") installBluetoothChooser(win);
   // The audience window (spec 43) belongs to this window: when it closes, the audience window closes too.
   // Band sync (spec 44) belongs to this window too: followers lose the sync when the performer closes the app.
   win.once("closed", () => {
@@ -275,19 +276,26 @@ app.whenReady().then(async () => {
   });
   session.defaultSession.setBluetoothPairingHandler((details, callback) => {
     if (!win || details.frame !== win.webContents.mainFrame) return callback({ confirmed: false });
-    if (details.pairingKind === 'providePin') {
+    if (details.pairingKind === "providePin") {
       void dialog.showMessageBox(win, {
-        type: 'info',
-        message: 'Pair this MIDI device in Windows Bluetooth settings first',
-        detail: 'The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.',
+        type: "info",
+        message: "Pair this MIDI device in Windows Bluetooth settings first",
+        detail: "The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.",
       });
       return callback({ confirmed: false });
     }
-    void dialog.showMessageBox(win, {
-      type: 'question', title: 'Bluetooth pairing', message: `Pair with ${details.deviceId}?`,
-      detail: details.pairingKind === 'confirmPin' ? `Confirm that the device shows PIN ${details.pin}.` : 'Allow this device to connect for MIDI control.',
-      buttons: ['Cancel', 'Pair'], defaultId: 0, cancelId: 0,
-    }).then(({ response }) => callback({ confirmed: response === 1 })).catch(() => callback({ confirmed: false }));
+    void dialog
+      .showMessageBox(win, {
+        type: "question",
+        title: "Bluetooth pairing",
+        message: `Pair with ${details.deviceId}?`,
+        detail: details.pairingKind === "confirmPin" ? `Confirm that the device shows PIN ${details.pin}.` : "Allow this device to connect for MIDI control.",
+        buttons: ["Cancel", "Pair"],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => callback({ confirmed: response === 1 }))
+      .catch(() => callback({ confirmed: false }));
   });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
@@ -297,6 +305,7 @@ app.whenReady().then(async () => {
     cb({ responseHeaders: { ...details.responseHeaders, ...isolation, "Content-Security-Policy": [DEV_CSP] } });
   });
 
+  const bluetoothSetup = registerBluetoothSetupIpc(getWindow);
   registerLogIpc(getWindow);
   registerClickSamplesIpc();
   registerAppIpc(getWindow);
@@ -312,6 +321,7 @@ app.whenReady().then(async () => {
   // The follower page is the renderer build's second entry (follower.html), served only from RENDERER_DIR.
   bandSyncIpc = registerBandSyncIpc(getWindow, RENDERER_DIR);
   app.once("will-quit", () => {
+    bluetoothSetup.dispose();
     displayIpc?.dispose();
     bandSyncIpc?.dispose();
   });
