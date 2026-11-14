@@ -58,6 +58,12 @@ Network MIDI is not built into the app. The operating system provides it, and th
 
 Network MIDI adds the latency and jitter of the network to every cue and timecode message. Use a wired link where you can, and test the path with the pedals before a show. Hardware results are not yet recorded for network sessions.
 
+## Checking the pedal's settings
+
+When a GP-150 or GP-180 is connected in the editor, **MIDI health** has a "Pedal settings" list that compares the pedal's own MIDI settings with how the app is about to drive it: the MIDI in source, the MIDI in channel for the output you chose (USB or Bluetooth), the tempo clock source, and the FS / MIDI out jack when other pedals are set up. Each mismatch comes with a button that changes the setting on the pedal. The most common one is a MIDI in channel set to Omni, which makes the pedal change its patch for commands meant for your other pedals.
+
+Other pedals count once you import a profile or save a channel for a built-in one. The check reads the settings the editor already has, so connect the pedal in the editor first; it never opens a connection itself. The buttons are disabled while a song plays. The playlist check reports the same list once.
+
 ## Included profiles
 
 | Pedal | Actions and manual reference |
@@ -66,9 +72,11 @@ Network MIDI adds the latency and jitter of the network to every cue and timecod
 | BOSS RC-10R | 99 phrase memories; assigned rhythm, looper, track and level controls. Supplied MIDI Implementation v1.00, pp. 2–3, and [manufacturer's Parameter Guide](https://static.roland.com/assets/media/pdf/RC-10R_parameter_eng01_W.pdf), pp. 9–11. Use RX CONTROL CH. Bank select is ignored. Rhythm notes/kits use a separate RX NOTE CH and are not included in this control profile. |
 | BOSS IR-200 | 128 memory recalls and assigned gain, level, solo, expression and switch controls. Supplied eng02 manual, pp. 20–21. Set Rx CH, PC IN and CC IN. Memory labels assume an identity PC map; custom mapping can select another memory. |
 | BOSS SY-200 | 128 memory recalls and assigned parameter, direct/effect level, expression and switch controls. Supplied eng03 manual, pp. 13–14. Set RX CH, PC IN and CC IN. Custom PC mapping can select another memory or switch the effect off. |
-| Valeton GP-150 / GP-180 | 200 patches; module on/off; Patch/Stomp mode; looper/drums; 129 drum patterns; tempo; volume, expression and quick-access controls. Supplied firmware v1.0.0 manual, printed pp. 75–77 (PDF pp. 78–80). Patch 129 uses CC 0 = 1 then PC 0. Tempo uses CC 73/74. Documented 0–100 volume limits are enforced. |
+| Valeton GP-150 / GP-180 | 200 patches; module on/off; Patch/Stomp mode; looper/drums; 129 drum patterns; tempo; volume, expression and quick-access controls. Source: GP-180 MIDI List for firmware V1.1.1 and the firmware v1.0.0 manual, pp. 75–77. Includes the drum machine menu control (CC 92). Patch 129 uses CC 0 = 1 then PC 0. Tempo uses CC 73/74. Documented 0–100 volume limits are enforced. |
 
 Configurable BOSS controls require **Assigned CC** to match the named setting on the physical pedal. For the RC-10R, open **Song → Performance → Performance MIDI controller → Song MIDI cues**, choose **BOSS RC-10R** and a looper or rhythm command such as **Start looper**, then enter the CC that its **LOOP START CC** setting uses in the **Assigned CC** field. Do the same for each trigger you use. Starting mid-song then never replays those CCs on the RC-10R's channel, and preflight warns about any trigger that is still unassigned. A raw cue with `{chase}` is still replayed. Accepted assignments are 1–31 and 64–95; no fixed number is guessed. Switch actions send 127 followed by 0; test the pedal's configured switch behaviour. Continuous controls use raw MIDI values, not inferred physical units. GP-180 functions without documented on/off semantics are explicitly labelled as control values.
+
+**GP-150 / GP-180 preset names.** When a GP-150 or GP-180 is connected in the editor, the cue picker lists each memory with its name ("069 Crunch Lead"); without a connection it uses the names saved at the last connection, and a line under the list says which. A cue added from a named memory stores the name in its label (`{label:GP-180: 069 Crunch Lead}`). The MIDI bytes are the same as before, so older charts keep working. If the slot later holds a different preset, MIDI health and the playlist preflight warn about that cue, and say where the preset moved to when exactly one other slot has its name. Cues made without a name are not checked. The preset names come from the pedal, so the check only runs once the app has read them.
 
 Profiles are manual-derived and tested at byte level. Real GP-180/TimeLine tests confirmed timed patch changes and one-time tempo commands over Bluetooth and USB with the TimeLine connected to physical MIDI OUT. Other pedals and the complete action catalogue have not been hardware-validated. Continuous app clock was unstable on this rig; see [hardware results and the recommended one-time tempo setup](PERFORMANCE.md#hardware-results).
 
@@ -107,3 +115,7 @@ Supported substitutions:
 - `$msb` and `$lsb`: high and low seven-bit parts of `$value`, for documented paired-controller values.
 
 Imports validate version, ids, integer ranges, substitutions and resulting MIDI bytes. Limits are 500 KB, 1,000 actions and 16 messages per action. Imported data is never executable HTML/code. The source field records provenance, not certification: verify definitions against the manual and test them before a performance.
+
+### Repeat rules for Before song commands
+
+The Song MIDI cues builder offers **Every start**, **Only from beginning** and **Once per song load** for preparation commands. Use once for actions that must not repeat on a resume, and **Reset once commands** to deliberately allow another attempt. The policy is saved in chart tokens: `{midi@prepare:…}`, `{midi@prepare-beginning:…}` or `{midi@prepare-once:…}`. A macro keeps its message order, and a command line's bank/preset messages share the rule. Once sending begins, cancellation or a lost connection does not automatically re-enable that line. See [Preparation command repeat rules](PERFORMANCE.md#preparation-command-repeat-rules).

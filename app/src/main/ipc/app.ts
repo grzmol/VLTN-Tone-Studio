@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell } from "electron";
 import { readFile, rename, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings } from "@shared/host/app";
+import { DEFAULT_SETTINGS, readSettingsFile, sanitizeSettingsPatch, type AppSettings, type MemoryReading } from "@shared/host/app";
 import { HostError } from "@shared/ipc";
 import { handle, shellPaths } from "./handle";
 import { serial, writeJsonAtomic } from "./fs-atomic";
@@ -57,6 +57,17 @@ export function chooseSuitePath(path: string): Promise<AppSettings> {
 let jobProgress: number | null = null;
 export const isJobRunning = () => jobProgress !== null;
 
+/** A song or playlist is playing (the renderer reports it); quitting and "Restart to update" ask first. */
+let showRunning = false;
+const watchedSenders = new WeakSet<object>();
+export const isShowRunning = () => showRunning;
+
+/** What closing the window should do: ask about a pedal job first, then about a running show, else close. */
+export function closeDecision({ job, show }: { job: boolean; show: boolean }): "job-prompt" | "show-prompt" | "close" {
+  if (job) return "job-prompt";
+  return show ? "show-prompt" : "close";
+}
+
 /** Files the OS asked us to open before the renderer was ready to receive them. */
 const openedFiles: string[] = [];
 export function queueOpenedFiles(paths: string[]): void {
@@ -66,6 +77,17 @@ export function queueOpenedFiles(paths: string[]): void {
 /** Where an OS-opened file goes: to a window that has loaded, or to the queue the renderer takes on mount (app:takeOpenedFiles). */
 export function routeOpenedFile(win: { isDestroyed(): boolean; webContents: { isLoading(): boolean } } | null): "send" | "queue" {
   return win && !win.isDestroyed() && !win.webContents.isLoading() ? "send" : "queue";
+}
+
+/** The renderer `pid` in Electron's process metrics, with the machine's memory. Null when the renderer is not listed. */
+export function memoryReading(
+  metrics: { pid: number; memory: { workingSetSize: number; peakWorkingSetSize: number } }[],
+  pid: number,
+  system: { total: number; free: number },
+): MemoryReading | null {
+  const entry = metrics.find((m) => m.pid === pid);
+  if (!entry) return null;
+  return { workingSetKb: entry.memory.workingSetSize, peakWorkingSetKb: entry.memory.peakWorkingSetSize, totalKb: system.total, freeKb: system.free };
 }
 
 const isHttp = (url: string) => /^https?:\/\//i.test(url);
@@ -108,6 +130,26 @@ export function registerAppIpc(getWindow: () => BrowserWindow | null): void {
     const win = getWindow();
     if (!win || win.isDestroyed()) return;
     win.setProgressBar(jobProgress === null ? -1 : jobProgress);
+  });
+  handle("app:setShowRunning", (e, running: unknown) => {
+    showRunning = running === true;
+    if (!showRunning || watchedSenders.has(e.sender)) return;
+    // A renderer that crashed or closed can never say "stopped", so it must not block quitting for good.
+    watchedSenders.add(e.sender);
+    const clear = () => {
+      showRunning = false;
+    };
+    // `on`, not `once`: the same sender can crash, reload and report again, and is not added twice.
+    e.sender.on("render-process-gone", clear);
+    e.sender.once("destroyed", clear);
+  });
+  // Read-only and cheap; a failure gives null, never an error into the page that is playing.
+  handle("app:memory", (e) => {
+    try {
+      return memoryReading(app.getAppMetrics(), e.sender.getOSProcessId(), process.getSystemMemoryInfo());
+    } catch {
+      return null;
+    }
   });
   handle("app:takeOpenedFiles", () => openedFiles.splice(0));
 }

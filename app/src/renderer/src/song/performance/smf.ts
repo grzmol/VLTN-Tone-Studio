@@ -162,9 +162,7 @@ function timed(events: { tick: number; bytes: number[] }[], tempos: { tick: numb
     for (const next of segments) if (next.tick <= tick) segment = next;
     return segment.seconds + ((tick - segment.tick) * segment.microseconds) / (division * 1_000_000);
   };
-  return events
-    .sort((a, b) => a.tick - b.tick)
-    .map((event) => ({ time: secondsAt(event.tick), bytes: event.bytes }));
+  return events.sort((a, b) => a.tick - b.tick).map((event) => ({ time: secondsAt(event.tick), bytes: event.bytes }));
 }
 
 /** The cues a MIDI file adds to a song: one per message, flagged so the cue builder and reader leave them out. */
@@ -280,8 +278,8 @@ interface TrackEvent {
   bytes: number[];
 }
 
-/** Writes one track chunk. Its end-of-track event follows the last event, so every track ends in the same place it was written. */
-function trackChunk(events: readonly TrackEvent[]): number[] {
+/** Writes one track chunk, ending after the last event or at the declared endpoint, including any trailing silence. */
+function trackChunk(events: readonly TrackEvent[], endTick?: number): number[] {
   const sorted = [...events].sort((a, b) => a.tick - b.tick || a.order - b.order);
   const data: number[] = [];
   let last = 0;
@@ -289,8 +287,45 @@ function trackChunk(events: readonly TrackEvent[]): number[] {
     for (const byte of [...vlq(event.tick - last), ...event.bytes]) data.push(byte);
     last = event.tick;
   }
-  for (const byte of [...vlq(0), 0xff, 0x2f, 0]) data.push(byte);
+  for (const byte of [...vlq((endTick ?? last) - last), 0xff, 0x2f, 0]) data.push(byte);
   return [...ascii("MTrk"), ...u32(data.length), ...data];
+}
+
+/** One note in musical ticks, independent of a recording's tempo drift. */
+export interface SmfTickNote {
+  tick: number;
+  duration: number;
+  pitch: number;
+  velocity: number;
+}
+
+/** Writes a single-track drum file, including silence up to the declared musical endpoint. BPM counts quarter notes. */
+export function encodeDrumSmf(notes: readonly SmfTickNote[], bpm: number, numerator: number, denominator: number, endTick: number): Uint8Array {
+  const integer = (value: number, low: number, high: number) => Number.isInteger(value) && value >= low && value <= high;
+  const power = Math.log2(denominator);
+  const tempo = Math.round(60_000_000 / bpm);
+  if (!Number.isFinite(bpm) || bpm <= 0 || !integer(tempo, 1, MAX_MICROSECONDS)) throw new Error("Choose a valid export tempo.");
+  if (!integer(numerator, 1, 255) || !integer(power, 0, 7)) throw new Error("Choose a valid export time signature.");
+  if (!integer(endTick, 1, 0x0fffffff)) throw new Error("The rhythm's length is outside the MIDI file limits.");
+  if (notes.length > MAX_SMF_MESSAGES / 2) throw new Error("This rhythm has too many drum hits. Choose shorter passages.");
+  const events: TrackEvent[] = [
+    { tick: 0, order: -1, bytes: [0xff, 0x58, 4, numerator, power, denominator === 8 && numerator === 6 ? 36 : 24, 8] },
+    { tick: 0, order: -1, bytes: [0xff, 0x51, 3, (tempo >> 16) & 255, (tempo >> 8) & 255, tempo & 255] },
+  ];
+  for (const note of notes) {
+    if (
+      !integer(note.tick, 0, endTick - 1) ||
+      !integer(note.duration, 1, endTick - note.tick) ||
+      !integer(note.pitch, 0, 127) ||
+      !integer(note.velocity, 1, 127)
+    )
+      throw new Error("A drum hit has an invalid position, length, pitch or velocity.");
+    events.push(
+      { tick: note.tick, order: 1, bytes: [0x99, note.pitch, note.velocity] },
+      { tick: note.tick + note.duration, order: 0, bytes: [0x89, note.pitch, 0] },
+    );
+  }
+  return Uint8Array.from([...ascii("MThd"), ...u32(6), ...u16(0), ...u16(1), ...u16(EXPORT_PPQ), ...trackChunk(events, endTick)]);
 }
 
 /**

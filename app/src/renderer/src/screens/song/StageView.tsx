@@ -1,3 +1,4 @@
+import { PreparePedalsButton } from "./PreparePedalsButton";
 import { PracticeMuteBanner } from "./PracticeMute";
 import { Button } from "@/components/ui/button";
 import { host } from "@/host";
@@ -12,6 +13,7 @@ import { PerformanceReader, type PdfReaderState } from "./PerformanceReader";
 import type { ChartMetadata } from "@/song/performance/import/import-result";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { SectionStrip } from "./SectionStrip";
+import { SongPreparationStatus } from "./SongPreparationStatus";
 
 /** The reader with its status lines and transport, used both inline and as the full-screen stage view. */
 export function StageView({
@@ -53,6 +55,7 @@ export function StageView({
   const source = useSong((s) => s.source);
   const player = useSession(session, (s) => s.player);
   const playing = useSession(session, (s) => s.playing);
+  const starting = useSession(session, (s) => s.starting);
   const queued = useSession(session, (s) => s.queued);
   const sectioned = useSession(session, (s) => s.sections.length > 0);
   const parseError = useSession(session, (s) => s.parseError);
@@ -60,7 +63,7 @@ export function StageView({
   const lateNotice = useSession(session, (s) => s.lateNotice);
   const output = useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
-  const powerError = useStagePower(stage && (playing || library.playlistPlaying));
+  const powerError = useStagePower(stage && (starting || playing || library.playlistPlaying));
   const duration = player?.duration ?? 0;
   const nextTitle = library.index?.songs.find((s) => s.id === library.queue[library.position + 1])?.title ?? "End of set";
   // Off by default: a full-screen flash is for performers who cannot look at the beat light.
@@ -86,6 +89,7 @@ export function StageView({
             {stage && <p>Stage mode: seeking and editing locked. {queued ? `Set ${library.position + 1} / ${library.queue.length}` : ""}</p>}
             {stage && (playing || library.playlistPlaying) && !powerError && host.song.stagePower && <p>Desktop sleep prevention requested during playback.</p>}
             {stage && <PracticeMuteBanner />}
+            {stage && <SongPreparationStatus session={session} />}
             {stage && library.error && <p role="alert">{library.error}</p>}
             {stage && library.notice && <p role="status">{library.notice}</p>}
             {stage && queued && <p>Next: {nextTitle}</p>}
@@ -109,8 +113,12 @@ export function StageView({
         }
         transport={
           <>
-            <Button disabled={!player || !!parseError || library.busy} onClick={() => (playing ? session.pause() : session.startPlayback())}>
-              {playing ? "Pause" : queued && library.queue.length > 1 ? "Play playlist" : "Play song"}
+            <PreparePedalsButton session={session} />
+            <Button
+              disabled={!starting && (!player || !!parseError || library.busy)}
+              onClick={() => (starting ? session.cancelStart() : playing ? session.pause() : session.startPlayback())}
+            >
+              {starting ? "Cancel start" : playing ? "Pause" : queued && library.queue.length > 1 ? "Play playlist" : "Play song"}
             </Button>
             <Button variant="outline" disabled={!player || stage} onClick={() => void session.seek(0)}>
               Rewind

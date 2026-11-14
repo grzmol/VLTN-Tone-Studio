@@ -19,6 +19,7 @@ export interface BandPatch {
   band?: BandSettings;
   beatGrid?: BeatGrid | null;
   bandOutOfDate?: boolean;
+  bandTempoChanged?: boolean;
   bandNoticeDismissed?: boolean;
 }
 

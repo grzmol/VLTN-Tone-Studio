@@ -26,7 +26,9 @@ export const webApp: AppApi = {
     throw new HostError("unsupported", "Opening Valeton Suite needs the desktop app");
   },
   setProgress: async () => {},
+  setShowRunning: async () => {},
   takeOpenedFiles: async () => [],
+  memory: async () => null,
   pathForFile: () => null,
   onEvent: () => () => {},
 };
