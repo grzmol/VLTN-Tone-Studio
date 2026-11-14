@@ -9,6 +9,7 @@ import { pedalTempoMessages } from "./pedal-tempo";
 import type { LibraryPreflightSong } from "@shared/song-library";
 import { trackKey, trackKindOf } from "@shared/song-library";
 import { midiPreflight, type PreflightOptions } from "./midi-preflight";
+import { rigCheck, type RigFacts } from "./rig-check";
 import type { MidiMacro } from "./midi-macros";
 import { parseSections } from "./sections";
 import { midiFileFromOptions } from "./smf";
@@ -51,6 +52,8 @@ export function playlistPreflight(
     tempoChannel: number;
     outputName?: string;
     pedals: PreflightOptions["pedals"];
+    /** The GP-150 / GP-180 preset names as last known, to warn about a cue that recalls a preset which has changed. */
+    presetNames?: PreflightOptions["presetNames"];
     /** Whether a song's speed or pitch render was built in advance. Unset means the render is not checked. */
     renderReady?: (id: string) => boolean;
     /** The MIDI macros the charts refer to. A chart that uses a missing one cannot play. */
@@ -61,10 +64,13 @@ export function playlistPreflight(
     rhythmControls?: Partial<RhythmControls>;
     preparationDefaults?: PreparationSettings;
     leadInDefaults?: LeadIn;
+    /** The connected GP-150 / GP-180's settings and the app's side. Its issues are added once, to the first entry; `appClock` is taken from the songs. */
+    rig?: RigFacts | null;
   },
 ): PlaylistCheck[] {
   const byId = new Map(songs.map((s) => [s.id, s]));
-  return ids.map((id, entry) => {
+  let anyClock = false;
+  const checks = ids.map((id, entry) => {
     const saved = byId.get(id),
       song = saved?.song;
     const errors = [...(saved?.errors ?? ["Song was not checked."])],
@@ -92,6 +98,7 @@ export function playlistPreflight(
       } catch {
         errors.push("Saved performance options are invalid.");
       }
+      anyClock ||= options.clock === true;
       const raw = song.settings[":bpm"];
       const bpm = raw ? Number(raw) : 120;
       if (!raw) warnings.push("No saved BPM; playback defaults to 120. Confirm the recording tempo.");
@@ -160,6 +167,7 @@ export function playlistPreflight(
           tempoChannel: config.tempoOnStart ? config.tempoChannel : undefined,
           outputName: config.outputName,
           pedals: config.pedals,
+          presetNames: config.presetNames,
           sections: parseSections(options.sections),
           range: trimRange(duration, options),
           preparation: settings,
@@ -196,4 +204,12 @@ export function playlistPreflight(
     }
     return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, advice, notes, ...(preparation ? { preparation } : {}) };
   });
+  // The pedal's settings are the same for every song, so they are reported once, on the first entry.
+  if (config.rig && checks.length > 0) {
+    for (const issue of rigCheck({ ...config.rig, appClock: anyClock })) {
+      const text = `Pedal settings: ${issue.text}`;
+      (issue.level === "error" ? checks[0].errors : issue.level === "warning" ? checks[0].warnings : checks[0].advice).push(text);
+    }
+  }
+  return checks;
 }

@@ -7,9 +7,11 @@ import type { Section } from "@/song/performance/sections";
 import type { TimecodeRate } from "@/song/performance/timecode";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
+import { useKnownPresetNames } from "./use-preset-names";
 import { useBluetooth, resetBluetoothTiming } from "@/bluetooth/connection";
 import { HelpNote } from "@/components/ui/help-note";
 import { MemoryUse } from "./MemoryUse";
+import { PedalSettings } from "./PedalSettings";
 
 /** How often the counters on screen may refresh. The scheduler and Bluetooth writes update their stores far more often than that. */
 const REFRESH_MS = 500;
@@ -49,6 +51,7 @@ export function MidiHealth({
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
 }) {
   const library = usePedalLibrary();
+  const presetNames = useKnownPresetNames();
   const report = useMemo(
     () =>
       midiPreflight(cues, {
@@ -64,6 +67,7 @@ export function MidiHealth({
         tempoChannel,
         outputName,
         timecode,
+        presetNames,
         pedals: configuredPedals(library),
       }),
     [
@@ -80,6 +84,7 @@ export function MidiHealth({
       tempoChannel,
       outputName,
       timecode,
+      presetNames,
       library.channels,
       library.profiles,
       library.assignments,
@@ -124,6 +129,7 @@ export function MidiHealth({
           </p>
         </HelpNote>
         {open && <MemoryUse />}
+        <PedalSettings clock={clock} />
         {parseError ? (
           <p className="text-red-400">{parseError}</p>
         ) : report.warnings.length ? (

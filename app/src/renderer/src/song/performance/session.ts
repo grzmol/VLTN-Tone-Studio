@@ -11,6 +11,7 @@ import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
 import { clearResumePoint, saveResumePoint } from "./resume-point";
 import { useResumeOffer } from "./resume-offer";
+import { setStageBusy } from "@/state/stage-activity";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
@@ -58,7 +59,6 @@ import { countsAsPlayed } from "@shared/library-history";
 import { ACTIONS, actionLabel, isActionId, runAction, type ActionHost, type Hint, type ViewHost } from "./actions";
 import { FollowerGate } from "./band-control";
 import { isFollowerAction, type FollowerAction } from "@shared/band-sync";
-import {
   RemoteRouter,
   defaultBindings,
   describeBinding,
@@ -724,6 +724,7 @@ export class PerformanceSession {
     if (this.playPending) this.cancelPendingStart();
     this.dropSectionPlan();
     this.dropChained();
+    setStageBusy(false, this);
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.unsubscribeResume?.();
@@ -2185,6 +2186,11 @@ export class PerformanceSession {
           const timer = setInterval(this.saveResume, RESUME_SAVE_MS);
           return () => clearInterval(timer);
         },
+      },
+      // While a song plays or prepares, or a playlist runs between its songs, the editor leaves the pedal alone (see state/stage-activity.ts).
+      {
+        deps: (s) => [s.playing, s.starting, s.preparing !== null, s.playlistPlaying],
+        run: (s) => setStageBusy(s.playing || s.starting || s.preparing !== null || s.playlistPlaying, this),
       },
       // A song a MIDI trigger loaded starts once its player is ready and the library is no longer loading.
       {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseChart } from "./chart";
 import { midiPreflight } from "./midi-preflight";
+import type { PresetNames } from "./pedal-preset-names";
 const options = { duration: 10, clock: false, pedals: [], outputName: "Test MIDI" };
 it("identifies past-end cues and missing note-offs, accepting velocity-zero note releases", () => {
   const report = midiPreflight(
@@ -213,4 +214,41 @@ it("keeps missing note-offs visible even after the arrangement-advice limit is r
   expect(report.advice).toHaveLength(100);
   expect(report.warnings.map((issue) => issue.code)).toEqual(["note-off"]);
   expect(report.issues[0].code).toBe("note-off");
+});
+
+describe("preset names", () => {
+  const names = (list: Record<number, string>): PresetNames => {
+    const out: string[] = Array.from({ length: 200 }, () => "");
+    for (const [slot, name] of Object.entries(list)) out[Number(slot)] = name;
+    return { names: out, source: "live", model: "gp180" };
+  };
+  const recall = "[00:42] {label:GP-180: 069 Crunch Lead} {midi:cc 1 0 0} {midi:pc 1 68}";
+  const codes = (chart: string, presetNames?: PresetNames) => midiPreflight(parseChart(chart), { ...options, duration: 100, presetNames }).issues;
+
+  it("warns when the slot now holds a different preset", () => {
+    expect(codes(recall, names({ 68: "Clean Verb" }))).toEqual([
+      { code: "preset-renamed", text: '0:42 recalls GP-180 preset 069, saved as "Crunch Lead". That slot now holds "Clean Verb".' },
+    ]);
+  });
+  it("says where the preset went when exactly one other slot holds the name", () => {
+    expect(codes(recall, names({ 68: "Clean Verb", 111: "Crunch Lead" }))).toEqual([
+      { code: "preset-moved", text: '0:42 recalls GP-180 preset 069, saved as "Crunch Lead". That slot now holds "Clean Verb". It is now at 112.' },
+    ]);
+    expect(codes(recall, names({ 68: "Clean Verb", 111: "Crunch Lead", 150: "Crunch Lead" })).map((i) => i.code)).toEqual(["preset-renamed"]);
+  });
+  it("stays quiet when the name is unchanged, the cue has no recorded name, or the names are unknown", () => {
+    expect(codes(recall, names({ 68: "Crunch Lead" }))).toEqual([]);
+    expect(codes("[00:42] {label:Valeton GP-180: Recall memory 069 (ch 1)} {midi:cc 1 0 0} {midi:pc 1 68}", names({ 68: "Clean Verb" }))).toEqual([]);
+    expect(codes("[00:42] {midi:cc 1 0 0} {midi:pc 1 68}", names({ 68: "Clean Verb" }))).toEqual([]);
+    expect(codes(recall)).toEqual([]);
+    expect(codes(recall, { names: [], source: "cached" })).toEqual([]);
+  });
+  it("does not check a cue for the other pedal model", () => {
+    expect(codes(recall.replace("GP-180", "GP-150"), names({ 68: "Clean Verb" }))).toEqual([]);
+  });
+  it("still checks the saved channel of a preset label that leaves out Valeton", () => {
+    const pedals = [{ name: "Valeton GP-180", channel: 2 }];
+    const report = midiPreflight(parseChart(recall), { ...options, duration: 100, pedals });
+    expect(new Set(report.issues.map((i) => i.code))).toEqual(new Set(["saved-channel"]));
+  });
 });

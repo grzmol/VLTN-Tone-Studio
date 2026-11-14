@@ -4,6 +4,7 @@ import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
+import { presetCueTarget, presetNumber, type PresetNames } from "./pedal-preset-names";
 export interface PreflightOptions {
   duration: number;
   /** Actual initial MIDI position, including pre-roll; defaults to the playable range start. */
@@ -26,7 +27,13 @@ export interface PreflightOptions {
   firstBeat?: number;
   /** Set only while MIDI timecode is on: the rate, the song's offset text, and whether the output is Bluetooth */
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
+  /** The GP-150 / GP-180 preset names as last known (index = slot). Unset while they are unknown, which skips the preset-name check. */
+  presetNames?: PresetNames;
 }
+/** A cue's label starts with its pedal's name; a GP-150 / GP-180 preset label leaves out the "Valeton" the profile name starts with. */
+const labelIsFrom = (label: string | undefined, pedalName: string) =>
+  !!label && (label.startsWith(pedalName + ":") || label.startsWith(pedalName.replace(/^Valeton /, "") + ":"));
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 export interface PreflightIssue {
   level?: "advice";
   code: string;
@@ -62,7 +69,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       if (bytes[0] < 240) {
         const channel = (bytes[0] & 15) + 1;
         channels.set(channel, (channels.get(channel) ?? 0) + 1);
-        const pedal = options.pedals.find((pedal) => cue.label?.startsWith(pedal.name + ":"));
+        const pedal = options.pedals.find((pedal) => labelIsFrom(cue.label, pedal.name));
         if (pedal && pedal.channel !== channel)
           add(
             "saved-channel",
@@ -89,7 +96,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     );
   if ((events.length || preparation.some((cue) => cue.messages.length)) && !options.outputName)
     add("output", "No MIDI output selected. Connect the intended output and explicitly enable Send cues before performing.");
-  const referenced = options.pedals.filter((p) => [...events, ...preparation].some((c) => c.label?.startsWith(p.name + ":")));
+  const referenced = options.pedals.filter((p) => [...events, ...preparation].some((c) => labelIsFrom(c.label, p.name)));
   const labels = new Map<number, string[]>();
   for (const pedal of referenced) {
     const names = labels.get(pedal.channel) || [];
@@ -206,12 +213,13 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         pressed.set(key, { time: cue.time, value: bytes[2] });
       }
       if (cue.label) {
-        const pedal = options.pedals.find((p) => cue.label!.startsWith(p.name + ":"));
+        const pedal = options.pedals.find((p) => labelIsFrom(cue.label, p.name));
         if (pedal && bytes[0] < 240 && pedal.channel !== channel)
           add("saved-channel", `${pedal.name} cue uses channel ${channel}; its current profile is channel ${pedal.channel}. Existing cue bytes are unchanged.`);
       }
     }
   }
+  if (options.presetNames) presetNameIssues([...events, ...preparation], options.presetNames, add);
   const playbackStart = options.playbackStart ?? options.range?.start ?? 0;
   const prepared = options.preparation?.enabled
     ? new Set(
@@ -255,4 +263,23 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     channels: [...channels].sort((a, b) => a[0] - b[0]),
     commands: [...events, ...preparation].reduce((n, c) => n + c.messages.length, 0),
   };
+}
+
+/** Warns for each cue whose recorded preset name is not what its slot holds now, and says where the name went when exactly one slot has it. */
+function presetNameIssues(cues: Cue[], known: PresetNames, add: (code: string, text: string) => void) {
+  for (const cue of cues) {
+    const channel = cue.messages.length ? (cue.messages[0][0] & 15) + 1 : 0;
+    const target = channel ? presetCueTarget(cue, channel) : null;
+    if (!target?.name || (known.model && target.model !== known.model)) continue;
+    const now = known.names[target.slot];
+    if (now === undefined || now.trim() === target.name) continue;
+    const moved = known.names.flatMap((name, slot) => (name.trim() === target.name ? [slot] : []));
+    const model = target.model === "gp150" ? "GP-150" : "GP-180";
+    const when = cue.trigger && cue.trigger !== "section" ? "A Before song cue" : clock(cue.time);
+    const text =
+      `${when} recalls ${model} preset ${presetNumber(target.slot)}, saved as "${target.name}". ` +
+      (now.trim() ? `That slot now holds "${now.trim()}".` : "That slot is now empty.");
+    if (moved.length === 1) add("preset-moved", `${text} It is now at ${presetNumber(moved[0])}.`);
+    else add("preset-renamed", text);
+  }
 }

@@ -263,3 +263,35 @@ it("separates arrangement advice and accounts for prepared presets using saved t
   };
   expect(playlistPreflight(["one"], [{ ...saved, song: disabled }], config)[0].warnings.join(" ")).toContain("commands that will not play");
 });
+
+it("passes the preset names on, so a recalled preset that changed is a warning for its song", () => {
+  const chart = "[00:01] {label:GP-180: 069 Crunch Lead} {midi:cc 1 0 0} {midi:pc 1 68}";
+  const song = { ...saved.song!, settings: { ...saved.song!.settings, "": chart } };
+  const names = Array.from({ length: 200 }, (_, i) => (i === 68 ? "Clean Verb" : ""));
+  const warnings = (presetNames?: { names: string[]; source: "live" }) =>
+    playlistPreflight(["one"], [{ ...saved, song }], { ...config, presetNames })[0].warnings;
+  expect(warnings({ names, source: "live" }).some((w) => w.includes('saved as "Crunch Lead"'))).toBe(true);
+  expect(warnings().some((w) => w.includes("saved as"))).toBe(false);
+});
+
+it("reports the pedal's settings once for the whole playlist, on the first entry", () => {
+  const rig = {
+    device: "gp180" as const,
+    globals: { midiInSource: 3, midiInChannelUsb: 0, clockSource: 0, clockOutTrs: 1, fsJack: 0 },
+    transport: "system" as const,
+    pedalChannel: 16,
+    otherChannels: [1],
+    appClock: false,
+    tempoOnStart: false,
+    downstreamPedals: true,
+  };
+  const result = playlistPreflight(["one", "one", "one"], [saved], { ...config, rig });
+  const mentions = result.map((r) => [...r.errors, ...r.warnings, ...r.advice].filter((text) => text.startsWith("Pedal settings:")).length);
+  expect(mentions).toEqual([1, 0, 0]);
+  expect(result[0].errors.find((text) => text.startsWith("Pedal settings:"))).toContain("MIDI in channel (USB)");
+});
+
+it("reports no pedal settings when no GP is connected", () => {
+  const [result] = playlistPreflight(["one"], [saved], { ...config, rig: null });
+  expect([...result.errors, ...result.warnings, ...result.advice].some((text) => text.startsWith("Pedal settings:"))).toBe(false);
+});
