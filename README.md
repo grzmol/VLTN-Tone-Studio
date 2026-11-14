@@ -640,3 +640,5 @@ VLTN Tone Studio is free software under the [GNU General Public License v3.0](LI
 <br>
 
 </div>
+
+The Performance MIDI tools also support native RC-10R drum rhythm export, automatic rhythm cues and explicit export/transfer tracking; see [the performance guide](PERFORMANCE.md#automatic-rc-10r-rhythm-cues).
