@@ -19,7 +19,7 @@ class FakeWorker {
   }
 }
 
-const request = { sampleUrls: { "drums/kick-soft.flac": "https://app.test/kick.flac" } } as unknown as BandRequest;
+const request = { sampleUrls: { "drums/kick-v1-rr1.flac": "https://app.test/kick.flac" } } as unknown as BandRequest;
 const result: BandResult = { notes: { drums: [], bass: [] } };
 
 /** The client keeps one worker between jobs, so each test starts from a fresh module. */
@@ -113,7 +113,7 @@ describe("band client", () => {
   it("gives absolute URLs for the bundled samples", async () => {
     const client = await loadClient();
     const urls = client.bandSampleUrls();
-    expect(urls).toHaveProperty("drums/kick-soft.flac");
-    expect(urls["drums/kick-soft.flac"]).toMatch(/^https?:\/\//);
+    expect(urls).toHaveProperty("drums/kick-v1-rr1.flac");
+    expect(urls["drums/kick-v1-rr1.flac"]).toMatch(/^https?:\/\//);
   });
 });

@@ -29,13 +29,20 @@ export const ON_BEAT_WINDOW = 0.1;
 /** Velocity added at full amount on the bar's downbeat, on the backbeat (snare on beats 2 and 4) and taken off an off-beat hat. */
 export const DOWNBEAT_ACCENT = 6;
 export const BACKBEAT_ACCENT = 4;
-export const OFFBEAT_HAT_ACCENT = -8;
+export const OFFBEAT_HAT_ACCENT = -14;
 
 /** In a run of eighth hats, the on-beat hat gets this much more velocity and the off-beat hat this much less, at full amount. */
-export const HAT_RUN_ALTERNATION = 3;
+export const HAT_RUN_ALTERNATION = 10;
 
 /** The random velocity spread at full amount: a drum note moves up to this far either way, and a bass note up to its own spread. */
 export const DRUM_VELOCITY_SPREAD = 6;
+/** Hats and the ride spread half as far again, so a bar of them reaches more than one sample layer (spec 133). */
+export const HAT_VELOCITY_SPREAD = DRUM_VELOCITY_SPREAD * 1.5;
+
+/** Four hats or four kicks in one beat are sixteenths. The second and fourth of them are this much softer, at full amount. */
+export const SIXTEENTH_WEAK_ACCENT = -12;
+/** A sixteenth is the second or fourth of its beat when it is this close (as a fraction of the beat) to a quarter or three quarters. */
+const SIXTEENTH_WINDOW = 0.1;
 export const BASS_VELOCITY_SPREAD = 4;
 
 /** A ghost note is a note under this velocity. Humanising keeps a ghost under it. */
@@ -149,10 +156,36 @@ function hatRuns(grid: BeatGrid, notes: readonly NoteEvent[]): Set<number> {
 }
 
 /**
+ * The indices of the second and fourth sixteenth of a beat that holds four hats, or four kicks. The hats count together (the ride does
+ * not) and the kicks count on their own. Found on the notes' own times, before any shift.
+ */
+function weakSixteenths(grid: BeatGrid, notes: readonly NoteEvent[]): Set<number> {
+  const inBeat = new Map<string, { index: number; fraction: number }[]>();
+  notes.forEach((note, index) => {
+    const kind = note.pitch === KICK ? "kick" : HAT_PITCHES.includes(note.pitch) ? "hats" : undefined;
+    if (!kind) return;
+    const beat = beatAtOrBefore(grid.beats, note.time);
+    if (beat < 0) return;
+    const span = beatSpan(grid.beats, beat);
+    const fraction = span > 0 ? (note.time - grid.beats[beat]) / span : 0;
+    const key = `${kind}:${beat}`;
+    inBeat.set(key, [...(inBeat.get(key) ?? []), { index, fraction }]);
+  });
+  const weak = new Set<number>();
+  for (const hits of inBeat.values()) {
+    if (hits.length < 4) continue;
+    for (const { index, fraction } of hits) {
+      if (Math.abs(fraction - 0.25) <= SIXTEENTH_WINDOW || Math.abs(fraction - 0.75) <= SIXTEENTH_WINDOW) weak.add(index);
+    }
+  }
+  return weak;
+}
+
+/**
  * The beat accent of a drum note, at full amount: the downbeat, the backbeat, and the hat dynamics (off-beat hats are softer, and in a
  * run of eighths the on-beat hat is louder than the off-beat one).
  */
-function accentOf(note: NoteEvent, grid: BeatGrid, inRun: boolean): number {
+function accentOf(note: NoteEvent, grid: BeatGrid, inRun: boolean, weakSixteenth: boolean): number {
   const place = placeOf(grid, note.time);
   let accent = 0;
   if (place.onBeat && place.position === 0) accent += DOWNBEAT_ACCENT;
@@ -161,6 +194,7 @@ function accentOf(note: NoteEvent, grid: BeatGrid, inRun: boolean): number {
     if (!place.onBeat) accent += OFFBEAT_HAT_ACCENT;
     if (inRun) accent += place.onBeat ? HAT_RUN_ALTERNATION : -HAT_RUN_ALTERNATION;
   }
+  if (weakSixteenth) accent += SIXTEENTH_WEAK_ACCENT;
   return accent;
 }
 
@@ -193,7 +227,7 @@ export function humanise(
 
   const random = createRandom(seed ^ (part === "bass" ? BASS_STREAM : DRUM_STREAM));
   const runs = part === "drums" ? hatRuns(grid, notes) : new Set<number>();
-  const spread = part === "bass" ? BASS_VELOCITY_SPREAD : DRUM_VELOCITY_SPREAD;
+  const weak = part === "drums" ? weakSixteenths(grid, notes) : new Set<number>();
 
   const out = notes.map((note, index): NoteEvent => {
     const feel = feelAt(plans, settings, note.time);
@@ -201,7 +235,11 @@ export function humanise(
     // Every note draws the same numbers whatever the amount, so the amount only scales how far each one moves.
     const offsetMs = clamp(amount * (FEEL_SHIFT_MS[group][feel] + FEEL_SPREAD_MS[group][feel] * gaussian(random)), -MAX_SHIFT_MS, MAX_SHIFT_MS);
     const jitter = 2 * random.next() - 1;
-    const accent = part === "drums" ? accentOf(note, grid, runs.has(index)) : 0;
+    const accent = part === "drums" ? accentOf(note, grid, runs.has(index), weak.has(index)) : 0;
+    const spread = part === "bass" ? BASS_VELOCITY_SPREAD : group === "hats" ? HAT_VELOCITY_SPREAD : DRUM_VELOCITY_SPREAD;
+
+    // A dead note keeps its own velocity and length: only its timing moves, so it stays just before the note it belongs to.
+    if (note.dead) return { ...note, time: Math.max(0, note.time + offsetMs / 1000) };
 
     let velocity = note.velocity + amount * (accent + spread * jitter);
     // A ghost stays a ghost: its humanised velocity stays under GHOST_BELOW.
@@ -209,7 +247,7 @@ export function humanise(
 
     const shift = offsetMs / 1000;
     const duration = part === "bass" && shift > 0 ? Math.min(note.duration, Math.max(MIN_BASS_DURATION, note.duration - shift)) : note.duration;
-    return { time: Math.max(0, note.time + shift), pitch: note.pitch, velocity: clampVelocity(velocity), duration };
+    return { ...note, time: Math.max(0, note.time + shift), velocity: clampVelocity(velocity), duration };
   });
 
   // Array sort is stable, so notes that now share a time keep the order they came in.

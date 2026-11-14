@@ -18,7 +18,10 @@ import { parseBassOverrides, type BassOverride } from "./bass-overrides";
 import { findStyle } from "./styles";
 import { ENERGIES, HUMANISE_FEELS, STYLE_IDS, type Energy, type StyleId } from "./styles/types";
 
-export const DRUM_KITS = ["standard"] as const;
+/** The drum kits. "rock" is the standard kit's recordings voiced heavier (kit-voicing.ts), and the menu calls it "Standard, heavier". */
+export const DRUM_KITS = ["standard", "rock"] as const;
+/** The styles whose generated drums use the heavier kit when the song has not chosen a kit. */
+export const HEAVY_KIT_STYLES: readonly StyleId[] = ["metal", "rock", "half-time"];
 export const BASS_SOUNDS = ["finger", "pick"] as const;
 export const BASS_RANGES = ["low", "normal", "high"] as const;
 export const BASS_MODES = ["roots", "fifths", "octaves", "melodic", "walking"] as const;
@@ -207,7 +210,8 @@ export interface BandSettings {
   swing: number;
   ghostNotes: boolean;
   crashOnSections: boolean;
-  kit: DrumKit;
+  /** An explicit kit choice; omitted settings follow the style. */
+  kit?: DrumKit;
   bassSound: BassSound;
   bassRange: BassRange;
   bassMode: BassMode;
@@ -227,6 +231,8 @@ export interface BandSettings {
   humanise: HumaniseSettings;
   /** How long each bass note rings, from 0 (tight) to 1 (ring). Scales the lengths the bass part gives (bass.ts). */
   bassFeel: number;
+  /** How much of the built-in room is mixed under the generated drums, from 0 (dry) to 1 (spec 133). A drum tone chain with a space block replaces it. */
+  drumRoom: number;
   /** The bass tone the generated bass is rendered through (part-tone.ts). Only Generate uses it. */
   bassTone: PartTone;
   /** The tone the generated drums are rendered through (part-tone.ts, spec 104). Only Generate uses it. */
@@ -241,6 +247,11 @@ export interface BandSettings {
   sections: Record<string, SectionOverride>;
 }
 
+/** The kit a song's generated drums play: the one it chose, or the heavier kit for metal, rock and half-time and the standard kit for the rest. */
+export function kitFor(settings: Pick<BandSettings, "kit" | "style">): DrumKit {
+  return settings.kit ?? (HEAVY_KIT_STYLES.includes(settings.style) ? "rock" : "standard");
+}
+
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   parts: { drums: true, bass: true },
   style: "rock",
@@ -248,7 +259,6 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   swing: 0,
   ghostNotes: true,
   crashOnSections: true,
-  kit: "standard",
   bassSound: "finger",
   bassRange: "normal",
   bassMode: "roots",
@@ -256,6 +266,7 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   bassOverrides: [],
   defaultBassPart: "pulse",
   bassFeel: 0.5,
+  drumRoom: 0.25,
   lockToKick: true,
   followPlaying: true,
   followSource: "auto",
@@ -600,7 +611,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isSwing(value.swing) &&
     isBool(value.ghostNotes) &&
     isBool(value.crashOnSections) &&
-    isDrumKit(value.kit) &&
+    (value.kit === undefined || isDrumKit(value.kit)) &&
     isBassSound(value.bassSound) &&
     isBassRange(value.bassRange) &&
     isBassMode(value.bassMode) &&
@@ -613,6 +624,7 @@ export function isBandSettings(value: unknown): value is BandSettings {
     isBool(value.followDrummer) &&
     isHumanise(value.humanise) &&
     isUnit(value.bassFeel) &&
+    isUnit(value.drumRoom) &&
     isPartTone(value.bassTone, "bass") &&
     isPartTone(value.drumTone, "drums") &&
     isRendered(value.rendered) &&
@@ -688,6 +700,7 @@ export function parseBandSettings(value: unknown): BandSettings {
         ? partForBassMode(source.bassMode)
         : defaults.defaultBassPart,
     bassFeel: isUnit(source.bassFeel) ? source.bassFeel : defaults.bassFeel,
+    drumRoom: isUnit(source.drumRoom) ? source.drumRoom : defaults.drumRoom,
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,
