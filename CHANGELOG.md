@@ -5,6 +5,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 ## [Unreleased]
 
 ### Added
+- **GP-150/GP-180 cue names and rig checks.** Cue pickers show live or cached preset names; preflight warns when a named preset changed, checks pedal MIDI routing, and offers setting fixes. Editor background reads wait until playback stops.
 - **Solo scales.** See where to solo on the neck for the song's key. It opens on the minor pentatonic (the relative minor in a major key), with other scales, a root, box positions, and fret numbers or note names. It follows the pitch shift and the capo, shows in **This song** and from a **Solo scale** button in Lyrics & chords, and is saved with the song ([Solo scales](PERFORMANCE.md#solo-scales)).
 - **Song maps.** A song map sets a song's sections, the drums and bass for each section, bass note fixes, timed chords and lyrics in one go. Export a song brief from **This song → Song map**, have it filled in, then import the reply; the import shows what will change and can be undone ([Song maps](SONG-MAP.md)).
 - **Audio saves itself.** Generated drums and bass, imported tracks, rendered parts and stem splits in a song from the library are saved as soon as they exist, one save at a time and never while music plays. The Song header shows Saved, Saving… with the step, Not saved or Couldn't save, with a button to save or try again. Opening another song, or closing the window, asks first when audio isn't saved; a playlist that is playing never stops for it ([Song library](SONG-LIBRARY.md)).
@@ -78,6 +79,7 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 - **Window and file safety.** The main window runs sandboxed, and MIDI, SysEx and audio capture are granted only to Tone Studio's own pages.
 
 ### Fixed
+- **GP-150/GP-180 preset reads:** backup, rename and export ignore unsolicited replies for another preset; mismatched reads fail rather than using the wrong sound. Hardware confirmation of stored-read reply slots is still pending.
 - **Generated drums follow the drummer.** When a song has a drums stem, each generated kick, snare and hat moves onto the original drummer's hit, so the guitar and vocals no longer sound like they stutter against the beat. "Play with the drummer's timing" in the Band panel turns it off.
 - **Generated hits land on the beat.** Each drum and bass sample starts on its attack, and a tone chain's delay (an amp capture, a wet room) is taken out, so the generated parts no longer drag a few milliseconds behind. Generate the band again for songs you already made.
 - **Doubled drums and bass no longer play.** A song set to play its generated drums or bass could also play the original part underneath, which made a playlist sound stuttery. The original now stays off whenever its generated part plays, including for the next song in a playlist from its very first beat.

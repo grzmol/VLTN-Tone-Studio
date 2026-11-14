@@ -12,6 +12,7 @@ import { gp200CatalogApi } from "./gp200-catalog";
 import { logApi } from "./log";
 import { audienceApi } from "./audience";
 import { bandSyncApi } from "./band-sync";
+import { invoke } from "./invoke";
 import { clickSamplesApi } from "./click-samples";
 
 const host: HostApi = {
@@ -30,6 +31,14 @@ const host: HostApi = {
   audience: audienceApi,
   clickSamples: clickSamplesApi,
   bandSync: bandSyncApi,
+  ...(process.platform === "darwin"
+    ? {
+        bluetoothMidi: {
+          openSetup: () => invoke<void>("bluetooth:setup"),
+          cancelSetup: () => invoke<void>("bluetooth:cancel-setup"),
+        },
+      }
+    : {}),
 };
 
 contextBridge.exposeInMainWorld("gp5host", host);

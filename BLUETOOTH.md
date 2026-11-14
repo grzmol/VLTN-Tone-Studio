@@ -1,8 +1,14 @@
 # Bluetooth MIDI for the GP-150 and GP-180
 
-The Device screen has a **Connect Bluetooth MIDI** button. It opens a BLE-MIDI link to the pedal and shows how that link is doing. Editing the pedal (reading, writing and backing up presets and settings) still goes over USB.
+The Device screen offers Bluetooth MIDI performance controls: **Open macOS MIDI setup** on Mac, or **Connect Bluetooth MIDI** on other supported platforms. Editing the pedal (reading, writing and backing up presets and settings) still goes over USB.
 
-## Connecting
+## macOS performance MIDI
+
+On Mac, choose **Open macOS MIDI setup** in Tone Studio. In Audio MIDI Setup choose **Window → Show MIDI Studio**, then **MIDI Studio → Open Bluetooth Configuration**. Connect your pedal there. Return to Tone Studio, enable USB / system MIDI if needed, select the pedal's **MIDI output**, then enable **Send cues**. Select its MIDI input separately if you use remote footswitch commands.
+
+Bluetooth discovery runs in the system app, keeping Tone Studio's transport responsive. Opening can be cancelled or retried after a timeout. Closing or cancelling does not disconnect existing system MIDI connections. Reconnection never starts playback; prepare the pedals again before playing. The remembered Web Bluetooth output from older releases needs to be replaced with the system MIDI output once. Pedal channels, tempo and song cues stay the same.
+
+## Windows and browser connections
 
 Click **Connect Bluetooth MIDI** in the Device screen's header and pick the pedal. The desktop app shows its own chooser, because Electron has none. Browsers use theirs. The chooser lists devices named GP-150, GP-180 or Valeton, and anything that advertises the standard Bluetooth MIDI service.
 
@@ -10,13 +16,13 @@ Before it sends anything, the app checks that the device has the standard Blueto
 
 If the pedal asks for a PIN, pair it in your system's Bluetooth settings first and connect again.
 
-On macOS, a development build started from a terminal crashes when you click the button, because the terminal has no Bluetooth permission. Build the app and open it from Finder instead. The packaged app asks once.
+Mac desktop builds use the system MIDI path described above, including during development.
 
 ## Why editing stays on USB
 
 On 21 October 2026 a GP-180 connected over Bluetooth, took the editor's hello, and then never answered, so the editor cannot use Bluetooth with this firmware (1.1.1). The code to run the editor protocol over Bluetooth is there (`Gp150Driver.fromBluetooth`), but nothing calls it. A successful sync on some firmware would be the sign that it can be switched on.
 
-## What the link does
+## What the Windows and browser link does
 
 The Bluetooth layer packs MIDI messages into BLE-MIDI packets, with a timestamp on each message, and writes them one at a time. A few details are worth knowing:
 

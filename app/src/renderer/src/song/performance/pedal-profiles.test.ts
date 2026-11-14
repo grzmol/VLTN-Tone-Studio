@@ -61,3 +61,27 @@ it("shares GP-150 and GP-180 performance commands while preserving model IDs", (
   expect(actionCommands(action("valeton-gp150", "memory-129"), 16)).toEqual(["cc 16 0 1", "pc 16 0"]);
   expect(actionCommands(action("valeton-gp150", "tempo"), 16, 141)).toEqual(["cc 16 73 1", "cc 16 74 13"]);
 });
+
+it("GP-180 profile adds the drum machine menu CC92 as a momentary action and keeps every earlier id", () => {
+  const gp180 = PEDAL_PROFILES.find((p) => p.id === "valeton-gp180")!;
+  const gp150 = PEDAL_PROFILES.find((p) => p.id === "valeton-gp150")!;
+  const menu = gp180.actions.find((a) => a.id === "drum-menu")!;
+  expect(menu.label).toBe("Drum machine menu control value");
+  expect(menu.commands).toEqual(["cc $channel 92 $value"]);
+  expect(menu.momentary).toBe(true);
+  expect(gp150.actions.some((a) => a.id === "drum-menu")).toBe(true);
+  expect(gp180.source).toContain("MIDI List for firmware V1.1.1");
+
+  const earlierIds = [
+    ...Array.from({ length: 200 }, (_, n) => `memory-${n + 1}`),
+    ...Array.from({ length: 12 }, (_, i) => [`module-${i}-on`, `module-${i}-off`]).flat(),
+    ...Array.from({ length: 129 }, (_, n) => `drum-pattern-${n + 1}`),
+    ...["patch-mode", "stomp-mode", "previous", "next", "loop-play", "loop-stop", "loop-front", "loop-rear", "drums-play", "drums-stop", "tap", "tempo"],
+    ...[0, 1, 2].flatMap((i) => [`quick-${i}-down`, `quick-${i}-up`]),
+    ...["patch-volume", "expression", "exp-switch", "quick1", "quick2", "quick3", "record-level", "play-level", "drums-level", "tuner", "loop-menu"],
+    ...["loop-record", "auto-record", "delete-loop", "ctrl-a", "ctrl-b", "ctrl-c", "analog", "dsp"],
+  ];
+  const ids = new Set(gp180.actions.map((a) => a.id));
+  expect(earlierIds.filter((id) => !ids.has(id))).toEqual([]);
+  expect(gp180.actions).toHaveLength(earlierIds.length + 1);
+});

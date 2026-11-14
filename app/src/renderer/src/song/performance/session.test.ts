@@ -1,3 +1,4 @@
+import { clearSettingsCache } from "./settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StemPlayer } from "@/song/stems/player";
 import type { Stems } from "@/song/types";
@@ -13,6 +14,7 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { STAGE_IDLE_DEBOUNCE_MS, resetStageActivity, useStageActivity } from "@/state/stage-activity";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
@@ -29,7 +31,8 @@ const mocks = vi.hoisted(() => ({
   rate: 1,
   swaps: [] as unknown[],
   applied: [] as unknown[],
-  configs: [] as { rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
+  configs: [] as {
+    prepared?: { position: number; messages: number[][] }; rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
   swapAt: 2.5,
   swapWhen: 2.6,
   faults: [] as ((message: string) => void)[],
@@ -2139,4 +2142,366 @@ describe("Send cues stays on", () => {
     await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
   });
+});
+
+describe("Before song preparation", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  const preparationSettings = { enabled: true, settleMs: 1000, openingPresets: true };
+  const setup = () => {
+    const cues = parseChart("[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{midi@prepare:$READY}", [
+      { code: "READY", label: "Ready", commands: ["cc 3 12 0", "pc 3 7"] },
+    ]);
+    return armedSession(output(), { cues, preparationSettings, tempoOnStart: true, tempoChannel: 16, bpm: 140 });
+  };
+  it("prepares to Ready without audio or Play triggers, then starts immediately without repeating setup", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const preparing = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      await vi.advanceTimersByTimeAsync(1100);
+      await preparing;
+      expect(session.state.pedalsReady).toBe(true);
+      expect(session.state.playing).toBe(false);
+      expect(session.state.player?.isPlaying).toBe(false);
+      expect(mocks.configs).toHaveLength(0);
+      const sent = out.send.mock.calls.length;
+      await session.play();
+      expect(session.state.playing).toBe(true);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(out.send.mock.calls).toHaveLength(sent);
+      expect(mocks.configs.at(-1)?.prepared?.messages).toContainEqual([0xcf, 6]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it.each(["bpm", "cues", "settings", "tempo", "output", "disconnect", "seek", "manual"])("invalidates Ready after %s changes", async (change) => {
+    const { session, unload, out, access } = setup();
+    try {
+      const preparing = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      await vi.advanceTimersByTimeAsync(1100);
+      await preparing;
+      expect(session.state.pedalsReady).toBe(true);
+      if (change === "bpm") session.update({ bpm: 130 });
+      if (change === "cues") session.update({ cues: parseChart("{midi@prepare:pc 3 9}") });
+      if (change === "settings") session.update({ preparationSettings: { ...preparationSettings, settleMs: 2000 } });
+      if (change === "tempo") session.update({ tempoOnStart: false });
+      if (change === "output") session.setArmed(false);
+      if (change === "disconnect") {
+        out.state = "disconnected";
+        access.dispatchEvent(new Event("statechange"));
+      }
+      if (change === "seek") await session.seek(0.2);
+      if (change === "manual") session.sendPerformance([0xc2, 10]);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(session.state.playing).toBe(false);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("sends presets and custom macro messages before the loading wait, then tempo before audio", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Waiting for pedals"));
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xbf, 0, 0],
+        [0xcf, 6],
+        [0xb2, 12, 0],
+        [0xc2, 7],
+      ]);
+      expect(session.state.player?.isPlaying).toBe(false);
+      await vi.advanceTimersByTimeAsync(1100);
+      await playing;
+      expect(session.state.player?.isPlaying).toBe(true);
+      expect(session.state.preparing).toBeNull();
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xbf, 73, 1],
+        [0xbf, 74, 12],
+      ]);
+      expect(mocks.configs.at(-1)?.tempo).toBeNull();
+      expect(mocks.configs.at(-1)?.prepared?.messages).toContainEqual([0xcf, 6]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels the waiting start without playing audio or sending a later tempo", async () => {
+    const { session, out, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      session.cancelStart();
+      await vi.advanceTimersByTimeAsync(2000);
+      await playing;
+      expect(session.state.player?.isPlaying).toBe(false);
+      expect(session.state.preparing).toBeNull();
+      expect(out.clear).toHaveBeenCalled();
+      expect(out.send.mock.calls.some((call) => call[0][1] === 74)).toBe(false);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels rather than running stale commands when setup changes during preparation", async () => {
+    const { session, unload } = setup();
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing).not.toBeNull());
+      session.update({ preparationSettings: { ...session.state.preparationSettings! }, timing: { ...session.state.timing } });
+      expect(session.state.starting).toBe(true);
+      session.update({ cues: parseChart("{midi@prepare:pc 3 8}") });
+      await vi.advanceTimersByTimeAsync(2000);
+      await playing;
+      expect(session.state.playing).toBe(false);
+      expect(session.state.error).toContain("setup changed during preparation");
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+  it("keeps bank/preset and macro messages together while spacing setup commands", async () => {
+    const { session, out, unload } = setup();
+    session.update({ preparationSettings: { ...preparationSettings, commandGapMs: 250 } });
+    try {
+      const playing = session.play();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Between setup commands"));
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xbf, 0, 0],
+        [0xcf, 6],
+      ]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(out.send.mock.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xb2, 12, 0],
+        [0xc2, 7],
+      ]);
+      session.cancelStart();
+      await vi.advanceTimersByTimeAsync(3000);
+      await playing;
+      expect(session.state.playing).toBe(false);
+      expect(out.send.mock.calls.some((call) => call[0][1] === 73)).toBe(false);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+});
+
+describe("preparation command repeat rules", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  const setup = (chart: string, commandGapMs = 0) => {
+    const result = armedSession(output(), { cues: parseChart(chart), preparationSettings: { enabled: true, openingPresets: true, settleMs: 0, commandGapMs } });
+    result.session.resetPreparationCommands();
+    return result;
+  };
+  it("resumes with Every start only, and replays beginning commands only at the trimmed start", async () => {
+    const { session, out, unload } = setup("{midi@prepare:pc 1 5}\n{midi@prepare-beginning:cc 3 20 127}\n{midi@prepare-once:cc 4 21 127}");
+    Object.assign(session.state.player!, { start: 10 });
+    mocks.position = 10;
+    try {
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xc0, 5],
+        [0xb2, 20, 127],
+        [0xb3, 21, 127],
+      ]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+      await session.play();
+      expect(out.send.mock.calls).toHaveLength(3);
+      session.pause();
+      mocks.position = 10.02;
+      out.send.mockClear();
+      await session.play();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xc0, 5]]);
+      session.pause();
+      mocks.position = 10;
+      out.send.mockClear();
+      await session.play();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xc0, 5],
+        [0xb2, 20, 127],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("keeps an interrupted once line consumed, and resets it only on an explicit request", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:cc 3 20 127} {midi@prepare-once:cc 3 20 0}");
+    try {
+      out.send.mockImplementationOnce(() => session.cancelStart());
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xb2, 20, 127]]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+      await session.preparePedals();
+      expect(out.send.mock.calls).toHaveLength(1);
+      expect(session.state.pedalsReady).toBe(true);
+      session.resetPreparationCommands();
+      expect(session.state.preparationOnceUsed).toBe(0);
+      expect(session.state.pedalsReady).toBe(false);
+      expect(out.send.mock.calls).toHaveLength(1);
+      await session.preparePedals();
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xb2, 20, 127],
+        [0xb2, 20, 0],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("does not consume a once command when preparation is cancelled before sending begins", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:pc 3 9}");
+    try {
+      const pending = session.preparePedals();
+      session.cancelStart();
+      await pending;
+      expect(session.state.preparationOnceUsed).toBe(0);
+      expect(out.send).not.toHaveBeenCalled();
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xc2, 9]]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("does not automatically repeat an ambiguous failed once send after rearming", async () => {
+    const { session, out, unload } = setup("{midi@prepare-once:cc 3 22 127}");
+    try {
+      out.send.mockImplementationOnce(() => {
+        throw new Error("link failed");
+      });
+      await session.preparePedals();
+      expect(session.state.preparationOnceUsed).toBe(1);
+      expect(session.state.pedalsReady).toBe(false);
+      session.setArmed(true);
+      await session.preparePedals();
+      expect(out.send).toHaveBeenCalledTimes(1);
+      expect(session.state.pedalsReady).toBe(true);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+});
+
+describe("individual preparation waits", () => {
+  beforeEach(() => {
+    clearSettingsCache();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+  it("uses the preview's exact wait plan, keeps a bank pair together, and stops at Ready without audio", async () => {
+    const { session, out, unload } = armedSession(output(), {
+      cues: parseChart("{label:Patch} {midi@prepare:cc 3 0 0} {midi@prepare wait=0.5:pc 3 5}\n{label:Effect} {midi@prepare wait=0.2:cc 3 12 64}"),
+      preparationSettings: { enabled: true, settleMs: 100, openingPresets: true },
+      tempoOnStart: true,
+      tempoChannel: 16,
+      bpm: 140,
+    });
+    try {
+      expect(session.preparationPreview()?.totalWaitMs).toBe(900);
+      expect(out.send).not.toHaveBeenCalled();
+      const pending = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Wait after Patch"));
+      expect(session.state.preparationPlan?.totalWaitMs).toBe(900);
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xb2, 0, 0],
+        [0xc2, 5],
+      ]);
+      await vi.advanceTimersByTimeAsync(350);
+      expect(out.send.mock.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(out.send.mock.calls.at(-1)?.[0]).toEqual([0xb2, 12, 64]);
+      await vi.advanceTimersByTimeAsync(400);
+      await pending;
+      expect(session.state.pedalsReady).toBe(true);
+      expect(session.state.playing).toBe(false);
+      expect(out.send.mock.calls.slice(-2).map((call) => call[0])).toEqual([
+        [0xbf, 73, 1],
+        [0xbf, 74, 12],
+      ]);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("cancels a wait before the next command and keeps an attempted once action used", async () => {
+    const { session, out, unload } = armedSession(output(), {
+      cues: parseChart("{label:Once} {midi@prepare-once wait=0.5:cc 3 25 127}\n{midi@prepare:pc 3 4}"),
+      preparationSettings: { enabled: true, settleMs: 0, openingPresets: true },
+    });
+    session.resetPreparationCommands();
+    try {
+      const pending = session.preparePedals();
+      await vi.waitFor(() => expect(session.state.preparing?.label).toBe("Wait after Once"));
+      session.cancelStart();
+      await pending;
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([[0xb2, 25, 127]]);
+      expect(session.preparationPreview()?.totalWaitMs).toBe(0);
+      await session.preparePedals();
+      expect(out.send.mock.calls.map((call) => call[0])).toEqual([
+        [0xb2, 25, 127],
+        [0xc2, 4],
+      ]);
+      expect(session.state.preparationOnceUsed).toBe(1);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+});
+
+it("tells the device store a song is playing, and that it stopped once the debounce has passed", async () => {
+  resetStageActivity();
+  const { session, unload } = armedSession(output(), { cues: parseChart("[00:01] {midi:pc 1 2}") });
+  vi.useFakeTimers();
+  try {
+    await session.play();
+    expect(useStageActivity.getState().busy).toBe(true);
+    session.pause();
+    vi.advanceTimersByTime(STAGE_IDLE_DEBOUNCE_MS);
+    expect(useStageActivity.getState().busy).toBe(false);
+  } finally {
+    vi.useRealTimers();
+    unload();
+    session.dispose();
+    resetStageActivity();
+  }
+});
+
+it("does not stay busy after the session is disposed mid-song", async () => {
+  resetStageActivity();
+  const { session, unload } = armedSession(output(), { cues: parseChart("[00:01] {midi:pc 1 2}") });
+  vi.useFakeTimers();
+  try {
+    await session.play();
+    unload();
+    session.dispose();
+    vi.advanceTimersByTime(STAGE_IDLE_DEBOUNCE_MS);
+    expect(useStageActivity.getState().busy).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });
