@@ -193,6 +193,7 @@ Choose **Every start**, **Only from beginning**, or **Once per song load** for e
 **Next preparation sequence** previews the send order, waits, skipped repeat commands and total configured time without sending MIDI. **Check playlist** previews each saved entry and totals its preparation waits, assuming fresh song loads. Reports refresh after settings changes. Conflicting recalls and early trigger commands produce advice without changing intentional sequences.
 
 Preparation progress and **Cancel start** are available in the transport and stage view. Cancellation prevents the remaining commands and music; it cannot undo commands already received by a pedal. Output or setup changes cancel pending preparation and invalidate Ready. Preparation runs between playlist songs; disable it to use crossfades.
+Playlist and song MIDI checks show playback errors and performance warnings first. Optional section navigation and intentional trim advice appear separately under **Arrangement advice**. Configured loop, repeat, skip and pause risks remain warnings. Checks include pre-roll and allow 10 ms for rounded boundaries without changing playback times.
 
 ### Tempo and clock
 

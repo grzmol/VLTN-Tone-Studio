@@ -31,7 +31,13 @@ const song = (verse: SectionMode = "continue", chorus: SectionMode = "continue")
 ];
 
 describe("nextBoundary by mode", () => {
-  const cases: { name: string; mode: SectionMode; position: number; live?: SectionLive; expect: Partial<ReturnType<typeof nextBoundary>> & { action: unknown } }[] = [
+  const cases: {
+    name: string;
+    mode: SectionMode;
+    position: number;
+    live?: SectionLive;
+    expect: Partial<ReturnType<typeof nextBoundary>> & { action: unknown };
+  }[] = [
     { name: "continue plays on at the end", mode: "continue", position: 10, expect: { at: 16, action: { kind: "continue" } } },
     { name: "pause stops at the end", mode: "pause", position: 10, expect: { at: 16, action: { kind: "pause" } } },
     {
@@ -191,10 +197,7 @@ describe("beat grid helpers", () => {
 
 describe("sectionIssues", () => {
   it("warns about sections past the audio, overlaps and boundaries off the bar", () => {
-    const issues = sectionIssues(
-      [section("a", 0, 8.5), section("b", 8, 40)],
-      { duration: 30, bpm: 120, beats: 4, firstBeat: 0 },
-    );
+    const issues = sectionIssues([section("a", 0, 8.5), section("b", 8, 40)], { duration: 30, bpm: 120, beats: 4, firstBeat: 0 });
     const codes = issues.map((i) => i.code);
     expect(codes).toContain("section-range");
     expect(codes).toContain("section-overlap");
@@ -254,4 +257,25 @@ describe("the detected marker", () => {
     expect(detected.source).toBe("detected");
     expect(made).not.toHaveProperty("source");
   });
+});
+
+it("separates optional navigation/trim advice from configured arrangement and structural warnings", () => {
+  const options = { duration: 20, bpm: 120, beats: 4, range: { start: 2, end: 10 } };
+  expect(sectionIssues([section("a", 1, 8.5)], options).map((issue) => [issue.code, issue.level])).toEqual([
+    ["section-trim", "advice"],
+    ["section-bar", "advice"],
+  ]);
+  for (const mode of ["loop", "repeat-once", "skip", "pause"] as const)
+    expect(sectionIssues([section("a", 1, 8.5, mode)], options).every((issue) => issue.level !== "advice")).toBe(true);
+  expect(
+    sectionIssues([section("a", 0, 8), section("b", 7, 22)], options)
+      .filter((issue) => ["section-overlap", "section-range"].includes(issue.code))
+      .every((issue) => !issue.level),
+  ).toBe(true);
+});
+it("ignores sub-10ms boundary rounding while keeping real cutoffs and overlaps", () => {
+  expect(sectionIssues([section("a", 0, 10.005)], { duration: 10, range: { start: 0.005, end: 10 } })).toEqual([]);
+  const real = sectionIssues([section("a", 0, 10.02)], { duration: 10, range: { start: 0, end: 10 } });
+  expect(real.map((issue) => issue.code)).toEqual(["section-trim", "section-range"]);
+  expect(sectionIssues([section("a", 0, 5), section("b", 4.995, 10)], { duration: 10 }).map((issue) => issue.code)).toContain("section-overlap");
 });

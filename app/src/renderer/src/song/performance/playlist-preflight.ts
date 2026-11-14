@@ -34,6 +34,7 @@ export interface PlaylistCheck {
   title: string;
   errors: string[];
   warnings: string[];
+  advice: string[];
   /** Information only, shown without the warning label */
   notes: string[];
   /** Fresh-load preparation from the saved playable beginning, with no live repeat history. */
@@ -64,7 +65,7 @@ export function playlistPreflight(
       song = saved?.song;
     const errors = [...(saved?.errors ?? ["Song was not checked."])],
       warnings: string[] = [],
-      notes: string[] = [];
+      notes: string[] = [], advice: string[] = [];
     let preparation: PreparationSequence | undefined;
     if (song) {
       if (config.tempoOnStart && !config.outputName)
@@ -131,8 +132,11 @@ export function playlistPreflight(
       const cued = songCues(song.settings[""] || "", config.macros ?? [], midiFileFromOptions(options));
       if (cued.error) errors.push(`${cued.part === "midi-file" ? "MIDI file" : "Chart"} cannot play: ${cued.error}`);
       else {
+        const start = trimRange(duration, options)?.start ?? 0;
+        const lead = resolveLeadIn({ countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) }, LEAD_IN_DEFAULTS);
         const report = midiPreflight(cued.cues, {
           duration,
+          playbackStart: preRollStart(start, lead.preRollBeats, bpm),
           clock: options.clock === true,
           tempoChannel: config.tempoOnStart ? config.tempoChannel : undefined,
           outputName: config.outputName,
@@ -143,7 +147,8 @@ export function playlistPreflight(
           beats: typeof options.beats === "number" ? options.beats : 4,
           firstBeat: typeof options.firstBeat === "number" ? options.firstBeat : 0,
         });
-        warnings.push(...report.issues.map((i) => i.text));
+        warnings.push(...report.warnings.map((i) => i.text));
+        advice.push(...report.advice.map((i) => i.text));
         try {
           const settings = savedPreparation(song.settings, config.preparationDefaults ?? PREPARATION_DEFAULTS);
           const start = trimRange(duration, options)?.start ?? 0;
@@ -174,6 +179,6 @@ export function playlistPreflight(
         }
       }
     }
-    return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, notes, ...(preparation ? { preparation } : {}) };
+    return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, advice, notes, ...(preparation ? { preparation } : {}) };
   });
 }
