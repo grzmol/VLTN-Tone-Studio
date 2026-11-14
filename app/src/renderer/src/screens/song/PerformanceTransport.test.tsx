@@ -94,3 +94,13 @@ it("counts a number field as a typing target, so the single-key shortcuts ignore
   render(<BpmField bpm={120} disabled={false} onBpm={() => {}} />);
   expect(isTypingTarget(bpmInput())).toBe(true);
 });
+
+it("shows a fractional tempo with a dot, and takes a comma when typed", () => {
+  const onCommit = vi.fn();
+  render(<Host initial={149.9} onCommit={onCommit} />);
+  const input = bpmInput();
+  expect(input.value).toBe("149.9");
+  fireEvent.change(input, { target: { value: "150,5" } });
+  fireEvent.blur(input);
+  expect(onCommit).toHaveBeenLastCalledWith(150.5);
+});

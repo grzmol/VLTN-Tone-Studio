@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePlaybackClock, useCountInBeats } from "@/song/performance/playback-clock";
 
 /** Index of the song beat that is sounding, or -1 while stopped or before the first beat. Only a change of beat re-renders. */
-function useBeatIndex(bpm: number, firstBeat: number): number {
+export function useBeatIndex(bpm: number, firstBeat: number): number {
   return usePlaybackClock((s) => (s.playing && bpm > 0 ? Math.max(-1, Math.floor(((s.position - firstBeat) * bpm) / 60 + 1e-6)) : -1));
 }
 
@@ -39,12 +39,8 @@ export function BeatIndicator({ bpm, beats, firstBeat, large = false }: BeatGrid
   );
 }
 
-/**
- * A frame around the whole stage view that flashes on each song beat, for performers who cannot look at the dot. Off unless the stage view
- * turns it on. It does not show during a count-in.
- */
-export function EdgeFlash({ bpm, beats, firstBeat }: BeatGrid) {
-  const beat = useBeatIndex(bpm, firstBeat);
+/** True for a short moment after each change of `beat`, for the flashes that follow the beat. Never lit before the first beat. */
+export function useBeatLit(beat: number): boolean {
   const [lit, setLit] = useState(false);
   useEffect(() => {
     if (beat < 0) return;
@@ -52,13 +48,18 @@ export function EdgeFlash({ bpm, beats, firstBeat }: BeatGrid) {
     const timer = setTimeout(() => setLit(false), 150);
     return () => clearTimeout(timer);
   }, [beat]);
+  return lit;
+}
+
+/**
+ * A frame around the whole stage view that flashes on each song beat, for performers who cannot look at the dot. Off unless the stage view
+ * turns it on. It does not show during a count-in.
+ */
+export function EdgeFlash({ bpm, beats, firstBeat }: BeatGrid) {
+  const beat = useBeatIndex(bpm, firstBeat);
+  const lit = useBeatLit(beat);
   const downbeat = beat >= 0 && beat % beats === 0;
   const colour = downbeat ? "border-amber-400" : "border-sky-400";
   const visibility = lit ? "opacity-100" : "opacity-0";
-  return (
-    <div
-      aria-hidden
-      className={`pointer-events-none fixed inset-0 z-40 border-[12px] transition-opacity duration-150 ${colour} ${visibility}`}
-    />
-  );
+  return <div aria-hidden className={`pointer-events-none fixed inset-0 z-40 border-[12px] transition-opacity duration-150 ${colour} ${visibility}`} />;
 }

@@ -1,3 +1,5 @@
+import { PreparePedalsButton } from "./PreparePedalsButton";
+import { SongPreparationStatus } from "./SongPreparationStatus";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,6 +14,7 @@ import { LEAD_IN_LIMITS, type LeadIn, type LeadInKey, type LeadInOwn } from "@/s
 import { ClickSoundOptions } from "./ClickSoundOptions";
 import { ClickSampleSettings, useClickSampleSync } from "./ClickSampleSettings";
 import { MidiClickSettingsView, useMidiClick } from "./MidiClickSettings";
+import { parseSeconds } from "./format";
 import { ClockOverDuration, PositionSlider } from "./PlaybackDisplay";
 import { BeatIndicator } from "./BeatIndicator";
 import { HelpNote } from "@/components/ui/help-note";
@@ -38,7 +41,8 @@ export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: bool
   // The typed text while editing; null shows the BPM itself, so a change from outside shows while not editing.
   const [draft, setDraft] = useState<string | null>(null);
   const commit = (text: string) => {
-    if (text.trim() !== "" && Number.isFinite(Number(text))) onBpm(Math.max(30, Math.min(300, Number(text))));
+    const typed = parseSeconds(text);
+    if (typed !== null) onBpm(Math.max(30, Math.min(300, typed)));
     setDraft(null);
   };
   return (
@@ -46,11 +50,10 @@ export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: bool
       className={field + " w-20"}
       aria-label="BPM"
       title="Set the recording’s BPM while stopped. Audio speed and cue timestamps stay unchanged."
-      type="number"
-      min="30"
-      max="300"
+      type="text"
+      inputMode="decimal"
       disabled={disabled}
-      value={draft ?? bpm}
+      value={draft ?? String(Math.round(bpm * 10) / 10)}
       onChange={(e) => {
         const text = e.target.value;
         setDraft(text);
@@ -128,6 +131,7 @@ export function PerformanceTransport({
   const timecodeOn = useSession(session, (s) => s.timecode.enabled);
   const playing = useSession(session, (s) => s.playing);
   const starting = useSession(session, (s) => s.starting);
+  const rhythmRestart = useSession(session, (s) => s.rhythmRestart);
   const queued = useSession(session, (s) => s.queued);
   const parseError = useSession(session, (s) => s.parseError);
   const tempoOnStart = useSession(session, (s) => s.tempoOnStart);
@@ -138,7 +142,8 @@ export function PerformanceTransport({
   const waitingForPlay = library.playlistPlaying && !playing && library.queueOverrides[library.position]?.autoplay === false;
   return (
     <>
-      {queued && (
+      {/* A single song has no playlist to show: no position, no Stop playlist, no "Next: End of set". */}
+      {queued && library.queue.length > 1 && (
         <div aria-label="Playlist transport" className="flex flex-wrap items-center gap-3 rounded border border-seam p-3">
           <strong>{library.index.songs.find((s) => s.id === source?.libraryId)?.title}</strong>
           <span>
@@ -206,7 +211,15 @@ export function PerformanceTransport({
         </p>
       )}
       {queued && library.notice === "Playlist finished." && <p role="status">Playlist finished.</p>}
+      <SongPreparationStatus session={session} />
+      {rhythmRestart && <p role="status">RC-10R needs a restart to align its drums. Play from beginning.</p>}
       <div className="flex flex-wrap items-center gap-3">
+        <PreparePedalsButton session={session} />
+        {rhythmRestart && (
+          <Button disabled={!player || library.busy || starting || stage} onClick={() => void session.playFromBeginning()}>
+            Play from beginning
+          </Button>
+        )}
         <Button
           disabled={!player || !!parseError || library.busy}
           onClick={() => (playing ? session.pause() : starting ? session.cancelStart() : session.startPlayback())}
@@ -216,7 +229,7 @@ export function PerformanceTransport({
         <Button variant="outline" disabled={!player || stage} onClick={() => void session.seek(0)}>
           Rewind
         </Button>
-        <ClockOverDuration duration={duration} />
+        <ClockOverDuration plain duration={duration} />
         <PositionSlider label="Song position" duration={duration} onSeek={(value) => void session.seek(value)} />
         {!source && <span>Open a song in Stems to perform.</span>}
         <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
@@ -279,7 +292,14 @@ export function PerformanceTransport({
               <ClickSoundOptions />
             </select>
           </label>
-          <Button type="button" size="sm" variant="outline" aria-label="Listen to the metronome sound" disabled={playing || !player} onClick={() => void player?.previewClicks("metronome")}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label="Listen to the metronome sound"
+            disabled={playing || !player}
+            onClick={() => void player?.previewClicks("metronome")}
+          >
             Listen
           </Button>
           <span>
@@ -307,12 +327,21 @@ export function PerformanceTransport({
                 if (e.target.value === "" || isCountInSound(e.target.value)) metronome.onSoundOwn({ ...metronome.soundOwn, countInSound: e.target.value });
               }}
             >
-              <option value="">Default ({metronome.soundDefaults.countInSound === "same" ? "same as metronome" : soundLabel(metronome.soundDefaults.countInSound)})</option>
+              <option value="">
+                Default ({metronome.soundDefaults.countInSound === "same" ? "same as metronome" : soundLabel(metronome.soundDefaults.countInSound)})
+              </option>
               <option value="same">Same as metronome</option>
               <ClickSoundOptions />
             </select>
           </label>
-          <Button type="button" size="sm" variant="outline" aria-label="Listen to the count-in sound" disabled={playing || !player} onClick={() => void player?.previewClicks("countIn")}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label="Listen to the count-in sound"
+            disabled={playing || !player}
+            onClick={() => void player?.previewClicks("countIn")}
+          >
             Listen
           </Button>
           <details className="relative">

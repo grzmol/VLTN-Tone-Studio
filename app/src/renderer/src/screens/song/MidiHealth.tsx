@@ -1,3 +1,5 @@
+import { ArrangementAdvice } from "./ArrangementAdvice";
+import type { PreparationSettings } from "@/song/performance/start-preparation";
 import { useEffect, useMemo, useState } from "react";
 import type { Cue } from "@/song/performance/chart";
 import { midiPreflight } from "@/song/performance/midi-preflight";
@@ -5,8 +7,11 @@ import type { Section } from "@/song/performance/sections";
 import type { TimecodeRate } from "@/song/performance/timecode";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
+import { useKnownPresetNames } from "./use-preset-names";
 import { useBluetooth, resetBluetoothTiming } from "@/bluetooth/connection";
 import { HelpNote } from "@/components/ui/help-note";
+import { MemoryUse } from "./MemoryUse";
+import { PedalSettings } from "./PedalSettings";
 
 /** How often the counters on screen may refresh. The scheduler and Bluetooth writes update their stores far more often than that. */
 const REFRESH_MS = 500;
@@ -16,6 +21,11 @@ export function MidiHealth({
   sections,
   duration,
   range,
+  playbackStart,
+  preparation,
+  bpm,
+  beats,
+  firstBeat,
   clock,
   tempoChannel,
   outputName,
@@ -28,6 +38,11 @@ export function MidiHealth({
   duration: number;
   /** The part of a trimmed song that plays, when the song is trimmed */
   range?: { start: number; end: number };
+  playbackStart?: number;
+  preparation?: PreparationSettings;
+  bpm?: number;
+  beats?: number;
+  firstBeat?: number;
   clock: boolean;
   tempoChannel?: number;
   outputName?: string;
@@ -36,20 +51,47 @@ export function MidiHealth({
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
 }) {
   const library = usePedalLibrary();
+  const presetNames = useKnownPresetNames();
   const report = useMemo(
     () =>
       midiPreflight(cues, {
         duration,
         sections,
         range,
+        playbackStart,
+        preparation,
+        bpm,
+        beats,
+        firstBeat,
         clock,
         tempoChannel,
         outputName,
         timecode,
+        presetNames,
         pedals: configuredPedals(library),
       }),
-    [cues, sections, duration, range, clock, tempoChannel, outputName, timecode, library.channels, library.profiles],
+    [
+      cues,
+      sections,
+      duration,
+      range,
+      playbackStart,
+      preparation,
+      bpm,
+      beats,
+      firstBeat,
+      clock,
+      tempoChannel,
+      outputName,
+      timecode,
+      presetNames,
+      library.channels,
+      library.profiles,
+      library.assignments,
+    ],
   );
+  // The memory line polls, so it exists only while the panel is open.
+  const [open, setOpen] = useState(false);
   const [timing, setTiming] = useState(() => useMidiDiagnostics.getState());
   const [ble, setBle] = useState(() => useBluetooth.getState().diagnostics);
   useEffect(() => {
@@ -70,9 +112,10 @@ export function MidiHealth({
     };
   }, []);
   return (
-    <details className="rounded border border-seam p-3" aria-label="MIDI health">
+    <details className="rounded border border-seam p-3" aria-label="MIDI health" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="cursor-pointer">
-        MIDI preflight & timing · {parseError ? "chart error" : `${report.issues.length} warnings`} · {timing.failures} timing/dispatch failures
+        MIDI preflight & timing · {parseError ? "chart error" : `${report.warnings.length} warnings · ${report.advice.length} arrangement notes`} ·{" "}
+        {timing.failures} timing/dispatch failures
       </summary>
       <div className="space-y-3 pt-3 text-sm">
         <p>
@@ -80,21 +123,25 @@ export function MidiHealth({
         </p>
         <HelpNote>
           <p>
-            Warnings are advisory; intentional sequences are preserved. Up to 100 warnings are shown. Profile channels are app settings, not a readback of
-            physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical routing and receive channels before the set.
+            Warnings are advisory; intentional sequences are preserved. Up to 100 performance warnings and 100 arrangement notes are shown separately. Profile
+            channels are app settings, not a readback of physical pedals. Raw cues cannot identify a pedal or verify its CC assignments. Check the physical
+            routing and receive channels before the set.
           </p>
         </HelpNote>
+        {open && <MemoryUse />}
+        <PedalSettings clock={clock} />
         {parseError ? (
           <p className="text-red-400">{parseError}</p>
-        ) : report.issues.length ? (
+        ) : report.warnings.length ? (
           <ul className="max-h-60 list-disc overflow-auto pl-5">
-            {report.issues.map((issue, i) => (
+            {report.warnings.map((issue, i) => (
               <li key={i}>{issue.text}</li>
             ))}
           </ul>
         ) : (
           <p>No static cue issues found. This does not verify pedal response or physical MIDI routing.</p>
         )}
+        {!parseError && <ArrangementAdvice items={report.advice.map((issue) => issue.text)} />}
         <p aria-label="MIDI timing totals">
           Queued: {timing.queued} · More than 5 ms late: {timing.late} · Worst dispatch lateness: {timing.maxLateMs.toFixed(1)} ms · Failures: {timing.failures}
         </p>

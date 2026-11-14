@@ -1,3 +1,4 @@
+import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -159,6 +160,7 @@ const song = (id: string, bpm: number, pc: number): LibrarySong => ({
 const first = song("first", 95, 12),
   second = song("second", 130, 22);
 beforeEach(() => {
+  usePreparationDefaults.setState({ settings: { enabled: false, settleMs: 1000, openingPresets: true } });
   vi.clearAllMocks();
   localStorage.clear();
   clearSettingsCache();
@@ -191,7 +193,8 @@ afterEach(() => {
   useBluetooth.setState({ connection: null });
 });
 
-it("automatically plays the next song with its BPM and armed MIDI, then finishes the set", async () => {
+it.each([false, true])("automatically plays the next song with its BPM and armed MIDI (preparation %s), then finishes the set", async (enabled) => {
+  usePreparationDefaults.setState({ settings: { enabled, settleMs: 50, openingPresets: true } });
   await useSongLibrary.getState().load(first.id, [first.id, second.id]);
   render(<PerformancePanel />);
   fireEvent.click(screen.getByLabelText("Send cues"));
@@ -199,7 +202,7 @@ it("automatically plays the next song with its BPM and armed MIDI, then finishes
     fireEvent.click(screen.getByText("Play playlist"));
   });
   await waitFor(() => expect(mock.send.mock.calls.some((c) => c[0][0] === 192 && c[0][1] === 12)).toBe(true));
-  expect(mock.players.at(-1)?.isPlaying).toBe(true);
+  await waitFor(() => expect(mock.players.at(-1)?.isPlaying).toBe(true));
   await act(async () => {
     mock.players.at(-1)!.end();
   });
@@ -649,4 +652,18 @@ it("keeps a set playing when another Song tab is shown, and plays the queue as e
     player.end();
   });
   await waitFor(() => expect(useSong.getState().source?.libraryId).toBe(third.id));
+});
+
+it("shows no playlist row for a set of one song, and the row with its position for a set of two", async () => {
+  await useSongLibrary.getState().playPlaylist([first.id]);
+  const view = render(<PerformancePanel />);
+  await waitFor(() => expect(mock.players.at(-1)?.isPlaying).toBe(true));
+  expect(screen.queryByLabelText("Playlist transport")).toBeNull();
+  expect(screen.queryByText("Stop playlist")).toBeNull();
+  expect(screen.queryByText(/End of set/)).toBeNull();
+  view.unmount();
+  await useSongLibrary.getState().playPlaylist([first.id, second.id]);
+  render(<PerformancePanel />);
+  await waitFor(() => expect(screen.getByLabelText("Playlist transport")).toBeTruthy());
+  expect(screen.getByText("Stop playlist")).toBeTruthy();
 });

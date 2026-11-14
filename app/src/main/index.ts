@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { buildMenu } from "./menu";
-import { isJobRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
+import { closeDecision, isJobRunning, isShowRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
 import { sendTo } from "./ipc/handle";
 import { registerFilesIpc } from "./ipc/files";
 import { writeJsonAtomicSync } from "./ipc/fs-atomic";
@@ -19,12 +19,15 @@ import { registerGp200CatalogIpc } from "./ipc/gp200-catalog";
 import { registerLogIpc } from "./ipc/log";
 import { registerClickSamplesIpc } from "./ipc/click-samples";
 import type { AppEvent } from "@shared/ipc";
-import { installBluetoothChooser } from './bluetooth';
+import { registerBluetoothSetupIpc } from "./bluetooth-setup";
+import { installBluetoothChooser } from "./bluetooth";
 import { isAudienceContents, registerDisplayIpc } from "./ipc/display";
 import { registerBandSyncIpc } from "./ipc/band-sync";
 import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { devUserDataPath } from "./user-data";
 import { isOwnRenderer } from "./permissions";
+import { UNRESPONSIVE_GRACE_MS, decideRenderGone, recoveredUrl } from "./crash-recovery";
+import { logMain } from "./ipc/log";
 
 // Development runs keep their own library and settings, so testing never touches the installed app's songs.
 // Before the single-instance lock, which is per data folder.
@@ -186,7 +189,7 @@ async function createWindow() {
       backgroundThrottling: false, // backups and writes must not be throttled
     },
   });
-  installBluetoothChooser(win);
+  if (process.platform !== "darwin") installBluetoothChooser(win);
   // The audience window (spec 43) belongs to this window: when it closes, the audience window closes too.
   // Band sync (spec 44) belongs to this window too: followers lose the sync when the performer closes the app.
   win.once("closed", () => {
@@ -201,7 +204,8 @@ async function createWindow() {
   win.on("close", (e) => {
     if (!win) return;
     // overlays.md › Electron notes: don't drop a backup or write by closing the window by accident.
-    if (isJobRunning()) {
+    const decision = closeDecision({ job: isJobRunning(), show: isShowRunning() && !quitConfirmed });
+    if (decision === "job-prompt") {
       const choice = dialog.showMessageBoxSync(win, {
         type: "warning",
         buttons: ["Keep open", "Close anyway"],
@@ -210,7 +214,15 @@ async function createWindow() {
         message: "Tone Studio is still writing to or backing up the pedal",
         detail: "Close after it finishes? If you close now, an unfinished write is discarded by the pedal and that slot keeps its old preset.",
       });
-      if (choice === 0) return e.preventDefault();
+      if (choice === 0) {
+        quitConfirmed = false;
+        return e.preventDefault();
+      }
+    }
+    // With a pedal job and a show both running, the show is asked about after the job.
+    if ((decision === "show-prompt" || (decision === "job-prompt" && isShowRunning() && !quitConfirmed)) && askKeepPlaying(win) === 0) {
+      quitConfirmed = false;
+      return e.preventDefault();
     }
     saveBounds(win);
   });
@@ -226,7 +238,11 @@ async function createWindow() {
       message: "The open song has audio that isn't saved yet",
       detail: "Generated or imported tracks are lost if you close now. Keep the window open, then save the song from the Song screen.",
     });
-    if (choice === 1) e.preventDefault();
+    if (choice === 1) {
+      // Keeping the window open also cancels a quit that was already confirmed.
+      quitConfirmed = false;
+      e.preventDefault();
+    }
   });
   win.on("focus", () => sendEvent({ type: "window-focus", focused: true }));
   win.on("blur", () => sendEvent({ type: "window-focus", focused: false }));
@@ -235,8 +251,93 @@ async function createWindow() {
     if (url !== win?.webContents.getURL()) e.preventDefault();
   });
 
+  watchRenderer(win);
+
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadURL(RENDERER_URL);
+}
+
+/** Loads the page again, flagged as following a crash so the renderer offers to resume the set (spec 120). Nothing plays until the performer asks. */
+function reloadAfterCrash(w: BrowserWindow): void {
+  if (w.isDestroyed()) return;
+  const fallback = process.env.ELECTRON_RENDERER_URL ?? RENDERER_URL;
+  void w.webContents.loadURL(recoveredUrl(w.webContents.getURL(), fallback)).catch((e) => logMain("Crash", `reload failed: ${e instanceof Error ? e.message : e}`));
+}
+
+/**
+ * The renderer holds the audio, the MIDI cues and the playlist, so when it dies the show stops. Reload the window at once, up to three times a
+ * minute; after that ask. A page that is only slow is never reloaded by itself, since its audio may still be playing from the audio thread.
+ */
+function watchRenderer(w: BrowserWindow): void {
+  let reloads: number[] = [];
+  w.webContents.on("render-process-gone", (_e, details) => {
+    logMain("Crash", `The window's renderer is gone (${details.reason}, exit code ${details.exitCode})`);
+    const decision = decideRenderGone(details.reason, reloads, Date.now());
+    reloads = decision.history;
+    if (decision.action === "reload") return reloadAfterCrash(w);
+    if (decision.action !== "prompt" || w.isDestroyed()) return;
+    const choice = dialog.showMessageBoxSync(w, {
+      type: "error",
+      buttons: ["Reload", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+      message: "Tone Studio's window keeps crashing",
+      detail: "It was reloaded three times in the last minute. Reload once more, or quit and start the app again.",
+    });
+    if (choice === 0) {
+      reloads = [];
+      reloadAfterCrash(w);
+    } else {
+      quitConfirmed = true;
+      app.quit();
+    }
+  });
+  let unresponsive: ReturnType<typeof setTimeout> | undefined;
+  let stuck = false;
+  w.on("responsive", () => {
+    stuck = false;
+    clearTimeout(unresponsive);
+  });
+  w.on("unresponsive", () => {
+    stuck = true;
+    clearTimeout(unresponsive);
+    unresponsive = setTimeout(async () => {
+      if (w.isDestroyed()) return;
+      logMain("Crash", `The window has not answered for ${UNRESPONSIVE_GRACE_MS / 1000} s`);
+      // Not modal, so the page can still recover on its own while this is open.
+      const { response } = await dialog.showMessageBox({
+        type: "warning",
+        buttons: ["Wait", "Reload"],
+        defaultId: 0,
+        cancelId: 0,
+        message: "Tone Studio is not responding",
+        detail: "Music may still be playing. Reloading stops it; you can resume where it stopped afterwards.",
+      });
+      // The page may have answered again while the dialog was open; a healthy page is left alone.
+      if (response === 1 && stuck) reloadAfterCrash(w);
+    }, UNRESPONSIVE_GRACE_MS);
+  });
+  w.once("closed", () => clearTimeout(unresponsive));
+}
+
+// Cmd+Q does not always pass through the window's close event first on macOS, so quitting asks here too, once.
+let quitConfirmed = false;
+app.on("before-quit", (e) => {
+  const win = getWindow();
+  if (quitConfirmed || !win || win.isDestroyed() || !isShowRunning()) return;
+  if (askKeepPlaying(win) === 0) return e.preventDefault();
+  quitConfirmed = true;
+});
+
+function askKeepPlaying(win: BrowserWindow): number {
+  return dialog.showMessageBoxSync(win, {
+    type: "warning",
+    buttons: ["Keep playing", "Stop and close"],
+    defaultId: 0,
+    cancelId: 0,
+    message: "A song is playing",
+    detail: "Closing now stops the music and the pedal cues.",
+  });
 }
 
 app.on("second-instance", (_e, argv) => {
@@ -275,19 +376,26 @@ app.whenReady().then(async () => {
   });
   session.defaultSession.setBluetoothPairingHandler((details, callback) => {
     if (!win || details.frame !== win.webContents.mainFrame) return callback({ confirmed: false });
-    if (details.pairingKind === 'providePin') {
+    if (details.pairingKind === "providePin") {
       void dialog.showMessageBox(win, {
-        type: 'info',
-        message: 'Pair this MIDI device in Windows Bluetooth settings first',
-        detail: 'The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.',
+        type: "info",
+        message: "Pair this MIDI device in Windows Bluetooth settings first",
+        detail: "The device requests a PIN. Complete PIN entry in system settings, then retry Bluetooth MIDI in Tone Studio.",
       });
       return callback({ confirmed: false });
     }
-    void dialog.showMessageBox(win, {
-      type: 'question', title: 'Bluetooth pairing', message: `Pair with ${details.deviceId}?`,
-      detail: details.pairingKind === 'confirmPin' ? `Confirm that the device shows PIN ${details.pin}.` : 'Allow this device to connect for MIDI control.',
-      buttons: ['Cancel', 'Pair'], defaultId: 0, cancelId: 0,
-    }).then(({ response }) => callback({ confirmed: response === 1 })).catch(() => callback({ confirmed: false }));
+    void dialog
+      .showMessageBox(win, {
+        type: "question",
+        title: "Bluetooth pairing",
+        message: `Pair with ${details.deviceId}?`,
+        detail: details.pairingKind === "confirmPin" ? `Confirm that the device shows PIN ${details.pin}.` : "Allow this device to connect for MIDI control.",
+        buttons: ["Cancel", "Pair"],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => callback({ confirmed: response === 1 }))
+      .catch(() => callback({ confirmed: false }));
   });
   protocol.handle("app", serveBundle);
   // Dev: the renderer comes from the electron-vite dev server; give it the same CSP and isolation.
@@ -297,6 +405,7 @@ app.whenReady().then(async () => {
     cb({ responseHeaders: { ...details.responseHeaders, ...isolation, "Content-Security-Policy": [DEV_CSP] } });
   });
 
+  const bluetoothSetup = registerBluetoothSetupIpc(getWindow);
   registerLogIpc(getWindow);
   registerClickSamplesIpc();
   registerAppIpc(getWindow);
@@ -312,6 +421,7 @@ app.whenReady().then(async () => {
   // The follower page is the renderer build's second entry (follower.html), served only from RENDERER_DIR.
   bandSyncIpc = registerBandSyncIpc(getWindow, RENDERER_DIR);
   app.once("will-quit", () => {
+    bluetoothSetup.dispose();
     displayIpc?.dispose();
     bandSyncIpc?.dispose();
   });

@@ -2,17 +2,19 @@
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The IPC handlers run for real; only Electron is replaced. vi.mock is hoisted, so the shared state lives in vi.hoisted.
 const electron = vi.hoisted(() => ({
   userData: "",
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>(),
+  metrics: vi.fn((): unknown[] => []),
   shell: { openPath: vi.fn(async () => ""), showItemInFolder: vi.fn(), openExternal: vi.fn(async () => {}) },
 }));
 
 vi.mock("electron", () => ({
-  app: { getPath: () => electron.userData, getVersion: () => "0.0.0-test" },
+  app: { getPath: () => electron.userData, getVersion: () => "0.0.0-test", getAppMetrics: () => electron.metrics() },
   BrowserWindow: class {},
   dialog: {},
   shell: electron.shell,
@@ -21,7 +23,7 @@ vi.mock("electron", () => ({
 
 /** Invoke a registered channel the way the preload does and return its Result. */
 async function call(channel: string, ...args: unknown[]) {
-  return electron.handlers.get(channel)!({}, ...args) as Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }>;
+  return electron.handlers.get(channel)!({ sender: new EventEmitter() }, ...args) as Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }>;
 }
 
 let base: string;
@@ -148,5 +150,60 @@ describe("routeOpenedFile", () => {
     const { routeOpenedFile } = await import("./app");
     expect(routeOpenedFile(null)).toBe("queue");
     expect(routeOpenedFile(window(false, true))).toBe("queue");
+  });
+});
+
+describe("app:setShowRunning", () => {
+  it("sets and clears the flag", async () => {
+    const { isShowRunning } = await import("./app");
+    await call("app:setShowRunning", true);
+    expect(isShowRunning()).toBe(true);
+    await call("app:setShowRunning", false);
+    expect(isShowRunning()).toBe(false);
+  });
+
+  it("clears the flag when the sender is destroyed or its process is gone", async () => {
+    const { isShowRunning } = await import("./app");
+    for (const event of ["destroyed", "render-process-gone"]) {
+      const sender = new EventEmitter();
+      await electron.handlers.get("app:setShowRunning")!({ sender }, true);
+      expect(isShowRunning()).toBe(true);
+      sender.emit(event);
+      expect(isShowRunning()).toBe(false);
+    }
+  });
+});
+
+describe("closeDecision", () => {
+  it("asks about a pedal job first, then a show, else closes", async () => {
+    const { closeDecision } = await import("./app");
+    expect(closeDecision({ job: true, show: true })).toBe("job-prompt");
+    expect(closeDecision({ job: false, show: true })).toBe("show-prompt");
+    expect(closeDecision({ job: false, show: false })).toBe("close");
+  });
+});
+
+describe("app:memory", () => {
+  const sender = (pid: number) => ({ getOSProcessId: () => pid });
+  const metric = (pid: number, ws: number, peak: number) => ({ pid, memory: { workingSetSize: ws, peakWorkingSetSize: peak } });
+  const ask = (pid: number) => electron.handlers.get("app:memory")!({ sender: sender(pid) }) as Promise<{ ok: boolean; data?: unknown }>;
+
+  it("returns the asking renderer's working set with the machine's memory", async () => {
+    electron.metrics.mockReturnValue([metric(1, 10, 11), metric(42, 2_000_000, 2_600_000)]);
+    vi.stubGlobal("process", Object.assign(Object.create(process), { getSystemMemoryInfo: () => ({ total: 16_000_000, free: 3_200_000 }) }));
+    const res = await ask(42);
+    vi.unstubAllGlobals();
+    expect(res).toEqual({ ok: true, data: { workingSetKb: 2_000_000, peakWorkingSetKb: 2_600_000, totalKb: 16_000_000, freeKb: 3_200_000 } });
+  });
+
+  it("gives null when the renderer is not in the list, and when Electron throws", async () => {
+    vi.stubGlobal("process", Object.assign(Object.create(process), { getSystemMemoryInfo: () => ({ total: 1, free: 1 }) }));
+    electron.metrics.mockReturnValue([metric(1, 10, 11)]);
+    expect(await ask(42)).toEqual({ ok: true, data: null });
+    electron.metrics.mockImplementation(() => {
+      throw new Error("no metrics");
+    });
+    expect(await ask(42)).toEqual({ ok: true, data: null });
+    vi.unstubAllGlobals();
   });
 });

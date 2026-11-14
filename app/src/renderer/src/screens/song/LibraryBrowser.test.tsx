@@ -54,7 +54,7 @@ it("queues a song next, and reports it", () => {
   state({ queue: ["b"], position: 0, playlistPlaying: true });
   render(<LibraryBrowser />);
   const alpha = screen.getAllByRole("listitem")[0];
-  fireEvent.click(within(alpha).getByText("Play next"));
+  fireEvent.click(within(alpha).getByRole("button", { name: "Play Alpha next" }));
   expect(useSongLibrary.getState().queue).toEqual(["b", "a"]);
   expect(screen.getByRole("status").textContent).toBe("Alpha plays next.");
 });
@@ -112,4 +112,17 @@ it("asks before deleting the selected songs, and deletes them one at a time", as
     fireEvent.click(screen.getByText("Confirm delete"));
   });
   expect(remove).toHaveBeenCalledWith("c");
+});
+
+it("shows each song on one line with icon actions that have names, and a labelled Load", () => {
+  const load = vi.spyOn(useSongLibrary.getState(), "load").mockResolvedValue(undefined as never);
+  render(<LibraryBrowser />);
+  const alpha = screen.getByLabelText("Select Alpha").closest("li") as HTMLElement;
+  expect(within(alpha).getByText("2:00")).toBeTruthy();
+  expect(within(alpha).getByText("Band")).toBeTruthy();
+  for (const name of ["Play Alpha next", "Add Alpha to queue", "Delete Alpha…"])
+    expect(within(alpha).getByRole("button", { name }).getAttribute("title")).toBeTruthy();
+  fireEvent.click(within(alpha).getByRole("button", { name: "Load Alpha" }));
+  expect(load).toHaveBeenCalledWith("a");
+  expect(screen.getByRole("list").className).not.toContain("overflow");
 });

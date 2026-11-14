@@ -1,9 +1,15 @@
+import { PREFLIGHT_TIME_TOLERANCE_S } from "./preflight-timing";
+import { isPresetMessage, startPreparation, type PreparationSettings } from "./start-preparation";
 import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./chart";
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
+import { presetCueTarget, presetNumber, type PresetNames } from "./pedal-preset-names";
 export interface PreflightOptions {
   duration: number;
+  /** Actual initial MIDI position, including pre-roll; defaults to the playable range start. */
+  playbackStart?: number;
+  preparation?: PreparationSettings;
   tempoChannel?: number;
   clock: boolean;
   outputName?: string;
@@ -21,8 +27,15 @@ export interface PreflightOptions {
   firstBeat?: number;
   /** Set only while MIDI timecode is on: the rate, the song's offset text, and whether the output is Bluetooth */
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
+  /** The GP-150 / GP-180 preset names as last known (index = slot). Unset while they are unknown, which skips the preset-name check. */
+  presetNames?: PresetNames;
 }
+/** A cue's label starts with its pedal's name; a GP-150 / GP-180 preset label leaves out the "Valeton" the profile name starts with. */
+const labelIsFrom = (label: string | undefined, pedalName: string) =>
+  !!label && (label.startsWith(pedalName + ":") || label.startsWith(pedalName.replace(/^Valeton /, "") + ":"));
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 export interface PreflightIssue {
+  level?: "advice";
   code: string;
   text: string;
 }
@@ -32,14 +45,44 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   const issues: PreflightIssue[] = [],
     channels = new Map<number, number>(),
     notes = new Map<string, number>();
-  const add = (code: string, text: string) => {
-    if (issues.length < 100) issues.push({ code, text });
+  let warningCount = 0,
+    adviceCount = 0;
+  const add = (code: string, text: string, level?: "advice") => {
+    if (level === "advice" ? adviceCount >= 100 : warningCount >= 100) return;
+    if (level === "advice") adviceCount++;
+    else warningCount++;
+    issues.push({ code, text, ...(level ? { level } : {}) });
   };
+  const preparation = cues.filter((cue) => cue.trigger === "prepare");
+  if (
+    options.tempoChannel &&
+    preparation.some((cue) =>
+      cue.messages.some((bytes) => (bytes[0] & 240) === 176 && (bytes[0] & 15) + 1 === options.tempoChannel && [73, 74].includes(bytes[1])),
+    )
+  )
+    add(
+      "preparation-tempo",
+      "Before song commands set GP tempo, but automatic song BPM runs afterwards. Turn off automatic BPM if the preparation tempo should win.",
+    );
+  for (const cue of preparation)
+    for (const bytes of cue.messages) {
+      if (bytes[0] < 240) {
+        const channel = (bytes[0] & 15) + 1;
+        channels.set(channel, (channels.get(channel) ?? 0) + 1);
+        const pedal = options.pedals.find((pedal) => labelIsFrom(cue.label, pedal.name));
+        if (pedal && pedal.channel !== channel)
+          add(
+            "saved-channel",
+            `${pedal.name} Before song cue uses channel ${channel}; its current profile is channel ${pedal.channel}. Existing cue bytes are unchanged.`,
+          );
+      }
+    }
   for (const cue of unmatchedSectionCues(chartCues, options.sections ?? []))
     add("section-cue", `On section ${cue.section!.name}: there is no section called ${cue.section!.name}. The cue never fires.`);
   // Triggers have no time, so they are checked below rather than on the timeline.
   // The chase replays a controller unless it is an assigned trigger here or a fixed one (see midi-chase.ts).
   const triggers = chaseTriggerSet(options.pedals.flatMap((pedal) => pedal.triggers ?? []));
+  const rc10rTriggers = chaseTriggerSet(options.pedals.filter((pedal) => pedal.name === "BOSS RC-10R").flatMap((pedal) => pedal.triggers ?? []));
   const events = timedCues(cues)
     .filter((c) => c.messages.length)
     .slice()
@@ -51,9 +94,9 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       "transport-conflict",
       "A Start, Continue or Stop cue conflicts with app MIDI clock, which already sends Start and Stop. Turn clock off or remove the cue.",
     );
-  if (events.length && !options.outputName)
+  if ((events.length || preparation.some((cue) => cue.messages.length)) && !options.outputName)
     add("output", "No MIDI output selected. Connect the intended output and explicitly enable Send cues before performing.");
-  const referenced = options.pedals.filter((p) => events.some((c) => c.label?.startsWith(p.name + ":")));
+  const referenced = options.pedals.filter((p) => [...events, ...preparation].some((c) => labelIsFrom(c.label, p.name)));
   const labels = new Map<number, string[]>();
   for (const pedal of referenced) {
     const names = labels.get(pedal.channel) || [];
@@ -88,7 +131,8 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   for (let i = 0; i < events.length; i++) {
     const cue = events[i];
     if (!Number.isFinite(cue.time) || cue.time < 0) add("time", "A MIDI cue has an invalid timestamp.");
-    if (cue.time > options.duration) add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
+    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S)
+      add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
     windowBytes += cue.messages.reduce((sum, b) => sum + b.length, 0);
     while (events[windowStart].time < cue.time - 0.02) {
       windowBytes -= events[windowStart++].messages.reduce((sum, b) => sum + b.length, 0);
@@ -115,7 +159,13 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         const id = `${cue.time}:${channel}:${kind}:${kind === 176 ? bytes[1] : ""}`,
           value = bytes.join(",");
         const previous = conflicts.get(id);
-        if (previous)
+        // The output gives recognized RC-10R press/release pairs a real hold time, even when their chart timestamps match.
+        const spacedPulse =
+          kind === 176 &&
+          bytes[2] === 0 &&
+          previous === `${bytes[0]},${bytes[1]},127` &&
+          (cue.managed === "rhythm" || rc10rTriggers.has(triggerKey(channel, bytes[1])));
+        if (previous && !spacedPulse)
           add(
             previous === value ? "duplicate" : "conflict",
             `${previous === value ? "Repeated" : "Conflicting"} ${kind === 192 ? "program change" : "CC" + bytes[1]} ` +
@@ -163,22 +213,37 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         pressed.set(key, { time: cue.time, value: bytes[2] });
       }
       if (cue.label) {
-        const pedal = options.pedals.find((p) => cue.label!.startsWith(p.name + ":"));
+        const pedal = options.pedals.find((p) => labelIsFrom(cue.label, p.name));
         if (pedal && bytes[0] < 240 && pedal.channel !== channel)
           add("saved-channel", `${pedal.name} cue uses channel ${channel}; its current profile is channel ${pedal.channel}. Existing cue bytes are unchanged.`);
       }
     }
   }
-  if (options.range) {
-    const { start, end } = options.range;
-    const outside = events.filter((c) => c.time < start || c.time > end);
-    if (outside.length)
-      add(
-        "cue-trim",
-        `${outside.length} cue${outside.length === 1 ? "" : "s"} outside the trimmed range (${start.toFixed(2)}–${end.toFixed(2)} s) will not play, ` +
-          `starting at ${outside[0].time.toFixed(2)} s.`,
-      );
-  }
+  if (options.presetNames) presetNameIssues([...events, ...preparation], options.presetNames, add);
+  const playbackStart = options.playbackStart ?? options.range?.start ?? 0;
+  const prepared = options.preparation?.enabled
+    ? new Set(
+        startPreparation(
+          cues,
+          playbackStart,
+          options.preparation,
+          options.pedals.flatMap((pedal) => pedal.triggers ?? []),
+        ).opening.map((bytes) => bytes.join(",")),
+      )
+    : new Set<string>();
+  const end = options.range?.end ?? options.duration;
+  const outside = events.filter((cue) => {
+    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) return false; // Already reported as past-end.
+    if (cue.time > end + PREFLIGHT_TIME_TOLERANCE_S) return true;
+    if (cue.time >= playbackStart - PREFLIGHT_TIME_TOLERANCE_S) return false;
+    // Only bank/PC bytes restored by the sender are accounted for. A mixed cue still warns about any unsent notes or controls.
+    return cue.messages.some((bytes) => !isPresetMessage(bytes) || !prepared.has(bytes.join(",")));
+  });
+  if (outside.length)
+    add(
+      "cue-trim",
+      `${outside.length} cue${outside.length === 1 ? "" : "s"} outside the trimmed range (${playbackStart.toFixed(2)}–${end.toFixed(2)} s) ${outside.length === 1 ? "has" : "have"} commands that will not play, starting at ${outside[0].time.toFixed(2)} s.`,
+    );
   for (const issue of sectionIssues(options.sections ?? [], {
     duration: options.duration,
     bpm: options.bpm,
@@ -186,8 +251,35 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     firstBeat: options.firstBeat,
     range: options.range,
   }))
-    add(issue.code, issue.text);
+    add(issue.code, issue.text, issue.level);
   for (const [note, time] of notes)
     add("note-off", `Note ${note.split(":")[1]} on channel ${note.split(":")[0]} at ${time.toFixed(2)} s has no later note-off before the audio ends.`);
-  return { issues, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: events.reduce((n, c) => n + c.messages.length, 0) };
+  const warnings = issues.filter((issue) => !issue.level),
+    advice = issues.filter((issue) => issue.level === "advice");
+  return {
+    issues: [...warnings, ...advice],
+    warnings,
+    advice,
+    channels: [...channels].sort((a, b) => a[0] - b[0]),
+    commands: [...events, ...preparation].reduce((n, c) => n + c.messages.length, 0),
+  };
+}
+
+/** Warns for each cue whose recorded preset name is not what its slot holds now, and says where the name went when exactly one slot has it. */
+function presetNameIssues(cues: Cue[], known: PresetNames, add: (code: string, text: string) => void) {
+  for (const cue of cues) {
+    const channel = cue.messages.length ? (cue.messages[0][0] & 15) + 1 : 0;
+    const target = channel ? presetCueTarget(cue, channel) : null;
+    if (!target?.name || (known.model && target.model !== known.model)) continue;
+    const now = known.names[target.slot];
+    if (now === undefined || now.trim() === target.name) continue;
+    const moved = known.names.flatMap((name, slot) => (name.trim() === target.name ? [slot] : []));
+    const model = target.model === "gp150" ? "GP-150" : "GP-180";
+    const when = cue.trigger && cue.trigger !== "section" ? "A Before song cue" : clock(cue.time);
+    const text =
+      `${when} recalls ${model} preset ${presetNumber(target.slot)}, saved as "${target.name}". ` +
+      (now.trim() ? `That slot now holds "${now.trim()}".` : "That slot is now empty.");
+    if (moved.length === 1) add("preset-moved", `${text} It is now at ${presetNumber(moved[0])}.`);
+    else add("preset-renamed", text);
+  }
 }

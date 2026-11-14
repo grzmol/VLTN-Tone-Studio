@@ -115,6 +115,8 @@ describe("speed and position helpers", () => {
   it("keeps the reading line a third of the way down and never above the top", () => {
     expect(scrollTopFor(500, 300)).toBe(410);
     expect(scrollTopFor(50, 300)).toBe(0);
+    // Stage mode reads from 35% down the chart.
+    expect(scrollTopFor(500, 400, 0.35)).toBe(360);
   });
 });
 

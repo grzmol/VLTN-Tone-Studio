@@ -18,14 +18,17 @@ beforeEach(() => {
   useSongLibrary.setState({ index: emptyLibrary(), busy: false, error: "", notice: "", transfer: "" });
 });
 afterEach(cleanup);
+
+/** Opens the list toolbar's Library… menu, which holds the backup actions. */
+const openLibraryMenu = () => fireEvent.keyDown(screen.getByRole("button", { name: /Library…/ }), { key: "Enter" });
 it("offers non-destructive restore on an empty library and cancels cleanly through the real store", async () => {
   await act(async () => {
     render(<SongLibraryPanel onPick={vi.fn()} />);
   });
-  expect((screen.getByText("Export library backup…") as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText(/Restore adds songs and playlists/)).toBeTruthy();
+  openLibraryMenu();
+  expect(screen.getByRole("menuitem", { name: "Export library backup…" }).getAttribute("aria-disabled")).toBe("true");
   await act(async () => {
-    fireEvent.click(screen.getByText("Restore backup…"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restore backup…" }));
   });
   expect(api.inspectBackup).toHaveBeenCalledTimes(1);
   expect(api.restoreBackup).not.toHaveBeenCalled();
@@ -37,11 +40,27 @@ it("offers to skip songs that are already in the library", async () => {
   await act(async () => {
     render(<SongLibraryPanel onPick={vi.fn()} />);
   });
+  openLibraryMenu();
   await act(async () => {
-    fireEvent.click(screen.getByText("Restore backup…"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restore backup…" }));
   });
+  expect(screen.getByText(/Restore adds songs and playlists/)).toBeTruthy();
   await act(async () => {
     fireEvent.click(screen.getByText("Skip songs already in the library (2)"));
   });
   expect(api.restoreBackup).toHaveBeenCalledWith("skip");
+});
+
+it("opens on the song list: no save card or backup card above it, and the save bar only for an unsaved song", async () => {
+  await act(async () => {
+    render(<SongLibraryPanel onPick={vi.fn()} />);
+  });
+  expect(screen.queryByText("Save the current song")).toBeNull();
+  expect(screen.queryByText("Portable library backup")).toBeNull();
+  expect(screen.queryByLabelText("Song title")).toBeNull();
+  expect(screen.getByLabelText("Saved songs")).toBeTruthy();
+  const audio = { sampleRate: 8000, channels: [new Float32Array(8)] };
+  act(() => useSong.setState({ source: { name: "new song.wav", audio, bits: 16 }, stems: { source: audio } }));
+  expect((screen.getByLabelText("Song title") as HTMLInputElement).value).toBe("new song");
+  expect(screen.getByRole("button", { name: "Save song to library" })).toBeTruthy();
 });

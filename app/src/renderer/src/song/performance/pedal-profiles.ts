@@ -138,7 +138,8 @@ export const PEDAL_PROFILES: PedalProfile[] = [
     source: "RC-10R MIDI Implementation v1.00, pp. 2–3; BOSS RC-10R Parameter Guide, pp. 9–11",
     notes:
       "Use RX CONTROL CH for memories and assigned controls. Memory numbers 1–99 correspond to wire PC 0–98; bank select is ignored. " +
-      "Set each chosen CC assignment on the pedal. RX NOTE CH is a separate channel for rhythm notes/kit changes, not this control profile.",
+      "Set each chosen CC assignment on the pedal. RX NOTE CH is a separate channel for rhythm notes/kit changes, not this control profile. " +
+      "Configured momentary press/release pairs are held for at least 100 ms at the output so the pedal recognizes them.",
     actions: [
       ...memories(99, false),
       ...[
@@ -218,7 +219,7 @@ export const PEDAL_PROFILES: PedalProfile[] = [
     version: 1,
     id: "valeton-gp180",
     name: "Valeton GP-180",
-    source: "GP-180 User Manual firmware v1.0.0, printed pp. 75–77 (PDF pp. 78–80)",
+    source: "GP-180 MIDI List for firmware V1.1.1; GP-180 User Manual firmware v1.0.0, pp. 75–77",
     notes:
       "Configure Bluetooth MIDI input and its receive channel on the GP-180. These are standard performance MIDI commands, independent of the USB editor write lock. " +
       "Forwarding to other pedals still depends on the hardware’s routing. Commands without documented on/off semantics are labelled as control values.",
@@ -273,6 +274,7 @@ export const PEDAL_PROFILES: PedalProfile[] = [
         ["ctrl-c", "CTRL C control value", 71, 127],
         ["analog", "Analog bypass control value", 115, 127],
         ["dsp", "DSP bypass control value", 116, 127],
+        ["drum-menu", "Drum machine menu control value", 92, 127],
       ].map(([id, label, n, max]) => continuous(String(id), String(label), Number(n), Number(max))),
     ],
   },
@@ -304,6 +306,7 @@ const MOMENTARY_IDS: Record<string, string[]> = {
     "loop-record",
     "auto-record",
     "delete-loop",
+    "drum-menu",
     "quick-0-down",
     "quick-0-up",
     "quick-1-down",
