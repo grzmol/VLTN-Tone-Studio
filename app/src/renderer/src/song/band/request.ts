@@ -11,6 +11,7 @@ import type { BassLineBeat } from "../analysis/bass-line";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
 import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
+import { barBeats, barStarts } from "./timing";
 
 /**
  * The audio the beat tracker reads. The drums stem when there is one. Otherwise the pitched stems (everything but drums and vocals,
@@ -97,11 +98,66 @@ export function bandHarmony(input: Pick<BandInputs, "grid" | "cues" | "chords" |
   return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original, input.settings.bassOverrides);
 }
 
-/** The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. */
+/** The beat intervals the end of a grid is continued with: the median of its last few. */
+const END_INTERVALS = 4;
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/**
+ * The grid the band plays on, continued through every section that starts after its last beat. The beat tracker stops where the drums
+ * stop, so a section after that (an outro with no drums, say) would get no parts at all. Its beats carry on at the grid's last tempo, up
+ * to the end of the last such section, and a bar starts where each of those sections starts. A grid whose sections all start inside it
+ * is returned as it is, so a song that ends on a last hit keeps its ending.
+ */
+export function gridThroughSections(grid: BeatGrid, sections: readonly Section[], songEnd: number): BeatGrid {
+  if (grid.beats.length < 2) return grid;
+  const lastBeat = grid.beats[grid.beats.length - 1];
+  const intervals = grid.beats.slice(-END_INTERVALS - 1).map((beat, i, beats) => (i === 0 ? 0 : beat - beats[i - 1])).slice(1);
+  const interval = median(intervals);
+  if (!(interval > 0)) return grid;
+  const later = sections.filter((section) => section.start > lastBeat + interval / 2);
+  if (later.length === 0) return grid;
+  const end = Math.min(songEnd, Math.max(...later.map((section) => section.end)));
+
+  const beats = [...grid.beats];
+  for (let next = lastBeat + interval; next < end - interval / 100; next += interval) beats.push(next);
+  if (beats.length === grid.beats.length) return grid;
+
+  // Bars carry on from the grid's last bar, except that each later section starts a bar of its own.
+  const perBar = barBeats(grid);
+  const kept = barStarts(grid);
+  const nearestBeat = (time: number) => beats.reduce((best, beat, i) => (Math.abs(beat - time) < Math.abs(beats[best] - time) ? i : best), 0);
+  const sectionStarts = later.map((section) => nearestBeat(section.start)).sort((a, b) => a - b);
+  const added: number[] = [];
+  let next = (kept.length ? kept[kept.length - 1] : Math.round(grid.downbeat)) + perBar;
+  for (const start of sectionStarts) {
+    while (next < start) {
+      added.push(next);
+      next += perBar;
+    }
+    if (start > (added.at(-1) ?? kept.at(-1) ?? -1)) added.push(start);
+    next = start + perBar;
+  }
+  while (next < beats.length) {
+    added.push(next);
+    next += perBar;
+  }
+  const regular = !grid.barStarts && added.every((start) => (start - Math.round(grid.downbeat)) % perBar === 0);
+  return regular ? { ...grid, beats } : { ...grid, beats, barStarts: [...kept, ...added.filter((start) => start < beats.length)] };
+}
+
+/**
+ * The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. The grid is
+ * continued through any section after its last beat (see gridThroughSections), so those sections get their parts too.
+ */
 export function bandRequest(input: BandInputs): BandRequest {
-  const harmony = bandHarmony(input);
+  const grid = gridThroughSections(input.grid, input.sections, input.songEnd);
+  const harmony = bandHarmony({ ...input, grid });
   const request: BandRequest = {
-    grid: input.grid,
+    grid,
     harmony,
     plans: planSections(input.sections, input.songEnd, input.settings, input.hints ?? []),
     settings: input.settings,

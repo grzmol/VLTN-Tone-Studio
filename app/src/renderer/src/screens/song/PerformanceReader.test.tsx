@@ -160,3 +160,17 @@ describe("autoscroll styles", () => {
     expect(useAutoscroll.getState().linesPerMinute).toBe(2);
   });
 });
+
+it("opens the solo scale dialog from the header, and not in stage mode", () => {
+  HTMLElement.prototype.scrollTo = vi.fn();
+  const soloScale = { storageKey: "reader-solo-test", capo: 0 };
+  const props = { title: "Song", chart: "[00:00] [C]Words", lyrics: "", chords: [], shift: 0, songKey: "A minor", soloScale };
+  const { unmount } = render(<PerformanceReader {...props} />);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Solo scale" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByText("A minor pentatonic.")).toBeTruthy();
+  unmount();
+  render(<PerformanceReader {...props} stage />);
+  expect(screen.queryByRole("button", { name: "Solo scale" })).toBeNull();
+});

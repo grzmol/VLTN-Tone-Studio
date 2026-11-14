@@ -198,6 +198,13 @@ export function BandSettingsForm({ settings, followSources, onChange, onStyle, s
         <Switch aria-label="Follow my playing" checked={settings.followPlaying} onCheckedChange={(on) => onChange({ followPlaying: on })} />
         Follow my playing
       </label>
+      <label className="flex items-center gap-2">
+        <Switch aria-label="Play with the drummer's timing" checked={settings.followDrummer} onCheckedChange={(on) => onChange({ followDrummer: on })} />
+        <span>
+          Play with the drummer's timing
+          <span className="block text-xs text-silkscreen-3">Moves each generated hit onto the original drummer's hit, when the song has a drums stem.</span>
+        </span>
+      </label>
       <label className="flex items-center gap-3">
         Follow source
         <Select
