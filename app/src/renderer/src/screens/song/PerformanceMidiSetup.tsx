@@ -199,6 +199,8 @@ export function PerformanceMidiSetup({
           )}
         </div>
         <BluetoothControls
+          locked={playing}
+          onSystemReady={session.connectMidi}
           onConnected={(connection) => {
             session.panic();
             session.setArmed(false);
