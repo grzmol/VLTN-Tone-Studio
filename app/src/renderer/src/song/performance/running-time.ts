@@ -1,6 +1,6 @@
 import type { LibrarySong } from "@shared/song-library";
 import { speedFromOptions } from "./speed";
-import { shapeFromOptions } from "./song-shape";
+import { playerShapeFromOptions } from "./song-shape";
 import { playRange } from "./transition";
 
 /*
@@ -11,7 +11,7 @@ import { playRange } from "./transition";
 /** The seconds a song plays for in a set: its trimmed range divided by its speed. */
 export function runningSeconds(song: LibrarySong): number {
   const options = song.settings[":options"] ?? "";
-  const range = playRange(song.duration, shapeFromOptions(options));
+  const range = playRange(song.duration, playerShapeFromOptions(options));
   const length = Math.max(0, range.end - range.start);
   const rate = speedFromOptions(options).rate;
   return rate > 0 ? length / rate : length;
