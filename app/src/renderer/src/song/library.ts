@@ -268,6 +268,8 @@ const storedTrack = new WeakMap<PcmAudio, { songId: string; track: LibraryAudio 
  */
 const unreadTracks = new Map<string, LibraryAudio[]>();
 
+const LIBRARY_DECODE_JOBS = 2;
+
 /** Fetches a saved track straight from the app protocol and decodes it in a worker; nothing is copied through IPC. */
 async function loadTrack(url: string, track: LibraryAudio, songId: string): Promise<PcmAudio> {
   const response = await fetch(url);
@@ -289,15 +291,23 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
   if (!song) throw new Error("Song is missing from the library.");
   const urls = await api().audioUrls(id);
   const skipped: string[] = [];
-  const loaded = await Promise.all(
-    song.audio.map(async (track) => {
-      try {
-        return [track, await loadTrack(urls[trackKey(track)], track, id)] as const;
-      } catch (e) {
-        // The song still plays without this track, so the reason is kept for the console rather than shown in the notice.
-        console.error(`Could not read the ${track.name} audio of ${song.title}`, e);
-        skipped.push(track.name);
-        return null;
+  // Each track starts a FLAC worker with its own decoder heap. Bound those temporary heaps while retaining track order and
+  // per-track failure handling; preloading still starts immediately, so early manual crossfades remain available.
+  const loaded: ([LibraryAudio, PcmAudio] | null)[] = new Array(song.audio.length);
+  let nextTrack = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(LIBRARY_DECODE_JOBS, song.audio.length) }, async () => {
+      while (nextTrack < song.audio.length) {
+        const at = nextTrack++;
+        const track = song.audio[at];
+        try {
+          loaded[at] = [track, await loadTrack(urls[trackKey(track)], track, id)];
+        } catch (e) {
+          // The song still plays without this track, so the reason is kept for the console rather than shown in the notice.
+          console.error(`Could not read the ${track.name} audio of ${song.title}`, e);
+          skipped.push(track.name);
+          loaded[at] = null;
+        }
       }
     }),
   );
@@ -775,6 +785,9 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
       seedSettings(prepared.id, prepared.settings);
       useSong.getState().cancel();
       set({ position: position + 1, prepared: null, notice: readyNotice(prepared.title, prepared.skipped) });
+      // A stopped transition uses the prepared PCM but creates a new session/player. Only a gapless handover takes the prepared
+      // player itself; otherwise its engine warning listener would keep it and all of its buffers alive for the rest of the set.
+      if (get().handover?.player !== prepared.player) void prepared.player.dispose();
       useSong.setState({
         source: prepared.source,
         stems: Object.keys(prepared.stems).length ? prepared.stems : null,
