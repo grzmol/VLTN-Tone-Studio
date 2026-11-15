@@ -164,7 +164,7 @@ export interface DrumLayerMix {
 
 /**
  * The layers a drum hit plays. Normally the one layer that holds the velocity. Within DRUM_CROSSFADE_STEPS of a boundary between two
- * layers, both play with equal-power weights (the same curve as pickBassLayers), so a velocity crossing a boundary does not step. Both
+ * layers, both play with linear weights (the same curve as pickBassLayers), so a velocity crossing a boundary does not step. Both
  * layers use the same take number.
  */
 export function pickDrumLayers(set: SampleSet, pitch: number, velocity: number, take = 0): DrumLayerMix[] {
@@ -181,11 +181,10 @@ export function pickDrumLayers(set: SampleSet, pitch: number, velocity: number, 
   if (!other || distance >= DRUM_CROSSFADE_STEPS) return [{ pick: pickDrumSample(set, pitch, v, take), weight: 1 }];
   // The other layer's share grows from 0 at the edge of the zone to one half at the boundary itself.
   const toOther = 0.5 * (1 - distance / DRUM_CROSSFADE_STEPS);
-  const angle = (toOther * Math.PI) / 2;
   const pickOf = (layer: DrumLayer): DrumPick => ({ audio: layer.takes[take % layer.takes.length], gain: v / layer.nominal, transpose: layer.transpose });
   return [
-    { pick: pickOf(main), weight: Math.cos(angle) },
-    { pick: pickOf(other), weight: Math.sin(angle) },
+    { pick: pickOf(main), weight: 1 - toOther },
+    { pick: pickOf(other), weight: toOther },
   ];
 }
 
@@ -223,7 +222,7 @@ export interface BassLayerMix {
 
 /**
  * The layers a bass note plays. Below BASS_CROSSFADE_FROM only the soft (p) layer, above BASS_CROSSFADE_TO only the hard (f) layer, and
- * between them both, with equal-power weights so the level does not dip at the middle. A root with only one layer plays that layer alone,
+ * between them both, with linear weights so correlated takes do not boost the middle. A root with only one layer plays that layer alone,
  * as pickBassSample does.
  */
 export function pickBassLayers(set: SampleSet, midi: number, velocity: number): BassLayerMix[] {
@@ -236,10 +235,9 @@ export function pickBassLayers(set: SampleSet, midi: number, velocity: number): 
     return [{ pick: pickBassSample(set, midi, v), weight: 1 }];
   }
   const t = (v - BASS_CROSSFADE_FROM) / (BASS_CROSSFADE_TO - BASS_CROSSFADE_FROM);
-  const angle = (t * Math.PI) / 2;
   return [
-    { pick: { audio: soft.audio, playbackRate }, weight: Math.cos(angle) },
-    { pick: { audio: hard.audio, playbackRate }, weight: Math.sin(angle) },
+    { pick: { audio: soft.audio, playbackRate }, weight: 1 - t },
+    { pick: { audio: hard.audio, playbackRate }, weight: t },
   ];
 }
 
@@ -291,7 +289,10 @@ function sampleFiles(kit: string): string[] {
   return [...new Set([...drums, ...SAMPLE_MAP.bass.map((s) => s.file), ...(SAMPLE_MAP.room ? [SAMPLE_MAP.room] : [])])];
 }
 
-async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>): Promise<Map<string, PcmAudio>> {
+/** Shared by kit views owned by one worker or renderer; URL keys avoid retaining an obsolete asset under a reused file name. */
+export type SampleCache = Map<string, Promise<PcmAudio>>;
+
+async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, decode: (file: ArrayBuffer) => Promise<PcmAudio>, cache: SampleCache): Promise<Map<string, PcmAudio>> {
   const decoded = new Map<string, PcmAudio>();
   for (let i = 0; i < files.length; i += DECODE_BATCH) {
     const batch = files.slice(i, i + DECODE_BATCH);
@@ -299,9 +300,19 @@ async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, dec
       batch.map(async (file) => {
         const url = urls.get(file);
         if (!url) throw new Error(`Sample ${file} is missing from the app.`);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Could not load sample ${file}.`);
-        return decode(await response.arrayBuffer());
+        let audio = cache.get(url);
+        if (!audio) {
+          audio = (async () => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Could not load sample ${file}.`);
+            return decode(await response.arrayBuffer());
+          })().catch((error: unknown) => {
+            cache.delete(url);
+            throw error;
+          });
+          cache.set(url, audio);
+        }
+        return audio;
       }),
     );
     batch.forEach((file, index) => decoded.set(file, audio[index]));
@@ -310,15 +321,17 @@ async function decodeAll(files: string[], urls: ReadonlyMap<string, string>, dec
 }
 
 /**
- * Fetches and decodes every sample from `urls`, without caching. `decode` is the codec: the renderer passes `decodeTrack`, which runs a
+ * Fetches and decodes samples, sharing buffers between kits when the caller supplies its cache. `decode` is the codec: the renderer passes `decodeTrack`, which runs a
  * worker, and the band worker passes `decodeFlac`, which it can call directly. Either way the caller decides what to keep.
  */
 export async function loadSampleSetWith(
   urls: ReadonlyMap<string, string>,
   decode: (file: ArrayBuffer) => Promise<PcmAudio>,
   kit: string = DEFAULT_KIT,
+  cache: SampleCache = new Map(),
 ): Promise<SampleSet> {
-  const decoded = await decodeAll(sampleFiles(kit), urls, decode);
+  if (!SAMPLE_MAP.kits[kit]) throw new Error(`Unknown drum kit ${kit}.`);
+  const decoded = await decodeAll(sampleFiles(kit), urls, decode, cache);
   return sampleSetFrom(SAMPLE_MAP, kit, (file) => {
     const audio = decoded.get(file);
     if (!audio) throw new Error(`Sample ${file} was not decoded.`);
@@ -327,12 +340,13 @@ export async function loadSampleSetWith(
 }
 
 const loaded = new Map<string, Promise<SampleSet>>();
+const decodedSamples: SampleCache = new Map();
 
 /** Loads and decodes a kit's samples once, then returns the same set on every call. A failed load is retried on the next call. */
 export function loadSampleSet(kit: string = DEFAULT_KIT): Promise<SampleSet> {
   let set = loaded.get(kit);
   if (!set) {
-    set = loadSampleSetWith(sampleFileUrls(), decodeTrack, kit).catch((error: unknown) => {
+    set = loadSampleSetWith(sampleFileUrls(), decodeTrack, kit, decodedSamples).catch((error: unknown) => {
       loaded.delete(kit);
       throw error;
     });
