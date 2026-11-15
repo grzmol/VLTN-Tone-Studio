@@ -14,7 +14,7 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
-import { clearSettingsCache, performanceKey, setSetting } from "./settings";
+import { performanceKey, setSetting } from "./settings";
 import { packExtras } from "@/song/band/extras";
 import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
 
