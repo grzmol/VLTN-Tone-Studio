@@ -1,3 +1,4 @@
+import { sharedPlaybackBuffer, sharePlaybackPcm } from "../audio/playback-pcm";
 import type { PcmAudio, Stems } from "../types";
 import { orderedKeys } from "../tracks";
 import { beatSeconds, clicksWhilePlaying, clicksWhileStopped, preRollStart, type MetronomeMode } from "../performance/rhythm";
@@ -166,6 +167,7 @@ export class StemPlayer {
   readonly names: string[];
   private readonly engine: PlaybackEngine;
   private readonly ownsEngine: boolean;
+  private readonly sharePcm: boolean;
   private readonly ctx: AudioContext;
   private readonly router: PlaybackEngine["router"];
   private fadeIn: number;
@@ -219,8 +221,17 @@ export class StemPlayer {
    */
   /**
    * `stems` are the song's stems, or a render of them at `rate` (see `renderBuffers`). Shape and fades are in song seconds.
+   * `sharePcm` lets the song store read samples from the filled playback buffers instead of keeping a second decoded copy.
    */
-  constructor(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, fill: "now" | "later" = "now", rate = 1) {
+  constructor(
+    stems: Stems,
+    engine?: PlaybackEngine,
+    shape: SongShape = {},
+    fill: "now" | "later" = "now",
+    rate = 1,
+    options: { sharePcm?: boolean } = {},
+  ) {
+    this.sharePcm = options.sharePcm === true;
     this.names = orderedKeys(Object.keys(stems).filter((name) => stems[name]));
     if (!this.names.length) throw new Error("There are no stems to play.");
     const first = stems[this.names[0]]!;
@@ -240,8 +251,12 @@ export class StemPlayer {
     this.voices = Object.fromEntries(
       this.names.map((name) => {
         const pcm = stems[name]!;
-        const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-        if (fill === "now") pcm.channels.forEach((ch, c) => buffer.copyToChannel(ch as Float32Array<ArrayBuffer>, c));
+        const shared = this.sharePcm ? sharedPlaybackBuffer(pcm) : undefined;
+        const buffer = shared ?? this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+        if (fill === "now" && !shared) {
+          pcm.channels.forEach((ch, c) => buffer.copyToChannel(ch as Float32Array<ArrayBuffer>, c));
+          if (this.sharePcm) sharePlaybackPcm(pcm, buffer);
+        }
         const gain = this.ctx.createGain();
         const pan = this.ctx.createStereoPanner();
         const fade = this.ctx.createGain();
@@ -260,17 +275,31 @@ export class StemPlayer {
    * Builds a player whose buffers are filled a channel at a time, yielding between channels, so a long song does not block the
    * renderer. The player is not used until the returned promise resolves.
    */
-  static async create(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, pause: () => Promise<void> = yieldToMain, rate = 1): Promise<StemPlayer> {
-    const player = new StemPlayer(stems, engine, shape, "later", rate);
-    for (const name of player.names) {
-      const pcm = stems[name]!;
-      const buffer = player.voice(name).buffer;
-      for (let c = 0; c < pcm.channels.length; c++) {
-        buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
-        await pause();
+  static async create(
+    stems: Stems,
+    engine?: PlaybackEngine,
+    shape: SongShape = {},
+    pause: () => Promise<void> = yieldToMain,
+    rate = 1,
+    options: { sharePcm?: boolean } = {},
+  ): Promise<StemPlayer> {
+    const player = new StemPlayer(stems, engine, shape, "later", rate, options);
+    try {
+      for (const name of player.names) {
+        const pcm = stems[name]!;
+        const buffer = player.voice(name).buffer;
+        if (player.sharePcm && sharedPlaybackBuffer(pcm) === buffer) continue;
+        for (let c = 0; c < pcm.channels.length; c++) {
+          buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
+          await pause();
+        }
+        if (player.sharePcm) sharePlaybackPcm(pcm, buffer);
       }
+      return player;
+    } catch (error) {
+      await player.dispose();
+      throw error;
     }
-    return player;
   }
 
   /** Shape of each track's buffer, read without touching its samples. `key` is the buffer, so a buffer shared between players counts once. */
@@ -563,10 +592,14 @@ export class StemPlayer {
     for (const name of this.names) {
       const pcm = stems[name];
       if (!pcm) continue;
-      const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-      for (let c = 0; c < pcm.channels.length; c++) {
-        buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
-        await pause();
+      const shared = this.sharePcm ? sharedPlaybackBuffer(pcm) : undefined;
+      const buffer = shared ?? this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+      if (!shared) {
+        for (let c = 0; c < pcm.channels.length; c++) {
+          buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
+          await pause();
+        }
+        if (this.sharePcm) sharePlaybackPcm(pcm, buffer);
       }
       buffers[name] = buffer;
     }

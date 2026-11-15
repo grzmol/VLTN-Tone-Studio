@@ -4,11 +4,12 @@ import { sessionLog } from "@/state/session-log";
 import { useSong } from "../store";
 import { useSongLibrary } from "../library";
 import { liveAudio } from "../stems/player";
-import type { Stems } from "../types";
+import type { PcmAudio, Stems } from "../types";
+import { pcmMemoryShape } from "./playback-pcm";
 import { bytesText, songFootprint, type Footprint, type HeldTrack } from "./memory-estimate";
 
-const pcmTracks = (audio: { channels: Float32Array[] }[]): HeldTrack[] =>
-  audio.filter((a) => a.channels.length).map((a) => ({ channels: a.channels.length, frames: a.channels[0].length, key: a.channels[0] }));
+const pcmTracks = (audio: PcmAudio[]): HeldTrack[] =>
+  audio.map(pcmMemoryShape).filter((track) => track.channels > 0);
 const stemList = (stems: Stems | null) => Object.values(stems ?? {}).filter((a): a is NonNullable<typeof a> => !!a);
 
 /** The footprint right now. Reads array lengths only: it allocates no audio and cannot disturb playback. */

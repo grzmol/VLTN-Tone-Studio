@@ -489,7 +489,9 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           stems = (await new RenderQueue().render(playable, speed)) ?? playable;
           renderedAhead.add(next.id);
         }
-        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShapeFromOptions(options), yieldToMain, speed.rate);
+        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShapeFromOptions(options), yieldToMain, speed.rate, {
+          sharePcm: true,
+        });
         if (generation !== prefetchGeneration) {
           if (import.meta.env.DEV) console.debug(`[prefetch] ${id} dropped: superseded while loading`);
           await player.dispose();
