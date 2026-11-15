@@ -127,10 +127,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setTrackInfo = useSong((s) => s.setTrackInfo),
     missingParts = useSong((s) => s.missingParts);
   // A split of only part of the song is for Tone Match; Performance plays the whole song and says why the stems are missing.
-  const partNote = partSplitNote(
-    useSong((s) => s.lastSplit),
-    formatTime,
-  );
+  const partNote = partSplitNote(useSong((s) => s.lastSplit), formatTime);
   const key = performanceKey(source);
   const settingsVersion = useSongSettingsRevision(key);
   const library = useSongLibrary();
