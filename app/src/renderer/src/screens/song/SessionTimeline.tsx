@@ -32,7 +32,7 @@ export function SessionTimeline({
   const next = useSession(session, (s) => s.sectionNext);
   const cues = useSession(session, (s) => s.cues);
   const peaks = useMemo(() => (songId && channels?.length ? cachedPeaks(songId, channels, PEAK_WIDTH) : null), [songId, channels]);
-  const timed = useMemo(() => cues.filter((cue) => !cue.trigger && !cue.managed).map((cue) => ({ time: cue.time, label: cue.label || cue.text })), [cues]);
+  const timed = useMemo(() => cues.filter((cue) => !cue.trigger).map((cue) => ({ time: cue.time, label: cue.label || cue.text })), [cues]);
   if (!player) return null;
   const length = channels?.[0] ? channels[0].length / (sampleRate || 1) : player.duration;
   const playing = sortedSections(sections).find((section) => live.loop === section.id || (section.mode === "loop" && !live.released.includes(section.id)));
