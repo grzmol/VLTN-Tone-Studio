@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createPlaybackEngine } from "../audio/playback-engine";
 import { DEFAULT_OUTPUTS, type OutputConfig } from "../audio/outputs";
 import type { Stems } from "../types";
-import { StemPlayer } from "./player";
+import { StemPlayer, liveAudio } from "./player";
 
 const loadDrumSample = vi.hoisted(() => vi.fn());
 vi.mock("../band/samples", () => ({ loadDrumSample }));
@@ -44,8 +44,15 @@ class Context {
       fftSize: 2048,
     };
   }
-  createBuffer() {
-    return { copyToChannel: vi.fn() };
+  createBuffer(numberOfChannels = 1, length = 1, sampleRate = 44100) {
+    const channels = Array.from({ length: numberOfChannels }, () => new Float32Array(length));
+    return {
+      numberOfChannels,
+      length,
+      sampleRate,
+      copyToChannel: vi.fn((data: Float32Array, channel: number) => channels[channel].set(data)),
+      getChannelData: vi.fn((channel: number) => channels[channel]),
+    };
   }
   createGain() {
     const n = this.node();
@@ -893,4 +900,67 @@ it("plays your own samples on the right beats, and the blip for an empty slot", 
   // Samples are never asked of the band's kit.
   expect(loadDrumSample).not.toHaveBeenCalled();
   await player.dispose();
+});
+describe("shared store-owned audio", () => {
+  it("reuses filled buffers without changing PCM identity or saved sample values", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const audio = { sampleRate: 44100, channels: [new Float32Array([0.25, -0.5, 0.75])] };
+    const source = { other: audio };
+    const first = new StemPlayer(source, undefined, {}, "now", 1, { sharePcm: true });
+    const firstBuffer = first.bufferShapes()[0].key as AudioBuffer;
+    expect(source.other).toBe(audio);
+    expect(audio.channels[0]).toEqual(new Float32Array([0.25, -0.5, 0.75]));
+    const second = await StemPlayer.create(source, undefined, {}, async () => {}, 1, { sharePcm: true });
+    expect(second.bufferShapes()[0].key).toBe(firstBuffer);
+    expect(firstBuffer.copyToChannel).toHaveBeenCalledTimes(1);
+    await first.dispose();
+    await second.play();
+    expect(audio.channels[0]).toEqual(new Float32Array([0.25, -0.5, 0.75]));
+    await second.dispose();
+  });
+
+  it("shares an asynchronously filled track only after every channel has been copied", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const channels = [new Float32Array([1, 2]), new Float32Array([3, 4])];
+    const audio = { sampleRate: 44100, channels };
+    let yields = 0;
+    const player = await StemPlayer.create(
+      { other: audio },
+      undefined,
+      {},
+      async () => {
+        expect(audio.channels).toBe(channels);
+        yields++;
+      },
+      1,
+      { sharePcm: true },
+    );
+    expect(yields).toBe(2);
+    expect(audio.channels).not.toBe(channels);
+    expect(audio.channels).toEqual(channels);
+    await player.dispose();
+  });
+
+  it("also shares a speed render while keeping the original samples available", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const original = { sampleRate: 44100, channels: [new Float32Array([1, 2, 3, 4])] };
+    const player = new StemPlayer({ other: original }, undefined, {}, "now", 1, { sharePcm: true });
+    const changed = { sampleRate: 44100, channels: [new Float32Array([2, 4])] };
+    const rendered = await player.renderBuffers({ other: changed }, 1.5, async () => {});
+    expect(changed.channels[0]).toBe(rendered.buffers.other!.getChannelData(0));
+    expect(original.channels[0]).toEqual(new Float32Array([1, 2, 3, 4]));
+    expect(rendered.rate).toBe(1.5);
+    await player.dispose();
+  });
+
+  it("releases a failed asynchronous preload instead of leaving its player registered", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const before = liveAudio();
+    await expect(
+      StemPlayer.create({ other: { sampleRate: 44100, channels: [new Float32Array([1, 2])] } }, undefined, {}, async () => {
+        throw new Error("preload cancelled");
+      }),
+    ).rejects.toThrow("preload cancelled");
+    expect(liveAudio().length).toBe(before.length);
+  });
 });
