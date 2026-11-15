@@ -397,17 +397,25 @@ export class Gp150Session extends EventTarget {
    * Read a preset and wait for its own reply. The pedal also pushes a PATCH message of the same shape whenever its
    * active preset changes (footswitch, Program Change), so a stored read or select (slot < 200) takes only the
    * message whose slot field (u32 at offset 4 of the body) is the slot it asked for. Anything else stays a push.
-   * Protocol evidence: the pedal's edit-buffer reply in the usb-connect capture (EDIT_BUFFER_REPLY in
-   * tests/vectors.mjs) has slot field 101, the active slot, and a stored preset dump (PRST there) carries its own
-   * slot, 3. The capture corpus holds no stored read paired with its reply, so "the reply echoes the requested slot"
-   * rests on the simulator and the stored file layout; the first hardware run must confirm it (a wrong guess makes a
-   * read time out instead of returning the wrong preset). The edit buffer (slot 0xFFFF) takes any valid preset body: a
-   * push that arrives first is the current edit buffer too.
+   * The capture corpus has no stored read paired with its reply. If matching times out, retry once with any valid PATCH,
+   * as older firmware may not provide the expected reply. The parsed preset must still belong to the requested slot;
+   * a push from another slot must never be returned, exported or written back as this one.
+   * The edit buffer (slot 0xFFFF) accepts any valid preset body: a push is the current edit buffer too.
    */
   async #readPatch(slot, select) {
-    const isReply = (m) => m.p === P.QUERY && m.cmd === CMD.PATCH && isGp150Prst(m.payload) && (slot >= SLOTS.PRESETS || readU32(m.payload, 4) === slot);
-    const reply = await this.#request(readPatch(slot, select), isReply, "preset");
-    return normalize(reply.payload);
+    const validPatch = (m) => m.p === P.QUERY && m.cmd === CMD.PATCH && isGp150Prst(m.payload);
+    const stored = slot < SLOTS.PRESETS;
+    const isReply = (m) => validPatch(m) && (!stored || readU32(m.payload, 4) === slot);
+    let reply;
+    try {
+      reply = await this.#request(readPatch(slot, select), isReply, "preset");
+    } catch (error) {
+      if (!stored || error?.code !== "timeout" || this.#closed) throw error;
+      reply = await this.#request(readPatch(slot, select), validPatch, "preset fallback");
+    }
+    const prst = normalize(reply.payload);
+    if (stored && parsePrst(prst).slot !== slot) throw new Gp150Error("verify", `Slot ${slot + 1} read back as another preset`);
+    return prst;
   }
 
   /** The edit buffer (active preset with its edits); its slot field names the active slot. */
