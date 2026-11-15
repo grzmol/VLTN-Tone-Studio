@@ -196,3 +196,34 @@ test("an edit-buffer read racing a push resolves with the pushed (current) patch
   assert.equal(eb.slot, 150);
   assert.equal(parsePrst(eb.prst).slot, 150);
 });
+
+// A mismatching first response must not make every later read unusable. The fallback stays bounded and validates the file itself.
+test("a stored read retries a timed-out match and verifies the fallback preset slot", async () => {
+  const { mock, session } = await connected();
+  const expected = mock.presets[10];
+  mock.presets[10] = mock.presets[150];
+  session.addEventListener("message", (event) => {
+    if (event.message.kind === "patch") mock.presets[10] = expected;
+  }, { once: true });
+  const prst = await session.readPreset(10);
+  assert.equal(parsePrst(prst).slot, 10);
+  assert.ok(imagesMatch(prst, expected));
+  assert.equal(mock.received.filter((message) => message.cmd === CMD.PATCH).length, 2);
+  await session.close();
+});
+
+test("a fallback rejects another slot instead of returning a pushed preset", async () => {
+  const { mock, session } = await connected();
+  mock.presets[10] = mock.presets[150];
+  await assert.rejects(() => session.readPreset(10), (error) => error.code === "verify");
+  assert.equal(mock.received.filter((message) => message.cmd === CMD.PATCH).length, 2);
+  await session.close();
+});
+
+test("rename refuses a wrong-slot fallback before writing any preset", async () => {
+  const { mock, session } = await connected();
+  mock.presets[10] = mock.presets[150];
+  await assert.rejects(() => session.renamePreset(10, "Wrong", { confirm: true }), (error) => error.code === "verify");
+  assert.ok(mock.received.every((message) => message.p === P.QUERY));
+  await session.close();
+});
