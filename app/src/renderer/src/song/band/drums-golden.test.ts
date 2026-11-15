@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,7 +11,7 @@ import type { BeatGrid } from "./beat-grid";
 import { generateDrums } from "./drums";
 import type { StyleId } from "./styles/types";
 import type { Section } from "../performance/sections";
-import golden from "./drums-golden.snapshot.json";
+const golden: unknown = JSON.parse(gunzipSync(readFileSync(join(__dirname, "drums-golden.snapshot.json.gz"))).toString("utf8"));
 
 // Golden drums for songs saved on engine 1 or 2. Engine 3 plays drums in phrases (spec 132); a song on an earlier engine must keep the notes
 // it had, so these are pinned from the notes `main` gave before that spec. Run with UPDATE_GOLDEN=1 to write the file again; only do that for
@@ -101,8 +102,8 @@ describe("drums of songs on an earlier engine", () => {
   it("matches the golden notes", () => {
     if (process.env.UPDATE_GOLDEN)
       writeFileSync(
-        join(__dirname, "drums-golden.snapshot.json"),
-        JSON.stringify(actual),
+        join(__dirname, "drums-golden.snapshot.json.gz"),
+        gzipSync(Buffer.from(JSON.stringify(actual))),
       );
     expect(JSON.parse(JSON.stringify(actual))).toEqual(golden);
   });

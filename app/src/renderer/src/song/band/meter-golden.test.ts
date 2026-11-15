@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings } from "./arrangement";
@@ -8,7 +9,7 @@ import { generateDrums } from "./drums";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import type { StyleId } from "./styles/types";
 import type { Section } from "../performance/sections";
-import golden from "./meter-golden.snapshot.json";
+const golden: unknown = JSON.parse(gunzipSync(readFileSync(join(__dirname, "meter-golden.snapshot.json.gz"))).toString("utf8"));
 
 // Golden notes for styles whose meter differs from the grid's: six-eight (two dotted beats, six steps) on a four-beat and a two-beat grid,
 // and shuffle (three steps to the beat) on a four-beat grid. They pin what these songs played before spec 131, so a change to how a style
@@ -56,7 +57,7 @@ describe("notes of styles whose meter differs from the grid's", () => {
   const actual = Object.fromEntries(CASES.map(([style, beats]) => [`${style} on ${beats} beats`, notesFor(style, beats)]));
 
   it("matches the golden notes", () => {
-    if (process.env.UPDATE_GOLDEN) writeFileSync(join(__dirname, "meter-golden.snapshot.json"), JSON.stringify(actual));
+    if (process.env.UPDATE_GOLDEN) writeFileSync(join(__dirname, "meter-golden.snapshot.json.gz"), gzipSync(Buffer.from(JSON.stringify(actual))));
     expect(JSON.parse(JSON.stringify(actual))).toEqual(golden);
   });
 });
