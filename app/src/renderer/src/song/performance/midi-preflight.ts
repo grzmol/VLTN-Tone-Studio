@@ -184,7 +184,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       }
     }
   }
-  if (options.presetNames) presetNameIssues([...events, ...preparation], options.presetNames, add);
+  if (options.presetNames) presetNameIssues(events, options.presetNames, add);
   const start = options.playbackStart ?? options.range?.start ?? 0;
   const end = options.range?.end ?? options.duration;
   const outside = events.filter((cue) =>
