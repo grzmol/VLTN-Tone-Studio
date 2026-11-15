@@ -1,3 +1,5 @@
+import { ownLeadIn, resolveLeadIn, LEAD_IN_DEFAULTS } from "./lead-in";
+import { preRollStart } from "./rhythm";
 import type { LibraryPreflightSong } from "@shared/song-library";
 import { trackKey, trackKindOf } from "@shared/song-library";
 import { midiPreflight, type PreflightOptions } from "./midi-preflight";
@@ -26,6 +28,7 @@ export interface PlaylistCheck {
   title: string;
   errors: string[];
   warnings: string[];
+  advice: string[];
   /** Information only, shown without the warning label */
   notes: string[];
 }
@@ -52,11 +55,12 @@ export function playlistPreflight(
       song = saved?.song;
     const errors = [...(saved?.errors ?? ["Song was not checked."])],
       warnings: string[] = [],
-      notes: string[] = [];
+      notes: string[] = [],
+      advice: string[] = [];
     if (song) {
       if (config.tempoOnStart && !config.outputName)
         warnings.push("Automatic tempo is enabled but no MIDI output preference is saved. Select and arm the intended output before performing.");
-      let options: { clock?: boolean; sections?: unknown; beats?: unknown; firstBeat?: unknown; analysis?: unknown; tempoSource?: unknown } = {};
+      let options: { clock?: boolean; sections?: unknown; beats?: unknown; firstBeat?: unknown; analysis?: unknown; tempoSource?: unknown; preRollBeats?: unknown } = {};
       try {
         const value = JSON.parse(song.settings[":options"] || "{}");
         if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
@@ -92,7 +96,8 @@ export function playlistPreflight(
       const playable = song.audio.filter((a) => trackKindOf(a) !== "source");
       const byKey = new Map(playable.map((a) => [trackKey(a), a]));
       const tracks = playable.length ? orderedKeys([...byKey.keys()]).map((key) => byKey.get(key)!) : song.audio;
-      const duration = tracks[0].frames / tracks[0].sampleRate;
+      if (!tracks.length) errors.push("Song has no playable audio tracks.");
+      const duration = tracks.length ? tracks[0].frames / tracks[0].sampleRate : 0;
       if (Math.max(...tracks.map((a) => a.frames / a.sampleRate)) - Math.min(...tracks.map((a) => a.frames / a.sampleRate)) > 0.05)
         warnings.push("Playback tracks have different lengths; check the end of this song.");
       // The chart and the MIDI file are checked together, because the file's messages play beside the chart's.
@@ -107,8 +112,11 @@ export function playlistPreflight(
       const cued = songCues(song.settings[""] || "", config.macros ?? [], midiFileFromOptions(options));
       if (cued.error) errors.push(`${cued.part === "midi-file" ? "MIDI file" : "Chart"} cannot play: ${cued.error}`);
       else {
+        const start = trimRange(duration, options)?.start ?? 0;
+        const lead = resolveLeadIn({ countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) }, LEAD_IN_DEFAULTS);
         const report = midiPreflight(cued.cues, {
           duration,
+          playbackStart: preRollStart(start, lead.preRollBeats, bpm),
           clock: options.clock === true,
           tempoChannel: config.tempoOnStart ? config.tempoChannel : undefined,
           outputName: config.outputName,
@@ -119,9 +127,10 @@ export function playlistPreflight(
           beats: typeof options.beats === "number" ? options.beats : 4,
           firstBeat: typeof options.firstBeat === "number" ? options.firstBeat : 0,
         });
-        warnings.push(...report.issues.map((i) => i.text));
+        warnings.push(...report.warnings.map((i) => i.text));
+        advice.push(...report.advice.map((i) => i.text));
       }
     }
-    return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, notes };
+    return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, advice, notes };
   });
 }

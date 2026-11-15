@@ -47,3 +47,23 @@ it("shows advisory preflight and bounded timing data without changing cue sendin
   expect(useBluetooth.getState().diagnostics?.performanceTiming).toBeUndefined();
   expect(useMidiDiagnostics.getState().queued).toBe(0);
 });
+
+it("counts arrangement advice separately and leaves it collapsed below real MIDI warnings", () => {
+  render(
+    <MidiHealth
+      cues={parseChart("[00:12] {midi:pc 1 2}")}
+      duration={10}
+      clock={false}
+      parseError=""
+      outputName="Test"
+      bpm={120}
+      beats={4}
+      sections={[{ id: "v", name: "Verse", start: 0.2, end: 8.2, mode: "continue" }]}
+    />,
+  );
+  expect(screen.getByText(/1 warnings · 1 arrangement notes/)).toBeTruthy();
+  const advice = screen.getByLabelText("Arrangement advice");
+  expect(advice instanceof HTMLDetailsElement && !advice.open).toBe(true);
+  expect(advice.textContent).toContain("If you loop or jump there");
+  expect(screen.getByText(/beyond the 10.00 s audio/)).toBeTruthy();
+});
