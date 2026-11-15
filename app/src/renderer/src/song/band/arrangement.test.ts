@@ -169,7 +169,9 @@ describe("kitFor", () => {
 describe("drumRoom", () => {
   it("defaults to 0.25, keeps a saved amount from 0 to 1, and ignores anything else", () => {
     expect(DEFAULT_BAND_SETTINGS.drumRoom).toBe(0.25);
-    expect(parseBandSettings({}).drumRoom).toBe(0.25);
+    expect(parseBandSettings({}).drumRoom).toBe(0);
+    expect(parseBandSettings(undefined).drumRoom).toBe(0.25);
+    expect(parseBandSettings({ style: "rock" }).drumRoom).toBe(0);
     expect(parseBandSettings({ drumRoom: 0 }).drumRoom).toBe(0);
     expect(parseBandSettings({ drumRoom: 0.6 }).drumRoom).toBe(0.6);
     expect(parseBandSettings({ drumRoom: 2 }).drumRoom).toBe(0.25);

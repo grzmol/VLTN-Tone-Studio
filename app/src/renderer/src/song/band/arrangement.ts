@@ -700,7 +700,8 @@ export function parseBandSettings(value: unknown): BandSettings {
         ? partForBassMode(source.bassMode)
         : defaults.defaultBassPart,
     bassFeel: isUnit(source.bassFeel) ? source.bassFeel : defaults.bassFeel,
-    drumRoom: isUnit(source.drumRoom) ? source.drumRoom : defaults.drumRoom,
+    // Existing songs were dry before this setting existed. New songs keep the room default.
+    drumRoom: isUnit(source.drumRoom) ? source.drumRoom : isRecord(value) && source.drumRoom === undefined ? 0 : defaults.drumRoom,
     lockToKick: isBool(source.lockToKick) ? source.lockToKick : defaults.lockToKick,
     followPlaying: isBool(source.followPlaying) ? source.followPlaying : defaults.followPlaying,
     followSource: isFollowSource(source.followSource) ? source.followSource : defaults.followSource,

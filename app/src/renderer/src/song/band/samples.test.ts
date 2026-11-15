@@ -235,12 +235,12 @@ describe("pickDrumLayers", () => {
     expect(mix[0].pick.audio).toBe(audio("drums/kick-v2-rr1.flac"));
   });
 
-  it("plays two layers with equal-power weights 3 steps below a boundary", () => {
+  it("plays two layers with linear weights 3 steps below a boundary", () => {
     const { set, audio } = stubSet();
     // The kick's layers meet between 79 and 80.
     const mix = pickDrumLayers(set, 36, 76);
     expect(mix.map((m) => m.pick.audio)).toEqual([audio("drums/kick-v2-rr1.flac"), audio("drums/kick-v3-rr1.flac")]);
-    expect(mix[0].weight ** 2 + mix[1].weight ** 2).toBeCloseTo(1);
+    expect(mix[0].weight + mix[1].weight).toBeCloseTo(1);
     expect(mix[0].weight).toBeGreaterThan(mix[1].weight);
   });
 
@@ -251,7 +251,7 @@ describe("pickDrumLayers", () => {
     // One velocity step moves a weight by about 0.08 (a whole zone is 12 steps), and the lower layer never jumps up.
     expect(Math.abs(below[0].weight - above[1].weight)).toBeLessThan(0.12);
     expect(Math.abs(below[1].weight - above[0].weight)).toBeLessThan(0.12);
-    expect(below[1].weight).toBeGreaterThan(0.6);
+    expect(below[1].weight).toBeGreaterThan(0.45);
   });
 
   it("uses the same take for both layers", () => {
@@ -310,14 +310,14 @@ describe("pickBassLayers", () => {
     expect(pickBassLayers(set, 47, 86)).toHaveLength(1);
   });
 
-  it("plays both layers between 66 and 86, with equal-power weights that meet at 76", () => {
+  it("plays both layers between 66 and 86, with linear weights that meet at 76", () => {
     const { set, audio } = stubSet();
     const [soft, hard] = pickBassLayers(set, 47, 76);
     expect(soft.pick.audio).toBe(audio("bass/bass-b2-p.flac"));
     expect(hard.pick.audio).toBe(audio("bass/bass-b2-f.flac"));
-    expect(soft.weight).toBeCloseTo(Math.SQRT1_2);
-    expect(hard.weight).toBeCloseTo(Math.SQRT1_2);
-    expect(soft.weight ** 2 + hard.weight ** 2).toBeCloseTo(1);
+    expect(soft.weight).toBeCloseTo(0.5);
+    expect(hard.weight).toBeCloseTo(0.5);
+    expect(soft.weight + hard.weight).toBeCloseTo(1);
   });
 
   it("moves the soft and hard layers of the nearest root to the note", () => {
@@ -333,4 +333,35 @@ describe("pickBassLayers", () => {
     expect(pickBassLayers(single, 47, 80)).toEqual([{ pick: pickBassSample(single, 47, 80), weight: 1 }]);
     expect(pickBassLayers(single, 47, 80)[0].pick.audio).toBe(audio("bass/bass-b2-p.flac"));
   });
+});
+
+it("shares decoded audio between kits, including simultaneous requests, and retries failed assets", async () => {
+  const urls = new Map(mappedFiles().map((file) => [file, `https://app.test/${file}`]));
+  const cache = new Map<string, Promise<PcmAudio>>();
+  const decode = vi.fn(async () => ({ sampleRate: 44100, channels: [new Float32Array([1, 1])] }));
+  const fetcher = vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) }));
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    const [standard, rock] = await Promise.all([
+      loadSampleSetWith(urls, decode, "standard", cache),
+      loadSampleSetWith(urls, decode, "rock", cache),
+    ]);
+    expect(standard.bass[0].audio).toBe(rock.bass[0].audio);
+    expect(standard.room).toBe(rock.room);
+    expect(standard.drums.get(42)![0].takes[0]).toBe(rock.drums.get(42)![0].takes[0]);
+    expect(fetcher).toHaveBeenCalledTimes(cache.size);
+    expect(decode).toHaveBeenCalledTimes(cache.size);
+    cache.clear();
+    fetcher.mockRejectedValueOnce(new Error("Offline"));
+    await expect(loadSampleSetWith(urls, decode, "standard", cache)).rejects.toThrow("Offline");
+    await expect(loadSampleSetWith(urls, decode, "standard", cache)).resolves.toBeTruthy();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("keeps correlated drum and bass layer amplitude flat across their crossfade", () => {
+  const { set } = stubSet();
+  for (let velocity = 1; velocity <= 127; velocity++) {
+    expect(pickDrumLayers(set, 36, velocity).reduce((sum, layer) => sum + layer.weight, 0)).toBeCloseTo(1);
+    expect(pickBassLayers(set, 47, velocity).reduce((sum, layer) => sum + layer.weight, 0)).toBeCloseTo(1);
+  }
 });

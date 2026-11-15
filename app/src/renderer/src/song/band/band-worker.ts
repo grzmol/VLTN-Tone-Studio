@@ -2,17 +2,18 @@ import { decodeFlac } from "@shared/flac";
 import { runBandJob, runBandPreview, transferables } from "./band-job";
 import type { BandWorkerMessage, BandWorkerReply } from "./band-client";
 import { kitFor } from "./arrangement";
-import { loadSampleSetWith, type SampleSet } from "./samples";
+import { loadSampleSetWith, type SampleSet, type SampleCache } from "./samples";
 
 // The decoded samples live as long as this worker. The client keeps one worker across jobs, so a second render does not decode them again.
 // The worker decodes with decodeFlac directly: it is already off the window's thread, so it does not need another worker for each file.
 // Only the kit a request names is decoded, and each kit is kept once it has been.
 const samples = new Map<string, Promise<SampleSet>>();
+const decodedSamples: SampleCache = new Map();
 
 function loadSamples(urls: Record<string, string>, kit: string): Promise<SampleSet> {
   let set = samples.get(kit);
   if (!set) {
-    set = loadSampleSetWith(new Map(Object.entries(urls)), async (file) => decodeFlac(new Uint8Array(file)), kit).catch((error: unknown) => {
+    set = loadSampleSetWith(new Map(Object.entries(urls)), async (file) => decodeFlac(new Uint8Array(file)), kit, decodedSamples).catch((error: unknown) => {
       samples.delete(kit);
       throw error;
     });
