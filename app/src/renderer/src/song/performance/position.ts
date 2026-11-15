@@ -76,7 +76,7 @@ export interface PatchCue {
 export function patchCues(cues: readonly Cue[]): PatchCue[] {
   const found: PatchCue[] = [];
   for (const cue of cues) {
-    if (cue.trigger || cue.managed || cue.messages.length !== 2) continue;
+    if (cue.trigger || ("managed" in cue && cue.managed) || cue.messages.length !== 2) continue;
     const channel = (cue.messages[1][0] & 0x0f) + 1;
     const target = presetCueTarget(cue, channel);
     if (target) found.push({ time: cue.time, ...target });

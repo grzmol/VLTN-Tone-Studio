@@ -210,14 +210,6 @@ it("jumps from the timeline's section blocks even though seeking is locked", () 
   expect(session.tapSection).toHaveBeenCalledWith("s6");
 });
 
-it("offers Prepare pedals only before the song starts", () => {
-  mount(fakeSession());
-  expect(screen.getByRole("button", { name: /Prepare pedals/ })).toBeTruthy();
-  cleanup();
-  mount(fakeSession({ playing: true }));
-  expect(screen.queryByRole("button", { name: /Prepare pedals/ })).toBeNull();
-});
-
 it("shows the next song's card between songs of a set, and the chart once it plays", () => {
   mount(fakeSession({ queued: true }));
   expect(screen.getByLabelText("Next song").textContent).toContain("Burn");

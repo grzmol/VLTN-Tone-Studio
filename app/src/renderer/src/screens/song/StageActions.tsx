@@ -5,7 +5,6 @@ import { usePlaybackClock } from "@/song/performance/playback-clock";
 import { sectionIndexAt, sortedSections } from "@/song/performance/sections";
 import { useSession, type PerformanceSession } from "@/song/performance/session";
 import { HoldButton } from "./HoldButton";
-import { PreparePedalsButton } from "./PreparePedalsButton";
 
 /** The actions that are live in stage mode, at touch size: play, loop, next section and, before the song starts, Prepare pedals. Stop and Panic are at the right. */
 export function StageActions({ session }: { session: PerformanceSession }) {
@@ -19,7 +18,6 @@ export function StageActions({ session }: { session: PerformanceSession }) {
   const live = useSession(session, (s) => s.sectionLive);
   const ordered = useMemo(() => sortedSections(sections), [sections]);
   const index = usePlaybackClock((s) => sectionIndexAt(ordered, s.position));
-  const atStart = usePlaybackClock((s) => s.position < 0.5);
   const current = ordered[index];
   const next = ordered[index + 1];
   const looping = !!current && (live.loop === current.id || (current.mode === "loop" && !live.released.includes(current.id)));
@@ -43,7 +41,6 @@ export function StageActions({ session }: { session: PerformanceSession }) {
       <Button variant="outline" disabled={!next} onClick={() => next && session.tapSection(next.id)}>
         Next section
       </Button>
-      {!playing && !starting && atStart && <PreparePedalsButton session={session} />}
       <div className="ml-auto flex items-center gap-3">
         <HoldButton armedLabel="Press again to stop" onConfirm={session.pause}>
           Stop playback
