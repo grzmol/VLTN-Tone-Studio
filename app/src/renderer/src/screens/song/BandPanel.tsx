@@ -48,7 +48,6 @@ import type { Section } from "@/song/performance/sections";
 import { readStoredBand, writeStoredBand } from "@/song/band/stored";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { registerBandRefresh, useBandRefreshStatus } from "@/song/band/refresh";
-import { performanceKey } from "@/song/performance/settings";
 import { useSongLibrary } from "@/song/library";
 import { bandAudioId } from "@/song/band/dependencies";
 import { chartChordEvents } from "@/song/band/harmony";
