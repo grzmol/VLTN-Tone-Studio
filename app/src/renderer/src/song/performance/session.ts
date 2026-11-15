@@ -1,3 +1,4 @@
+import { parseSections } from "./sections";
 import { pedalTempoMessages } from "./pedal-tempo";
 import { preparationSequence, type PreparationSequence } from "./preparation-sequence";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -14,12 +15,12 @@ import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
-import { expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
+import { parseChart, expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
 import { setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
 import { beatSeconds, countInBeats, preRollStart } from "@/song/performance/rhythm";
 import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/performance/transition";
 import { readCrossfade } from "@/song/performance/crossfade";
-import { songCountIn, type SongCountIn } from "@/song/performance/lead-in";
+import { songCountIn, ownLeadIn, resolveLeadIn, readLeadInDefaults, type SongCountIn } from "@/song/performance/lead-in";
 import { getSetting, performanceKey, setSetting } from "@/song/performance/settings";
 import { playerShapeFromOptions, type EndBehaviour } from "@/song/performance/song-shape";
 import { startMidiScheduler, prepareMidiScheduler, midiNow, type SchedulerDegraded } from "@/song/performance/midi-scheduler-client";
@@ -1158,6 +1159,11 @@ export class PerformanceSession {
           pedalChannel: this.state.tempoChannel,
           tempo: tempoMessages,
         });
+        if (!preparation.enabled && sequence.skipped.length) {
+          const warning = "Before song preparation is disabled. Its commands were skipped; playback continues.";
+          this.setMidiStatus(warning);
+          showToast({ tone: "info", title: "Before song commands skipped", body: warning });
+        }
         if (preparation.enabled) {
           prepared = true;
           const check = () => request === this.playRequest && this.armed && this.output === output && output?.state === "connected";
@@ -1311,13 +1317,39 @@ export class PerformanceSession {
     });
   }
 
+  /** Only an incoming sequence with actual commands needs a stopped handover. Previewing never consumes repeat history. */
+  private nextNeedsPreparation(next: PreparedSong): boolean {
+    if (!this.armed) return false;
+    const settings = savedPreparation(next.settings);
+    if (!settings.enabled) return false;
+    try {
+      const options = JSON.parse(next.settings[":options"] || "{}");
+      const timing = songCountIn(next.settings);
+      const cues = expandSectionCues(parseChart(next.settings[""] ?? "", useMidiConfiguration.getState().macros), parseSections(options.sections));
+      const plan = preparationSequence({
+        cues,
+        position: preRollStart(next.player.start, resolveLeadIn({ countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) }, readLeadInDefaults()).preRollBeats, timing.bpm),
+        requestedPosition: next.player.start,
+        start: next.player.start,
+        settings,
+        triggers: this.chaseTriggers(),
+        history: preparationHistoryFor(next.source.audio),
+        pedalChannel: this.state.tempoChannel,
+        tempo: this.state.tempoOnStart ? pedalTempoMessages(timing.bpm * next.player.playbackRate, this.state.tempoChannel) : null,
+      });
+      return plan.steps.some((step) => step.kind === "send" && step.commands.length > 0);
+    } catch {
+      return true;
+    }
+  }
+
   /** Crossfades into the next playlist song now. Returns false when no next song is ready, or a join is already planned. */
   crossfadeNext = (): boolean => {
     const { player, queued, playlistPlaying } = this.state;
     const next = useSongLibrary.getState().preparedNext();
     if (!player?.isPlaying || this.chained || !queued || !playlistPlaying || !next) return false;
-    if (this.armed && this.state.preparationSettings && (this.state.preparationSettings.enabled || savedPreparation(next.settings).enabled)) {
-      this.fail("Pedal preparation runs between songs. Disable Before song preparation to crossfade, or let the current song finish.");
+    if (this.nextNeedsPreparation(next)) {
+      showToast({ tone: "info", title: "Pedal preparation runs between songs", body: "The next song has setup commands. Let this song finish before preparing it." });
       return false;
     }
     // The count-in is the incoming song's: its clicks start at the outgoing song's end.
@@ -1341,13 +1373,11 @@ export class PerformanceSession {
     const { player, queued, playlistPlaying } = this.state;
     // A song set to stop, or to loop, does not hand over to the next one.
     if (!player?.isPlaying || this.behaviourOf(player) !== "next" || this.chained || !queued || !playlistPlaying) return;
-    // Pedal setup must finish between songs before incoming audio starts.
-    if (this.armed && this.state.preparationSettings?.enabled) return;
     const library = useSongLibrary.getState();
     // An entry that waits for Play is not chained: it would start on the clock at the join.
     if (library.queueOverrides[library.position + 1]?.autoplay === false) return;
     const next = library.preparedNext();
-    if (!next) return;
+    if (!next || this.nextNeedsPreparation(next)) return;
     const now = player.audioNow;
     const timing = songCountIn(next.settings);
     const countIn = countInBeats(timing.countInBars, timing.beatsPerBar);
@@ -1389,7 +1419,7 @@ export class PerformanceSession {
     const { player } = this.state;
     if (!player) return;
     // The next song's buffers were built when it was prepared, so the join only starts them.
-    if (this.armed && this.state.preparationSettings && savedPreparation(next.settings).enabled) return;
+    if (this.nextNeedsPreparation(next)) return;
     const incoming = next.player;
     const unwire = this.wirePlayer(incoming, next.source);
     const countInBeatsNow = plan.kind === "countIn" ? countInBeats(timing.countInBars, timing.beatsPerBar) : 0;
