@@ -1111,6 +1111,18 @@ export class PerformanceSession {
     this.saveResume();
   };
 
+  /** Start the selected song again after the performer accepts the recovery offer. */
+  playFromBeginning = async () => {
+    this.pause();
+    if (this.locked) {
+      this.fail("Leave stage mode to restart from the beginning.");
+      return;
+    }
+    await this.seek(this.state.player?.start ?? 0);
+    if (this.state.queued) useSongLibrary.getState().resumePlaylist();
+    await this.play();
+  };
+
   /** Play, or start the whole playlist when the queue is at its end. */
   startPlayback = () => {
     const library = useSongLibrary.getState();
