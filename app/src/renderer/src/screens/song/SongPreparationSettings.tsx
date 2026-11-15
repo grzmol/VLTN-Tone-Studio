@@ -19,7 +19,7 @@ export function SongPreparationSettings({ songKey, locked, session }: { songKey:
       <h3 className="font-medium">Before song</h3>
       <p>
         Prepare pedals → presets and your commands → loading wait → song BPM → Ready. Play then starts the count-in and song. Play on its own prepares
-        automatically.
+        automatically when enabled. Preparation is off by default; disabled Before song commands are skipped with a warning.
       </p>
       <fieldset disabled={locked} className="flex flex-wrap items-center gap-3">
         <label>

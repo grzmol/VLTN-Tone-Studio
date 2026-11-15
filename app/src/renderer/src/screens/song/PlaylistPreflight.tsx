@@ -1,6 +1,8 @@
 import { PreparationSequenceDetails, preparationSeconds } from "./PreparationSequenceDetails";
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { readLeadInDefaults } from "@/song/performance/lead-in";
+import { ArrangementAdvice } from "./ArrangementAdvice";
+import { PlaylistPreflightIssues } from "./PlaylistPreflightIssues";
 import { useEffect, useRef, useState } from "react";
 import { isRenderedAhead } from "@/song/library";
 import { host } from "@/host";
@@ -97,7 +99,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
         <>
           <p role="status">
             {report.length} entries checked · {report.reduce((n, r) => n + r.errors.length, 0)} errors · {report.reduce((n, r) => n + r.warnings.length, 0)}{" "}
-            warnings
+            performance warnings · {report.reduce((n, r) => n + r.advice.length, 0)} arrangement notes
           </p>
           <p className="text-xs">
             Snapshot of saved files and current MIDI preferences. Recheck after external file changes. File presence and size are checked, not audio contents or
@@ -108,6 +110,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
             {report.filter((result) => result.preparation).length} entries. Fresh song loads with Send cues enabled are assumed. Audio loading, MIDI delivery,
             start delay and count-in can add time; entries with errors need fixing first.
           </p>
+          <PlaylistPreflightIssues report={report} />
           <ol className="max-h-80 space-y-2 overflow-auto">
             {report.map((r) => (
               <li key={r.entry} className="rounded border border-seam p-2">
@@ -124,21 +127,15 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
                     <PreparationSequenceDetails plan={r.preparation} label={`Preparation steps for entry ${r.entry}`} />
                   </details>
                 )}
-                {!r.errors.length && !r.warnings.length && !r.notes.length ? (
-                  <p>No static issues found.</p>
-                ) : (
+                <p>
+                  {r.errors.length} errors · {r.warnings.length} performance warnings
+                </p>
+                <ArrangementAdvice items={r.advice} />
+                {r.notes.length > 0 && (
                   <ul>
-                    {r.errors.map((s, i) => (
-                      <li key={"e" + i} className="text-red-400">
-                        Error: {s}
-                      </li>
-                    ))}
-                    {r.warnings.map((s, i) => (
-                      <li key={"w" + i}>Warning: {s}</li>
-                    ))}
-                    {r.notes.map((s, i) => (
-                      <li key={"n" + i} className="text-silkscreen-3">
-                        Note: {s}
+                    {r.notes.map((text, index) => (
+                      <li key={index} className="text-silkscreen-3">
+                        Note: {text}
                       </li>
                     ))}
                   </ul>

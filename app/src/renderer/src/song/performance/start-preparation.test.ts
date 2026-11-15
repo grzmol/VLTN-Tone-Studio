@@ -18,7 +18,7 @@ it("moves opening presets and banks early but keeps notes and drum/looper starts
     ],
   });
   expect(startPreparation(cues, 0, { ...enabled, openingPresets: false }).opening).toEqual([]);
-  expect(() => startPreparation(cues, 0, { ...enabled, enabled: false })).toThrow("Enable Before song");
+  expect(startPreparation(cues, 0, { ...enabled, enabled: false })).toEqual({ opening: [], commands: [], suppressed: [] });
 });
 it("reapplies user load presets before the opening state without replaying load triggers", () => {
   const cues = parseChart("{midi@load:pc 1 4}\n{midi@load:cc 2 80 127}\n[00:00] {midi:pc 1 5}");
@@ -53,6 +53,6 @@ it("converts picker lines and moves an existing timed cue without deleting accom
   expect(moveCueToPreparation(chart, parseChart(chart)[0])).toBe("[00:00] [C] Sing this {label:Lead}\n{label:Lead} {midi@prepare:pc 1 5}");
 });
 it("clamps preparation waits and keeps defaults independent from song overrides", () => {
-  expect(preparationSettings({ settleMs: 20000 })).toMatchObject({ enabled: true, settleMs: 10000 });
-  expect(preparationSettings(null)).toEqual(enabled);
+  expect(preparationSettings({ settleMs: 20000 })).toMatchObject({ enabled: false, settleMs: 10000 });
+  expect(preparationSettings(null)).toEqual({ ...enabled, enabled: false });
 });

@@ -131,7 +131,7 @@ it("previews fresh-load preparation for each repeated entry, with effective temp
   };
   const before = JSON.stringify(song);
   const results = playlistPreflight(["one", "one"], [{ ...saved, song }], {
-    ...config,
+    ...config, preparationDefaults: { enabled: true, settleMs: 1000, openingPresets: true },
     macros: [{ code: "INIT", label: "Init", commands: ["cc 3 20 1", "cc 3 21 0"] }],
   });
   expect(results[0].preparation?.totalWaitMs).toBe(900);
@@ -156,7 +156,8 @@ it("reports disabled preparation with explicit commands, including when disabled
   const song = { ...saved.song!, settings: { ...saved.song!.settings, "": "{midi@prepare:pc 1 5}" } };
   const defaults = { enabled: false, settleMs: 100, openingPresets: true };
   const [result] = playlistPreflight(["one"], [{ ...saved, song }], { ...config, preparationDefaults: defaults });
-  expect(result.errors.join(" ")).toContain("Enable Before song preparation");
+  expect(result.errors).toEqual([]);
+  expect(result.warnings.join(" ")).toContain("commands will be skipped");
   expect(result.preparation).toBeUndefined();
   const disabled = { ...song, settings: { ...song.settings, "": "" } };
   expect(playlistPreflight(["one"], [{ ...saved, song: disabled }], { ...config, preparationDefaults: defaults })[0].preparation).toBeUndefined();
@@ -191,7 +192,7 @@ it("flags early trigger actions and conflicting recalls, and handles songs with 
       { ...saved, song },
       { id: "empty", errors: [], song: { ...song, audio: [] } },
     ],
-    { ...config, pedals: [{ name: "BOSS RC-10R", channel: 2, triggers: [[2, 80]] }] },
+    { ...config, preparationDefaults: { enabled: true, settleMs: 1000, openingPresets: true }, pedals: [{ name: "BOSS RC-10R", channel: 2, triggers: [[2, 80]] }] },
   );
   expect(result.warnings.join(" ")).toContain("last recall wins");
   expect(result.warnings.join(" ")).toContain("matching a configured trigger");

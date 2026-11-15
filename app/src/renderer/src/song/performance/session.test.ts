@@ -2150,6 +2150,49 @@ describe("Before song preparation", () => {
   });
   afterEach(() => vi.useRealTimers());
   const preparationSettings = { enabled: true, settleMs: 1000, openingPresets: true };
+  it("skips disabled Before song commands with a warning while retaining Send cues and playlist playback", async () => {
+    const { session, out, unload } = armedSession(output(), {
+      cues: parseChart("{midi@prepare:pc 1 99}"),
+      preparationSettings: { ...preparationSettings, enabled: false },
+      playlistPlaying: true,
+    });
+    try {
+      await session.play();
+      expect(session.state.playing).toBe(true);
+      expect(session.armed).toBe(true);
+      expect(out.send.mock.calls.map(([bytes]) => bytes)).not.toContainEqual([0xc0, 99]);
+      expect(mocks.toasts).toContainEqual(expect.objectContaining({ title: "Before song commands skipped" }));
+    } finally { unload(); session.dispose(); }
+  });
+
+  it.each([
+    [true, "", true],
+    [false, "{midi@prepare:pc 1 99}", true],
+    [true, "{midi@prepare:pc 1 99}", false],
+    [true, "[00:00] {midi:pc 1 99}", false],
+  ])("chains based on incoming commands (enabled: %s, chart: %s)", async (enabled, chart, shouldChain) => {
+    const incoming = new StemPlayer({} as Stems);
+    const next = { id: "b", title: "B", source: { ...source, libraryId: "b" }, stems: {}, player: incoming,
+      settings: { "": chart, ":options": JSON.stringify({ preparation: { ...preparationSettings, enabled } }) } };
+    mocks.library.playlistPlaying = true;
+    mocks.library.queue = ["a", "b"];
+    mocks.library.preparedNext = () => next;
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true, preparationSettings });
+    try {
+      await vi.advanceTimersByTimeAsync(10);
+      const chain = vi.spyOn(session.state.player!, "chainNext");
+      mocks.position = 56;
+      mocks.audioNow = 16;
+      await vi.advanceTimersByTimeAsync(250);
+      expect(chain).toHaveBeenCalledTimes(shouldChain ? 1 : 0);
+      if (!shouldChain) {
+        expect(session.crossfadeNext()).toBe(false);
+        expect(session.armed).toBe(true);
+        expect(session.state.playing).toBe(true);
+      }
+    } finally { unload(); session.dispose(); }
+  });
+
   const setup = () => {
     const cues = parseChart("[00:00] {midi:cc 16 0 0} {midi:pc 16 6}\n{midi@prepare:$READY}", [
       { code: "READY", label: "Ready", commands: ["cc 3 12 0", "pc 3 7"] },

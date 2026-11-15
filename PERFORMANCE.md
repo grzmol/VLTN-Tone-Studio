@@ -184,7 +184,7 @@ To send cues, pick an output, then switch on **Send cues**. This is called armin
 
 ### Before song preparation
 
-**Prepare pedals** sends the opening presets and your **Before song** MIDI commands, waits for loading, sets automatic song BPM, and stops at **Ready to play**. **Play** reuses valid preparation without sending it twice, then starts the count-in and music. Play on its own can prepare automatically. Ready confirms sending and waiting, not a pedal acknowledgement.
+**Prepare pedals** sends the opening presets and your **Before song** MIDI commands, waits for loading, sets automatic song BPM, and stops at **Ready to play**. **Play** reuses valid preparation without sending it twice, then starts the count-in and music. Preparation is off by default. Enable it in Song MIDI cues to let Play prepare automatically. With preparation off, Before song commands are skipped with a warning and playback continues. Ready confirms sending and waiting, not a pedal acknowledgement.
 
 In **Song MIDI cues**, choose **When → Before song** for named commands, raw MIDI or macros. Move existing commands with **Before song** and reorder whole command lines with the arrow buttons. Bank-select and program-change groups stay together. Song settings control a loading wait and a gap between command groups; individual lines also have **Wait after**, each from zero to ten seconds. Automatic opening preparation only moves presets early; notes and transport actions retain their times unless explicitly made preparation commands.
 
@@ -192,7 +192,8 @@ Choose **Every start**, **Only from beginning**, or **Once per song load** for e
 
 **Next preparation sequence** previews the send order, waits, skipped repeat commands and total configured time without sending MIDI. **Check playlist** previews each saved entry and totals its preparation waits, assuming fresh song loads. Reports refresh after settings changes. Conflicting recalls and early trigger commands produce advice without changing intentional sequences.
 
-Preparation progress and **Cancel start** are available in the transport and stage view. Cancellation prevents the remaining commands and music; it cannot undo commands already received by a pedal. Output or setup changes cancel pending preparation and invalidate Ready. Preparation runs between playlist songs; disable it to use crossfades.
+Preparation progress and **Cancel start** are available in the transport and stage view. Cancellation prevents the remaining commands and music; it cannot undo commands already received by a pedal. Output or setup changes cancel pending preparation and invalidate Ready. Preparation runs between playlist songs only when the incoming sequence has commands. Songs with no setup commands keep gapless joins and crossfades.
+Playlist and song MIDI checks show playback errors and performance warnings first. Optional section navigation and intentional trim advice appear separately under **Arrangement advice**. Configured loop, repeat, skip and pause risks remain warnings. Checks include pre-roll and allow 10 ms for rounded boundaries without changing playback times.
 
 ### Tempo and clock
 

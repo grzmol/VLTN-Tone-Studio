@@ -10,7 +10,7 @@ export interface PreparationSettings {
   openingPresets: boolean;
   commandGapMs?: number;
 }
-export const PREPARATION_DEFAULTS: PreparationSettings = { enabled: true, settleMs: 1000, openingPresets: true };
+export const PREPARATION_DEFAULTS: PreparationSettings = { enabled: false, settleMs: 1000, openingPresets: true };
 const KEY = "vltn.performance.preparation.v1";
 export function preparationSettings(value: unknown, defaults = PREPARATION_DEFAULTS): PreparationSettings {
   const saved = value && typeof value === "object" ? (value as Partial<PreparationSettings>) : {};
@@ -64,11 +64,7 @@ export function startPreparation(
   repeats: { history: PreparationHistory; atBeginning: boolean } = { history: new PreparationHistory(), atBeginning: position <= 0.001 },
 ): StartPreparation {
   const explicit = repeats.history.commands(cues, repeats.atBeginning);
-  if (!settings.enabled) {
-    if (cues.some((cue) => cue.trigger === "prepare" && cue.messages.length))
-      throw new Error("Enable Before song preparation to run this song's preparation commands.");
-    return { opening: [], commands: [], suppressed: [] };
-  }
+  if (!settings.enabled) return { opening: [], commands: [], suppressed: [] };
   const opening: number[][] = [];
   if (settings.openingPresets) {
     // Reapply load presets so an immediate Play still gives them their full loading wait.

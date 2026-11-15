@@ -59,7 +59,10 @@ export function preparationSequence({
 }): PreparationSequence {
   const atBeginning = Math.abs(requestedPosition - start) <= 0.001;
   const opening = startPreparation(cues, position, settings, triggers, { history, atBeginning });
-  if (!settings.enabled) return { steps: [], totalWaitMs: 0, suppressed: [], skipped: [] };
+  if (!settings.enabled) return {
+    steps: [], totalWaitMs: 0, suppressed: [],
+    skipped: history.groups(cues, atBeginning).map((group) => ({ label: group.label, reason: "Before song preparation is disabled; commands skipped" })),
+  };
   const steps: PreparationStep[] = [],
     skipped: PreparationSequence["skipped"] = [];
   let atMs = 0,
