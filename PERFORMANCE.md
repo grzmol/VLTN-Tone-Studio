@@ -422,7 +422,7 @@ If the grid is wrong, correct it:
 
 **Generate, Try another, Remove, Preview and Export MIDI.**
 
-- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Once generated parts exist, musical changes refresh them automatically while stopped, even with the panel closed. Play waits for the update and save to finish. Trims and mixer changes reuse the full-length audio. Imported rendered parts are preserved.
+- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Once generated parts exist, musical changes refresh them automatically while stopped, even with the panel closed. Opening a saved song keeps its parts and drummer timing grid, including parts deliberately left out of date. Tempo edits commit on Enter or when leaving the field. Play uses the existing parts immediately; a failed background update shows a warning. Trims and mixer changes reuse the full-length audio. Imported rendered parts are preserved.
 - **Try another** keeps your settings and makes a different take.
 - **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
 - **Preview** plays the parts over the song, from the section you pick in the menu next to it (or from the playhead), for the whole section, 4 bars or 8 bars. **Stop preview** ends it early. The buttons stay at the bottom of the dialog, and after **Generate** the bar offers **Close** and **Play from** the selected section.

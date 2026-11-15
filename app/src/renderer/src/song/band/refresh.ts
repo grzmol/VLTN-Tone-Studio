@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export const useBandRefreshStatus = create<{ key: string; message: string }>(() => ({ key: "", message: "" }));
-/** A song's generated parts finish updating before its transport starts. The panel owns the worker and cancels it on song changes. */
+/** The panel owns background updates and cancels them on song changes or playback. Play never waits for a render or save. */
 const refreshers = new Map<string, () => Promise<void>>();
 export function registerBandRefresh(key: string, refresh: () => Promise<void>): () => void {
   refreshers.set(key, refresh);

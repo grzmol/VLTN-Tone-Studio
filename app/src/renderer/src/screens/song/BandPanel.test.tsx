@@ -150,43 +150,67 @@ afterEach(() => {
 });
 
 describe("Band panel", () => {
-  it("automatically refreshes existing generated audio after musical edits while its dialog is closed", async () => {
-    stored({ beatGrid: grid, generatedParts: { drums: "track0" } });
+  function existingParts(options: Record<string, unknown> = {}) {
+    stored({ beatGrid: grid, generatedParts: { drums: "track0" }, ...options });
     useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
     mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
-    renderPanel();
-    act(() => useBandPanel.getState().show(false));
-    act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), band: { ...DEFAULT_BAND_SETTINGS, complexity: 0.8 } })));
-    await waitFor(() => expect(mocks.startBandRender).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(savedOptions().bandOutOfDate).toBe(false));
-    expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1);
-    act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), trimStart: 0.5, trimEnd: 7.5 })));
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
+  }
+
+  it("automatically refreshes after musical edits with the dialog closed, but ignores trims", async () => {
+    vi.useFakeTimers();
+    try {
+      existingParts();
+      renderPanel();
+      act(() => useBandPanel.getState().show(false));
+      act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), band: { ...DEFAULT_BAND_SETTINGS, complexity: 0.8 } })));
+      await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+      expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
+      expect(savedOptions().bandOutOfDate).toBe(false);
+      act(() => setSetting(KEY, ":options", JSON.stringify({ ...savedOptions(), trimStart: 0.5, trimEnd: 7.5 })));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
   });
-  it("updates the fixed grid after a BPM change and completes its automatic render before Play", async () => {
-    stored({ beatGrid: grid, generatedParts: { drums: "track0" } });
-    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
-    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+
+  it.each([false, true])("preserves saved parts and a drummer grid on opening (stale: %s)", async (stale) => {
+    vi.useFakeTimers();
+    try {
+      const drummer = { ...fixedBeatGrid(120, 3.25, 4, SECONDS), barStarts: [2, 6, 10] };
+      existingParts({ beatGrid: drummer, bandOutOfDate: stale });
+      const before = savedOptions();
+      renderPanel({ typedTempo: true, firstBeat: 3.25 });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(mocks.startBandRender).not.toHaveBeenCalled();
+      expect(savedOptions()).toEqual(before);
+      expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("updates a committed BPM edit while stopped", async () => {
+    existingParts();
     const view = renderPanel();
     view.rerender(<BandPanel {...view.props} bpm={140} />);
-    await act(async () => {
-      await refreshBandBeforePlay(KEY);
-    });
+    await act(async () => { await refreshBandBeforePlay(KEY); });
     expect(mocks.startBandRender).toHaveBeenCalledTimes(1);
     expect(mocks.startBandRender.mock.calls[0][0].grid.bpm).toBe(140);
     expect(savedOptions().bandOutOfDate).toBe(false);
   });
-  it("refreshes between playlist songs while the playlist remains active", async () => {
-    stored({ beatGrid: grid, generatedParts: { drums: "track0" }, bandOutOfDate: true });
-    useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
-    mocks.startBandRender.mockReturnValue({ done: Promise.resolve({ notes: { drums: [], bass: [] } }), onProgress: vi.fn(), cancel: vi.fn() });
+
+  it("keeps deliberately stale parts between playlist songs", async () => {
+    existingParts({ bandOutOfDate: true });
     renderPanel({ playing: true, audioPlaying: false });
-    await act(async () => {
-      await refreshBandBeforePlay(KEY);
-    });
-    expect(useSong.getState().applyGeneratedParts).toHaveBeenCalledTimes(1);
-    expect(savedOptions().bandOutOfDate).toBe(false);
+    await act(async () => { await refreshBandBeforePlay(KEY); });
+    expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
+    expect(savedOptions().bandOutOfDate).toBe(true);
+  });
+
+  it("warns after a failed background render and preserves the existing audio", async () => {
+    existingParts();
+    mocks.startBandRender.mockImplementation(() => ({ done: Promise.reject(new Error("Render failed")), onProgress: vi.fn(), cancel: vi.fn() }));
+    const view = renderPanel();
+    view.rerender(<BandPanel {...view.props} bpm={140} />);
+    await waitFor(() => expect(screen.getByText(/Play will use the existing parts/)).toBeTruthy());
+    expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
   });
 
   it("exports the last Generate's notes as a MIDI file named after the song, and only after Generate", async () => {
