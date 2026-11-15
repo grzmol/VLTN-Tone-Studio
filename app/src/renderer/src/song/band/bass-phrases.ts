@@ -6,18 +6,10 @@
 import type { Fills } from "./arrangement";
 import type { BassPart } from "./bass-parts";
 import type { ChordQuality } from "./harmony";
+import { isPhraseEnd, phraseBars } from "./phrases";
 import type { Random } from "./random";
 
-/** Four bars a phrase, or two in a section shorter than four bars. */
-export function phraseBars(sectionBars: number): number {
-  return sectionBars < 4 ? 2 : 4;
-}
-
-/** Whether a bar (counted from the start of its section) closes a phrase: the last bar of a phrase, or the section's last bar. */
-export function isPhraseEnd(bar: number, sectionBars: number): boolean {
-  const length = phraseBars(sectionBars);
-  return bar % length === length - 1 || bar === sectionBars - 1;
-}
+export { isPhraseEnd, phraseBars };
 
 /** The variation kinds: a pickup of eighths into the next downbeat, an octave pop, an approach run, or an empty last beat. */
 export type VariationKind = "pickup" | "pop" | "run" | "empty";
