@@ -250,6 +250,7 @@ it("separates arrangement advice and accounts for prepared presets using saved t
         preRollBeats: 2,
         tempoSource: "manual",
         analysis: {},
+        preparation: { enabled: true },
         sections: [{ id: "v", name: "Verse", start: 0, end: 10, mode: "continue" }],
       }),
       "": "[00:00] {midi:pc 1 3}\n[00:03] {midi:cc 3 10 64}",
