@@ -1,3 +1,4 @@
+import { host } from "@/host";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { BeatIndicator } from "./BeatIndicator";

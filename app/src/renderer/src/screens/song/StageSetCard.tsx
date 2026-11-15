@@ -27,10 +27,7 @@ export function StageSetCard({
   const starting = useSession(session, (s) => s.starting);
   const parseError = useSession(session, (s) => s.parseError);
   const cues = useSession(session, (s) => s.cues);
-  const ready = useSession(session, (s) => s.pedalsReady);
-  const settings = useSession(session, (s) => s.preparationSettings);
   const first = useMemo(() => patchCues(cues)[0], [cues]);
-  const pedals = ready ? "Ready" : settings?.enabled ? "Not prepared yet: press Prepare pedals" : "No setup commands";
   return (
     <div aria-label="Next song" className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 text-center">
       <div>
@@ -59,8 +56,6 @@ export function StageSetCard({
             </dd>
           </>
         )}
-        <dt className="text-silkscreen-3">Pedals</dt>
-        <dd className="font-semibold">{pedals}</dd>
       </dl>
       <Button
         className="min-h-20 min-w-64 text-3xl"
