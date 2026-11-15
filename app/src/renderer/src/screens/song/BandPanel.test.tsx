@@ -638,7 +638,9 @@ describe("Band panel", () => {
     const band = { ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "chain", blocks: [amp], dryWet: 1, fast: false }, renderedTone: { bass: "chain" } };
     stored({ beatGrid: grid, generatedParts: { drums: "track0" }, bandOutOfDate: true, band });
     useSong.setState({ tracks: { track0: { kind: "user", name: GENERATED_PART_NAMES.drums } } });
-    renderPanel();
+    const view = renderPanel();
+    expect(mocks.startBandRender).not.toHaveBeenCalled();
+    view.rerender(<BandPanel {...view.props} bpm={130} />);
     await expect(refreshBandBeforePlay(KEY)).resolves.toBeUndefined();
     expect(mocks.startBandRender).not.toHaveBeenCalled();
     expect(useSong.getState().applyGeneratedParts).not.toHaveBeenCalled();
