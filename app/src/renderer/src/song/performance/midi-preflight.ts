@@ -1,9 +1,11 @@
+import { PREFLIGHT_TIME_TOLERANCE_S } from "./preflight-timing";
 import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./chart";
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
 export interface PreflightOptions {
   duration: number;
+  playbackStart?: number;
   tempoChannel?: number;
   clock: boolean;
   outputName?: string;
@@ -23,6 +25,7 @@ export interface PreflightOptions {
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
 }
 export interface PreflightIssue {
+  level?: "advice";
   code: string;
   text: string;
 }
@@ -32,8 +35,13 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   const issues: PreflightIssue[] = [],
     channels = new Map<number, number>(),
     notes = new Map<string, number>();
-  const add = (code: string, text: string) => {
-    if (issues.length < 100) issues.push({ code, text });
+  let warningCount = 0,
+    adviceCount = 0;
+  const add = (code: string, text: string, level?: "advice") => {
+    if (level === "advice" ? adviceCount >= 100 : warningCount >= 100) return;
+    if (level === "advice") adviceCount++;
+    else warningCount++;
+    issues.push({ code, text, ...(level ? { level } : {}) });
   };
   for (const cue of unmatchedSectionCues(chartCues, options.sections ?? []))
     add("section-cue", `On section ${cue.section!.name}: there is no section called ${cue.section!.name}. The cue never fires.`);
@@ -88,7 +96,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
   for (let i = 0; i < events.length; i++) {
     const cue = events[i];
     if (!Number.isFinite(cue.time) || cue.time < 0) add("time", "A MIDI cue has an invalid timestamp.");
-    if (cue.time > options.duration) add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
+    if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) add("past-end", `Cue at ${cue.time.toFixed(2)} s is beyond the ${options.duration.toFixed(2)} s audio and will not play.`);
     windowBytes += cue.messages.reduce((sum, b) => sum + b.length, 0);
     while (events[windowStart].time < cue.time - 0.02) {
       windowBytes -= events[windowStart++].messages.reduce((sum, b) => sum + b.length, 0);
@@ -102,7 +110,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
         channel = (bytes[0] & 15) + 1;
       if (bytes[0] < 240) channels.set(channel, (channels.get(channel) || 0) + 1);
       if (bytes.length > 256) add("sysex", "A long SysEx command can delay subsequent commands. Rehearse it with the actual device.");
-      if (cue.time > options.duration) continue;
+      if (cue.time > options.duration + PREFLIGHT_TIME_TOLERANCE_S) continue;
       if (kind === 144 && bytes[2] > 0) {
         if (notes.has(`${channel}:${bytes[1]}`))
           add("retrigger", `Note ${bytes[1]} on channel ${channel} is retriggered before its previous note-off. Verify the receiver’s behavior.`);
@@ -169,16 +177,14 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
       }
     }
   }
-  if (options.range) {
-    const { start, end } = options.range;
-    const outside = events.filter((c) => c.time < start || c.time > end);
-    if (outside.length)
-      add(
-        "cue-trim",
-        `${outside.length} cue${outside.length === 1 ? "" : "s"} outside the trimmed range (${start.toFixed(2)}–${end.toFixed(2)} s) will not play, ` +
-          `starting at ${outside[0].time.toFixed(2)} s.`,
-      );
-  }
+  const start = options.playbackStart ?? options.range?.start ?? 0;
+  const end = options.range?.end ?? options.duration;
+  const outside = events.filter((cue) =>
+    cue.time <= options.duration + PREFLIGHT_TIME_TOLERANCE_S &&
+    (cue.time < start - PREFLIGHT_TIME_TOLERANCE_S || cue.time > end + PREFLIGHT_TIME_TOLERANCE_S),
+  );
+  if (outside.length)
+    add("cue-trim", `${outside.length} cues outside the trimmed range (${start.toFixed(2)}–${end.toFixed(2)} s) will not play, starting at ${outside[0].time.toFixed(2)} s.`);
   for (const issue of sectionIssues(options.sections ?? [], {
     duration: options.duration,
     bpm: options.bpm,
@@ -186,8 +192,9 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     firstBeat: options.firstBeat,
     range: options.range,
   }))
-    add(issue.code, issue.text);
+    add(issue.code, issue.text, issue.level);
   for (const [note, time] of notes)
     add("note-off", `Note ${note.split(":")[1]} on channel ${note.split(":")[0]} at ${time.toFixed(2)} s has no later note-off before the audio ends.`);
-  return { issues, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: events.reduce((n, c) => n + c.messages.length, 0) };
+  const warnings = issues.filter((issue) => !issue.level), advice = issues.filter((issue) => issue.level === "advice");
+  return { issues: [...warnings, ...advice], warnings, advice, channels: [...channels].sort((a, b) => a[0] - b[0]), commands: events.reduce((n, c) => n + c.messages.length, 0) };
 }
