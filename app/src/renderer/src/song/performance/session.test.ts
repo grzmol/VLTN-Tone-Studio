@@ -579,7 +579,10 @@ it("chains the next playlist song near the end, takes it over at its join, and d
   mocks.library.playlistPlaying = true;
   mocks.library.queue = ["a", "b"];
   mocks.library.preparedNext = () => next as never;
-  mocks.library.advanceToPrepared = vi.fn(() => true);
+  mocks.library.advanceToPrepared = vi.fn(() => {
+    expect(session.state.player).toBeNull();
+    return true;
+  });
   const { session, out, access, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
   // The queued song starts itself; let that start settle.
   await vi.advanceTimersByTimeAsync(10);
@@ -589,11 +592,11 @@ it("chains the next playlist song near the end, takes it over at its join, and d
   mocks.audioNow = 16;
   vi.advanceTimersByTime(250);
   expect(session.state.player).not.toBe(incoming);
+  const outgoing = session.state.player!;
   // The hand-over is taken half a second before the join, which is at the outgoing song's end.
   vi.advanceTimersByTime(3500);
   expect(mocks.library.advanceToPrepared).toHaveBeenCalledWith("b");
   // The library's change re-creates the view: the outgoing session is let go, and the new session takes the chained song up.
-  const outgoing = session.state.player!;
   unload();
   session.dispose();
   expect((outgoing as unknown as { disposed: boolean }).disposed).toBe(true);
