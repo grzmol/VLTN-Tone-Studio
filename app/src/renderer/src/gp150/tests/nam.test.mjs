@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CMD, Reassembler, decodeFrame, decodeMessage, decodeNames, packetize, query, rename, setPatchSettings } from "../lib/protocol.mjs";
+import { CMD, SLOTS, Reassembler, decodeFrame, decodeMessage, decodeNames, packetize, query, rename, setPatchSettings } from "../lib/protocol.mjs";
+import { GP150_CATALOG } from "../lib/catalog-data.mjs";
 import { MockGp150 } from "../lib/mock-device.mjs";
 import { Gp150Session } from "../lib/session.mjs";
 import { NAM_VECTORS } from "./vectors.mjs";
@@ -30,7 +31,7 @@ test("captured NAM query, 18-packet reply, rename and both mode records re-encod
   }
 });
 
-test("captured NAM list has None at 0, user slots 1-100 and independent empty flags", () => {
+test("captured NAM list has None at 0, wire records 1-100 and independent empty flags", () => {
   const msg = decodeMessage(bytes(NAM_VECTORS.reply.bytes));
   const names = decodeNames(CMD.NAM_NAMES, msg.payload);
   assert.equal(names.length, 101);
@@ -45,13 +46,15 @@ test("NAM session lists and renames without changing SnapTones or the active pre
   const session = new Gp150Session(mock.transport(), { timing: { frameGapMs: 0, ackTimeoutMs: 100, replyTimeoutMs: 300 } });
   try {
     await session.connect();
+    // Firmware pads the reply through 100. Even an occupied-looking reserved record must not become an editable slot.
+    mock.namNames[21] = { name: "Reserved record", empty: false };
     const before = mock.editBuffer.slice();
     const list = await session.readNamNames();
-    assert.equal(list.length, 100);
+    assert.equal(list.length, 20);
     assert.equal(list[0].slot, 1);
-    assert.equal(list.at(-1).slot, 100);
+    assert.equal(list.at(-1).slot, 20);
     await session.renameListSlot("nam", 1, "New NAM", { confirm: true });
-    await session.renameListSlot("nam", 100, "Last NAM", { confirm: true });
+    await session.renameListSlot("nam", 20, "Last NAM", { confirm: true });
     const after = await session.readNamNames();
     assert.equal(after[0].name, "New NAM");
     assert.equal(after.at(-1).name, "Last NAM");
@@ -59,7 +62,9 @@ test("NAM session lists and renames without changing SnapTones or the active pre
     assert.equal(mock.snapToneNames[1].name, "Factory 1");
     assert.deepEqual(mock.editBuffer, before);
     assert.throws(() => session.renameListSlot("nam", 1, "No confirm"), /confirm/);
-    for (const slot of [0, 101, -1, 1.5, NaN]) assert.throws(() => session.renameListSlot("nam", slot, "Bad", { confirm: true }), /outside/);
+    const beforeInvalid = mock.received.length;
+    for (const slot of [0, 21, 100, 101, -1, 1.5, NaN]) assert.throws(() => session.renameListSlot("nam", slot, "Bad", { confirm: true }), /outside/);
+    assert.equal(mock.received.length, beforeInvalid);
     assert.equal(
       mock.received.some((m) => m.cmd === CMD.NAM_UPLOAD),
       false,
@@ -67,4 +72,14 @@ test("NAM session lists and renames without changing SnapTones or the active pre
   } finally {
     await session.close();
   }
+});
+
+test("native NAM capacity matches the captured catalog's selectable model addresses, not its padded names reply", () => {
+  const models = GP150_CATALOG.modules.find((m) => m.module === "NS").algs.filter((m) => m.code >>> 24 === 0x10);
+  assert.equal(models.length, 20);
+  assert.equal(SLOTS.NAMS, models.length);
+  assert.deepEqual(
+    models.map((m) => m.code),
+    Array.from({ length: 20 }, (_, i) => 0x10000000 + i),
+  );
 });

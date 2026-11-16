@@ -387,7 +387,7 @@ export class Gp150Session extends EventTarget {
     );
   }
 
-  /** NAM slots 1-100; the captured list's entry 0 (None) is not a writable slot. */
+  /** Usable NAM slots 1-20; None and reserved records through 100 remain outside the editable bank. */
   readNamNames() {
     return this.exclusive(async () =>
       toEntries(decodeNames(CMD.NAM_NAMES, (await this.#query(CMD.NAM_NAMES, [], "NAM names")).payload)).filter((e) => e.slot >= 1 && e.slot <= SLOTS.NAMS),
@@ -541,7 +541,7 @@ export class Gp150Session extends EventTarget {
     return this.#upload(CMD.SNAPTONE_UPLOAD, CMD.SNAPTONE_NAMES, slot, name, file, opts);
   }
 
-  /** Rename a User IR (0-19), SnapTone (1-100) or NAM (1-100) slot. */
+  /** Rename a User IR (0-19), SnapTone (1-100) or NAM (1-20) slot. */
   renameListSlot(kind, slot, name, opts) {
     needConfirm(opts, "Renaming a slot");
     const cmd = { ir: CMD.IR_RENAME, snaptone: CMD.SNAPTONE_RENAME, nam: CMD.NAM_RENAME }[kind];

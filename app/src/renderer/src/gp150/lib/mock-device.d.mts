@@ -20,7 +20,7 @@ export class MockGp150 {
   irNames: { name: string; empty: boolean }[];
   /** entry 0 "None", slots 1-100 */
   snapToneNames: { name: string; empty: boolean }[];
-  /** entry 0 None, then NAM slots 1-100 */
+  /** Raw wire table: None, usable NAM slots 1-20, then reserved records through 100. */
   namNames: { name: string; empty: boolean }[];
   uploads: { cmd: number; slot: number; name: string; data: Uint8Array }[];
   received: Message[];

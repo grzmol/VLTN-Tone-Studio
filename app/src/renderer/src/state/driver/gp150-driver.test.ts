@@ -149,20 +149,20 @@ describe("Gp150Driver", () => {
   });
 });
 
-it("lists NAM slots 1-100 and verifies renamed names without touching SnapTones", async () => {
+it("lists NAM slots 1-20 and verifies renamed names without touching SnapTones", async () => {
   const { d, dev } = await connected("gp180");
   expect(d.features).toContain("nam");
   const list = await d.readNams();
-  expect(list).toHaveLength(100);
+  expect(list).toHaveLength(20);
   expect(list[0]).toEqual({ slot: 1, name: "NAM 1", kind: "user" });
-  expect(list[99]).toMatchObject({ slot: 100, kind: "empty" });
+  expect(list[19]).toMatchObject({ slot: 20, kind: "empty" });
   const events: DriverEvent[] = [];
   d.subscribe((e) => events.push(e));
-  await d.renameNam(100, "Last model");
+  await d.renameNam(20, "Last model");
   expect(events).toContainEqual({ type: "listChanged", list: "nams" });
-  expect((await d.readNams())[99]).toEqual({ slot: 100, name: "Last model", kind: "empty" });
+  expect((await d.readNams())[19]).toEqual({ slot: 20, name: "Last model", kind: "empty" });
   expect(dev.snapToneNames[100].name).toBe("Empty 50");
-  for (const slot of [0, 101, 1.5]) await expect(d.renameNam(slot, "Bad")).rejects.toThrow(RangeError);
+  for (const slot of [0, 21, 100, 101, 1.5]) await expect(d.renameNam(slot, "Bad")).rejects.toThrow(RangeError);
   for (const name of ["", " ", "longer than fifteen characters", "écho"]) await expect(d.renameNam(1, name)).rejects.toThrow(RangeError);
   const table = dev.namNames;
   Object.defineProperty(dev, "namNames", { configurable: true, get: () => table.map((e) => ({ ...e })) });

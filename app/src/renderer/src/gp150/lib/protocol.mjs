@@ -72,7 +72,8 @@ export const NONE_FXID = 0x06000003;
 /** Knob targets besides the 12 modules. */
 export const KNOB_TARGET = Object.freeze({ PATCH_VOL: 0x0c, PATCH_BPM: 0x0d, NONE: 0xffff });
 
-export const SLOTS = Object.freeze({ PRESETS: 200, SNAPTONES: 100, NAMS: 100, USER_IRS: 20 });
+// Native NAM has 20 selectable models (0x10000000..0x10000013), even though its name reply contains 100 records plus None.
+export const SLOTS = Object.freeze({ PRESETS: 200, SNAPTONES: 100, NAMS: 20, USER_IRS: 20 });
 
 /**
  * Pedal settings: where each lives in the global-settings records (0x2010..0x2050; the pedal reports them all in the

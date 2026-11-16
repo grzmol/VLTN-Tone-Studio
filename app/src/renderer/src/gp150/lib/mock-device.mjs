@@ -68,8 +68,8 @@ export class MockGp150 {
   snapToneNames = Array.from({ length: SLOTS.SNAPTONES + 1 }, (_, i) =>
     i === 0 ? { name: "None", empty: false } : i <= 50 ? { name: `Factory ${i}`, empty: false } : { name: `Empty ${i - 50}`, empty: true },
   );
-  /** Captured NAM layout: None at 0, then 100 user slots. */
-  namNames = Array.from({ length: SLOTS.NAMS + 1 }, (_, i) =>
+  /** Captured NAM wire layout: None at 0, 20 usable slots, then reserved records through 100. */
+  namNames = Array.from({ length: 101 }, (_, i) =>
     i === 0 ? { name: "None", empty: true } : i <= 3 ? { name: `NAM ${i}`, empty: false } : { name: `NAM Slot ${i}`, empty: true },
   );
   /** IR and SnapTone uploads: { cmd, slot, name, data } */

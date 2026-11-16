@@ -3,7 +3,7 @@
 // waits for the pedal's ACK of every message, verifies full writes by reading back, and never builds the factory reset.
 import { Gp150Session, type Gp150Event, type Gp150Timing, type Gp150Transport, type ListEntry } from "@/gp150/lib/session.mjs";
 import { MockGp150, type MockGp150Options } from "@/gp150/lib/mock-device.mjs";
-import { CMD, GLOBALS, GLOBAL_EQ } from "@/gp150/lib/protocol.mjs";
+import { CMD, GLOBALS, GLOBAL_EQ, SLOTS } from "@/gp150/lib/protocol.mjs";
 import { applyPatchEdits, parsePrst } from "@/gp150/lib/prst.mjs";
 import { connectWebMidi } from "@/gp5/lib/transport-webmidi.mjs";
 import { deviceForPortName, profileFor, type DeviceKey } from "@shared/devices";
@@ -335,13 +335,13 @@ export class Gp150Driver implements DeviceDriver {
     return snapToneTable(await this.#session.readSnapToneNames());
   }
 
-  /** NAM slots retain the pedal's 1-100 numbering; unlike SnapTones, there is no factory range. */
+  /** Native NAM slots 1-20; the additional reply records do not have selectable models. */
   async readNams(): Promise<SlotName[]> {
     return irTable(await this.#session.readNamNames());
   }
 
   async renameNam(slot: number, name: string): Promise<void> {
-    if (!Number.isInteger(slot) || slot < 1 || slot > 100) throw new RangeError("NAM slot must be between 1 and 100");
+    if (!Number.isInteger(slot) || slot < 1 || slot > SLOTS.NAMS) throw new RangeError(`NAM slot must be between 1 and ${SLOTS.NAMS}`);
     if (!/^[\x20-\x7e]{1,15}$/.test(name) || !name.trim()) throw new RangeError("Use 1–15 plain text characters for the NAM name");
     await this.#session.renameListSlot("nam", slot, name, { confirm: true });
     const stored = (await this.readNams()).find((entry) => entry.slot === slot);

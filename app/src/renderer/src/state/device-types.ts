@@ -320,7 +320,7 @@ export interface DeviceState {
   gp50Extras: boolean;
   /** SnapTone slot names (user + factory), when read */
   snapTones: SlotName[] | null;
-  /** GP-150/180 NAM slots, numbered 1-100; excludes None. */
+  /** GP-150/180 NAM slots, numbered 1-20; excludes None. */
   nams: SlotName[] | null;
   /** User IR slot names (1-based display), when read */
   userIRs: SlotName[] | null;
