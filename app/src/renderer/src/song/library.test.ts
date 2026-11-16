@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "./store";
-import { applyPracticeMute, loadSongAudio, useSongLibrary } from "./library";
+import { applyPracticeMute, loadSongAudio, useSongLibrary, type PreparedSong } from "./library";
 import { usePracticeMute } from "./performance/practice-mute";
 import { clearSettingsCache, flushSettings, getSetting, performanceKey, setSetting } from "./performance/settings";
 import { useNav } from "@/state/nav";
