@@ -1,3 +1,4 @@
+import { sharePlaybackPcm } from "./audio/playback-pcm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "./store";
@@ -796,11 +797,11 @@ describe("warning when the next song cannot be loaded in the background", () => 
 
 describe("playlist writes", () => {
   const first = { id: "p1", name: "Set", songs: [] as string[], sets: [] };
-  let stored: typeof first[] = [];
+  let stored: (typeof first)[] = [];
   beforeEach(() => {
     stored = [first];
     api.index.mockImplementation(async () => ({ ...emptyLibrary(), songs: [saved], playlists: stored }));
-    api.playlists.mockImplementation(async (next: typeof first[]) => {
+    api.playlists.mockImplementation(async (next: (typeof first)[]) => {
       stored = next;
     });
     useSongLibrary.setState({ index: { ...emptyLibrary(), songs: [saved], playlists: [first] }, busy: false, error: "" });
@@ -808,7 +809,7 @@ describe("playlist writes", () => {
 
   it("lands two edits made back to back, in order, the second on top of the first", async () => {
     let release!: () => void;
-    api.playlists.mockImplementationOnce(async (next: typeof first[]) => {
+    api.playlists.mockImplementationOnce(async (next: (typeof first)[]) => {
       await new Promise<void>((done) => (release = done));
       stored = next;
     });
@@ -837,10 +838,7 @@ describe("playlist writes", () => {
   });
 
   it("adds and deletes playlists from the latest list, so neither overwrites the other", async () => {
-    await Promise.all([
-      useSongLibrary.getState().addPlaylist({ id: "p2", name: "Two", songs: [], sets: [] }),
-      useSongLibrary.getState().deletePlaylist("p1"),
-    ]);
+    await Promise.all([useSongLibrary.getState().addPlaylist({ id: "p2", name: "Two", songs: [], sets: [] }), useSongLibrary.getState().deletePlaylist("p1")]);
     expect(stored.map((p) => p.id)).toEqual(["p2"]);
   });
 });
@@ -920,7 +918,9 @@ it("a re-save keeps an unread stem but drops one the user removed", async () => 
 describe("the practice mute on a prepared song", () => {
   const prepared = (settings: Record<string, string> = {}) => {
     const player = { names: ["vocals", "guitar", "drums"], setMix: vi.fn(), dispose: vi.fn(() => Promise.resolve()) };
-    return { id: "two", title: "Two", stems: { vocals: audio, guitar: audio, drums: audio }, tracks: {}, settings, skipped: [], player } as never as Parameters<typeof applyPracticeMute>[0] & {
+    return { id: "two", title: "Two", stems: { vocals: audio, guitar: audio, drums: audio }, tracks: {}, settings, skipped: [], player } as never as Parameters<
+      typeof applyPracticeMute
+    >[0] & {
       player: typeof player;
     };
   };
@@ -966,4 +966,16 @@ describe("the practice mute on a prepared song", () => {
     applyPracticeMute(song);
     expect(song.player.setMix.mock.calls.at(-1)?.[0].t1?.mute).toBe(true);
   });
+});
+
+it("validates canonical saved-track metadata without materializing sample arrays", async () => {
+  const getChannelData = vi.fn(() => {
+    throw new Error("metadata requested samples");
+  });
+  const pcm = { sampleRate: 44100, channels: [] as Float32Array[] };
+  sharePlaybackPcm(pcm, { numberOfChannels: 1, length: 3, sampleRate: 44100, getChannelData } as unknown as AudioBuffer);
+  codec.decodeTrack.mockResolvedValue(pcm);
+  const loaded = await loadSongAudio(saved.id);
+  expect(loaded.source).toBe(pcm);
+  expect(getChannelData).not.toHaveBeenCalled();
 });
