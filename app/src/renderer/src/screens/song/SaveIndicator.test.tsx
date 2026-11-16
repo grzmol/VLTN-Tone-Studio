@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
@@ -73,6 +73,21 @@ describe("SaveIndicator", () => {
     expect(screen.getByText("Not saved")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save to library" }));
     expect(save).toHaveBeenCalledWith("Live take", "");
+  });
+
+  it("follows a replacement song's save metadata and clears when the song is removed", () => {
+    useSong.setState({ source: { name: "First.wav", audio }, stems: { guitar: audio } });
+    render(<SaveIndicator />);
+    fireEvent.click(screen.getByRole("button", { name: "Save to library" }));
+    expect(save).toHaveBeenLastCalledWith("First", "");
+    act(() => {
+      useSongLibrary.setState({ index: { ...emptyLibrary(), songs: [saved] } });
+      useSong.setState({ source: { name: "i.mp3", libraryId: saved.id, audio: { ...audio } }, stems: null });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(save).toHaveBeenLastCalledWith("Insomnia", "Band");
+    act(() => useSong.setState({ source: null, stems: null }));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 
