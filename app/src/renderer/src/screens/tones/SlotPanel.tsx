@@ -29,6 +29,7 @@ import { notifyError, showToast } from "@/app/notify";
 import { irSlotLabel, openLinkChoice, openRename, openSheet, readSlots, unlink, useTones } from "./store";
 import { buildUsage, type PresetRef } from "./usage";
 import { ToneImage } from "./ToneImage";
+import { NamSlots } from "./NamSlots";
 
 type Kind = "snaptone" | "ir";
 
@@ -190,6 +191,8 @@ export function SlotPanel({ onAddNam }: { onAddNam: (file: OpenFile) => void }) 
           )}
         </section>
       )}
+
+      <NamSlots />
 
       {userIRs && (
         <section aria-label="User IR slots" className="flex flex-col gap-1.5">

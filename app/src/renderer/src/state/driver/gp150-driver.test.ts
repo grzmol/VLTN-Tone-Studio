@@ -148,3 +148,35 @@ describe("Gp150Driver", () => {
     expect(d.portName).toBe("GP-180 (simulated)");
   });
 });
+
+it("lists NAM slots 1-100 and verifies renamed names without touching SnapTones", async () => {
+  const { d, dev } = await connected("gp180");
+  expect(d.features).toContain("nam");
+  const list = await d.readNams();
+  expect(list).toHaveLength(100);
+  expect(list[0]).toEqual({ slot: 1, name: "NAM 1", kind: "user" });
+  expect(list[99]).toMatchObject({ slot: 100, kind: "empty" });
+  const events: DriverEvent[] = [];
+  d.subscribe((e) => events.push(e));
+  await d.renameNam(100, "Last model");
+  expect(events).toContainEqual({ type: "listChanged", list: "nams" });
+  expect((await d.readNams())[99]).toEqual({ slot: 100, name: "Last model", kind: "empty" });
+  expect(dev.snapToneNames[100].name).toBe("Empty 50");
+  for (const slot of [0, 101, 1.5]) await expect(d.renameNam(slot, "Bad")).rejects.toThrow(RangeError);
+  for (const name of ["", " ", "longer than fifteen characters", "écho"]) await expect(d.renameNam(1, name)).rejects.toThrow(RangeError);
+  const table = dev.namNames;
+  Object.defineProperty(dev, "namNames", { configurable: true, get: () => table.map((e) => ({ ...e })) });
+  await expect(d.renameNam(1, "Lost write")).rejects.toThrow("did not confirm");
+});
+
+it("publishes unsolicited NAM list changes and keeps mode when changing volume or tempo", async () => {
+  const { d, dev } = await connected("gp180");
+  const events: DriverEvent[] = [];
+  d.subscribe((e) => events.push(e));
+  await dev.reportNamNames();
+  expect(events).toContainEqual({ type: "listChanged", list: "nams" });
+  await d.setNamMode(1);
+  await d.setPatchVolume(70);
+  await d.setBpm(150);
+  expect(parsePrst(dev.editBuffer)).toMatchObject({ namMode: 1, volume: 70, tempo: 150 });
+});

@@ -46,7 +46,7 @@ const irTable = (list: ListEntry[]): SlotName[] => list.map((e) => ({ slot: e.sl
 
 export class Gp150Driver implements DeviceDriver {
   /** "exportPreset": mode-1 reads never select; "liveBpm": the 0x3020 settings record; "globalEq": the 0x2010 record; "modified": 0x3070. */
-  readonly features: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified"];
+  readonly features: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified", "nam"];
   readonly #session: Gp150Session;
   readonly #listeners = new Set<(e: DriverEvent) => void>();
   /** The pedal's 32 Global EQ values, as last read or set (null until read). */
@@ -130,12 +130,13 @@ export class Gp150Driver implements DeviceDriver {
         return [
           { type: "patchSetting", field: "volume", value: msg.volume },
           { type: "patchSetting", field: "bpm", value: msg.tempo },
+          { type: "patchSetting", field: "namMode", value: msg.namMode },
         ];
       case "names":
       case "saved":
         return [{ type: "listChanged", list: "presets" }];
       case "listChanged":
-        return [{ type: "listChanged", list: msg.cmd === CMD.IR_NAMES ? "irs" : "snaptones" }];
+        return [{ type: "listChanged", list: msg.cmd === CMD.IR_NAMES ? "irs" : msg.cmd === CMD.NAM_NAMES ? "nams" : "snaptones" }];
       case "globals":
         return Object.entries(msg.values).map(([name, value]) => ({ type: "global", name: name as GlobalName, value: value as number }));
       case "globalEq": {
@@ -277,7 +278,7 @@ export class Gp150Driver implements DeviceDriver {
   }
 
   /** Volume and tempo go out as the whole 0x3020 settings record of the edit buffer. */
-  async #setSettings(edits: { volume?: number; tempo?: number }): Promise<void> {
+  async #setSettings(edits: { volume?: number; tempo?: number; namMode?: number }): Promise<void> {
     if (!this.#edit) await this.#readBuffer();
     if (!this.#edit) return;
     this.#edit = applyPatchEdits(this.#edit, edits);
@@ -291,6 +292,12 @@ export class Gp150Driver implements DeviceDriver {
   async setBpm(bpm: number): Promise<void> {
     const { min, max } = PROFILE.tempo;
     await this.#setSettings({ tempo: Math.max(min, Math.min(max, Math.round(bpm))) });
+  }
+
+  /** Captured 0x3020 settings record; the mode changes in the active edit buffer and is saved with the preset. */
+  async setNamMode(mode: 0 | 1): Promise<void> {
+    if (mode !== 0 && mode !== 1) throw new RangeError("Neural-model mode must be SnapTone (0) or NAM (1)");
+    await this.#setSettings({ namMode: mode });
   }
 
   /** The 0x2000 reply: firmware, settings records, Global EQ. */
@@ -326,6 +333,20 @@ export class Gp150Driver implements DeviceDriver {
   /** SnapTone slots 0-99 (the pedal's 1-100). */
   async readSnapTones(): Promise<SlotName[]> {
     return snapToneTable(await this.#session.readSnapToneNames());
+  }
+
+  /** NAM slots retain the pedal's 1-100 numbering; unlike SnapTones, there is no factory range. */
+  async readNams(): Promise<SlotName[]> {
+    return irTable(await this.#session.readNamNames());
+  }
+
+  async renameNam(slot: number, name: string): Promise<void> {
+    if (!Number.isInteger(slot) || slot < 1 || slot > 100) throw new RangeError("NAM slot must be between 1 and 100");
+    if (!/^[\x20-\x7e]{1,15}$/.test(name) || !name.trim()) throw new RangeError("Use 1–15 plain text characters for the NAM name");
+    await this.#session.renameListSlot("nam", slot, name, { confirm: true });
+    const stored = (await this.readNams()).find((entry) => entry.slot === slot);
+    if (stored?.name !== name) throw new Error("The pedal did not confirm the new NAM name. Read the slots again.");
+    this.#emit({ type: "listChanged", list: "nams" });
   }
 
   async readUserIRs(): Promise<SlotName[]> {
