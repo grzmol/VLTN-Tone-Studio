@@ -1,3 +1,4 @@
+import { pcmMemoryShape } from "../audio/playback-pcm";
 import { host } from "@/host";
 import type { SongSource } from "../types";
 import { SETTING_SUFFIXES } from "@shared/song-library";
@@ -15,7 +16,7 @@ export const performanceKey = (source: SongSource | null): string =>
   source?.libraryId
     ? `${LIBRARY_PREFIX}${source.libraryId}`
     : source
-      ? `vltn.performance.v1:${source.name}:${source.audio.channels[0].length}:${source.audio.sampleRate}`
+      ? `vltn.performance.v1:${source.name}:${pcmMemoryShape(source.audio).frames}:${source.audio.sampleRate}`
       : "vltn.performance.v1:practice";
 
 const savedId = (key: string): string | null => (key.startsWith(LIBRARY_PREFIX) ? key.slice(LIBRARY_PREFIX.length) : null);

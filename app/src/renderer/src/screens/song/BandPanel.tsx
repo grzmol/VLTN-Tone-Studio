@@ -1,3 +1,4 @@
+import { pcmMemoryShape } from "@/song/audio/playback-pcm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Drum, LoaderCircle } from "lucide-react";
@@ -259,7 +260,7 @@ function BandBody({
   const tracks = useSong((s) => s.tracks);
   const missing = useSong((s) => s.missingParts);
   const cues = useMemo<Cue[]>(() => parseChart(chart), [chart]);
-  const songEnd = source ? source.audio.channels[0].length / source.audio.sampleRate : 0;
+  const songEnd = source ? pcmMemoryShape(source.audio).frames / source.audio.sampleRate : 0;
   const plans = useMemo(() => planSections(sections, songEnd, settings, sectionHints), [sections, songEnd, settings, sectionHints]);
   const harmony = useMemo<ChordAtBeat[]>(
     () => (grid ? bandHarmony({ grid, cues, chords, songEnd, settings, bassLine }) : []),
@@ -392,7 +393,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
-        lengthFrames: current.audio.channels[0].length,
+        lengthFrames: pcmMemoryShape(current.audio).frames,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
         mix: current.audio,
@@ -510,7 +511,7 @@ function BandBody({
     setWork(`Reading ${file.name}…`);
     try {
       const decoded = await decodeAudioFile(file, MAX_IMPORT_SECONDS);
-      const frames = current.audio.channels[0].length;
+      const frames = pcmMemoryShape(current.audio).frames;
       const check = checkRenderedLength(file.name, decoded.channels[0].length / decoded.sampleRate, frames / current.audio.sampleRate);
       if (!check.accepted) return setNotices([check.notice ?? `${file.name} was not used.`]);
       const notices = check.notice ? [check.notice] : [];
@@ -559,7 +560,7 @@ function BandBody({
         sections,
         settings: using,
         songEnd,
-        lengthFrames: current.audio.channels[0].length,
+        lengthFrames: pcmMemoryShape(current.audio).frames,
         sampleUrls: bandSampleUrls(),
         follow: followFor(using, selectWholeSongStems(useSong.getState()), current.audio),
         mix: current.audio,
@@ -692,7 +693,7 @@ function BandBody({
                 kind={kind}
                 rendered={settings.rendered[kind]}
                 disabled={blocked}
-                pending={pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, source.audio.channels[0].length)}
+                pending={pendingLineUp(pendingRendered, kind, () => setPendingRendered(null), applyRendered, pcmMemoryShape(source.audio).frames)}
                 onFile={(file) => void importRendered(kind, file)}
                 onBack={() => void backToGenerated(kind)}
               />

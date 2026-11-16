@@ -1,3 +1,4 @@
+import { sharePlaybackPcm } from "../audio/playback-pcm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlaybackEngine } from "../audio/playback-engine";
 import { DEFAULT_OUTPUTS, type OutputConfig } from "../audio/outputs";
@@ -560,7 +561,10 @@ it("keeps a handed-over song's stems running to their end when it is disposed", 
   await outgoing.dispose();
   // Stopping now would cut the crossfade short: only the scheduled stop may end the outgoing stems.
   expect(ctx.sources[0].stop.mock.calls.some((call) => call.length === 0)).toBe(false);
+  expect(outgoing.bufferShapes()).toHaveLength(1);
   vi.advanceTimersByTime(1000);
+  expect(outgoing.bufferShapes()).toEqual([]);
+  expect(incoming.bufferShapes()).toHaveLength(1);
   await incoming.dispose();
   await engine.close();
 });
@@ -964,4 +968,56 @@ describe("shared store-owned audio", () => {
     ).rejects.toThrow("preload cancelled");
     expect(liveAudio().length).toBe(before.length);
   });
+});
+
+it("reads canonical track duration without requesting a sample view", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const engine = createPlaybackEngine();
+  const buffer = Context.instances.at(-1)!.createBuffer(2, 44100, 44100);
+  buffer.getChannelData.mockImplementation(() => {
+    throw new Error("metadata requested samples");
+  });
+  const audio = { sampleRate: 44100, channels: [] as Float32Array[] };
+  sharePlaybackPcm(audio, buffer as unknown as AudioBuffer);
+  const player = await StemPlayer.create({ other: audio }, engine, {}, async () => {}, 1, { sharePcm: true });
+  expect(player.duration).toBe(1);
+  expect(player.bufferShapes()[0].key).toBe(buffer);
+  expect(buffer.getChannelData).not.toHaveBeenCalled();
+  await player.dispose();
+});
+
+it("drops disposed player buffers and ended callbacks without clearing another PCM owner's samples", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const audio = { sampleRate: 44100, channels: [new Float32Array([0.25, -0.5])] };
+  const player = new StemPlayer({ other: audio }, undefined, {}, "now", 1, { sharePcm: true });
+  await player.play();
+  const ctx = Context.instances.at(-1)!;
+  const source = ctx.sources[0];
+  expect(source.onended).not.toBeNull();
+  await player.dispose();
+  expect(player.bufferShapes()).toEqual([]);
+  expect(source.onended).toBeNull();
+  expect(source.disconnect).toHaveBeenCalled();
+  expect(audio.channels[0]).toEqual(new Float32Array([0.25, -0.5]));
+  await player.dispose();
+});
+
+it("does not allocate click buffers when pending samples finish after disposal", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  let ready!: (audio: ReturnType<typeof sample>) => void;
+  loadDrumSample.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        ready = resolve;
+      }),
+  );
+  const player = new StemPlayer({ other: pcm(1000) });
+  player.setMetronome({ mode: "off", bpm: 120, beats: 4, volume: 0.25, sound: "snare" });
+  await vi.waitFor(() => expect(loadDrumSample).toHaveBeenCalled());
+  const ctx = Context.instances.at(-1)!;
+  const create = vi.spyOn(ctx, "createBuffer");
+  await player.dispose();
+  ready(sample(38));
+  await decoded();
+  expect(create).not.toHaveBeenCalled();
 });
