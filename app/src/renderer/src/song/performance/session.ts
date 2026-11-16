@@ -557,6 +557,7 @@ export class PerformanceSession {
       void player.dispose();
       // React callbacks and a consumed handover can outlive this song. They may keep the session object, but must not keep its audio.
       if (this.state.player === player) {
+        this.view = NO_VIEW;
         this.baseStems = null;
         this.renders.clear();
         this.renderRequest++;
@@ -701,6 +702,7 @@ export class PerformanceSession {
       effect.last = undefined;
     }
     this.bound = false;
+    this.view = NO_VIEW;
   }
 
   /** Pushes values owned by other stores. Only changed values cause effects to re-run. */

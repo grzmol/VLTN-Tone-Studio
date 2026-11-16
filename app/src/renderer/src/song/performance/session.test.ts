@@ -1294,6 +1294,21 @@ describe("remote actions", () => {
     session.dispose();
   });
 
+  it("releases the old view callbacks on disposal and accepts a new view after binding again", () => {
+    const { session, view } = remoteSession();
+    session.keyDown(press("t"));
+    expect(view.tap).toHaveBeenCalledTimes(1);
+    session.dispose();
+    session.keyDown(press("t"));
+    expect(view.tap).toHaveBeenCalledTimes(1);
+    const tap = vi.fn();
+    session.bind();
+    session.setView({ ...view, tap });
+    session.keyDown(press("t"));
+    expect(tap).toHaveBeenCalledTimes(1);
+    session.dispose();
+  });
+
   it("runs the tempo tap from the T key, and the key is ignored while typing in a field", () => {
     const { session, view } = remoteSession();
     session.keyDown(press("t"));
