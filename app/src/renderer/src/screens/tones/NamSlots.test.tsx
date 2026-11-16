@@ -21,17 +21,19 @@ afterEach(async () => {
 
 async function readSlots() {
   fireEvent.click(screen.getByRole("button", { name: "Read NAM slots" }));
-  await waitFor(() => expect(screen.getByText(/NAM slots 1–100/)).toBeTruthy());
-  fireEvent.click(screen.getByText(/NAM slots 1–100/));
+  await waitFor(() => expect(screen.getByText(/NAM slots 1–20/)).toBeTruthy());
+  fireEvent.click(screen.getByText(/NAM slots 1–20/));
 }
 
-it("lists the simulator's 100 NAM slots and confirms a rename without modifying its preset or SnapTones", async () => {
+it("lists the simulator's 20 usable NAM slots and confirms a rename without modifying its preset or SnapTones", async () => {
   const original = mock().editBuffer.slice();
   render(<NamSlots />);
   await readSlots();
-  expect(screen.getAllByRole("button", { name: /^Rename NAM slot/ })).toHaveLength(100);
+  expect(screen.getAllByRole("button", { name: /^Rename NAM slot/ })).toHaveLength(20);
   expect(screen.queryByRole("button", { name: "Rename NAM slot 0" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Rename NAM slot 100" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Rename NAM slot 21" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Rename NAM slot 100" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Rename NAM slot 20" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Rename NAM slot 1" }));
   fireEvent.change(screen.getByRole("textbox", { name: "NAM name" }), { target: { value: "Lead NAM" } });
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

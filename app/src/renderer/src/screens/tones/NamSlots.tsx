@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SLOTS } from "@/gp150/lib/protocol.mjs";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -83,7 +84,7 @@ function NamSlotsPanel() {
       {nams && (
         <Collapsible>
           <CollapsibleTrigger className="text-[12px] font-semibold underline underline-offset-4">
-            NAM slots 1–100 · {nams.filter((s) => s.kind !== "empty").length} used
+            NAM slots 1–{SLOTS.NAMS} · {nams.filter((s) => s.kind !== "empty").length} used
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 max-h-72 space-y-1 overflow-auto">
             {nams.map((slot) => (

@@ -31,10 +31,10 @@ it("defers unsolicited NAM reads during playback and catches up once on stop", a
 
 it("clears the NAM table on a new connection and gates the feature on other families", async () => {
   await useDevice.getState().readNams();
-  expect(useDevice.getState().nams).toHaveLength(100);
+  expect(useDevice.getState().nams).toHaveLength(20);
   await useDevice.getState().connect("mock", { mockDevice: "gp150" });
   expect(useDevice.getState().nams).toBeNull();
-  expect(await useDevice.getState().readNams()).toHaveLength(100);
+  expect(await useDevice.getState().readNams()).toHaveLength(20);
   await useDevice.getState().connect("mock", { mockDevice: "gp200" });
   expect(useDevice.getState().nams).toBeNull();
   await expect(useDevice.getState().readNams()).rejects.toThrow("can't do this");

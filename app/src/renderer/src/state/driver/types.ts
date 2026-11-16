@@ -115,7 +115,7 @@ export interface DeviceDriver {
   // optional capabilities (DeviceFeature); absent features mean the members are absent or reject
   /** Capabilities of the connected model; empty until identified. */
   readonly features?: readonly DeviceFeature[];
-  /** "nam": NAM slots 1-100 (None excluded). */
+  /** "nam": NAM slots 1-20 (None excluded). */
   readNams?(): Promise<SlotName[]>;
   renameNam?(slot: number, name: string): Promise<void>;
   setNamMode?(mode: 0 | 1): Promise<void>;
