@@ -276,7 +276,7 @@ async function loadTrack(url: string, track: LibraryAudio, songId: string): Prom
   if (!response.ok) throw new Error(`Missing or damaged ${track.name} audio.`);
   const file = await response.arrayBuffer();
   if (track.bytes !== undefined && file.byteLength !== track.bytes) throw new Error(`Missing or damaged ${track.name} audio.`);
-  const audio = await decodeTrack(file);
+  const audio = await decodeTrack(file, { playback: track });
   if (audio.channels.length !== track.channels || audio.channels[0].length !== track.frames || audio.sampleRate !== track.sampleRate)
     throw new Error(`Missing or damaged ${track.name} audio.`);
   storedTrack.set(audio, { songId, track });
