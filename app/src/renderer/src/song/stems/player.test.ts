@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlaybackEngine } from "../audio/playback-engine";
 import { DEFAULT_OUTPUTS, type OutputConfig } from "../audio/outputs";
 import type { Stems } from "../types";
@@ -901,6 +901,7 @@ it("plays your own samples on the right beats, and the blip for an empty slot", 
   expect(loadDrumSample).not.toHaveBeenCalled();
   await player.dispose();
 });
+
 describe("shared store-owned audio", () => {
   it("reuses filled buffers without changing PCM identity or saved sample values", async () => {
     vi.stubGlobal("AudioContext", Context);
