@@ -58,10 +58,10 @@ let mockDevice: DeviceKey = DEFAULT_DEVICE;
 let reconnects = 0;
 let userDisconnected = false;
 let resyncTimer: number | undefined;
-const listTimers: Partial<Record<"presets" | "snaptones" | "irs", number>> = {};
+const listTimers: Partial<Record<"presets" | "snaptones" | "irs" | "nams", number>> = {};
 /** Reads the pedal asked for while a performance was using it; one catch-up read each runs when the performance stops. */
 let pendingResync = false;
-const pendingLists = new Set<"presets" | "snaptones" | "irs">();
+const pendingLists = new Set<"presets" | "snaptones" | "irs" | "nams">();
 /** When a setting/global/assignment was last edited here (key → ms), to recognise the pedal's echoes. */
 const localEdits = new Map<string, number>();
 /** A connection attempt the user cancelled; checked after every await in connect(). */
@@ -247,7 +247,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     if (state.busy && !previous.busy) {
       // A read armed just before the performance started is held back with the rest.
       if (resyncTimer !== undefined) scheduleResync();
-      for (const list of ["presets", "snaptones", "irs"] as const) if (listTimers[list] !== undefined) scheduleListRead(list);
+      for (const list of ["presets", "snaptones", "irs", "nams"] as const) if (listTimers[list] !== undefined) scheduleListRead(list);
       return;
     }
     if (state.busy || !previous.busy) return;
@@ -260,7 +260,7 @@ export const useDevice = create<DeviceState>((set, get) => {
   });
 
   /** A name list changed on the pedal: re-read it (debounced; a running job re-reads what it changed itself). */
-  const scheduleListRead = (list: "presets" | "snaptones" | "irs") => {
+  const scheduleListRead = (list: "presets" | "snaptones" | "irs" | "nams") => {
     if (useStageActivity.getState().busy) {
       clearTimeout(listTimers[list]);
       listTimers[list] = undefined;
@@ -276,7 +276,8 @@ export const useDevice = create<DeviceState>((set, get) => {
       try {
         if (list === "presets") setNames(await d.readNames());
         else if (list === "snaptones") set({ snapTones: await d.readSnapTones() });
-        else set({ userIRs: await d.readUserIRs() });
+        else if (list === "nams" && d.readNams) set({ nams: await d.readNams() });
+        else if (list === "irs") set({ userIRs: await d.readUserIRs() });
       } catch (e) {
         noteError(e);
       }
@@ -290,7 +291,9 @@ export const useDevice = create<DeviceState>((set, get) => {
     if (e.type === "param") editLocal({ blocks: { [e.block]: { params: { [e.index]: e.value } } } });
     else if (e.type === "block") editLocal({ blocks: { [e.block]: { enabled: e.enabled } } });
     else if (e.type === "patchSetting" && !isEcho(`setting:${e.field}`)) {
-      if (e.field === "volume" || e.field === "bpm") editLocal({ [e.field]: e.value });
+      if (e.field === "namMode") {
+        if (e.value === 0 || e.value === 1) editLocal({ namMode: e.value });
+      } else if (e.field === "volume" || e.field === "bpm") editLocal({ [e.field]: e.value });
       else if (p.exp) editLocal({ exp: { [e.field]: e.value } });
     } else if (e.type === "footswitches" && !isEcho("footswitches")) editLocal({ footswitches: [e.fs1, e.fs2] });
     else if (e.type === "order" && !isEcho("order") && orderError(p.device, e.order) === null) editLocal({ order: e.order });
@@ -349,6 +352,7 @@ export const useDevice = create<DeviceState>((set, get) => {
         globalRecords: snap.globals?.records ?? null,
         firmware: snap.globals?.firmware ?? null,
         snapTones: null,
+        nams: null,
         userIRs: null,
         connectedAt: now,
         lastConnectedAt: now,
@@ -470,6 +474,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     lockedFeatures: [],
     gp50Extras: false,
     snapTones: null,
+    nams: null,
     userIRs: null,
     busy: null,
     disconnectReason: null,
@@ -673,6 +678,17 @@ export const useDevice = create<DeviceState>((set, get) => {
       if (d?.setBpm) sends.push("setting:bpm", () => d.setBpm!(v));
     },
 
+    setNamMode(mode) {
+      if (mode !== 0 && mode !== 1) throw new RangeError("Neural-model mode must be SnapTone (0) or NAM (1)");
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before changing neural-model mode");
+      if (!get().preset || get().preset!.namMode === mode) return;
+      editLocal({ namMode: mode });
+      touch("setting:namMode");
+      sends.push("setting:namMode", () => d.setNamMode!(mode));
+    },
+
     setExp(edit) {
       const p = get().preset;
       if (!p?.exp) throw new DeviceError("unsafe", `${p ? `${pedalName(p.device)} presets have` : "This preset has"} no EXP settings`);
@@ -833,6 +849,29 @@ export const useDevice = create<DeviceState>((set, get) => {
       const list = await requireDriver().readSnapTones();
       set({ snapTones: list });
       return list;
+    },
+
+    async readNams() {
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before reading NAM slots");
+      const list = await d.readNams!();
+      if (driver === d && get().status === "connected") set({ nams: list });
+      return list;
+    },
+
+    async renameNam(slot, name) {
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before renaming a NAM slot");
+      set({ busy: { kind: "manage", progress: 0, label: `Renaming NAM slot ${slot}` } });
+      try {
+        await d.renameNam!(slot, name);
+        const list = await d.readNams!();
+        if (driver === d && get().status === "connected") set({ nams: list });
+      } finally {
+        if (driver === d) set({ busy: null });
+      }
     },
 
     async uploadSnapTone(slot, name, file, opts) {

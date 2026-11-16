@@ -155,6 +155,7 @@ function gp150State(slot: number, prst: Uint8Array, device: DeviceKey): PresetSt
     order: p.chain,
     volume: p.volume,
     bpm: p.tempo,
+    namMode: p.namMode,
     // footswitches A and B, and C on the GP-180 (every file has room for three)
     footswitches: p.footswitches.slice(0, profileFor(device).ctrls).map(gp150.blocksOfMask),
     exp: null,
@@ -195,6 +196,8 @@ function toPatchEdits({ name, volume, bpm, order, footswitches, blocks, gp200: g
 
 /** A new .prst with `edits` applied (the input is not changed). Throws RangeError for edits the preset can't hold. */
 export function editPrst(prst: Uint8Array, edits: PresetEdits): Uint8Array {
+  if (edits.namMode !== undefined && (!isGp150(presetDevice(prst)) || (edits.namMode !== 0 && edits.namMode !== 1)))
+    throw new RangeError("NAM mode is 0 or 1 and belongs to GP-150/180 presets only");
   if (isGp5Family(presetDevice(prst))) {
     const { footswitches, gp200: g, ...rest } = edits;
     if (g) throw new RangeError("GP-5 family presets have no GP-200 fields");
@@ -202,12 +205,13 @@ export function editPrst(prst: Uint8Array, edits: PresetEdits): Uint8Array {
   }
   if (edits.exp) throw new RangeError("GP-200 and GP-150 presets have no GP-50 EXP settings");
   if (isGp150(presetDevice(prst))) {
-    const { name, volume, bpm, order, footswitches, blocks, gp200: g } = edits;
+    const { name, volume, bpm, namMode, order, footswitches, blocks, gp200: g } = edits;
     if (g) throw new RangeError("GP-150 presets have no GP-200 fields");
     return gp150.applyPatchEdits(prst, {
       name,
       volume: volume === undefined ? undefined : Math.max(0, Math.min(100, Math.trunc(volume))),
       tempo: bpm,
+      namMode,
       chain: order,
       blocks,
       footswitches,
