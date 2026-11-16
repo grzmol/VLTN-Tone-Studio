@@ -1021,3 +1021,38 @@ it("does not allocate click buffers when pending samples finish after disposal",
   await decoded();
   expect(create).not.toHaveBeenCalled();
 });
+
+it("clears stopped native source references while preserving the canonical buffer for resume", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const audio = { sampleRate: 100, channels: [new Float32Array([0.25, -0.5, 0.75])] };
+  const player = new StemPlayer({ other: audio }, undefined, {}, "now", 1, { sharePcm: true });
+  await player.play();
+  const ctx = Context.instances.at(-1)!;
+  const first = ctx.sources[0];
+  const buffer = first.buffer;
+  player.pause();
+  expect(first.buffer).toBeNull();
+  expect(first.onended).toBeNull();
+  expect(audio.channels[0]).toEqual(new Float32Array([0.25, -0.5, 0.75]));
+  await player.play();
+  expect(ctx.sources.at(-1)!.buffer).toBe(buffer);
+  await player.dispose();
+});
+
+it("clears a source replaced by a repeat without ending the song", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: pcm(1000) });
+  const ended = vi.fn();
+  player.onEnded = ended;
+  await player.play();
+  const ctx = Context.instances.at(-1)!;
+  const old = ctx.sources[0];
+  player.prepareJump(2, 5);
+  old.onended?.();
+  expect(old.buffer).toBeNull();
+  expect(old.onended).toBeNull();
+  expect(player.isPlaying).toBe(true);
+  expect(ended).not.toHaveBeenCalled();
+  expect(ctx.sources.at(-1)!.buffer).not.toBeNull();
+  await player.dispose();
+});

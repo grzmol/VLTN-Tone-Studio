@@ -108,6 +108,20 @@ export interface Join {
   lead: Lead;
 }
 
+/** Drops an ended or stopped node's native buffer reference. The player's canonical PCM is owned separately. */
+function releaseSource(source: AudioScheduledSourceNode): void {
+  source.onended = null;
+  if ("buffer" in source) source.buffer = null;
+  source.disconnect();
+}
+
+/** A one-shot buffer source frees its native reference when it ends, including sources replaced by a repeat. */
+function bufferSource(ctx: BaseAudioContext): AudioBufferSourceNode {
+  const source = ctx.createBufferSource();
+  source.onended = () => releaseSource(source);
+  return source;
+}
+
 /** Stops and forgets every click in `clicks`: blips and drum samples alike. */
 function silence(clicks: Set<AudioScheduledSourceNode>): void {
   for (const source of clicks) {
@@ -398,7 +412,7 @@ export class StemPlayer {
     const start = clickAt + (lead.countInBeats ?? 0) * interval;
     for (const name of this.names) {
       const v = this.voice(name);
-      const source = this.ctx.createBufferSource();
+      const source = bufferSource(this.ctx);
       source.buffer = v.buffer;
       source.connect(v.gain);
       source.start(start, from / this.rate);
@@ -548,7 +562,7 @@ export class StemPlayer {
     const previous: AudioBufferSourceNode[] = [];
     for (const name of this.names) {
       const v = this.voice(name);
-      const source = this.ctx.createBufferSource();
+      const source = bufferSource(this.ctx);
       source.buffer = render?.buffers[name] ?? v.buffer;
       source.connect(v.gain);
       source.start(when, to / rate);
@@ -661,7 +675,7 @@ export class StemPlayer {
       const pending = v.source!;
       pending.onended = null;
       pending.stop(0);
-      pending.disconnect();
+      releaseSource(pending);
       jump.previous[i].stop(end);
       v.source = jump.previous[i];
     });
@@ -803,7 +817,7 @@ export class StemPlayer {
     let sources: AudioScheduledSourceNode[];
     let stopAt: number | null = null;
     if (buffer) {
-      const sample = ctx.createBufferSource();
+      const sample = bufferSource(ctx);
       sample.buffer = buffer;
       gain.gain.setValueAtTime(volume * clickAccent(sound, beat), at);
       sources = [sample];
@@ -828,7 +842,7 @@ export class StemPlayer {
       into.add(source);
       source.onended = () => {
         into.delete(source);
-        source.disconnect();
+        releaseSource(source);
         if (--running === 0) gain.disconnect();
       };
       source.start(at);
@@ -956,6 +970,7 @@ export class StemPlayer {
     const leader = this.voice(this.names[0]);
     const ending = leader.source!;
     ending.onended = () => {
+      releaseSource(ending);
       if (!this.playing || leader.source !== ending) return;
       this.playing = false;
       if (this.next || this.handedOver) {
@@ -983,7 +998,7 @@ export class StemPlayer {
       if (!v.source) continue;
       v.source.onended = null;
       v.source.stop();
-      v.source.disconnect();
+      releaseSource(v.source);
       v.source = null;
     }
     if (this.prepared) {
@@ -991,7 +1006,7 @@ export class StemPlayer {
       for (const source of this.prepared.previous) {
         source.onended = null;
         source.stop();
-        source.disconnect();
+        releaseSource(source);
       }
       this.prepared = null;
     }
