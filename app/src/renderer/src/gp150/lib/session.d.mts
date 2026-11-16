@@ -66,6 +66,7 @@ export class Gp150Session extends EventTarget {
   readIrNames(): Promise<ListEntry[]>;
   /** SnapTone slots 1-100 */
   readSnapToneNames(): Promise<ListEntry[]>;
+  readNamNames(): Promise<ListEntry[]>;
   readGlobals(): Promise<{ firmware: string; values: Gp150Globals; eq: number[] | null }>;
   readEditBuffer(): Promise<{ slot: number; prst: Uint8Array }>;
   readPreset(slot: number): Promise<Uint8Array>;
@@ -84,5 +85,5 @@ export class Gp150Session extends EventTarget {
   renamePreset(slot: number, name: string, opts: { confirm: true }): Promise<{ slot: number; name: string }>;
   uploadUserIr(slot: number, name: string, samples: ArrayLike<number>, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<ListEntry>;
   uploadSnapTone(slot: number, name: string, file: Bytes, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<ListEntry>;
-  renameListSlot(kind: "ir" | "snaptone", slot: number, name: string, opts: { confirm: true }): Promise<number>;
+  renameListSlot(kind: "ir" | "snaptone" | "nam", slot: number, name: string, opts: { confirm: true }): Promise<number>;
 }

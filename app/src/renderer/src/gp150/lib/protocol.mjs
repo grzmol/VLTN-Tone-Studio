@@ -312,7 +312,11 @@ export const setCtrl = (record) => setRecord(CMD.CTRL, [...record]);
 /** Whole global-settings record `cmd` (0x2010..0x2060). */
 export const setGlobalRecord = (cmd, record) => setRecord(cmd, [...record]);
 /** Rename list slot `slot` (IR, SnapTone or NAM rename command). */
-export const rename = (cmd, slot, name) => setRecord(cmd, [...u32le(slot), ...nameField(name)], 4);
+export const rename = (cmd, slot, name) => {
+  // Both captured NAM renames use a SnapTone record inside the NAM envelope (0x1091 / 0x1051).
+  const record = cmd === CMD.NAM_RENAME ? CMD.SNAPTONE_RENAME : cmd;
+  return encodeMessage({ p: P.SET, cmd, payload: [...u16le(record), ...u16le(24), ...u32le(slot), ...nameField(name)] });
+};
 
 /** File upload into a list slot: [cmd][len][u32 slot][cmd][len][name16][8192 data] (both lengths are the outer one). */
 export function upload(cmd, slot, name, data) {
