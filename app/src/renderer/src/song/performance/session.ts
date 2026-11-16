@@ -543,6 +543,7 @@ export class PerformanceSession {
       if (!isPlainSpeed(speed)) void this.renderSpeed(speed);
     }
     this.playedTimer = setInterval(this.checkPlayed, PLAYED_CHECK_MS);
+    const id = source.libraryId;
     return () => {
       this.dropChained();
       if (this.playedTimer) clearInterval(this.playedTimer);
@@ -554,9 +555,17 @@ export class PerformanceSession {
         this.terminateWorker();
       }
       void player.dispose();
+      // React callbacks and a consumed handover can outlive this song. They may keep the session object, but must not keep its audio.
+      if (this.state.player === player) {
+        this.baseStems = null;
+        this.renders.clear();
+        this.renderRequest++;
+        this.pendingRender = null;
+        this.renderSwap = null;
+        this.set({ player: null, playing: false, rendering: null });
+      }
       // Leaving Performance pauses the set. Checked later, so that a remount on the same screen (StrictMode's re-run, an advance) is not
       // taken for leaving: the screen is still Performance, and the set is still on this song or has moved on.
-      const id = source.libraryId;
       setTimeout(() => {
         const library = useSongLibrary.getState();
         if (leftPerformance() && library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();

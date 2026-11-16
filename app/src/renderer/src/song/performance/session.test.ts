@@ -2140,3 +2140,30 @@ describe("Send cues stays on", () => {
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
   });
 });
+
+it("unloads the player and ignores an in-flight speed render after its song is released", async () => {
+  const { session, unload } = armedSession();
+  const samples = source.audio.channels[0].slice();
+  session.setSpeed({ rate: 0.8 });
+  unload();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(session.state.player).toBeNull();
+  expect(session.state.playing).toBe(false);
+  expect(session.state.rendering).toBeNull();
+  expect(mocks.applied).toHaveLength(0);
+  expect(source.audio.channels[0]).toEqual(samples);
+  session.dispose();
+});
+
+it("does not clear the replacement song when an older load cleanup runs later", async () => {
+  const { session, unload } = armedSession();
+  const nextUnload = session.loadSong({ ...source, name: "next.wav", libraryId: "next" }, null);
+  const current = session.state.player;
+  unload();
+  expect(session.state.player).toBe(current);
+  session.setSpeed({ rate: 0.8 });
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(mocks.applied).toHaveLength(1);
+  nextUnload();
+  session.dispose();
+});
