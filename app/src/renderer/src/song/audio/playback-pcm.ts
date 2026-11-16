@@ -19,10 +19,20 @@ export function sharedPlaybackBuffer(audio: PcmAudio): AudioBuffer | undefined {
 export function sharePlaybackPcm(audio: PcmAudio, buffer: AudioBuffer): void {
   const descriptor = Object.getOwnPropertyDescriptor(audio, "channels");
   if (!descriptor?.configurable) return;
+  // Waveforms and other memoized readers use the channel-list identity. Keep that list stable, while reading each individual
+  // channel afresh so a view detached by Web Audio is never cached here.
+  const channels = new Array<Float32Array>(buffer.numberOfChannels);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    Object.defineProperty(channels, channel, {
+      configurable: true,
+      enumerable: true,
+      get: () => buffer.getChannelData(channel),
+    });
+  }
   Object.defineProperty(audio, "channels", {
     configurable: true,
     enumerable: true,
-    get: () => Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel)),
+    get: () => channels,
     set: (channels: Float32Array[]) => {
       buffers.delete(audio);
       Object.defineProperty(audio, "channels", { value: channels, writable: true, configurable: true, enumerable: true });

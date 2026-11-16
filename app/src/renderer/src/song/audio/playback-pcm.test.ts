@@ -27,6 +27,9 @@ it("preserves PCM identity, samples, depth and enumerable channels when a filled
   const { audio, buffer } = fixture();
   const stored = new WeakMap([[audio, "saved FLAC"]]);
   sharePlaybackPcm(audio, buffer);
+  const channels = audio.channels;
+  expect(audio.channels).toBe(channels);
+  expect(buffer.getChannelData).not.toHaveBeenCalled();
   expect(sharedPlaybackBuffer(audio)).toBe(buffer);
   expect(stored.get(audio)).toBe("saved FLAC");
   expect(audio.bits).toBe(24);
