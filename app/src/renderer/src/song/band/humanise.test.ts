@@ -38,6 +38,47 @@ const deviation = (values: number[]): number => {
   return Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
 };
 
+describe("humanise: velocity layers (spec 133)", () => {
+  // One bar of eighth hats at velocity 90: eight hats a quarter second apart.
+  const eighths = hits(CLOSED_HAT, Array.from({ length: 8 }, (_, i) => 4 + i * 0.25));
+
+  it("puts on-beat and off-beat eighth hats at least 10 apart at amount 0.5", () => {
+    const out = humanise(eighths, "drums", grid, rockPlans, settingsOf(0.5), 3);
+    const velocities = out.map((note) => note.velocity);
+    const onBeat = mean(velocities.filter((_, i) => i % 2 === 0));
+    const offBeat = mean(velocities.filter((_, i) => i % 2 === 1));
+    expect(onBeat - offBeat).toBeGreaterThanOrEqual(10);
+  });
+
+  it("makes the second and fourth hat of four in a beat 12 softer at full amount", () => {
+    // Four sixteenths in beat 8 (time 4 to 4.5); another beat with only two hats is left alone.
+    const input = [...hits(CLOSED_HAT, [4, 4.125, 4.25, 4.375]), ...hits(CLOSED_HAT, [6, 6.25])];
+    // Averaged over many seeds the random spread cancels, so compare the means.
+    const gap = mean(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((seed) => {
+        const o = humanise(input, "drums", grid, rockPlans, settingsOf(1, "tight"), seed);
+        const v = (time: number): number => o.reduce((best, n) => (Math.abs(n.time - time) < Math.abs(best.time - time) ? n : best)).velocity;
+        return (v(4) + v(4.25) - v(4.125) - v(4.375)) / 2;
+      }),
+    );
+    expect(gap).toBeGreaterThan(18);
+  });
+
+  it("lets hats spread half as far again as the other drums", () => {
+    const spreadOf = (pitch: number): number => {
+      const values = Array.from({ length: 40 }, (_, seed) => humanise(hits(pitch, [4]), "drums", grid, rockPlans, settingsOf(1, "tight"), seed)[0].velocity);
+      return deviation(values);
+    };
+    // The kick on the downbeat has a fixed accent, so only its spread varies between seeds.
+    expect(spreadOf(CLOSED_HAT)).toBeGreaterThan(spreadOf(KICK) * 1.3);
+  });
+
+  it("leaves the kick's and snare's own velocities alone apart from the existing accents", () => {
+    const out = humanise(hits(SNARE, [4.5], 100), "drums", grid, rockPlans, settingsOf(0, "tight"), 1);
+    expect(out[0].velocity).toBe(100);
+  });
+});
+
 describe("humanise", () => {
   it("at amount 0 returns the same notes, the same objects, in the same order", () => {
     const input = [...hits(KICK, [0, 1]), ...hits(SNARE, [0.5])].sort((a, b) => a.time - b.time);
@@ -151,3 +192,24 @@ describe("humanise", () => {
     for (const note of out) expect(Math.abs(note.velocity - 90)).toBeLessThanOrEqual(4);
   });
 });
+
+describe("humanise bass techniques", () => {
+  const slide: NoteEvent = { time: 2, pitch: 40, velocity: 90, duration: 0.4, slideFrom: 2 };
+  const dead: NoteEvent = { time: 3.4, pitch: 40, velocity: 30, duration: 0.04, dead: true };
+
+  it("keeps a slide and a dead note, and leaves the dead note's velocity and length alone", () => {
+    for (const amount of [0.5, 1]) {
+      const [first, second] = humanise([slide, dead], "bass", grid, rockPlans, settingsOf(amount, "laid-back"), 7);
+      expect(first.slideFrom).toBe(2);
+      expect(second.dead).toBe(true);
+      expect(second.velocity).toBe(30);
+      expect(second.duration).toBe(0.04);
+    }
+  });
+
+  it("still moves a dead note in time", () => {
+    const [out] = humanise([dead], "bass", grid, rockPlans, settingsOf(1, "laid-back"), 7);
+    expect(out.time).not.toBe(dead.time);
+  });
+});
+
