@@ -104,7 +104,7 @@ describe("bass samples are in tune", () => {
   });
 
   it("renders each note in the test set at its pitch, from the nearest root", () => {
-    const set: SampleSet = sampleSetFrom(SAMPLE_MAP, (file) => decoded.get(file) ?? { sampleRate: RENDER_RATE, channels: [new Float32Array(1)] });
+    const set: SampleSet = sampleSetFrom(SAMPLE_MAP, "standard", (file) => decoded.get(file) ?? { sampleRate: RENDER_RATE, channels: [new Float32Array(1)] });
     for (const midi of RENDER_NOTES) {
       const length = Math.round(2.5 * RENDER_RATE);
       const { audio } = renderPart([{ time: 0, pitch: midi, velocity: 90, duration: 2 }], "bass", set, length);
