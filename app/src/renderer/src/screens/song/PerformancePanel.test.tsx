@@ -117,7 +117,7 @@ const mocks = vi.hoisted(() => ({
 const noTracks = vi.hoisted(() => ({}));
 vi.mock("@/song/store", () => ({
   useSong: Object.assign((select: (s: unknown) => unknown) => select({ source: mocks.source, stems: null, tracks: noTracks, status: { kind: "idle" } }), {
-    getState: () => ({ source: mocks.source }),
+    getState: () => ({ source: mocks.source, checkMissingParts: vi.fn() }),
   }),
   selectWholeSongStems: (s: { stems: unknown }) => s.stems,
   partSplitNote: () => null,
@@ -720,6 +720,7 @@ it("uses the latest song tempo and channel when remote MIDI starts playback", as
   fireEvent.click(screen.getByLabelText("Send cues"));
   fireEvent.click(screen.getByLabelText("Send song BPM to GP-150 / GP-180 on playback start"));
   fireEvent.change(screen.getByLabelText("BPM"), { target: { value: "141" } });
+  fireEvent.blur(screen.getByLabelText("BPM"));
   fireEvent.change(screen.getByLabelText("GP-150 / GP-180 tempo channel"), { target: { value: "15" } });
   mocks.send.mockClear();
   await act(async () => {
@@ -755,6 +756,7 @@ it("preserves the song key when mixer, tempo and metronome options are saved", (
   fireEvent.change(screen.getByLabelText("Song key override"), { target: { value: "D minor" } });
   fireEvent.change(screen.getByLabelText("Song volume"), { target: { value: "0.35" } });
   fireEvent.change(screen.getByLabelText("BPM"), { target: { value: "100" } });
+  fireEvent.blur(screen.getByLabelText("BPM"));
   fireEvent.change(screen.getByLabelText("Metronome mode"), { target: { value: "playing" } });
   view.unmount();
   render(<PerformancePanel />);
@@ -909,6 +911,7 @@ it("saves a tempo the performer types, with its source", () => {
   localStorage.clear();
   render(<PerformancePanel />);
   fireEvent.change(screen.getByLabelText("BPM"), { target: { value: "98" } });
+  fireEvent.blur(screen.getByLabelText("BPM"));
   const bpmKey = Object.keys(localStorage).find((k) => k.endsWith(":bpm"));
   expect(bpmKey && localStorage.getItem(bpmKey)).toBe("98");
   const optionsKey = Object.keys(localStorage).find((k) => k.endsWith(":options"));

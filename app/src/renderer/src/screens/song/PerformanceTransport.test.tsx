@@ -66,11 +66,15 @@ it("commits on Enter and clamps to the range", () => {
   expect(onCommit).toHaveBeenLastCalledWith(300);
 });
 
-it("sets a stepped whole number in range at once, without waiting for blur", () => {
+it("keeps valid intermediate BPM values local until the edit is committed", () => {
   const onCommit = vi.fn();
   render(<Host initial={120} onCommit={onCommit} />);
   fireEvent.change(bpmInput(), { target: { value: "121" } });
-  expect(onCommit).toHaveBeenLastCalledWith(121);
+  expect(onCommit).not.toHaveBeenCalled();
+  fireEvent.change(bpmInput(), { target: { value: "125" } });
+  expect(onCommit).not.toHaveBeenCalled();
+  fireEvent.blur(bpmInput());
+  expect(onCommit).toHaveBeenCalledExactlyOnceWith(125);
 });
 
 it("restores the current BPM on Escape without committing", () => {
