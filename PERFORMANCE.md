@@ -422,7 +422,7 @@ If the grid is wrong, correct it:
 
 **Generate, Try another, Remove, Preview and Export MIDI.**
 
-- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Changing a setting does not regenerate anything. The panel says "Parts out of date" until you press Generate again.
+- **Generate** writes the parts into the song as two tracks, **Drums (generated)** and **Bass (generated)**. Once generated parts exist, musical changes refresh them automatically while stopped, even with the panel closed. Opening a saved song keeps its parts and drummer timing grid, including parts deliberately left out of date. Tempo edits commit on Enter or when leaving the field. Play uses the existing parts immediately; a failed background update shows a warning. Trims and mixer changes reuse the full-length audio. Imported rendered parts are preserved.
 - **Try another** keeps your settings and makes a different take.
 - **Remove generated parts** takes both generated tracks out of the song. Your own tracks stay.
 - **Preview** plays the parts over the song, from the section you pick in the menu next to it (or from the playhead), for the whole section, 4 bars or 8 bars. **Stop preview** ends it early. The buttons stay at the bottom of the dialog, and after **Generate** the bar offers **Close** and **Play from** the selected section.
@@ -510,3 +510,5 @@ Band sync lets bandmates follow the song on their own phones or tablets over the
 - Chord estimates cover the common chord types only: no extended chords such as ninths or altered chords. Key estimates are less certain for modal music, relative keys and key changes, and a key in a section is only listed when it is clear. Lyrics from Whisper can be wrong. The project has not yet measured chord accuracy on real recordings.
 - Pedal profiles come from manuals and are tested at byte level. Only the GP-180 and TimeLine results above come from real hardware.
 - Bluetooth editor management and RTP-MIDI are not supported.
+
+Generated drums rotate recorded takes and blend adjacent velocity layers. **Room** mixes a built-in stereo room unless the drum tone already has an active space block. **Kit** chooses Standard or Standard, heavier; Automatic picks the heavier voicing for rock, metal and half-time styles.
