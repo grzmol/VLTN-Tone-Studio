@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { decodeTrack, disposePlaybackDecoders } from "./flac-client";
+import { decodeTrack } from "./flac-client";
 import { sharedPlaybackBuffer } from "../audio/playback-pcm";
 import type { FlacResponse } from "./flac-worker";
 
@@ -37,7 +37,6 @@ function setup() {
   vi.stubGlobal("AudioBuffer", BufferStub);
 }
 afterEach(() => {
-  disposePlaybackDecoders();
   vi.unstubAllGlobals();
   BufferStub.created = [];
 });
@@ -60,13 +59,8 @@ it("fills one canonical playback buffer and returns each scratch chunk only afte
   expect(audio.bits).toBe(24);
   expect(Array.from(audio.channels[0])).toEqual([0.25, -0.5, 1, 0.75, 0]);
   expect(Array.from(audio.channels[1])).toEqual([0, 0.5, -1, -0.25, 0]);
-  expect(worker.terminate).not.toHaveBeenCalled();
+  expect(worker.terminate).toHaveBeenCalledOnce();
   expect(worker.onmessage).toBeNull();
-  const next = decodeTrack(new ArrayBuffer(1), { playback: { frames: 5, channels: 1, sampleRate: 44100 } });
-  expect(WorkerStub.latest).toBe(worker);
-  const rejected = expect(next).rejects.toThrow("next track damaged");
-  worker.reply({ ok: false, error: "next track damaged" });
-  await rejected;
 });
 
 it("rejects wrong metadata before allocating any playback storage", async () => {
@@ -91,22 +85,4 @@ it.each(["gap", "overrun", "truncated", "decoder-error"])("rejects %s and ends t
   await rejection;
   expect(worker.terminate).toHaveBeenCalledOnce();
   expect(worker.onmessage).toBeNull();
-});
-
-it("rejects a pending decode on page shutdown and can decode after restoration", async () => {
-  setup();
-  const expected = { frames: 1, channels: 1, sampleRate: 44100 };
-  const pending = decodeTrack(new ArrayBuffer(1), { playback: expected });
-  const failed = expect(pending).rejects.toThrow("page closed");
-  const old = WorkerStub.latest;
-  window.dispatchEvent(new Event("pagehide"));
-  await failed;
-  expect(old.terminate).toHaveBeenCalledOnce();
-  const next = decodeTrack(new ArrayBuffer(1), { playback: expected });
-  const worker = WorkerStub.latest;
-  expect(worker).not.toBe(old);
-  worker.reply({ ok: true, header: { ...expected, bits: 16 } });
-  worker.reply({ ok: true, chunk: { channels: [new Float32Array([0.5])], offset: 0 } });
-  worker.reply({ ok: true, done: true });
-  expect((await next).channels[0][0]).toBe(0.5);
 });

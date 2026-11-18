@@ -2,7 +2,7 @@ import { decodeFlac, decodeFlacTo, encodeFlac, loadFlacWasm, type FlacAudio, typ
 // Vite emits the WASM decoder as a file of the bundle; the decoder fetches it from this URL in the worker.
 import flacWasmUrl from "libflacjs/dist/libflac.wasm.wasm?url";
 
-/** One FLAC job at a time per worker. Library playback reuses two decoder heaps. */
+/** One FLAC job per worker. Library track loading bounds concurrent decodes to keep these decoder heaps small. */
 export type FlacRequest =
   { kind: "encode"; audio: FlacAudio } | { kind: "decode" | "decode-playback"; bytes: Uint8Array } | { kind: "continue"; buffers?: ArrayBuffer[] };
 export type FlacResponse =
