@@ -1,3 +1,4 @@
+import { registerBandRefresh } from "@/song/band/refresh";
 import { clearSettingsCache } from "./settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StemPlayer } from "@/song/stems/player";
@@ -325,6 +326,22 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+it("starts immediately even when a background band update has not finished", async () => {
+  const refresh = vi.fn(() => new Promise<void>(() => {}));
+  const unregister = registerBandRefresh("vltn.performance.library:a", refresh);
+  const { session, unload } = armedSession();
+  try {
+    await session.play();
+    expect(session.state.playing).toBe(true);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(session.armed).toBe(true);
+  } finally {
+    unregister();
+    unload();
+    session.dispose();
+  }
 });
 
 it("restores arming handed over by the previous song only for the same output object", () => {

@@ -1,294 +1,1229 @@
 {
   "sampleRate": 44100,
-  "drums": {
-    "36": {
-      "name": "kick",
-      "layers": [
-        {
-          "file": "drums/kick-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_kick_snon_vl2_rr1.flac"
+  "room": "room/drum-room.flac",
+  "kits": {
+    "standard": {
+      "name": "Standard",
+      "drums": {
+        "36": {
+          "name": "kick",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                47
+              ],
+              "nominal": 31,
+              "files": [
+                "drums/kick-v1-rr1.flac",
+                "drums/kick-v1-rr2.flac",
+                "drums/kick-v1-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl1_rr1.flac, mid_kick_snon_vl1_rr2.flac, mid_kick_snon_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                48,
+                79
+              ],
+              "nominal": 63,
+              "files": [
+                "drums/kick-v2-rr1.flac",
+                "drums/kick-v2-rr2.flac",
+                "drums/kick-v2-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl2_rr1.flac, mid_kick_snon_vl2_rr2.flac, mid_kick_snon_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                80,
+                111
+              ],
+              "nominal": 95,
+              "files": [
+                "drums/kick-v3-rr1.flac",
+                "drums/kick-v3-rr2.flac",
+                "drums/kick-v3-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl3_rr1.flac, mid_kick_snon_vl3_rr2.flac, mid_kick_snon_vl3_rr3.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/kick-v4-rr1.flac",
+                "drums/kick-v4-rr2.flac",
+                "drums/kick-v4-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl4_rr1.flac, mid_kick_snon_vl4_rr2.flac, mid_kick_snon_vl4_rr3.flac"
+            }
+          ]
         },
-        {
-          "file": "drums/kick-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_kick_snon_vl3_rr1.flac"
+        "37": {
+          "name": "crossstick",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/crossstick-v1.flac"
+              ],
+              "source": "mid_snare_crossstick_vl4.flac"
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/crossstick-v2.flac"
+              ],
+              "source": "mid_snare_crossstick_vl7.flac"
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/crossstick-v3.flac"
+              ],
+              "source": "mid_snare_crossstick_vl10.flac"
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/crossstick-v4.flac"
+              ],
+              "source": "mid_snare_crossstick_vl13.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/crossstick-v5.flac"
+              ],
+              "source": "mid_snare_crossstick_vl15.flac"
+            }
+          ]
         },
-        {
-          "file": "drums/kick-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_kick_snon_vl4_rr1.flac"
+        "38": {
+          "name": "snare",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                42
+              ],
+              "nominal": 28,
+              "files": [
+                "drums/snare-v1-rr1.flac",
+                "drums/snare-v1-rr2.flac",
+                "drums/snare-v1-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl8.flac, mid_snare_center_vl7.flac, mid_snare_center_vl9.flac"
+            },
+            {
+              "velocity": [
+                43,
+                68
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/snare-v2-rr1.flac",
+                "drums/snare-v2-rr2.flac",
+                "drums/snare-v2-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl16.flac, mid_snare_center_vl15.flac, mid_snare_center_vl17.flac"
+            },
+            {
+              "velocity": [
+                69,
+                90
+              ],
+              "nominal": 81,
+              "files": [
+                "drums/snare-v3-rr1.flac",
+                "drums/snare-v3-rr2.flac",
+                "drums/snare-v3-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl23.flac, mid_snare_center_vl22.flac, mid_snare_center_vl24.flac"
+            },
+            {
+              "velocity": [
+                91,
+                109
+              ],
+              "nominal": 99,
+              "files": [
+                "drums/snare-v4-rr1.flac",
+                "drums/snare-v4-rr2.flac",
+                "drums/snare-v4-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl28.flac, mid_snare_center_vl27.flac, mid_snare_center_vl29.flac"
+            },
+            {
+              "velocity": [
+                110,
+                127
+              ],
+              "nominal": 120,
+              "files": [
+                "drums/snare-v5-rr1.flac",
+                "drums/snare-v5-rr2.flac",
+                "drums/snare-v5-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl34.flac, mid_snare_center_vl33.flac, mid_snare_center_vl35.flac"
+            }
+          ]
+        },
+        "42": {
+          "name": "hat-closed",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                47
+              ],
+              "nominal": 31,
+              "files": [
+                "drums/hat-closed-v1-rr1.flac",
+                "drums/hat-closed-v1-rr2.flac",
+                "drums/hat-closed-v1-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl1_rr1.flac, mid_hh_closed_vl1_rr2.flac, mid_hh_closed_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                48,
+                79
+              ],
+              "nominal": 63,
+              "files": [
+                "drums/hat-closed-v2-rr1.flac",
+                "drums/hat-closed-v2-rr2.flac",
+                "drums/hat-closed-v2-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl2_rr1.flac, mid_hh_closed_vl2_rr2.flac, mid_hh_closed_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                80,
+                111
+              ],
+              "nominal": 95,
+              "files": [
+                "drums/hat-closed-v3-rr1.flac",
+                "drums/hat-closed-v3-rr2.flac",
+                "drums/hat-closed-v3-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl3_rr1.flac, mid_hh_closed_vl3_rr2.flac, mid_hh_closed_vl3_rr3.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-closed-v4-rr1.flac",
+                "drums/hat-closed-v4-rr2.flac",
+                "drums/hat-closed-v4-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl4_rr1.flac, mid_hh_closed_vl4_rr2.flac, mid_hh_closed_vl4_rr3.flac"
+            }
+          ]
+        },
+        "44": {
+          "name": "hat-pedal",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/hat-pedal-v1-rr1.flac",
+                "drums/hat-pedal-v1-rr2.flac",
+                "drums/hat-pedal-v1-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl1_rr1.flac, mid_hh_pedal_vl1_rr2.flac, mid_hh_pedal_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/hat-pedal-v2-rr1.flac",
+                "drums/hat-pedal-v2-rr2.flac",
+                "drums/hat-pedal-v2-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl2_rr1.flac, mid_hh_pedal_vl2_rr2.flac, mid_hh_pedal_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-pedal-v3-rr1.flac",
+                "drums/hat-pedal-v3-rr2.flac",
+                "drums/hat-pedal-v3-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl3_rr1.flac, mid_hh_pedal_vl3_rr2.flac, mid_hh_pedal_vl3_rr3.flac"
+            }
+          ]
+        },
+        "45": {
+          "name": "tom-low",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-low-v1.flac"
+              ],
+              "source": "mid_ltom_center_vl4.flac"
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-low-v2.flac"
+              ],
+              "source": "mid_ltom_center_vl7.flac"
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-low-v3.flac"
+              ],
+              "source": "mid_ltom_center_vl10.flac"
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-low-v4.flac"
+              ],
+              "source": "mid_ltom_center_vl13.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-low-v5.flac"
+              ],
+              "source": "mid_ltom_center_vl15.flac"
+            }
+          ]
+        },
+        "46": {
+          "name": "hat-open",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/hat-open-v1-rr1.flac",
+                "drums/hat-open-v1-rr2.flac",
+                "drums/hat-open-v1-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl1_rr1.flac, mid_hh_open_vl1_rr2.flac, mid_hh_open_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/hat-open-v2-rr1.flac",
+                "drums/hat-open-v2-rr2.flac",
+                "drums/hat-open-v2-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl2_rr1.flac, mid_hh_open_vl2_rr2.flac, mid_hh_open_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-open-v3-rr1.flac",
+                "drums/hat-open-v3-rr2.flac",
+                "drums/hat-open-v3-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl3_rr1.flac, mid_hh_open_vl3_rr2.flac, mid_hh_open_vl3_rr3.flac"
+            }
+          ]
+        },
+        "47": {
+          "name": "tom-mid",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-low-v1.flac"
+              ],
+              "source": "mid_ltom_center_vl4.flac",
+              "transpose": 3
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-low-v2.flac"
+              ],
+              "source": "mid_ltom_center_vl7.flac",
+              "transpose": 3
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-low-v3.flac"
+              ],
+              "source": "mid_ltom_center_vl10.flac",
+              "transpose": 3
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-low-v4.flac"
+              ],
+              "source": "mid_ltom_center_vl13.flac",
+              "transpose": 3
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-low-v5.flac"
+              ],
+              "source": "mid_ltom_center_vl15.flac",
+              "transpose": 3
+            }
+          ]
+        },
+        "49": {
+          "name": "crash",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/crash-v1.flac"
+              ],
+              "source": "mid_crash_crash_vl1_rr1.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/crash-v2.flac"
+              ],
+              "source": "mid_crash_crash_vl2_rr1.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/crash-v3.flac"
+              ],
+              "source": "mid_crash_crash_vl3_rr1.flac"
+            }
+          ]
+        },
+        "50": {
+          "name": "tom-high",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-high-v1.flac"
+              ],
+              "source": "mid_htom_center_vl4.flac"
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-high-v2.flac"
+              ],
+              "source": "mid_htom_center_vl7.flac"
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-high-v3.flac"
+              ],
+              "source": "mid_htom_center_vl10.flac"
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-high-v4.flac"
+              ],
+              "source": "mid_htom_center_vl13.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-high-v5.flac"
+              ],
+              "source": "mid_htom_center_vl15.flac"
+            }
+          ]
+        },
+        "51": {
+          "name": "ride",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/ride-v1-rr1.flac",
+                "drums/ride-v1-rr2.flac",
+                "drums/ride-v1-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl1_rr1.flac, mid_ride_ride_vl1_rr2.flac, mid_ride_ride_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/ride-v2-rr1.flac",
+                "drums/ride-v2-rr2.flac",
+                "drums/ride-v2-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl2_rr1.flac, mid_ride_ride_vl2_rr2.flac, mid_ride_ride_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/ride-v3-rr1.flac",
+                "drums/ride-v3-rr2.flac",
+                "drums/ride-v3-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl3_rr1.flac, mid_ride_ride_vl3_rr2.flac, mid_ride_ride_vl3_rr3.flac"
+            }
+          ]
         }
-      ]
+      }
     },
-    "37": {
-      "name": "crossstick",
-      "layers": [
-        {
-          "file": "drums/crossstick-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_snare_crossstick_vl6.flac"
+    "rock": {
+      "name": "Standard, heavier",
+      "roomScale": 1.6,
+      "voicing": {
+        "kickThump": true,
+        "snareShelfDb": 4
+      },
+      "drums": {
+        "36": {
+          "name": "kick",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                47
+              ],
+              "nominal": 31,
+              "files": [
+                "drums/kick-v1-rr1.flac",
+                "drums/kick-v1-rr2.flac",
+                "drums/kick-v1-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl1_rr1.flac, mid_kick_snon_vl1_rr2.flac, mid_kick_snon_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                48,
+                79
+              ],
+              "nominal": 63,
+              "files": [
+                "drums/kick-v2-rr1.flac",
+                "drums/kick-v2-rr2.flac",
+                "drums/kick-v2-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl2_rr1.flac, mid_kick_snon_vl2_rr2.flac, mid_kick_snon_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                80,
+                111
+              ],
+              "nominal": 95,
+              "files": [
+                "drums/kick-v3-rr1.flac",
+                "drums/kick-v3-rr2.flac",
+                "drums/kick-v3-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl3_rr1.flac, mid_kick_snon_vl3_rr2.flac, mid_kick_snon_vl3_rr3.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/kick-v4-rr1.flac",
+                "drums/kick-v4-rr2.flac",
+                "drums/kick-v4-rr3.flac"
+              ],
+              "source": "mid_kick_snon_vl4_rr1.flac, mid_kick_snon_vl4_rr2.flac, mid_kick_snon_vl4_rr3.flac"
+            }
+          ]
         },
-        {
-          "file": "drums/crossstick-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_snare_crossstick_vl11.flac"
+        "37": {
+          "name": "crossstick",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/crossstick-v1.flac"
+              ],
+              "source": "mid_snare_crossstick_vl4.flac"
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/crossstick-v2.flac"
+              ],
+              "source": "mid_snare_crossstick_vl7.flac"
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/crossstick-v3.flac"
+              ],
+              "source": "mid_snare_crossstick_vl10.flac"
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/crossstick-v4.flac"
+              ],
+              "source": "mid_snare_crossstick_vl13.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/crossstick-v5.flac"
+              ],
+              "source": "mid_snare_crossstick_vl15.flac"
+            }
+          ]
         },
-        {
-          "file": "drums/crossstick-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_snare_crossstick_vl15.flac"
+        "38": {
+          "name": "snare",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                42
+              ],
+              "nominal": 28,
+              "files": [
+                "drums/snare-v1-rr1.flac",
+                "drums/snare-v1-rr2.flac",
+                "drums/snare-v1-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl8.flac, mid_snare_center_vl7.flac, mid_snare_center_vl9.flac"
+            },
+            {
+              "velocity": [
+                43,
+                68
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/snare-v2-rr1.flac",
+                "drums/snare-v2-rr2.flac",
+                "drums/snare-v2-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl16.flac, mid_snare_center_vl15.flac, mid_snare_center_vl17.flac"
+            },
+            {
+              "velocity": [
+                69,
+                90
+              ],
+              "nominal": 81,
+              "files": [
+                "drums/snare-v3-rr1.flac",
+                "drums/snare-v3-rr2.flac",
+                "drums/snare-v3-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl23.flac, mid_snare_center_vl22.flac, mid_snare_center_vl24.flac"
+            },
+            {
+              "velocity": [
+                91,
+                109
+              ],
+              "nominal": 99,
+              "files": [
+                "drums/snare-v4-rr1.flac",
+                "drums/snare-v4-rr2.flac",
+                "drums/snare-v4-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl28.flac, mid_snare_center_vl27.flac, mid_snare_center_vl29.flac"
+            },
+            {
+              "velocity": [
+                110,
+                127
+              ],
+              "nominal": 120,
+              "files": [
+                "drums/snare-v5-rr1.flac",
+                "drums/snare-v5-rr2.flac",
+                "drums/snare-v5-rr3.flac"
+              ],
+              "source": "mid_snare_center_vl34.flac, mid_snare_center_vl33.flac, mid_snare_center_vl35.flac"
+            }
+          ]
+        },
+        "42": {
+          "name": "hat-closed",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                47
+              ],
+              "nominal": 31,
+              "files": [
+                "drums/hat-closed-v1-rr1.flac",
+                "drums/hat-closed-v1-rr2.flac",
+                "drums/hat-closed-v1-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl1_rr1.flac, mid_hh_closed_vl1_rr2.flac, mid_hh_closed_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                48,
+                79
+              ],
+              "nominal": 63,
+              "files": [
+                "drums/hat-closed-v2-rr1.flac",
+                "drums/hat-closed-v2-rr2.flac",
+                "drums/hat-closed-v2-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl2_rr1.flac, mid_hh_closed_vl2_rr2.flac, mid_hh_closed_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                80,
+                111
+              ],
+              "nominal": 95,
+              "files": [
+                "drums/hat-closed-v3-rr1.flac",
+                "drums/hat-closed-v3-rr2.flac",
+                "drums/hat-closed-v3-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl3_rr1.flac, mid_hh_closed_vl3_rr2.flac, mid_hh_closed_vl3_rr3.flac"
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-closed-v4-rr1.flac",
+                "drums/hat-closed-v4-rr2.flac",
+                "drums/hat-closed-v4-rr3.flac"
+              ],
+              "source": "mid_hh_closed_vl4_rr1.flac, mid_hh_closed_vl4_rr2.flac, mid_hh_closed_vl4_rr3.flac"
+            }
+          ]
+        },
+        "44": {
+          "name": "hat-pedal",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/hat-pedal-v1-rr1.flac",
+                "drums/hat-pedal-v1-rr2.flac",
+                "drums/hat-pedal-v1-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl1_rr1.flac, mid_hh_pedal_vl1_rr2.flac, mid_hh_pedal_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/hat-pedal-v2-rr1.flac",
+                "drums/hat-pedal-v2-rr2.flac",
+                "drums/hat-pedal-v2-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl2_rr1.flac, mid_hh_pedal_vl2_rr2.flac, mid_hh_pedal_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-pedal-v3-rr1.flac",
+                "drums/hat-pedal-v3-rr2.flac",
+                "drums/hat-pedal-v3-rr3.flac"
+              ],
+              "source": "mid_hh_pedal_vl3_rr1.flac, mid_hh_pedal_vl3_rr2.flac, mid_hh_pedal_vl3_rr3.flac"
+            }
+          ]
+        },
+        "45": {
+          "name": "tom-low",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-low-v1.flac"
+              ],
+              "source": "mid_ltom_center_vl4.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-low-v2.flac"
+              ],
+              "source": "mid_ltom_center_vl7.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-low-v3.flac"
+              ],
+              "source": "mid_ltom_center_vl10.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-low-v4.flac"
+              ],
+              "source": "mid_ltom_center_vl13.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-low-v5.flac"
+              ],
+              "source": "mid_ltom_center_vl15.flac",
+              "transpose": -2
+            }
+          ]
+        },
+        "46": {
+          "name": "hat-open",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/hat-open-v1-rr1.flac",
+                "drums/hat-open-v1-rr2.flac",
+                "drums/hat-open-v1-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl1_rr1.flac, mid_hh_open_vl1_rr2.flac, mid_hh_open_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/hat-open-v2-rr1.flac",
+                "drums/hat-open-v2-rr2.flac",
+                "drums/hat-open-v2-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl2_rr1.flac, mid_hh_open_vl2_rr2.flac, mid_hh_open_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/hat-open-v3-rr1.flac",
+                "drums/hat-open-v3-rr2.flac",
+                "drums/hat-open-v3-rr3.flac"
+              ],
+              "source": "mid_hh_open_vl3_rr1.flac, mid_hh_open_vl3_rr2.flac, mid_hh_open_vl3_rr3.flac"
+            }
+          ]
+        },
+        "47": {
+          "name": "tom-mid",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-low-v1.flac"
+              ],
+              "source": "mid_ltom_center_vl4.flac",
+              "transpose": 1
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-low-v2.flac"
+              ],
+              "source": "mid_ltom_center_vl7.flac",
+              "transpose": 1
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-low-v3.flac"
+              ],
+              "source": "mid_ltom_center_vl10.flac",
+              "transpose": 1
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-low-v4.flac"
+              ],
+              "source": "mid_ltom_center_vl13.flac",
+              "transpose": 1
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-low-v5.flac"
+              ],
+              "source": "mid_ltom_center_vl15.flac",
+              "transpose": 1
+            }
+          ]
+        },
+        "49": {
+          "name": "crash",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/crash-v1.flac"
+              ],
+              "source": "mid_crash_crash_vl1_rr1.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/crash-v2.flac"
+              ],
+              "source": "mid_crash_crash_vl2_rr1.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/crash-v3.flac"
+              ],
+              "source": "mid_crash_crash_vl3_rr1.flac"
+            }
+          ]
+        },
+        "50": {
+          "name": "tom-high",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                44
+              ],
+              "nominal": 32,
+              "files": [
+                "drums/tom-high-v1.flac"
+              ],
+              "source": "mid_htom_center_vl4.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                45,
+                67
+              ],
+              "nominal": 56,
+              "files": [
+                "drums/tom-high-v2.flac"
+              ],
+              "source": "mid_htom_center_vl7.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                68,
+                91
+              ],
+              "nominal": 79,
+              "files": [
+                "drums/tom-high-v3.flac"
+              ],
+              "source": "mid_htom_center_vl10.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                92,
+                111
+              ],
+              "nominal": 103,
+              "files": [
+                "drums/tom-high-v4.flac"
+              ],
+              "source": "mid_htom_center_vl13.flac",
+              "transpose": -2
+            },
+            {
+              "velocity": [
+                112,
+                127
+              ],
+              "nominal": 119,
+              "files": [
+                "drums/tom-high-v5.flac"
+              ],
+              "source": "mid_htom_center_vl15.flac",
+              "transpose": -2
+            }
+          ]
+        },
+        "51": {
+          "name": "ride",
+          "layers": [
+            {
+              "velocity": [
+                1,
+                63
+              ],
+              "nominal": 42,
+              "files": [
+                "drums/ride-v1-rr1.flac",
+                "drums/ride-v1-rr2.flac",
+                "drums/ride-v1-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl1_rr1.flac, mid_ride_ride_vl1_rr2.flac, mid_ride_ride_vl1_rr3.flac"
+            },
+            {
+              "velocity": [
+                64,
+                106
+              ],
+              "nominal": 85,
+              "files": [
+                "drums/ride-v2-rr1.flac",
+                "drums/ride-v2-rr2.flac",
+                "drums/ride-v2-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl2_rr1.flac, mid_ride_ride_vl2_rr2.flac, mid_ride_ride_vl2_rr3.flac"
+            },
+            {
+              "velocity": [
+                107,
+                127
+              ],
+              "nominal": 127,
+              "files": [
+                "drums/ride-v3-rr1.flac",
+                "drums/ride-v3-rr2.flac",
+                "drums/ride-v3-rr3.flac"
+              ],
+              "source": "mid_ride_ride_vl3_rr1.flac, mid_ride_ride_vl3_rr2.flac, mid_ride_ride_vl3_rr3.flac"
+            }
+          ]
         }
-      ]
-    },
-    "38": {
-      "name": "snare",
-      "layers": [
-        {
-          "file": "drums/snare-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_snare_center_vl12.flac"
-        },
-        {
-          "file": "drums/snare-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_snare_center_vl25.flac"
-        },
-        {
-          "file": "drums/snare-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_snare_center_vl33.flac"
-        }
-      ]
-    },
-    "42": {
-      "name": "hat-closed",
-      "layers": [
-        {
-          "file": "drums/hat-closed-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_hh_closed_vl2_rr1.flac"
-        },
-        {
-          "file": "drums/hat-closed-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_hh_closed_vl3_rr1.flac"
-        },
-        {
-          "file": "drums/hat-closed-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_hh_closed_vl4_rr1.flac"
-        }
-      ]
-    },
-    "44": {
-      "name": "hat-pedal",
-      "layers": [
-        {
-          "file": "drums/hat-pedal-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_hh_pedal_vl1_rr1.flac"
-        },
-        {
-          "file": "drums/hat-pedal-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_hh_pedal_vl2_rr1.flac"
-        },
-        {
-          "file": "drums/hat-pedal-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_hh_pedal_vl3_rr1.flac"
-        }
-      ]
-    },
-    "45": {
-      "name": "tom-low",
-      "layers": [
-        {
-          "file": "drums/tom-low-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_ltom_center_vl6.flac"
-        },
-        {
-          "file": "drums/tom-low-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_ltom_center_vl11.flac"
-        },
-        {
-          "file": "drums/tom-low-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_ltom_center_vl15.flac"
-        }
-      ]
-    },
-    "46": {
-      "name": "hat-open",
-      "layers": [
-        {
-          "file": "drums/hat-open-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_hh_open_vl2_rr1.flac"
-        },
-        {
-          "file": "drums/hat-open-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_hh_open_vl3_rr1.flac"
-        },
-        {
-          "file": "drums/hat-open-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_hh_open_vl4_rr1.flac"
-        }
-      ]
-    },
-    "47": {
-      "name": "tom-mid",
-      "layers": [
-        {
-          "file": "drums/tom-low-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_ltom_center_vl6.flac",
-          "transpose": 3
-        },
-        {
-          "file": "drums/tom-low-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_ltom_center_vl11.flac",
-          "transpose": 3
-        },
-        {
-          "file": "drums/tom-low-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_ltom_center_vl15.flac",
-          "transpose": 3
-        }
-      ]
-    },
-    "49": {
-      "name": "crash",
-      "layers": [
-        {
-          "file": "drums/crash-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_crash_crash_vl1_rr1.flac"
-        },
-        {
-          "file": "drums/crash-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_crash_crash_vl2_rr1.flac"
-        },
-        {
-          "file": "drums/crash-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_crash_crash_vl3_rr1.flac"
-        }
-      ]
-    },
-    "50": {
-      "name": "tom-high",
-      "layers": [
-        {
-          "file": "drums/tom-high-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_htom_center_vl6.flac"
-        },
-        {
-          "file": "drums/tom-high-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_htom_center_vl11.flac"
-        },
-        {
-          "file": "drums/tom-high-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_htom_center_vl15.flac"
-        }
-      ]
-    },
-    "51": {
-      "name": "ride",
-      "layers": [
-        {
-          "file": "drums/ride-soft.flac",
-          "layer": "soft",
-          "velocity": [1, 62],
-          "nominal": 40,
-          "source": "mid_ride_ride_vl1_rr1.flac"
-        },
-        {
-          "file": "drums/ride-medium.flac",
-          "layer": "medium",
-          "velocity": [63, 100],
-          "nominal": 85,
-          "source": "mid_ride_ride_vl2_rr1.flac"
-        },
-        {
-          "file": "drums/ride-hard.flac",
-          "layer": "hard",
-          "velocity": [101, 127],
-          "nominal": 115,
-          "source": "mid_ride_ride_vl3_rr1.flac"
-        }
-      ]
+      }
     }
   },
   "bass": [
@@ -296,154 +1231,220 @@
       "file": "bass/bass-f1-p.flac",
       "root": 29,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "f1_p_rr1.wav"
     },
     {
       "file": "bass/bass-f1-f.flac",
       "root": 29,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "f1_f_rr1.wav"
     },
     {
       "file": "bass/bass-ab1-p.flac",
       "root": 32,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "ab1_p_rr1.wav"
     },
     {
       "file": "bass/bass-ab1-f.flac",
       "root": 32,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "ab1_f_rr1.wav"
     },
     {
       "file": "bass/bass-b1-p.flac",
       "root": 35,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "b1_p_rr1.wav"
     },
     {
       "file": "bass/bass-b1-f.flac",
       "root": 35,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "b1_f_rr1.wav"
     },
     {
       "file": "bass/bass-d2-p.flac",
       "root": 38,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "d2_p_rr1.wav"
     },
     {
       "file": "bass/bass-d2-f.flac",
       "root": 38,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "d2_f_rr1.wav"
     },
     {
       "file": "bass/bass-f2-p.flac",
       "root": 41,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "f2_p_rr1.wav"
     },
     {
       "file": "bass/bass-f2-f.flac",
       "root": 41,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "f2_f_rr1.wav"
     },
     {
       "file": "bass/bass-ab2-p.flac",
       "root": 44,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "ab2_p_rr1.wav"
     },
     {
       "file": "bass/bass-ab2-f.flac",
       "root": 44,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "ab2_f_rr1.wav"
     },
     {
       "file": "bass/bass-b2-p.flac",
       "root": 47,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "b2_p_rr1.wav"
     },
     {
       "file": "bass/bass-b2-f.flac",
       "root": 47,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "b2_f_rr1.wav"
     },
     {
       "file": "bass/bass-d3-p.flac",
       "root": 50,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "d3_p_rr1.wav"
     },
     {
       "file": "bass/bass-d3-f.flac",
       "root": 50,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "d3_f_rr1.wav"
     },
     {
       "file": "bass/bass-f3-p.flac",
       "root": 53,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "f3_p_rr1.wav"
     },
     {
       "file": "bass/bass-f3-f.flac",
       "root": 53,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "f3_f_rr1.wav"
     },
     {
       "file": "bass/bass-ab3-p.flac",
       "root": 56,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "ab3_p_rr1.wav"
     },
     {
       "file": "bass/bass-ab3-f.flac",
       "root": 56,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "ab3_f_rr1.wav"
     },
     {
       "file": "bass/bass-b3-p.flac",
       "root": 59,
       "layer": "p",
-      "velocity": [1, 75],
+      "velocity": [
+        1,
+        75
+      ],
       "source": "b3_p_rr1.wav"
     },
     {
       "file": "bass/bass-b3-f.flac",
       "root": 59,
       "layer": "f",
-      "velocity": [76, 127],
+      "velocity": [
+        76,
+        127
+      ],
       "source": "b3_f_rr1.wav"
     }
   ]
