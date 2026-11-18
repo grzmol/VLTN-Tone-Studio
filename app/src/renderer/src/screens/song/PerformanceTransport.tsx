@@ -28,11 +28,9 @@ const limit = (key: LeadInKey, text: string): number => {
 
 const bars = (count: number): string => (count === 0 ? "off" : `${count} bar${count === 1 ? "" : "s"}`);
 
-const inBpmRange = (value: number): boolean => value >= 30 && value <= 300;
-
 /**
  * The song BPM as a text field. Typing keeps the text, so a half-typed value is not clamped:
- * a whole number in range is set at once, anything else is committed, clamped to 30–300, on blur or Enter.
+ * values are committed, clamped to 30–300, on blur or Enter.
  * Escape drops the typed text and shows the current BPM again.
  */
 export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: boolean; onBpm: (value: number) => void }) {
@@ -55,7 +53,6 @@ export function BpmField({ bpm, disabled, onBpm }: { bpm: number; disabled: bool
       onChange={(e) => {
         const text = e.target.value;
         setDraft(text);
-        if (/^\d+$/.test(text) && inBpmRange(Number(text))) onBpm(Number(text));
       }}
       onBlur={() => {
         if (draft !== null) commit(draft);
