@@ -1,6 +1,7 @@
 import { host } from "@/host";
 import type { SongSource } from "../types";
 import { SETTING_SUFFIXES } from "@shared/song-library";
+import { bandChartKey, bandOptionsKey } from "../band/dependencies";
 
 /**
  * A song's chart, tempo, lyrics and options. A saved song keeps them in the library, which is the only copy: they are read from a cache that
@@ -89,6 +90,19 @@ export function getSetting(key: string, suffix: (typeof settingSuffixes)[number]
 export function setSetting(key: string, suffix: (typeof settingSuffixes)[number], value: string): void {
   const previous = getSetting(key, suffix);
   if (previous === value) return;
+  const options = parseObject(getSetting(key, ":options"));
+  const generated = options.generatedParts && typeof options.generatedParts === "object" && Object.keys(options.generatedParts).length > 0;
+  if (suffix === ":options" && generated) {
+    const next = parseObject(value);
+    if (bandOptionsKey(options) !== bandOptionsKey(next))
+      value = JSON.stringify({
+        ...next,
+        bandOutOfDate: true,
+        ...(options.firstBeat !== next.firstBeat || options.beats !== next.beats ? { bandTempoChanged: true } : {}),
+      });
+  } else if (generated && (suffix === ":bpm" || (suffix === "" && bandChartKey(previous) !== bandChartKey(value)))) {
+    setSetting(key, ":options", JSON.stringify({ ...options, bandOutOfDate: true, ...(suffix === ":bpm" ? { bandTempoChanged: true } : {}) }));
+  }
   const id = savedId(key);
   if (!id) {
     if ((localStorage.getItem(key + suffix) ?? "") === value) return;
@@ -109,6 +123,10 @@ export function setSetting(key: string, suffix: (typeof settingSuffixes)[number]
 }
 export function readSettings(key: string): Record<string, string> {
   return Object.fromEntries(settingSuffixes.map((suffix) => [suffix, getSetting(key, suffix)]));
+}
+/** A playlist edit must include unsaved settings of songs already opened, including deliberately emptied values. */
+export function savedSongSettings(id: string, saved: Record<string, string>): Record<string, string> {
+  return { ...saved, ...cache.get(id) };
 }
 export function writeSettings(key: string, values: Record<string, string>): void {
   for (const suffix of settingSuffixes) setSetting(key, suffix, values[suffix] ?? "");
