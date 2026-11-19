@@ -323,6 +323,7 @@ export const rename = (cmd, slot, name) => {
 export function upload(cmd, slot, name, data) {
   // A NAM upload carries the SnapTone record (0x1050) inside the NAM envelope (0x1090), as the NAM rename does.
   const record = cmd === CMD.NAM_UPLOAD ? CMD.SNAPTONE_UPLOAD : cmd;
+  if (DANGEROUS.has(cmd)) throw new Error(`command 0x${cmd.toString(16)} is never sent`);
   const d = toBytes(data);
   if (d.length > 0x2000) throw new RangeError(`upload data is ${d.length} bytes; at most 8192`);
   const body = new Uint8Array(0x2000 + NAME_FIELD);
