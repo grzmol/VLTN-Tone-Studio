@@ -74,7 +74,8 @@ export function useChordAnalysis(
     audioId = saved?.audioId;
   // The effect follows the harmony's name and audio, not the object: a caller that builds a new object on each render must not restart it.
   const harmonyName = harmony?.name,
-    harmonyAudio = harmony?.audio;
+    harmonyAudio = harmony?.audio,
+    harmonyParts = harmony?.parts;
   useEffect(() => {
     setChords([]);
     setAnalysing(false);
@@ -90,7 +91,7 @@ export function useChordAnalysis(
     setChords([]);
     // The saved beat grid and key use the same priors as the full song analysis.
     const beats = songKey !== undefined ? (readStoredBand(songKey).grid?.beats ?? null) : null;
-    const job = startChordDetection({ harmony: harmonyAudio, bass, beats, key: known?.key?.estimate.name ?? null });
+    const job = startChordDetection({ harmony: harmonyAudio, harmonyParts, bass, beats, key: known?.key?.estimate.name ?? null });
     void job.done
       .then((result) => {
         if (!active) return;
@@ -106,7 +107,7 @@ export function useChordAnalysis(
       active = false;
       job.cancel();
     };
-  }, [session, harmonyName, harmonyAudio, bass, songKey, audioId, estimate]);
+  }, [session, harmonyName, harmonyAudio, harmonyParts, bass, songKey, audioId, estimate]);
   return { chords, analysing };
 }
 

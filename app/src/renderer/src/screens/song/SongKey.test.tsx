@@ -36,8 +36,8 @@ afterEach(() => {
 });
 it("analyses the preferred stem and shows its estimate, alternatives and display transposition", async () => {
   render(<SongKey stems={{ guitar: audio }} original={audio} storageKey="song" shift={2} />);
-  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "audio", audio });
-  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "key", id: expect.any(Number), input: { bass: null, chords: [], sections: [] } });
+  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "audio", index: 0, audio });
+  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "key", id: expect.any(Number), harmony: 0, input: { bass: null, chords: [], sections: [] } });
   await act(async () => workers[0].done());
   expect(screen.getByText("Song key: C major")).toBeTruthy();
   expect(screen.getByText(/Estimated C major from guitar/)).toBeTruthy();

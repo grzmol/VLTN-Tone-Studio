@@ -42,8 +42,8 @@ describe("chord detection client", () => {
     const job = startChordDetection({ harmony: audio, bass: null, beats: null });
     await expect(job.done).resolves.toEqual([{ time: 0, name: "Am", confidence: 0.9 }]);
     expect(FakeWorker.last?.posted).toEqual([
-      { kind: "audio", audio },
-      { kind: "chords", id: expect.any(Number), input: { bass: null, beats: null } },
+      { kind: "audio", index: 0, audio },
+      { kind: "chords", id: expect.any(Number), harmony: [0], input: { bass: null, beats: null } },
     ]);
     expect(FakeWorker.last?.terminated).toBe(true);
   });

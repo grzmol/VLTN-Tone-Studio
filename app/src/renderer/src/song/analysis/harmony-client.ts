@@ -14,25 +14,31 @@ interface Pending {
 interface Reader {
   worker: Worker;
   pending: Map<number, Pending>;
+  /** The audios this worker holds a copy of, and the index each was sent under. */
+  copies: Map<PcmAudio, number>;
 }
+type JobRequest = { kind: "key"; id: number; harmony: number; input: Omit<KeyInput, "harmony"> } | { kind: "chords"; id: number; harmony: number[]; input: Omit<ChordsInput, "harmony" | "harmonyParts"> };
 
 const readers = new WeakMap<PcmAudio, Reader>();
 let nextId = 0;
 
-/** Key and chord jobs for the same harmony share one worker-owned copy. Playback's borrowed channels are never transferred. */
-function start<T extends KeyReading | Chord[]>(audio: PcmAudio, request: Exclude<HarmonyRequest, { kind: "audio" }>): HarmonyJob<T> {
-  let reader = readers.get(audio);
+/**
+ * Key and chord jobs that read any of the same audio share one worker, and each distinct audio is copied to it once. The worker derives the
+ * chord harmony (the sum of its parts) itself. Playback's borrowed channels are never transferred.
+ */
+function start<T extends KeyReading | Chord[]>(audios: readonly PcmAudio[], build: (indexOf: (audio: PcmAudio) => number) => JobRequest): HarmonyJob<T> {
+  let reader = audios.map((audio) => readers.get(audio)).find((found) => found);
   const retire = (owner: Reader) => {
-    if (readers.get(audio) === owner) readers.delete(audio);
+    for (const audio of owner.copies.keys()) if (readers.get(audio) === owner) readers.delete(audio);
     owner.worker.onmessage = null;
     owner.worker.onerror = null;
     owner.worker.terminate();
   };
+  let created: Reader | null = null;
   if (!reader) {
     const worker = new Worker(new URL("./harmony-worker.ts", import.meta.url), { type: "module" });
-    reader = { worker, pending: new Map() };
-    const owner = reader;
-    readers.set(audio, owner);
+    const owner: Reader = { worker, pending: new Map(), copies: new Map() };
+    reader = created = owner;
     worker.onmessage = (event: MessageEvent<HarmonyReply>) => {
       const reply = event.data;
       const job = owner.pending.get(reply.id);
@@ -48,20 +54,30 @@ function start<T extends KeyReading | Chord[]>(audio: PcmAudio, request: Exclude
       retire(owner);
       for (const job of pending) job.reject(new Error(event.message || "Harmony analysis could not finish."));
     };
-    try {
-      worker.postMessage({ kind: "audio", audio } satisfies HarmonyRequest);
-    } catch (error) {
-      retire(owner);
-      throw error;
-    }
   }
   const owner = reader;
+  const indexOf = (audio: PcmAudio): number => {
+    const known = owner.copies.get(audio);
+    if (known !== undefined) return known;
+    const index = owner.copies.size;
+    owner.worker.postMessage({ kind: "audio", index, audio } satisfies HarmonyRequest);
+    owner.copies.set(audio, index);
+    readers.set(audio, owner);
+    return index;
+  };
+  let request: JobRequest;
+  try {
+    request = build(indexOf);
+  } catch (error) {
+    if (created || !owner.pending.size) retire(owner);
+    throw error;
+  }
   let rejectDone: (error: Error) => void = () => {};
   const done = new Promise<T>((resolve, reject) => {
     rejectDone = reject;
     owner.pending.set(request.id, { resolve: (result) => resolve(result as T), reject });
     try {
-      owner.worker.postMessage(request);
+      owner.worker.postMessage(request satisfies HarmonyRequest);
     } catch (error) {
       owner.pending.delete(request.id);
       if (!owner.pending.size) retire(owner);
@@ -83,10 +99,11 @@ function start<T extends KeyReading | Chord[]>(audio: PcmAudio, request: Exclude
 
 /** Estimates a key while sharing the harmony copy with any simultaneous chord estimate. */
 export function startKeyReading({ harmony, ...input }: KeyInput): HarmonyJob<KeyReading> {
-  return start(harmony, { kind: "key", id: ++nextId, input });
+  return start([harmony], (indexOf) => ({ kind: "key", id: ++nextId, harmony: indexOf(harmony), input }));
 }
 
-/** Estimates chords while sharing the harmony copy with any simultaneous key estimate. */
-export function startChordReading({ harmony, ...input }: ChordsInput): HarmonyJob<Chord[]> {
-  return start(harmony, { kind: "chords", id: ++nextId, input });
+/** Estimates chords, sharing each harmony stem's copy with any simultaneous key estimate. */
+export function startChordReading({ harmony, harmonyParts, ...input }: ChordsInput): HarmonyJob<Chord[]> {
+  const parts = harmonyParts?.length ? harmonyParts : [harmony];
+  return start(parts, (indexOf) => ({ kind: "chords", id: ++nextId, harmony: parts.map(indexOf), input }));
 }
