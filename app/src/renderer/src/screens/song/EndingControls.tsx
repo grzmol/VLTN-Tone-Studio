@@ -1,6 +1,8 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { BandSettings } from "@/song/band/arrangement";
 import { ENDINGS, type EndingKind } from "@/song/band/ending";
+import type { PcmAudio } from "@/song/types";
+import { FadeNotice } from "./FadeNotice";
 
 const ENDING_LABELS: Record<EndingKind, string> = { hit: "Hit", hold: "Fill and hold", hits: "Three hits", slow: "Slow down", none: "None" };
 /** The value of the "End after" menu that leaves the choice to the generator. */
@@ -14,12 +16,15 @@ export function EndingControls({
   settings,
   sections,
   disabled,
+  keptAudio = [],
   onChange,
 }: {
   settings: BandSettings;
   /** The song's sections, for "End after". Empty for a song without sections. */
   sections: readonly { id: string; name: string }[];
   disabled?: boolean;
+  /** The original tracks that keep playing under the band, for the fade notice. */
+  keptAudio?: readonly PcmAudio[];
   onChange(patch: Partial<BandSettings>): void;
 }) {
   const { ending } = settings;
@@ -68,6 +73,7 @@ export function EndingControls({
           ? "Automatic ends the parts at the end of the last section with drums, or at the song's Trim end."
           : "This ending plays past the end of the song, so the generated tracks are a little longer than the song."}
       </p>
+      {ending.kind !== "none" && <FadeNotice audio={keptAudio} />}
     </section>
   );
 }

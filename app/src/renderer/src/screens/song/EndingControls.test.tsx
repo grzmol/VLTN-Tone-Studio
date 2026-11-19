@@ -46,3 +46,24 @@ describe("EndingControls", () => {
     expect(screen.queryByRole("combobox", { name: "End after" })).toBeNull();
   });
 });
+
+describe("EndingControls fade notice", () => {
+  const rate = 100;
+  const fading = { sampleRate: rate, channels: [Float32Array.from({ length: 3000 }, (_, i) => (i < 2000 ? 0.5 : 0))] };
+  const steady = { sampleRate: rate, channels: [new Float32Array(3000).fill(0.5)] };
+  const show = (kind: "hit" | "none", audio: (typeof fading)[]) =>
+    render(<EndingControls settings={{ ...DEFAULT_BAND_SETTINGS, ending: { kind } }} sections={SECTIONS} keptAudio={audio} onChange={vi.fn()} />);
+
+  it("says the original tracks still fade when a hard ending meets a fade", () => {
+    show("hit", [fading]);
+    expect(screen.getByText(/Original tracks still fade here/)).toBeTruthy();
+  });
+
+  it("stays quiet for a steady song, and for no ending", () => {
+    show("hit", [steady]);
+    expect(screen.queryByText(/still fade here/)).toBeNull();
+    cleanup();
+    show("none", [fading]);
+    expect(screen.queryByText(/still fade here/)).toBeNull();
+  });
+});
