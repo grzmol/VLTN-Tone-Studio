@@ -22,6 +22,22 @@ export function decideRenderGone(reason: string, history: readonly number[], now
   return { action: "reload", history: [...recent, now] };
 }
 
+/** How long a recovery reload may take before the window is treated as stuck and the user is asked (spec 120). */
+export const RECOVERY_LOAD_TIMEOUT_MS = 10_000;
+
+export type RecoveryEvent = "start" | "loaded" | "failed" | "timeout";
+
+/**
+ * Tracks one recovery reload. A reload that fails, or is still pending when its timeout fires, asks the user instead of leaving a blank
+ * window. A finished load clears the pending state. Asking clears it too, so a page that keeps failing never reloads again by itself:
+ * only the user's "Reload" starts another attempt.
+ */
+export function decideRecoveryLoad(event: RecoveryEvent, pending: boolean): { action: "none" | "prompt"; pending: boolean } {
+  if (event === "start") return { action: "none", pending: true };
+  if (event === "loaded" || !pending) return { action: "none", pending: false };
+  return { action: "prompt", pending: false };
+}
+
 /** The page's own address with `recovered=1`, so the renderer knows this start follows a crash. Any other query is kept. */
 export function recoveredUrl(current: string, fallback: string): string {
   try {

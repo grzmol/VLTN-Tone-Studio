@@ -26,7 +26,7 @@ import { registerBandSyncIpc } from "./ipc/band-sync";
 import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { devUserDataPath } from "./user-data";
 import { isOwnRenderer } from "./permissions";
-import { UNRESPONSIVE_GRACE_MS, decideRenderGone, recoveredUrl } from "./crash-recovery";
+import { RECOVERY_LOAD_TIMEOUT_MS, UNRESPONSIVE_GRACE_MS, decideRecoveryLoad, decideRenderGone, recoveredUrl, type RecoveryEvent } from "./crash-recovery";
 import { logMain } from "./ipc/log";
 
 // Development runs keep their own library and settings, so testing never touches the installed app's songs.
@@ -257,40 +257,78 @@ async function createWindow() {
   else await win.loadURL(RENDERER_URL);
 }
 
-/** Loads the page again, flagged as following a crash so the renderer offers to resume the set (spec 120). Nothing plays until the performer asks. */
-function reloadAfterCrash(w: BrowserWindow): void {
-  if (w.isDestroyed()) return;
-  const fallback = process.env.ELECTRON_RENDERER_URL ?? RENDERER_URL;
-  void w.webContents.loadURL(recoveredUrl(w.webContents.getURL(), fallback)).catch((e) => logMain("Crash", `reload failed: ${e instanceof Error ? e.message : e}`));
-}
-
 /**
  * The renderer holds the audio, the MIDI cues and the playlist, so when it dies the show stops. Reload the window at once, up to three times a
  * minute; after that ask. A page that is only slow is never reloaded by itself, since its audio may still be playing from the audio thread.
  */
 function watchRenderer(w: BrowserWindow): void {
   let reloads: number[] = [];
+  let recovery = { pending: false };
+  let loadTimer: ReturnType<typeof setTimeout> | undefined;
+  let prompting = false;
+
+  // Shows the Reload / Quit choice once at a time. Reload starts another recovery reload; Quit ends the app.
+  const askRecovery = async (message: string, detail: string): Promise<void> => {
+    if (prompting || w.isDestroyed()) return;
+    prompting = true;
+    try {
+      const { response } = await dialog.showMessageBox(w, { type: "error", buttons: ["Reload", "Quit"], defaultId: 0, cancelId: 1, message, detail });
+      if (response === 0) {
+        reloads = [];
+        reload();
+      } else {
+        quitConfirmed = true;
+        app.quit();
+      }
+    } finally {
+      prompting = false;
+    }
+  };
+
+  // Loads the page again, flagged as following a crash so the renderer offers to resume the set (spec 120). Nothing plays until the performer asks.
+  const reload = (): void => {
+    if (w.isDestroyed()) return;
+    step("start");
+    const fallback = process.env.ELECTRON_RENDERER_URL ?? RENDERER_URL;
+    void w.webContents
+      .loadURL(recoveredUrl(w.webContents.getURL(), fallback))
+      .catch((e) => logMain("Crash", `reload failed: ${e instanceof Error ? e.message : e}`));
+  };
+
+  // Follows one recovery reload: a failed load, or one still pending after the timeout, asks the user instead of leaving a blank window.
+  const step = (event: RecoveryEvent): void => {
+    const next = decideRecoveryLoad(event, recovery.pending);
+    recovery = { pending: next.pending };
+    clearTimeout(loadTimer);
+    if (event === "start") loadTimer = setTimeout(() => step("timeout"), RECOVERY_LOAD_TIMEOUT_MS);
+    if (next.action === "prompt") {
+      logMain("Crash", `The window did not finish loading after a recovery reload (${event})`);
+      void askRecovery(
+        "Tone Studio's window did not load",
+        "The page did not come back after the crash. Reload to try again, or quit and start the app again.",
+      );
+    }
+  };
+
+  w.webContents.on("did-finish-load", () => step("loaded"));
+  w.webContents.on("did-fail-load", (_e, errorCode, errorDescription, _url, isMainFrame) => {
+    // -3 is a load replaced by another navigation, which is not a failure.
+    if (!isMainFrame || errorCode === -3) return;
+    logMain("Crash", `The window failed to load (${errorCode} ${errorDescription})`);
+    step("failed");
+  });
   w.webContents.on("render-process-gone", (_e, details) => {
     logMain("Crash", `The window's renderer is gone (${details.reason}, exit code ${details.exitCode})`);
     const decision = decideRenderGone(details.reason, reloads, Date.now());
     reloads = decision.history;
-    if (decision.action === "reload") return reloadAfterCrash(w);
-    if (decision.action !== "prompt" || w.isDestroyed()) return;
-    const choice = dialog.showMessageBoxSync(w, {
-      type: "error",
-      buttons: ["Reload", "Quit"],
-      defaultId: 0,
-      cancelId: 1,
-      message: "Tone Studio's window keeps crashing",
-      detail: "It was reloaded three times in the last minute. Reload once more, or quit and start the app again.",
-    });
-    if (choice === 0) {
-      reloads = [];
-      reloadAfterCrash(w);
-    } else {
-      quitConfirmed = true;
-      app.quit();
-    }
+    if (decision.action === "reload") return reload();
+    if (decision.action !== "prompt") return;
+    recovery = { pending: false };
+    clearTimeout(loadTimer);
+    void askRecovery(
+      "Tone Studio's window keeps crashing",
+      "It was reloaded three times in the last minute. Reload once more, or quit and start the app again.",
+    );
   });
   let unresponsive: ReturnType<typeof setTimeout> | undefined;
   let stuck = false;
@@ -314,10 +352,13 @@ function watchRenderer(w: BrowserWindow): void {
         detail: "Music may still be playing. Reloading stops it; you can resume where it stopped afterwards.",
       });
       // The page may have answered again while the dialog was open; a healthy page is left alone.
-      if (response === 1 && stuck) reloadAfterCrash(w);
+      if (response === 1 && stuck) reload();
     }, UNRESPONSIVE_GRACE_MS);
   });
-  w.once("closed", () => clearTimeout(unresponsive));
+  w.once("closed", () => {
+    clearTimeout(unresponsive);
+    clearTimeout(loadTimer);
+  });
 }
 
 // Cmd+Q does not always pass through the window's close event first on macOS, so quitting asks here too, once.
