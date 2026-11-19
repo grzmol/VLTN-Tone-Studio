@@ -85,5 +85,6 @@ export class Gp150Session extends EventTarget {
   renamePreset(slot: number, name: string, opts: { confirm: true }): Promise<{ slot: number; name: string }>;
   uploadUserIr(slot: number, name: string, samples: ArrayLike<number>, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<ListEntry>;
   uploadSnapTone(slot: number, name: string, file: Bytes, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<ListEntry>;
+  uploadNam(slot: number, name: string, data: Bytes, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<ListEntry>;
   renameListSlot(kind: "ir" | "snaptone" | "nam", slot: number, name: string, opts: { confirm: true }): Promise<number>;
 }

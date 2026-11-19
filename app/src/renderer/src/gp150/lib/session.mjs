@@ -7,6 +7,7 @@
 
 import {
   CMD,
+  NAME_FIELD,
   CONTROL,
   EDIT_BUFFER,
   GLOBAL_RECORDS,
@@ -562,6 +563,18 @@ export class Gp150Session extends EventTarget {
     needConfirm(opts, "Uploading a SnapTone");
     if (!Number.isInteger(slot) || slot < 1 || slot > SLOTS.SNAPTONES) throw new RangeError(`SnapTone slot ${slot} is outside 1..${SLOTS.SNAPTONES}`);
     return this.#upload(CMD.SNAPTONE_UPLOAD, CMD.SNAPTONE_NAMES, slot, name, file, opts);
+  }
+
+  /** Native NAM slot 1-20: `data` is the converted model (see namb.mjs). Reads the list back to verify the new name. */
+  async uploadNam(slot, name, data, opts) {
+    needConfirm(opts, "Uploading a NAM model");
+    if (!Number.isInteger(slot) || slot < 1 || slot > SLOTS.NAMS) throw new RangeError(`NAM slot ${slot} is outside 1..${SLOTS.NAMS}`);
+    await this.exclusive(() => this.#request(upload(CMD.NAM_UPLOAD, slot, name, data), (m) => m.p === P.DONE && m.cmd === CMD.NAM_UPLOAD, "NAM upload", this.#timing.uploadTimeoutMs));
+    opts.onProgress?.(1, 1);
+    const entry = (await this.readNamNames()).find((e) => e.slot === slot);
+    if (!entry || entry.empty) throw new Gp150Error("verify", `NAM slot ${slot} is empty after the upload`);
+    if (entry.name !== String(name).slice(0, NAME_FIELD)) throw new Gp150Error("verify", `NAM slot ${slot} is called "${entry.name}" after the upload, expected "${name}"`);
+    return entry;
   }
 
   /** Rename a User IR (0-19), SnapTone (1-100) or NAM (1-20) slot. */

@@ -321,13 +321,15 @@ export const rename = (cmd, slot, name) => {
 
 /** File upload into a list slot: [cmd][len][u32 slot][cmd][len][name16][8192 data] (both lengths are the outer one). */
 export function upload(cmd, slot, name, data) {
+  // A NAM upload carries the SnapTone record (0x1050) inside the NAM envelope (0x1090), as the NAM rename does.
+  const record = cmd === CMD.NAM_UPLOAD ? CMD.SNAPTONE_UPLOAD : cmd;
   const d = toBytes(data);
   if (d.length > 0x2000) throw new RangeError(`upload data is ${d.length} bytes; at most 8192`);
   const body = new Uint8Array(0x2000 + NAME_FIELD);
   body.set(nameField(name), 0);
   body.set(d, NAME_FIELD);
   const len = 4 + 4 + body.length + 4;
-  return setRecord(cmd, [...u32le(slot), ...u16le(cmd), ...u16le(len), ...body], 4, P.UPLOAD);
+  return encodeMessage({ p: P.UPLOAD, cmd, payload: [...u16le(record), ...u16le(len), ...u32le(slot), ...u16le(record), ...u16le(len), ...body] });
 }
 
 /** Write preset file `prst` (1128 bytes, already carrying the slot) into its slot. */

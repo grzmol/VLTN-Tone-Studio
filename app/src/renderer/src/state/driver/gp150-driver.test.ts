@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { CMD, GLOBAL_EQ, GLOBALS, eqValues } from "@/gp150/lib/protocol.mjs";
+import { a2LiteNamFile } from "../nam-fixture";
 import { applyPatchEdits, parsePrst } from "@/gp150/lib/prst.mjs";
 import type { DriverEvent } from "./types";
 import { Gp150Driver } from "./gp150-driver";
@@ -180,6 +181,24 @@ it("lists NAM slots 1-20 and verifies renamed names without touching SnapTones",
   const table = dev.namNames;
   Object.defineProperty(dev, "namNames", { configurable: true, get: () => table.map((e) => ({ ...e })) });
   await expect(d.renameNam(1, "Lost write")).rejects.toThrow("did not confirm");
+});
+
+it("uploads an A2 Lite NAM file into a native slot, lists the new name and refuses everything else", async () => {
+  const { d, dev } = await connected("gp180");
+  const events: DriverEvent[] = [];
+  d.subscribe((e) => events.push(e));
+  await d.uploadNam(20, "Uploaded", a2LiteNamFile());
+  expect(events).toContainEqual({ type: "listChanged", list: "nams" });
+  expect((await d.readNams())[19].name).toBe("Uploaded");
+  expect(dev.uploads).toHaveLength(1);
+  expect(dev.uploads[0]).toMatchObject({ cmd: CMD.NAM_UPLOAD, slot: 20, name: "Uploaded" });
+  for (const slot of [0, 21, 100, 1.5]) await expect(d.uploadNam(slot, "Bad", a2LiteNamFile())).rejects.toThrow(RangeError);
+  await expect(d.uploadNam(1, "", a2LiteNamFile())).rejects.toThrow(RangeError);
+  const standard = JSON.parse(new TextDecoder().decode(a2LiteNamFile()));
+  standard.config.submodels[0].model.weights.pop();
+  await expect(d.uploadNam(1, "Standard", new TextEncoder().encode(JSON.stringify(standard)))).rejects.toThrow("A2 Lite NAM files only");
+  await expect(d.uploadNam(1, "Junk", new TextEncoder().encode("not json"))).rejects.toThrow("A2 Lite NAM files only");
+  expect(dev.uploads).toHaveLength(1);
 });
 
 it("publishes unsolicited NAM list changes and keeps mode when changing volume or tempo", async () => {

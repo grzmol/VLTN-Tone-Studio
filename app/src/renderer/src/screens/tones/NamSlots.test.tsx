@@ -5,6 +5,7 @@ import { parsePrst } from "@/gp150/lib/prst.mjs";
 import { useDevice, getDriver } from "@/state/device";
 import { Gp150Driver } from "@/state/driver/gp150-driver";
 import { resetStageActivity, setStageBusy } from "@/state/stage-activity";
+import { a2LiteNamFile } from "@/state/nam-fixture";
 import { NamSlots } from "./NamSlots";
 
 const mock = () => (getDriver() as Gp150Driver).mock!;
@@ -104,4 +105,49 @@ it("drops an unconfirmed rename when the pedal connection changes", async () => 
   await waitFor(() => expect(screen.getByRole("button", { name: "Read NAM slots" })).toBeTruthy());
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(mock().namNames[1].name).toBe("NAM 1");
+});
+
+const choose = async (slot: number, bytes: Uint8Array, fileName = "My Amp.nam") => {
+  fireEvent.click(screen.getByRole("button", { name: `Upload NAM to slot ${slot}` }));
+  const file = new File([bytes as BlobPart], fileName);
+  file.arrayBuffer = async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  fireEvent.change(screen.getByLabelText("NAM file"), { target: { files: [file] } });
+};
+
+it("uploads a NAM file after a confirm that names the slot and the replaced model", async () => {
+  render(<NamSlots />);
+  await readSlots();
+  expect(screen.queryByText(/not available/)).toBeNull();
+  await choose(1, a2LiteNamFile());
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("Upload NAM to slot 1");
+  expect(dialog.textContent).toContain('"NAM 1"');
+  expect(dialog.textContent).toContain("cannot be read back");
+  expect(mock().uploads).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Replace model" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(mock().uploads).toHaveLength(1);
+  expect(screen.getByText("My Amp")).toBeTruthy();
+});
+
+it("shows an unsupported NAM file as an error and sends nothing", async () => {
+  render(<NamSlots />);
+  await readSlots();
+  await choose(2, new TextEncoder().encode('{"version":"0.5.4"}'), "old.nam");
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("A2 Lite NAM files only"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(mock().uploads).toHaveLength(0);
+});
+
+it("keeps the confirm open with the error when the upload fails, and disables uploads during a performance", async () => {
+  render(<NamSlots />);
+  await readSlots();
+  vi.spyOn(getDriver() as Gp150Driver, "uploadNam").mockRejectedValueOnce(new Error("No upload result"));
+  await choose(3, a2LiteNamFile());
+  await screen.findByRole("dialog");
+  fireEvent.click(screen.getByRole("button", { name: "Replace model" }));
+  await waitFor(() => expect(screen.getByRole("dialog").textContent).toContain("No upload result"));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  setStageBusy(true, "nam-test");
+  await waitFor(() => expect((screen.getByRole("button", { name: "Upload NAM to slot 3" }) as HTMLButtonElement).disabled).toBe(true));
 });

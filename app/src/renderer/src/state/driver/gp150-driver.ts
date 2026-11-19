@@ -3,6 +3,7 @@
 // waits for the pedal's ACK of every message, verifies full writes by reading back, and never builds the factory reset.
 import { Gp150Session, type Gp150Event, type Gp150Timing, type Gp150Transport, type ListEntry } from "@/gp150/lib/session.mjs";
 import { MockGp150, type MockGp150Options } from "@/gp150/lib/mock-device.mjs";
+import { namTextToNamb } from "@/gp150/lib/namb.mjs";
 import { CMD, GLOBALS, GLOBAL_EQ, SLOTS } from "@/gp150/lib/protocol.mjs";
 import { applyPatchEdits, parsePrst } from "@/gp150/lib/prst.mjs";
 import { connectWebMidi } from "@/gp5/lib/transport-webmidi.mjs";
@@ -346,6 +347,15 @@ export class Gp150Driver implements DeviceDriver {
     await this.#session.renameListSlot("nam", slot, name, { confirm: true });
     const stored = (await this.readNams()).find((entry) => entry.slot === slot);
     if (stored?.name !== name) throw new Error("The pedal did not confirm the new NAM name. Read the slots again.");
+    this.#emit({ type: "listChanged", list: "nams" });
+  }
+
+  /** `file`: the bytes of an A2 Lite .nam file; anything else is refused before a byte is sent. */
+  async uploadNam(slot: number, name: string, file: Uint8Array): Promise<void> {
+    if (!Number.isInteger(slot) || slot < 1 || slot > SLOTS.NAMS) throw new RangeError(`NAM slot must be between 1 and ${SLOTS.NAMS}`);
+    if (!/^[\x20-\x7e]{1,15}$/.test(name) || !name.trim()) throw new RangeError("Use 1–15 plain text characters for the NAM name");
+    const model = namTextToNamb(new TextDecoder().decode(file));
+    await this.#session.uploadNam(slot, name, model, { confirm: true });
     this.#emit({ type: "listChanged", list: "nams" });
   }
 

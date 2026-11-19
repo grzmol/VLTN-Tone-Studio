@@ -874,6 +874,20 @@ export const useDevice = create<DeviceState>((set, get) => {
       }
     },
 
+    async uploadNam(slot, name, file) {
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before uploading a NAM model");
+      set({ busy: { kind: "manage", progress: 0, label: `Uploading NAM slot ${slot}` } });
+      try {
+        await d.uploadNam!(slot, name, file);
+        const list = await d.readNams!();
+        if (driver === d && get().status === "connected") set({ nams: list });
+      } finally {
+        if (driver === d) set({ busy: null });
+      }
+    },
+
     async uploadSnapTone(slot, name, file, opts) {
       const d = requireDriver();
       const send = (onProgress: (done: number, total: number) => void) => d.uploadSnapTone(slot, name, file, { onProgress });
