@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_AUTO_RELOADS, RELOAD_WINDOW_MS, decideRenderGone, recoveredUrl } from "./crash-recovery";
+import { MAX_AUTO_RELOADS, RECOVERY_LOAD_TIMEOUT_MS, RELOAD_WINDOW_MS, decideRecoveryLoad, decideRenderGone, recoveredUrl } from "./crash-recovery";
 
 describe("decideRenderGone", () => {
   it("reloads on the first crash and records it", () => {
@@ -23,6 +23,42 @@ describe("decideRenderGone", () => {
   it("forgets reloads older than the window", () => {
     const history = [0, 1000, 2000];
     expect(decideRenderGone("crashed", history, RELOAD_WINDOW_MS + 2500)).toEqual({ action: "reload", history: [RELOAD_WINDOW_MS + 2500] });
+  });
+});
+
+describe("decideRecoveryLoad", () => {
+  it("marks a recovery reload as pending when it starts", () => {
+    expect(decideRecoveryLoad("start", false)).toEqual({ action: "none", pending: true });
+  });
+
+  it("prompts when a recovery reload fails to load", () => {
+    expect(decideRecoveryLoad("failed", true)).toEqual({ action: "prompt", pending: false });
+  });
+
+  it("prompts when a recovery reload is still pending after the timeout", () => {
+    expect(RECOVERY_LOAD_TIMEOUT_MS).toBe(10_000);
+    expect(decideRecoveryLoad("timeout", true)).toEqual({ action: "prompt", pending: false });
+  });
+
+  it("clears the pending state on a successful load", () => {
+    expect(decideRecoveryLoad("loaded", true)).toEqual({ action: "none", pending: false });
+    // A later failure with nothing pending is not a recovery problem.
+    expect(decideRecoveryLoad("failed", false)).toEqual({ action: "none", pending: false });
+  });
+
+  it("does not loop: after a prompt, failures alone never reload again", () => {
+    let state = decideRecoveryLoad("start", false);
+    state = decideRecoveryLoad("failed", state.pending);
+    expect(state.action).toBe("prompt");
+    // Without the user's Reload (which starts a new attempt) nothing is pending, so further failures only do nothing.
+    state = decideRecoveryLoad("failed", state.pending);
+    expect(state).toEqual({ action: "none", pending: false });
+    state = decideRecoveryLoad("timeout", state.pending);
+    expect(state).toEqual({ action: "none", pending: false });
+  });
+
+  it("leaves a clean exit alone, even during recovery", () => {
+    expect(decideRenderGone("clean-exit", [], 1000).action).toBe("none");
   });
 });
 
