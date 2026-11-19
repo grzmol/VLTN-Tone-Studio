@@ -72,7 +72,7 @@ export class MockGp150 {
   namNames = Array.from({ length: 101 }, (_, i) =>
     i === 0 ? { name: "None", empty: true } : i <= 3 ? { name: `NAM ${i}`, empty: false } : { name: `NAM Slot ${i}`, empty: true },
   );
-  /** IR and SnapTone uploads: { cmd, slot, name, data } */
+  /** IR, SnapTone and NAM uploads: { cmd, slot, name, data } */
   uploads = [];
   /** Every logical message the host sent, decoded */
   received = [];
@@ -284,10 +284,10 @@ export class MockGp150 {
       if (slot < SLOTS.PRESETS) this.presets[slot] = prst;
       return result(CMD.PATCH);
     }
-    if (msg.cmd !== CMD.IR_UPLOAD && msg.cmd !== CMD.SNAPTONE_UPLOAD) return;
+    if (msg.cmd !== CMD.IR_UPLOAD && msg.cmd !== CMD.SNAPTONE_UPLOAD && msg.cmd !== CMD.NAM_UPLOAD) return;
     const slot = readU32(d, 0);
     const name = readName(d, 8, NAME_FIELD);
-    const list = msg.cmd === CMD.IR_UPLOAD ? this.irNames : this.snapToneNames;
+    const list = msg.cmd === CMD.IR_UPLOAD ? this.irNames : msg.cmd === CMD.NAM_UPLOAD ? this.namNames : this.snapToneNames;
     if (list[slot]) list[slot] = { name, empty: false };
     this.uploads.push({ cmd: msg.cmd, slot, name, data: d.slice(8 + NAME_FIELD) });
     return result(msg.cmd);

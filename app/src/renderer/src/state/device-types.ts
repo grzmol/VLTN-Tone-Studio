@@ -405,6 +405,11 @@ export interface DeviceState {
   readNams(): Promise<SlotName[]>;
   /** Rename one NAM slot, then verify the pedal's names. Callers confirm through the rename dialog. */
   renameNam(slot: number, name: string): Promise<void>;
+  /**
+   * Upload the bytes of an A2 Lite .nam file into NAM slot 1-20, then re-read the NAM list and verify the new name.
+   * Replaces the slot's model, which can't be read back from the pedal: callers MUST confirm with the user first.
+   */
+  uploadNam(slot: number, name: string, file: Uint8Array): Promise<void>;
   readUserIRs(): Promise<SlotName[]>;
   /**
    * Upload a 2696-byte SnapTone file into a user SnapTone slot (profile snapTone.userRange), then re-read the SnapTone list.

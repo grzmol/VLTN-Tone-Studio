@@ -118,6 +118,8 @@ export interface DeviceDriver {
   /** "nam": NAM slots 1-20 (None excluded). */
   readNams?(): Promise<SlotName[]>;
   renameNam?(slot: number, name: string): Promise<void>;
+  /** "nam": upload the bytes of an A2 Lite .nam file into slot 1-20 (the replaced model can't be read back); rejects other files. */
+  uploadNam?(slot: number, name: string, file: Uint8Array): Promise<void>;
   setNamMode?(mode: 0 | 1): Promise<void>;
   /** "modified": the active preset has unsaved edits. */
   readModified?(): Promise<boolean>;

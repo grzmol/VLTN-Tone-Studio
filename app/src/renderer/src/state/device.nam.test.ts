@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { CMD } from "@/gp150/lib/protocol.mjs";
 import { useDevice, getDriver } from "./device";
 import { Gp150Driver } from "./driver/gp150-driver";
+import { a2LiteNamFile } from "./nam-fixture";
 import { resetStageActivity, setStageBusy } from "./stage-activity";
 
 beforeEach(async () => {
@@ -40,4 +41,18 @@ it("clears the NAM table on a new connection and gates the feature on other fami
   await expect(useDevice.getState().readNams()).rejects.toThrow("can't do this");
   await expect(useDevice.getState().renameNam(1, "No NAM")).rejects.toThrow("can't do this");
   expect(() => useDevice.getState().setNamMode(1)).toThrow("can't do this");
+});
+
+it("uploads a NAM model through the store, refuses during a performance and on other families", async () => {
+  const mock = (getDriver() as Gp150Driver).mock!;
+  await useDevice.getState().uploadNam(19, "Store upload", a2LiteNamFile());
+  expect(useDevice.getState().nams![18].name).toBe("Store upload");
+  expect(useDevice.getState().busy).toBeNull();
+  expect(mock.uploads).toHaveLength(1);
+  setStageBusy(true, "nam-test");
+  await expect(useDevice.getState().uploadNam(19, "Blocked", a2LiteNamFile())).rejects.toThrow("Stop the performance");
+  expect(mock.uploads).toHaveLength(1);
+  resetStageActivity();
+  await useDevice.getState().connect("mock", { mockDevice: "gp200" });
+  await expect(useDevice.getState().uploadNam(1, "No NAM", a2LiteNamFile())).rejects.toThrow("can't do this");
 });

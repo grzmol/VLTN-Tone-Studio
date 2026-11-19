@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { namTextToNamb } from "@/gp150/lib/namb.mjs";
 import { SLOTS } from "@/gp150/lib/protocol.mjs";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -26,6 +27,10 @@ function NamSlotsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<SlotName | null>(null);
   const [name, setName] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const uploadSlot = useRef<SlotName | null>(null);
+  const [upload, setUpload] = useState<{ slot: SlotName; file: Uint8Array } | null>(null);
+  const [uploadName, setUploadName] = useState("");
   const disabled = !connected || !!busy || working || playing;
   const validName = /^[\x20-\x7e]{1,15}$/.test(name) && !!name.trim();
   const run = async (job: () => Promise<void>) => {
@@ -39,6 +44,26 @@ function NamSlotsPanel() {
       setWorking(false);
     }
   };
+  const pickFile = async (file: File | undefined) => {
+    const slot = uploadSlot.current;
+    if (!file || !slot) return;
+    setError(null);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // Refuse unsupported files before asking for confirmation.
+      namTextToNamb(new TextDecoder().decode(bytes));
+      setUploadName(
+        file.name
+          .replace(/\.nam$/i, "")
+          .replace(/[^\x20-\x7e]/g, "")
+          .slice(0, 15),
+      );
+      setUpload({ slot, file: bytes });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const validUploadName = /^[\x20-\x7e]{1,15}$/.test(uploadName) && !!uploadName.trim();
   return (
     <section aria-label="NAM slots" className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -72,15 +97,26 @@ function NamSlotsPanel() {
               }
             }}
           />
-          <p className="w-full text-silkscreen-3">Save the preset to keep its mode. NAM file upload is not available.</p>
+          <p className="w-full text-silkscreen-3">Save the preset to keep its mode.</p>
         </div>
       )}
       {playing && <p className="text-[12px] text-silkscreen-3">Stop the performance to manage NAM slots.</p>}
-      {error && !editing && (
+      {error && !editing && !upload && (
         <p role="alert" className="text-[12px] text-destructive">
           {error}
         </p>
       )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".nam"
+        aria-label="NAM file"
+        className="hidden"
+        onChange={(e) => {
+          void pickFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
       {nams && (
         <Collapsible>
           <CollapsibleTrigger className="text-[12px] font-semibold underline underline-offset-4">
@@ -107,11 +143,72 @@ function NamSlotsPanel() {
                 >
                   Rename…
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={disabled}
+                  aria-label={`Upload NAM to slot ${slot.slot}`}
+                  onClick={() => {
+                    uploadSlot.current = slot;
+                    fileInput.current?.click();
+                  }}
+                >
+                  Upload NAM…
+                </Button>
               </div>
             ))}
           </CollapsibleContent>
         </Collapsible>
       )}
+      <Dialog
+        open={!!upload}
+        onOpenChange={(open) => {
+          if (!open && !working) setUpload(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload NAM to slot {upload?.slot.slot}</DialogTitle>
+            <DialogDescription>
+              This replaces the model in slot {upload?.slot.slot}
+              {upload?.slot.kind !== "empty" && upload?.slot.name ? ` ("${upload.slot.name}")` : ""}. The replaced model cannot be read back from the pedal, so keep your own copy of it
+              first.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (disabled || !validUploadName || !upload) return;
+              const { slot, file } = upload;
+              void run(async () => {
+                await useDevice.getState().uploadNam(slot.slot, uploadName, file);
+                setUpload(null);
+              });
+            }}
+          >
+            <Input aria-label="New NAM name" maxLength={15} value={uploadName} disabled={working} onChange={(e) => setUploadName(e.target.value)} />
+            <p className="mt-2 text-xs text-silkscreen-3">1–15 plain text characters. Only A2 Lite NAM files work on the GP-180.</p>
+            {working && (
+              <p role="status" className="mt-2 text-sm">
+                Uploading…
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" disabled={working} onClick={() => setUpload(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={disabled || !validUploadName}>
+                {working ? "Uploading…" : "Replace model"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!editing}
         onOpenChange={(open) => {
