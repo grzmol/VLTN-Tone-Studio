@@ -57,6 +57,8 @@ interface PreparedJump {
   timer: ReturnType<typeof setTimeout>;
   /** The buffers and rate the stems played before a render swap, so a cancelled swap can go back to them */
   restore: { rate: number; buffers: Partial<Record<string, AudioBuffer>> } | null;
+  /** An exit bar that had begun when the jump was armed and was cut at it, which a cancel lets play to its end */
+  exit: PendingExit | null;
 }
 
 /** A vamp's exit bar (band/vamp.ts): for each track that has one, its audio, and the span of song time it plays in place of. */
@@ -69,6 +71,8 @@ export interface ExitBar {
 /** An exit bar that is waiting on the audio clock or playing: the sources it uses, per track, and when it begins on the audio clock. */
 interface PendingExit {
   when: number;
+  /** The audio time the track's own audio resumes, which is where the exit bar ends */
+  resumeAt: number;
   /** The audio time the song's own end was due, which a cancelled exit puts back */
   end: number;
   parts: { name: string; main: AudioBufferSourceNode; exit: AudioBufferSourceNode; resume: AudioBufferSourceNode }[];
@@ -564,7 +568,7 @@ export class StemPlayer {
     }
     if (render) this.rate = render.rate;
     for (const old of previous) old.stop(when);
-    this.dropExit(when);
+    const cut = this.dropExit(when);
     this.watchEnd();
     const end = last.songEnd;
     last.songEnd = at;
@@ -576,7 +580,7 @@ export class StemPlayer {
       },
       (when - this.ctx.currentTime) * 1000 + 50,
     );
-    this.prepared = { when, previous, end, timer, restore };
+    this.prepared = { when, previous, end, timer, restore, exit: cut };
     return when;
   }
 
@@ -620,7 +624,7 @@ export class StemPlayer {
     const timer = setTimeout(() => {
       if (this.exit?.when === when) this.exit = null;
     }, (resumeAt - this.ctx.currentTime) * 1000 + 100);
-    this.exit = { when, end, parts, timer };
+    this.exit = { when, resumeAt, end, parts, timer };
     return when;
   }
 
@@ -657,9 +661,9 @@ export class StemPlayer {
    * A jump at audio time `when` ends an exit bar with it: what the exit bar plays and what follows it stop there, and an exit bar that
    * had not begun is dropped. The track's own audio before the exit is stopped by the jump itself, as it is for any track.
    */
-  private dropExit(when: number): void {
+  private dropExit(when: number): PendingExit | null {
     const exit = this.exit;
-    if (!exit) return;
+    if (!exit) return null;
     clearTimeout(exit.timer);
     this.exit = null;
     for (const { main, exit: audio, resume } of exit.parts) {
@@ -668,6 +672,8 @@ export class StemPlayer {
       audio.stop(when);
       resume.stop(when);
     }
+    // One that had not begun is gone with the jump; one that had can be given back.
+    return when >= exit.when && when < exit.resumeAt ? exit : null;
   }
 
   /**
@@ -757,8 +763,24 @@ export class StemPlayer {
       jump.previous[i].stop(end);
       v.source = jump.previous[i];
     });
+    if (jump.exit) this.resumeExit(jump.exit);
     this.watchEnd();
     return true;
+  }
+
+  /** Puts back an exit bar that a cancelled jump had cut: it plays to its end, and the track resumes after it as before. */
+  private resumeExit(exit: PendingExit): void {
+    for (const { exit: audio, resume } of exit.parts) {
+      audio.stop(exit.end);
+      resume.stop(exit.end);
+    }
+    const timer = setTimeout(
+      () => {
+        if (this.exit?.when === exit.when) this.exit = null;
+      },
+      Math.max(0, (exit.resumeAt - this.ctx.currentTime) * 1000 + 100),
+    );
+    this.exit = { ...exit, timer };
   }
 
   /** Sends each track to its bus. Tracks without an entry stay on Main. */
@@ -1086,6 +1108,14 @@ export class StemPlayer {
         source.onended = null;
         source.stop();
         source.disconnect();
+      }
+      // An exit bar that a jump cut and that is still sounding stops with the rest.
+      for (const { main, exit, resume } of this.prepared.exit?.parts ?? []) {
+        for (const source of [main, exit, resume]) {
+          source.onended = null;
+          source.stop();
+          source.disconnect();
+        }
       }
       this.prepared = null;
     }

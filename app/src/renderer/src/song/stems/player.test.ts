@@ -1074,6 +1074,51 @@ describe("a vamp's exit bar", () => {
     await player.dispose();
   });
 
+  it("goes on playing to its end when the jump that came while it played is cancelled", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar(4, 6));
+    ctx.currentTime = 14.5;
+    expect(player.prepareJump(0, 5.5)).toBeCloseTo(15.52);
+    expect(ctx.sources[2].stop).toHaveBeenLastCalledWith(expect.closeTo(15.52));
+    expect(player.cancelJump()).toBe(true);
+    // The exit bar is no longer cut at the jump, and the track resumes after it as it would have.
+    expect(ctx.sources[2].stop).toHaveBeenLastCalledWith(expect.closeTo(30.02));
+    expect(ctx.sources[3].stop).toHaveBeenLastCalledWith(expect.closeTo(30.02));
+    expect(player.exitAt).toBeCloseTo(14.02);
+    await player.dispose();
+  });
+
+  it("is silenced on pause when a jump that cut it is still waiting", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar(4, 6));
+    ctx.currentTime = 14.5;
+    player.prepareJump(0, 5.5);
+    player.pause();
+    expect(ctx.sources[2].stop).toHaveBeenLastCalledWith();
+    expect(ctx.sources[3].stop).toHaveBeenLastCalledWith();
+    await player.dispose();
+  });
+
+  it("is not given back by a cancel when the jump lands after the exit bar has ended", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar(4, 6));
+    ctx.currentTime = 15.9;
+    // Song 7 is audio 17.02, past the exit's end at 16.02.
+    player.prepareJump(0, 7);
+    expect(player.cancelJump()).toBe(true);
+    expect(player.exitAt).toBeNull();
+    await player.dispose();
+  });
+
   it("is silenced with the song on pause", async () => {
     vi.stubGlobal("AudioContext", Context);
     const player = new StemPlayer(stems());
