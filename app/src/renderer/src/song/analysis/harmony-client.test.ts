@@ -17,6 +17,9 @@ class FakeWorker {
   id(kind: "key" | "chords") {
     return this.postMessage.mock.calls.map(([message]) => message).find((message) => message.kind === kind) as Exclude<HarmonyRequest, { kind: "audio" }>;
   }
+  audios() {
+    return this.postMessage.mock.calls.map(([message]) => message).filter((message): message is Extract<HarmonyRequest, { kind: "audio" }> => message.kind === "audio");
+  }
 }
 const pcm = () => ({ sampleRate: 44100, channels: [new Float32Array([0.25, -0.5]), new Float32Array([0.5, -0.25])] });
 const key = (audio: ReturnType<typeof pcm>) => startKeyReading({ harmony: audio, bass: null, chords: [], sections: [] });
@@ -33,7 +36,7 @@ it("copies a shared harmony once and keeps its reader until both estimates finis
     second = chords(audio);
   expect(FakeWorker.all).toHaveLength(1);
   const worker = FakeWorker.all[0];
-  expect(worker.postMessage.mock.calls.filter(([message]) => message.kind === "audio")).toEqual([[{ kind: "audio", audio }]]);
+  expect(worker.postMessage.mock.calls.filter(([message]) => message.kind === "audio")).toEqual([[{ kind: "audio", index: 0, audio }]]);
   worker.reply({ id: worker.id("key").id, result: { estimate: null, keySections: [] } });
   await expect(first.done).resolves.toEqual({ estimate: null, keySections: [] });
   expect(worker.terminate).not.toHaveBeenCalled();
@@ -90,4 +93,41 @@ it("keeps another estimate alive after a per-request analysis error", async () =
   await failed;
   worker.reply({ id: worker.id("chords").id, result: [] });
   await expect(second.done).resolves.toEqual([]);
+});
+
+it("posts each stem of a multi-stem song once, sharing one worker between key and chords", async () => {
+  vi.stubGlobal("Worker", FakeWorker);
+  const guitar = pcm(),
+    other = pcm(),
+    piano = pcm();
+  const first = startKeyReading({ harmony: guitar, bass: null, chords: [], sections: [] });
+  const second = startChordReading({ harmony: pcm(), harmonyParts: [other, guitar, piano], bass: null, beats: null });
+  expect(FakeWorker.all).toHaveLength(1);
+  const worker = FakeWorker.all[0];
+  expect(worker.audios().map((message) => message.audio)).toEqual([guitar, other, piano]);
+  expect(worker.id("key")).toMatchObject({ harmony: 0 });
+  expect(worker.id("chords")).toMatchObject({ harmony: [1, 0, 2] });
+  worker.reply({ id: worker.id("key").id, result: { estimate: null, keySections: [] } });
+  await first.done;
+  expect(worker.terminate).not.toHaveBeenCalled();
+  worker.reply({ id: worker.id("chords").id, result: [] });
+  await second.done;
+  expect(worker.terminate).toHaveBeenCalledOnce();
+  for (const stem of [guitar, other, piano]) expect(stem.channels).toHaveLength(2);
+});
+
+it("cancelling the key job on a multi-stem song leaves the chord job running", async () => {
+  vi.stubGlobal("Worker", FakeWorker);
+  const guitar = pcm(),
+    other = pcm();
+  const first = startKeyReading({ harmony: guitar, bass: null, chords: [], sections: [] });
+  const second = startChordReading({ harmony: guitar, harmonyParts: [other, guitar], bass: null, beats: null });
+  const cancelled = expect(first.done).rejects.toMatchObject({ name: "AbortError" });
+  first.cancel();
+  await cancelled;
+  const worker = FakeWorker.all[0];
+  expect(worker.terminate).not.toHaveBeenCalled();
+  worker.reply({ id: worker.id("chords").id, result: [] });
+  await expect(second.done).resolves.toEqual([]);
+  expect(worker.terminate).toHaveBeenCalledOnce();
 });

@@ -46,7 +46,7 @@ describe("buildAnalysisAudio", () => {
     const bass = tone(0.3);
     const stems: Stems = { piano, bass, other: tone(0.1) };
     const audio = buildAnalysisAudio({ ...input, mix: tone(), stems, chordChoice: "piano", chordName: "piano" });
-    expect(audio.harmony).toEqual({ name: "piano", audio: piano });
+    expect(audio.harmony).toEqual({ name: "piano", audio: piano, parts: [piano] });
     expect(audio.bass).toBe(bass);
   });
 });
@@ -59,16 +59,17 @@ describe("harmonyOf and bassOf", () => {
     const { name, audio } = harmonyOf({ other, piano, guitar: silence(), bass: tone(0.5) }, mix);
     expect(name).toBe("other+piano");
     expect(audio.channels[0][0]).toBeCloseTo(0.3, 6);
+    expect(harmonyOf({ other, piano, guitar: silence(), bass: tone(0.5) }, mix).parts).toEqual([other, piano]);
   });
 
   it("uses the one harmony stem with a signal as it is", () => {
     const guitar = tone(0.2);
-    expect(harmonyOf({ guitar, drums: tone(0.5) }, mix)).toEqual({ name: "guitar", audio: guitar });
+    expect(harmonyOf({ guitar, drums: tone(0.5) }, mix)).toEqual({ name: "guitar", audio: guitar, parts: [guitar] });
   });
 
   it("uses the chosen stem over the sum, when it has a signal", () => {
     const vocals = tone(0.4);
-    expect(harmonyOf({ other: tone(0.1), vocals }, mix, "vocals")).toEqual({ name: "vocals", audio: vocals });
+    expect(harmonyOf({ other: tone(0.1), vocals }, mix, "vocals")).toEqual({ name: "vocals", audio: vocals, parts: [vocals] });
   });
 
   it("falls back to the sum when the chosen stem is silent", () => {

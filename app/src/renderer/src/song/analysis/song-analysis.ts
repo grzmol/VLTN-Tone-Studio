@@ -81,6 +81,8 @@ export interface SongAnalysis {
 export interface NamedAudio {
   name: string;
   audio: PcmAudio;
+  /** The stems `audio` is the sum of, when it is one. Background analysis copies these, so they can be shared with a key estimate. */
+  parts?: PcmAudio[];
 }
 
 /** The audio a run analyses: the sources and the timing context the steps need. */
