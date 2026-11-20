@@ -49,8 +49,10 @@ import { loudnessFromOptions, normalisingGain, type SongLoudness } from "@/song/
 import { busDefaults, mixDefaults, type TrackInfo } from "@/song/tracks";
 import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, pedalFallbackOf, readPartChoices, type PartChoices } from "@/song/band/part-choice";
 import { PerformanceOutputs } from "./PerformanceOutputs";
-import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
+import { PerformanceMidiSetup, SessionMidiHealth, setSendCues } from "./PerformanceMidiSetup";
+import { Rc10rSetupCard } from "./Rc10rSetupCard";
 import { RhythmTransferStatus } from "./RhythmTransferStatus";
+import { rhythmTransferStatus } from "@/song/band/rhythm-transfer";
 import { RhythmAutomationSetup } from "./RhythmAutomationSetup";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { usePedalLibrary } from "@/song/performance/pedal-library";
@@ -375,6 +377,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const playing = useSession(session, (s) => s.playing);
   const armed = useSession(session, selectArmed);
   const outputConnected = useSession(session, (s) => selectOutput(s)?.state === "connected");
+  const outputName = useSession(session, (s) => selectOutput(s)?.name || "MIDI output");
   useEffect(() => setHeldArmed((held) => settledArmed(held, armed, playing)), [armed, playing]);
   // A fallback is announced once per song start.
   useEffect(() => {
@@ -912,23 +915,39 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         />
       </div>
       <div style={{ display: shownView("midi") }}>
-        <SessionMidiHealth session={session} firstBeat={firstBeat} />
-        {source && (
-          <RhythmAutomationSetup
-            key={key}
-            current={{
-              key,
-              title: source.name.replace(/\.[^.]+$/, ""),
-              duration: source.audio.channels[0].length / source.audio.sampleRate,
-              settings: { ...readSettings(key), "": chart },
-            }}
-            locked={playing || library.playlistPlaying}
-            onSaveChart={saveChart}
-          />
-        )}
-        {source && !!(cueOptions.rhythmAutomation || cueOptions.rhythmExport || cueOptions.rhythmTransfer) && (
-          <RhythmTransferStatus songKey={key} locked={playing || !!library.playlistPlaying} />
-        )}
+        <SessionMidiHealth session={session} firstBeat={firstBeat} pedalDrumsChosen={partChoice.drums === "pedal"} />
+        <Rc10rSetupCard
+          state={{
+            hasCues: hasRhythmCues,
+            transfer: rhythmTransferStatus(readSettings(key), (cueOptions.rhythmAutomation as { memory?: number } | undefined)?.memory ?? 1),
+            outputName: outputConnected ? outputName : "",
+            armed,
+            choice: partChoice.drums,
+            drums,
+            fallbackWhy: fallbackReason(drums, outputConnected),
+          }}
+          onChoosePedalDrums={() => choosePart({ drums: "pedal" })}
+          onEnableMidi={() => void session.connectMidi()}
+          onChooseOutput={() => document.querySelector<HTMLElement>('[aria-label="MIDI output"]')?.focus()}
+          onSendCues={() => setSendCues(session, true)}
+        >
+          {source && (
+            <RhythmAutomationSetup
+              key={key}
+              current={{
+                key,
+                title: source.name.replace(/\.[^.]+$/, ""),
+                duration: source.audio.channels[0].length / source.audio.sampleRate,
+                settings: { ...readSettings(key), "": chart },
+              }}
+              locked={playing || library.playlistPlaying}
+              onSaveChart={saveChart}
+            />
+          )}
+          {source && !!(cueOptions.rhythmAutomation || cueOptions.rhythmExport || cueOptions.rhythmTransfer) && (
+            <RhythmTransferStatus songKey={key} locked={playing || !!library.playlistPlaying} />
+          )}
+        </Rc10rSetupCard>
         <PerformanceMidiSetup
           session={session}
           songKey={key}
