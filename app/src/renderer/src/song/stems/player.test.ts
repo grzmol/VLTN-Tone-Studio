@@ -1056,3 +1056,13 @@ it("clears a source replaced by a repeat without ending the song", async () => {
   expect(ctx.sources.at(-1)!.buffer).not.toBeNull();
   await player.dispose();
 });
+
+it("ignores mix, routing and meter calls after the player is released", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ drums: { sampleRate: 100, channels: [new Float32Array(1000)] } });
+  await player.dispose();
+  // A mixer effect can still hold the closed player when the song changes.
+  expect(() => player.setMix({ drums: { volume: 1, mute: true, solo: false } })).not.toThrow();
+  expect(() => player.setTrackBuses({ drums: "main" })).not.toThrow();
+  expect(player.levels()).toEqual({ drums: 0 });
+});

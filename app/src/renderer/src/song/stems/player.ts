@@ -190,6 +190,8 @@ export class StemPlayer {
   private loopTimer: ReturnType<typeof setInterval> | null = null;
   private voices: Record<string, Voice>;
   private disposed = false;
+  /** Set once the nodes are released. A mixer effect can still reach a closed player, so mix and routing changes are ignored then. */
+  private released = false;
   /** The song's timeline on the audio clock. A jump appends a segment. Empty until something has been started. */
   private segments: Segment[] = [];
   private prepared: PreparedJump | null = null;
@@ -685,6 +687,7 @@ export class StemPlayer {
 
   /** Sends each track to its bus. Tracks without an entry stay on Main. */
   setTrackBuses(routes: TrackBuses): void {
+    if (this.released) return;
     for (const name of this.names) {
       const analyser = this.voice(name).analyser;
       analyser.disconnect();
@@ -707,6 +710,7 @@ export class StemPlayer {
    * when the song is normalised.
    */
   setMix(mix: Mix, master = 1): void {
+    if (this.released) return;
     const gains = stemGains(mix, this.names);
     const now = this.ctx.currentTime;
     for (const name of this.names) {
@@ -912,7 +916,7 @@ export class StemPlayer {
   levels(): Record<string, number> {
     return Object.fromEntries(
       this.names.map((name) => {
-        if (!this.playing) return [name, 0];
+        if (!this.playing || this.released) return [name, 0];
         this.voice(name).analyser.getFloatTimeDomainData(this.meterBuffer);
         let sum = 0;
         for (const x of this.meterBuffer) sum += x * x;
@@ -956,6 +960,7 @@ export class StemPlayer {
       analyser.disconnect();
     }
     this.voices = {};
+    this.released = true;
     this.clickBuffers.clear();
     this.customBuffers = {};
     if (this.ownsEngine) await this.engine.close();
