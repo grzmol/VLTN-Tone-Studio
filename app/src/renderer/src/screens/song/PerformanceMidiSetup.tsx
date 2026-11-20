@@ -21,6 +21,14 @@ import { HelpNote } from "@/components/ui/help-note";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
+/** Turns Send cues on or off. A song with pedal rhythm cues pauses the pedal first; any other song silences held notes. */
+export function setSendCues(session: PerformanceSession, on: boolean) {
+  if (hasPedalRhythm(session.state.cues)) session.pause();
+  else session.panic();
+  session.sendCues(on);
+  session.setMidiStatus("");
+}
+
 /** MIDI preflight and timing for the current song and output. */
 export function SessionMidiHealth({
   session,
@@ -263,10 +271,7 @@ export function PerformanceMidiSetup({
             disabled={output?.state !== "connected" || !!parseError}
             checked={armed}
             onChange={(e) => {
-              if (hasPedalRhythm(cues)) session.pause();
-              else session.panic();
-              session.sendCues(e.target.checked);
-              session.setMidiStatus("");
+              setSendCues(session, e.target.checked);
             }}
           />{" "}
           Send cues
