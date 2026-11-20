@@ -4,6 +4,7 @@ import { expandSectionCues, timedCues, unmatchedSectionCues, type Cue } from "./
 import { chaseTriggerSet, isChased, triggerKey, type TriggerCc } from "./midi-chase";
 import { sectionIssues, type Section } from "./sections";
 import { parseOffset, type TimecodeRate } from "./timecode";
+import { pedalDrumsOffWarning } from "../band/drum-source";
 export interface PreflightOptions {
   duration: number;
   /** Actual initial MIDI position, including pre-roll; defaults to the playable range start. */
@@ -26,6 +27,8 @@ export interface PreflightOptions {
   firstBeat?: number;
   /** Set only while MIDI timecode is on: the rate, the song's offset text, and whether the output is Bluetooth */
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
+  /** The song chose RC-10R pedal drums, and whether the cues are armed. A chosen pedal with cues off plays the fallback drums, which is warned about. */
+  pedalDrums?: { chosen: boolean; armed: boolean };
 }
 export interface PreflightIssue {
   level?: "advice";
@@ -246,6 +249,7 @@ export function midiPreflight(chartCues: Cue[], options: PreflightOptions) {
     add(issue.code, issue.text, issue.level);
   for (const [note, time] of notes)
     add("note-off", `Note ${note.split(":")[1]} on channel ${note.split(":")[0]} at ${time.toFixed(2)} s has no later note-off before the audio ends.`);
+  if (options.pedalDrums?.chosen && !options.pedalDrums.armed) add("pedal-drums-off", pedalDrumsOffWarning(1));
   const warnings = issues.filter((issue) => !issue.level),
     advice = issues.filter((issue) => issue.level === "advice");
   return {

@@ -20,6 +20,7 @@ import { orderedKeys } from "../tracks";
 import { describeBinding, type Binding } from "./bindings";
 import { readTempoSource } from "./tempo-source";
 import { bindingClaiming, triggerClashes, type SongEntry } from "./song-triggers";
+import { pedalDrumsOffWarning } from "../band/drum-source";
 import { currentRhythmAutomation } from "./rhythm-automation";
 import type { RhythmControls } from "./rhythm-automation";
 
@@ -29,6 +30,14 @@ function trimRange(duration: number, options: object): { start: number; end: num
   const shape = { ...storedShape(raw), trimStart: playedTrimStart(raw) };
   if (shape.trimStart === undefined && shape.trimEnd === undefined) return undefined;
   return playRange(duration, shape);
+}
+/** Whether a song's saved options choose RC-10R pedal drums. */
+function choosesPedalDrums(options: string | undefined): boolean {
+  try {
+    return JSON.parse(options || "{}")?.partChoice?.drums === "pedal";
+  } catch {
+    return false;
+  }
 }
 export interface PlaylistCheck {
   entry: number;
@@ -61,10 +70,12 @@ export function playlistPreflight(
     rhythmControls?: Partial<RhythmControls>;
     preparationDefaults?: PreparationSettings;
     leadInDefaults?: LeadIn;
+    /** Whether the cues are armed now. Unset skips the pedal drums check; false warns about every song that chose RC-10R drums. */
+    cuesArmed?: boolean;
   },
 ): PlaylistCheck[] {
   const byId = new Map(songs.map((s) => [s.id, s]));
-  return ids.map((id, entry) => {
+  const checks = ids.map((id, entry) => {
     const saved = byId.get(id),
       song = saved?.song;
     const errors = [...(saved?.errors ?? ["Song was not checked."])],
@@ -197,4 +208,10 @@ export function playlistPreflight(
     }
     return { entry: entry + 1, id, title: song?.title ?? "Missing song", errors, warnings, advice, notes, ...(preparation ? { preparation } : {}) };
   });
+  // Songs that chose RC-10R drums play their fallback when the cues are off. One warning counts them, on the first entry.
+  if (config.cuesArmed === false && checks.length > 0) {
+    const chosen = checks.filter((check) => choosesPedalDrums(byId.get(check.id)?.song?.settings[":options"])).length;
+    if (chosen > 0) checks[0].warnings.push(pedalDrumsOffWarning(chosen));
+  }
+  return checks;
 }

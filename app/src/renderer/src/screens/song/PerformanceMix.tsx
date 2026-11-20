@@ -160,7 +160,7 @@ export function PerformanceMix({
                   />
                   <span className="truncate">{label(name)}</span>
                 </label>
-                {byPedal && <span className="text-xs text-led-warn">Off: RC-10R plays</span>}
+                {byPedal && !off && <span className="text-xs text-led-warn">Off: RC-10R plays</span>}
                 {byPractice && <span className="shrink-0 rounded-md border border-led-warn px-1.5 py-0.5 text-xs text-led-warn">Practice</span>}
                 {info?.kind === "user" && onCountsAs && (
                   <select

@@ -4,7 +4,7 @@ import { PreparationSequenceDetails, preparationSeconds } from "./PreparationSeq
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { readLeadInDefaults } from "@/song/performance/lead-in";
 import { useEffect, useRef, useState } from "react";
-import { isRenderedAhead } from "@/song/library";
+import { isRenderedAhead, useSongLibrary } from "@/song/library";
 import { host } from "@/host";
 import { Button } from "@/components/ui/button";
 import { useMidiConfiguration } from "@/song/performance/midi-configuration";
@@ -78,6 +78,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
           bindings: config.bindings,
           pedals: configuredPedals(pedals),
           rhythmControls: rhythmControlOverrides(pedals),
+          cuesArmed: useSongLibrary.getState().midiSession?.armed,
         }),
       );
     } catch (e) {

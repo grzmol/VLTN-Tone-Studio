@@ -58,7 +58,7 @@ import { currentRhythmAutomation, rhythmControlOverrides } from "@/song/performa
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
 import { preparationSettings, usePreparationDefaults } from "@/song/performance/start-preparation";
 import { pedalDrumMix } from "@/song/performance/pedal-drums";
-import { fallbackReason, isFallback, resolveDrums, settledArmed, withResolvedDrums } from "@/song/band/drum-source";
+import { cuesForDrums, fallbackReason, isFallback, resolveDrums, settledArmed, withResolvedDrums } from "@/song/band/drum-source";
 import { hasPedalRhythm } from "@/song/performance/rhythm-runtime";
 import { useBandPanel } from "./band-panel-state";
 import { DrumsChip } from "./DrumsChip";
@@ -306,15 +306,15 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const [heldArmed, setHeldArmed] = useState(() => !!carriedInto(library.midiSession, { queued, playlistPlaying: !!library.playlistPlaying })?.armed);
   const hasRhythmCues = hasPedalRhythm(parsed.cues);
   const drumKeys = partKeysOf(tracks, stems);
-  const drums = resolveDrums({
-    choice: partChoice.drums,
-    fallback: pedalFallbackOf(partChoice, drumKeys.drums?.generated !== undefined),
-    hasRhythmCues,
-    armed: heldArmed,
-  });
+  const drumFallback = pedalFallbackOf(partChoice, drumKeys.drums?.generated !== undefined);
+  // Memoised on plain values: the session compares its cues by identity, so a new object each render would restart its scheduler.
+  const drums = useMemo(
+    () => resolveDrums({ choice: partChoice.drums, fallback: drumFallback, hasRhythmCues, armed: heldArmed }),
+    [partChoice.drums, drumFallback, hasRhythmCues, heldArmed],
+  );
   const drumsFellBack = isFallback(partChoice.drums, drums);
   // A song on its fallback drums does not send its RC-10R rhythm cues, or the pedal would start its rhythm over the fallback.
-  const sessionCues = useMemo(() => (drumsFellBack ? parsed.cues.filter((cue) => cue.managed !== "rhythm") : parsed.cues), [parsed.cues, drumsFellBack]);
+  const sessionCues = useMemo(() => cuesForDrums(parsed.cues, partChoice.drums, drums), [parsed.cues, partChoice.drums, drums]);
   // The song's MIDI timecode offset, saved with its options. Empty means 00:00:00:00.
   const [timecodeOffset, setTimecodeOffset] = useState(options.timecodeOffset);
   const saveTimecodeOffset = (value: string) => {
