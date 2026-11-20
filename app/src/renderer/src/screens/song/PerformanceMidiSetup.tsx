@@ -22,7 +22,17 @@ import { HelpNote } from "@/components/ui/help-note";
 const field = "rounded border border-seam bg-transparent p-2";
 
 /** MIDI preflight and timing for the current song and output. */
-export function SessionMidiHealth({ session, firstBeat = 0 }: { session: PerformanceSession; firstBeat?: number }) {
+export function SessionMidiHealth({
+  session,
+  firstBeat = 0,
+  pedalDrumsChosen = false,
+}: {
+  session: PerformanceSession;
+  firstBeat?: number;
+  /** The song chose RC-10R pedal drums, so the check warns when the cues are off. */
+  pedalDrumsChosen?: boolean;
+}) {
+  const armed = useSession(session, selectArmed);
   const cues = useSession(session, (s) => s.cues);
   const parseError = useSession(session, (s) => s.parseError);
   const sections = useSession(session, (s) => s.sections);
@@ -64,6 +74,7 @@ export function SessionMidiHealth({ session, firstBeat = 0 }: { session: Perform
       timecode={timecode}
       outputName={portId === BLUETOOTH_PORT_ID ? `Bluetooth ${output?.name || ""}` : output?.name || undefined}
       parseError={parseError}
+      pedalDrums={{ chosen: pedalDrumsChosen, armed }}
     />
   );
 }

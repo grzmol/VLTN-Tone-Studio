@@ -61,3 +61,23 @@ describe("drumsChip", () => {
       expect(drumsChip(choice, { plays: choice, reason: "chosen" }, "")).toMatchObject({ text: `Drums: ${text}`, tone: "neutral" });
   });
 });
+
+import { cuesForDrums } from "./drum-source";
+import type { Cue } from "../performance/chart";
+
+describe("cuesForDrums", () => {
+  const chart: Cue = { time: 1, text: "{midi:pc 1 5}", messages: [[192, 5]] };
+  const load: Cue = { time: 0, text: "rhythm load", messages: [[240, 1, 247]], managed: "rhythm", trigger: "load" };
+  const rhythm: Cue = { time: 2, text: "rhythm start", messages: [[250]], managed: "rhythm" };
+  const cues = [chart, load, rhythm];
+
+  it("sends every cue unchanged, as the same array, while the pedal plays", () => {
+    expect(cuesForDrums(cues, "pedal", { plays: "pedal", reason: "pedal-ready" })).toBe(cues);
+  });
+  it("sends no rhythm cue, load cue included, on a fallback", () => {
+    expect(cuesForDrums(cues, "pedal", { plays: "generated", reason: "not-armed" })).toEqual([chart]);
+  });
+  it("leaves a song that never chose pedal exactly as it is", () => {
+    expect(cuesForDrums(cues, "generated", { plays: "generated", reason: "chosen" })).toBe(cues);
+  });
+});

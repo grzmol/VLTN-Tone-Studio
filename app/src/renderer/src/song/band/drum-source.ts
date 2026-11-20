@@ -2,6 +2,7 @@
 // RC-10R cues and the cues are armed (output connected, Send cues on). Otherwise the song's fallback drums play, so a show never starts
 // with no drums. Pure, so every combination can be tested.
 
+import type { Cue } from "../performance/chart";
 import type { DrumFallback, PartChoice, PartChoices } from "./part-choice";
 
 export type DrumsReason = "pedal-ready" | "no-cues" | "not-armed" | "chosen";
@@ -23,6 +24,14 @@ export function resolveDrums(input: { choice: PartChoice; fallback: DrumFallback
 /** True when the song chose the pedal but its fallback drums play instead. */
 export const isFallback = (choice: PartChoice, source: DrumSource): boolean => choice === "pedal" && source.plays !== "pedal";
 
+/**
+ * The cues the session sends. A song on its fallback drums sends no RC-10R rhythm cues (the load cue included), so the pedal does not
+ * start its rhythm over the fallback. Any other song keeps its cues as they are, the same array, so nothing is scheduled again.
+ */
+export function cuesForDrums(cues: Cue[], choice: PartChoice, source: DrumSource): Cue[] {
+  return isFallback(choice, source) ? cues.filter((cue) => cue.managed !== "rhythm") : cues;
+}
+
 /** The song's choices with the drums replaced by what really plays, for the mix and the mixer badges. */
 export function withResolvedDrums(choices: PartChoices, source: DrumSource): PartChoices {
   return { ...choices, drums: source.plays };
@@ -40,6 +49,13 @@ export function fallbackReason(source: DrumSource, outputConnected: boolean): st
  * drum tracks never switch mid-song: the next Play decides again.
  */
 export const settledArmed = (held: boolean, armed: boolean, playing: boolean): boolean => (playing ? held : armed);
+
+/** The pre-show warning for songs that chose pedal drums while the cues are not armed. */
+export function pedalDrumsOffWarning(songs: number): string {
+  return songs === 1
+    ? "1 song uses RC-10R drums but cues are off; it will play its fallback drums."
+    : `${songs} songs use RC-10R drums but cues are off; they will play their fallback drums.`;
+}
 
 /** What the transport chip says for a song's drums, and how to colour it. */
 export function drumsChip(choice: PartChoice, source: DrumSource, fallbackWhy: string): { text: string; tone: "ok" | "warn" | "neutral"; title: string } {

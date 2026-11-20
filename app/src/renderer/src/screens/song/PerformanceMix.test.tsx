@@ -138,3 +138,47 @@ describe("PerformanceMix: practice mute", () => {
     expect(onCountsAs).toHaveBeenCalledWith("track1", "none");
   });
 });
+
+describe("PerformanceMix: pedal drums", () => {
+  it("says the RC-10R plays on every drum row while the pedal plays", () => {
+    const { stems, tracks } = split();
+    render(
+      <PerformanceMix
+        session={session}
+        stems={stems}
+        tracks={tracks}
+        mix={mix}
+        onMix={vi.fn()}
+        trackBuses={{}}
+        onTrackBus={vi.fn()}
+        onTrackInfo={vi.fn()}
+        partChoices={{ drums: "pedal", bass: "original" }}
+        pedalPlays
+      />,
+    );
+    expect(within(screen.getByRole("group", { name: "Drums" })).getByText("Off: RC-10R plays")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Drums (generated)" })).getByText("Off: RC-10R plays")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Bass" })).queryByText(/RC-10R/)).toBeNull();
+  });
+
+  it("marks the badges of a fallback", () => {
+    renderMix({ drums: "generated", bass: "original" });
+    cleanup();
+    const { stems, tracks } = split();
+    render(
+      <PerformanceMix
+        session={session}
+        stems={stems}
+        tracks={tracks}
+        mix={mix}
+        onMix={vi.fn()}
+        trackBuses={{}}
+        onTrackBus={vi.fn()}
+        onTrackInfo={vi.fn()}
+        partChoices={{ drums: "generated", bass: "original" }}
+        drumsFallback
+      />,
+    );
+    expect(within(screen.getByRole("group", { name: "Drums" })).getByText("Off: generated plays (fallback)")).toBeTruthy();
+  });
+});
