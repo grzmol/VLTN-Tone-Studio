@@ -10,7 +10,8 @@ export const PEDAL_DRUMS_KEY = "vltn.performance.pedal-drums.v1";
 
 /**
  * The song's saved options with drums set to the pedal, or null when the song stays as it is: it has no automatic RC-10R cues, or it
- * already saved a drums choice.
+ * already chose the pedal. The old switch made a song with cues use the pedal whatever it saved, so a saved original or generated drums
+ * choice becomes the fallback; both, or nothing saved, takes the default fallback.
  */
 export function withPedalDrums(settings: Record<string, string>): string | null {
   if (!hasSavedPedalRhythm(settings)) return null;
@@ -22,13 +23,14 @@ export function withPedalDrums(settings: Record<string, string>): string | null 
   }
   const saved = options.partChoice;
   const record = saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as Record<string, unknown>) : {};
-  if (record.drums !== undefined) return null;
-  return JSON.stringify({ ...options, partChoice: { ...record, drums: "pedal" } });
+  if (record.drums === "pedal") return null;
+  const fallback = record.drums === "original" || record.drums === "generated" ? { pedalFallback: record.drums } : {};
+  return JSON.stringify({ ...options, partChoice: { ...record, drums: "pedal", ...fallback } });
 }
 
 /**
- * Moves the old global switch into the songs, once. When it was on, every song with automatic RC-10R cues and no saved drums choice
- * chooses the pedal (with the default fallback). The key is removed afterwards, so this never runs twice; a failed save leaves it for
+ * Moves the old global switch into the songs, once. When it was on, every song with automatic RC-10R cues chooses the pedal, keeping
+ * its saved original or generated drums as the fallback. The key is removed afterwards, so this never runs twice; a failed save leaves it for
  * the next start.
  */
 export async function migratePedalDrums(songs: { id: string; settings: Record<string, string> }[]): Promise<void> {
