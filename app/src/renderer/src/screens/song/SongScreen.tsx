@@ -17,6 +17,7 @@ import { SongLibraryPanel } from "./SongLibraryPanel";
 import { PerformancePanel } from "./PerformancePanel";
 import { SaveBeforeLeaving, SaveIndicator } from "./SaveIndicator";
 import { useSongTab, type SongTab } from "./tab";
+import { ScreenBoundary } from "@/components/ScreenBoundary";
 
 /** Decode `file`; the Stems tab then offers the model and quality choice before the split. */
 export async function openSong(file: File): Promise<void> {
@@ -96,16 +97,26 @@ export function SongScreen() {
             )}
           </div>
         </div>
-        <TabsContent value="songs" className="flex min-h-0 flex-col"><SongLibraryPanel onPick={pick} /></TabsContent>
+        <TabsContent value="songs" className="flex min-h-0 flex-col">
+          <ScreenBoundary name="Songs and playlists" title="This tab hit a problem.">
+            <SongLibraryPanel onPick={pick} />
+          </ScreenBoundary>
+        </TabsContent>
         <TabsContent value="stems" className="flex min-h-0 flex-col">
-          <StemsPanel onPick={pick} />
+          <ScreenBoundary name="Stems" title="This tab hit a problem.">
+            <StemsPanel onPick={pick} />
+          </ScreenBoundary>
         </TabsContent>
         <TabsContent value="tone" className="flex min-h-0 flex-col">
-          <ToneMatchPanel />
+          <ScreenBoundary name="Tone match" title="This tab hit a problem.">
+            <ToneMatchPanel />
+          </ScreenBoundary>
         </TabsContent>
         {/* Kept mounted on the other tabs: a set or song playing on Performance keeps playing (and can be edited) while hidden. */}
         <TabsContent value="performance" forceMount hidden={tab !== "performance"} className="flex min-h-0 flex-col">
-          <PerformancePanel shown={tab === "performance"} />
+          <ScreenBoundary name="Performance" title="This tab hit a problem.">
+            <PerformancePanel shown={tab === "performance"} />
+          </ScreenBoundary>
         </TabsContent>
       </Tabs>
     </div>
