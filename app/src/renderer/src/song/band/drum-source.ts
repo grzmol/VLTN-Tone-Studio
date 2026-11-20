@@ -34,3 +34,17 @@ export function fallbackReason(source: DrumSource, outputConnected: boolean): st
   if (source.reason !== "not-armed") return "";
   return outputConnected ? "Send cues off" : "output disconnected";
 }
+
+/**
+ * Whether a held decision should follow the live armed state. The drums are decided while stopped and held while playing, so the
+ * drum tracks never switch mid-song: the next Play decides again.
+ */
+export const settledArmed = (held: boolean, armed: boolean, playing: boolean): boolean => (playing ? held : armed);
+
+/** What the transport chip says for a song's drums, and how to colour it. */
+export function drumsChip(choice: PartChoice, source: DrumSource, fallbackWhy: string): { text: string; tone: "ok" | "warn" | "neutral"; title: string } {
+  const name = { pedal: "RC-10R", original: "Original", generated: "Generated", both: "Both" }[source.plays];
+  if (choice !== "pedal") return { text: `Drums: ${name}`, tone: "neutral", title: "Open This song → What plays" };
+  if (source.plays === "pedal") return { text: "Drums: RC-10R", tone: "ok", title: "The RC-10R plays the drums" };
+  return { text: `Drums: ${name} (fallback)`, tone: "warn", title: `RC-10R not used: ${fallbackWhy}` };
+}

@@ -1,5 +1,4 @@
 import { useSession, selectOutput, type PerformanceSession } from "@/song/performance/session";
-import { usePedalDrums } from "@/song/performance/pedal-drums";
 /** The target and queued command are distinct from a measurement at the pedal. */
 export function RhythmTempoStatus({ session }: { session: PerformanceSession }) {
   const bpm = useSession(session, (s) => s.bpm);
@@ -9,7 +8,6 @@ export function RhythmTempoStatus({ session }: { session: PerformanceSession }) 
   const channel = useSession(session, (s) => s.tempoChannel);
   const last = useSession(session, (s) => s.lastTempo);
   const output = useSession(session, selectOutput);
-  const pedalDrums = usePedalDrums((s) => s.enabled);
   const target = Math.round((rhythmTempo ?? bpm) * rate);
   return (
     <section aria-label="Pedal rhythm status" className="space-y-2 rounded border border-seam p-3 text-sm">
@@ -24,11 +22,7 @@ export function RhythmTempoStatus({ session }: { session: PerformanceSession }) 
           : "No tempo command has been queued in this song session."}{" "}
         Pedal BPM has not been measured.
       </p>
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={pedalDrums} onChange={(e) => usePedalDrums.getState().set(e.target.checked)} />
-        Use pedal drums in every song
-      </label>
-      <p>Silences the app’s drum tracks without changing saved mixes. A mixed recording needs separate drum stems for this to work.</p>
+      <p>Choose RC-10R pedal drums for each song under This song → What plays. A song whose pedal is not reachable plays its fallback drums.</p>
     </section>
   );
 }
