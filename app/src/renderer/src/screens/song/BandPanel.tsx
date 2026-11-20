@@ -95,6 +95,10 @@ export interface BandPanelProps {
   onPlayFrom?(seconds: number): void;
   /** Which drums and bass play: the original, the generated track or both. */
   partChoices: PartChoices;
+  /** True when the song has automatic RC-10R cues, so its drums can choose the pedal. */
+  pedalCues?: boolean;
+  /** Opens the MIDI view (the RC-10R setup card is there). */
+  onOpenMidi?: () => void;
   /** Changes some parts' choice and updates the mix to match. Works while playing, since it only changes mute levels. */
   onPartChoice(patch: Partial<PartChoices>): void;
   /** The bass note the song's bass stem plays on each beat, from the song analysis. Null when the song has no bass stem or it is not read yet. */
@@ -160,13 +164,15 @@ export interface BandPanelButtonProps {
   sections: Section[];
   /** Which drums and bass play, so the entry point can say what is playing. */
   partChoices: PartChoices;
+  /** True when the song chose the RC-10R pedal but its fallback drums play. */
+  drumsFallback?: boolean;
 }
 
 /**
  * The Band entry point, above the mixer: a card that opens the panel. Its label and status follow the song's generated parts, and a
  * part the split missed is named here too.
  */
-export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps) {
+export function BandPanelButton({ sections, partChoices, drumsFallback = false }: BandPanelButtonProps) {
   const show = useBandPanel((s) => s.show);
   const stems = useSong(selectWholeSongStems);
   const tracks = useSong((s) => s.tracks);
@@ -174,7 +180,7 @@ export function BandPanelButton({ sections, partChoices }: BandPanelButtonProps)
   const generated = hasGeneratedParts(tracks);
   const source = useSong((s) => s.source);
   const updating = useBandRefreshStatus((s) => (s.key === performanceKey(source) ? s.message : ""));
-  const status = bandEntryStatus(partKeysOf(tracks ?? {}, stems), partChoices, missing, sections);
+  const status = bandEntryStatus(partKeysOf(tracks ?? {}, stems), partChoices, missing, sections, drumsFallback);
   return (
     <section aria-label="Band parts" className="flex flex-wrap items-center gap-3 rounded-lg border border-seam px-3 py-2 text-sm">
       <Drum className="size-5 shrink-0 text-silkscreen-3" aria-hidden />
@@ -216,6 +222,8 @@ function BandBody({
   getPosition,
   onPlayFrom,
   partChoices,
+  pedalCues,
+  onOpenMidi,
   onPartChoice,
   bassLine = null,
   sectionHints = [],
@@ -852,7 +860,7 @@ function BandBody({
           {outOfDate && <p className="text-led-warn">Parts out of date. Updating automatically when playback stops.</p>}
         </section>
 
-        {source !== null && <PartChoiceRows choices={partChoices} keys={partKeys} disabled={busy} onChange={onPartChoice} />}
+        {source !== null && <PartChoiceRows choices={partChoices} keys={partKeys} disabled={busy} onChange={onPartChoice} pedalCues={pedalCues} onOpenMidi={onOpenMidi} />}
 
         {source !== null && (
           <section aria-label="Rendered parts" className="flex flex-col gap-3">

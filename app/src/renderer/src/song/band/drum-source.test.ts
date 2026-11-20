@@ -35,3 +35,29 @@ describe("fallback helpers", () => {
     expect(fallbackReason({ plays: "pedal", reason: "pedal-ready" }, true)).toBe("");
   });
 });
+
+import { drumsChip, settledArmed } from "./drum-source";
+
+describe("settledArmed", () => {
+  it("follows the armed state while stopped and holds it while playing", () => {
+    expect(settledArmed(true, false, false)).toBe(false);
+    expect(settledArmed(true, false, true)).toBe(true);
+    expect(settledArmed(false, true, true)).toBe(false);
+  });
+});
+
+describe("drumsChip", () => {
+  it("says RC-10R when the pedal plays", () => {
+    expect(drumsChip("pedal", { plays: "pedal", reason: "pedal-ready" }, "")).toMatchObject({ text: "Drums: RC-10R", tone: "ok" });
+  });
+  it("warns with the reason on a fallback", () => {
+    const chip = drumsChip("pedal", { plays: "generated", reason: "not-armed" }, "Send cues off");
+    expect(chip).toMatchObject({ text: "Drums: Generated (fallback)", tone: "warn" });
+    expect(chip.title).toContain("Send cues off");
+    expect(drumsChip("pedal", { plays: "original", reason: "no-cues" }, "x").text).toBe("Drums: Original (fallback)");
+  });
+  it("is neutral for the other choices", () => {
+    for (const [choice, text] of [["original", "Original"], ["generated", "Generated"], ["both", "Both"]] as const)
+      expect(drumsChip(choice, { plays: choice, reason: "chosen" }, "")).toMatchObject({ text: `Drums: ${text}`, tone: "neutral" });
+  });
+});

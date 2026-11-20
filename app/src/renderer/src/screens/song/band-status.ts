@@ -43,7 +43,7 @@ export function hasGeneratedParts(tracks: Record<string, TrackInfo> | undefined)
 }
 
 /** What the Performance screen's Band entry point says about the parts: which are generated, what plays, and any part the split missed. */
-export function bandEntryStatus(keys: PartKeys, choices: PartChoices, missing: MissingParts | null | undefined, sections: readonly Section[]): string | null {
+export function bandEntryStatus(keys: PartKeys, choices: PartChoices, missing: MissingParts | null | undefined, sections: readonly Section[], drumsFallback = false): string | null {
   const lines: string[] = [];
   for (const kind of PART_KINDS) {
     const presence = missing?.[kind];
@@ -56,8 +56,9 @@ export function bandEntryStatus(keys: PartKeys, choices: PartChoices, missing: M
       const part = keys[kind];
       if (!part || (part.original === undefined && part.generated === undefined)) return [];
       const shown = effectiveChoice(choices[kind], part);
+      if (shown === "pedal") return ["RC-10R drums"];
       const what = shown === "both" ? "original and generated" : shown;
-      return [`${what} ${kind}`];
+      return [`${what} ${kind}${kind === "drums" && drumsFallback ? " (RC-10R fallback)" : ""}`];
     });
     if (plays.length) lines.push(`Playing ${plays.join(", ")}`);
   }

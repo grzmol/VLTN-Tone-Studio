@@ -1,6 +1,6 @@
 import { PreparePedalsButton } from "./PreparePedalsButton";
 import { SongPreparationStatus } from "./SongPreparationStatus";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useSong } from "@/song/store";
@@ -103,6 +103,7 @@ export function PerformanceTransport({
   beatHint,
   onTap,
   metronome,
+  drumsChip,
 }: {
   session: PerformanceSession;
   stage: boolean;
@@ -116,6 +117,8 @@ export function PerformanceTransport({
   beatHint?: { bpm: number; onFind(lock: boolean): void };
   onTap: () => void;
   metronome: MetronomeSettings;
+  /** Which drums play, shown next to the BPM. */
+  drumsChip?: ReactNode;
 }) {
   const library = useSongLibrary();
   const [keepExact, setKeepExact] = useState(false);
@@ -231,6 +234,7 @@ export function PerformanceTransport({
           <label>
             Song BPM <BpmField bpm={bpm} disabled={playing} onBpm={onBpm} />
           </label>
+          {drumsChip}
           {onDetect && (
             <Button variant="outline" disabled={detectDisabled} title="Detect the tempo from the audio" onClick={onDetect}>
               {detecting ? "Detecting…" : "Detect"}
