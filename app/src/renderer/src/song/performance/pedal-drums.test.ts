@@ -31,11 +31,18 @@ beforeEach(() => {
   updateSettings.mockClear();
 });
 
-it("moves the global switch into songs that have cues and no drums choice", () => {
-  const options = JSON.parse(withPedalDrums(withCues({ partChoice: { bass: "generated" } }))!);
-  expect(options.partChoice).toEqual({ bass: "generated", drums: "pedal" });
-  expect(withPedalDrums(withCues({ partChoice: { drums: "generated" } }))).toBeNull();
-  expect(withPedalDrums({ ":options": JSON.stringify({ partChoice: {} }) })).toBeNull();
+it("moves the global switch into songs with cues, keeping a saved original or generated choice as the fallback", () => {
+  const choice = (partChoice?: unknown) => JSON.parse(withPedalDrums(withCues(partChoice ? { partChoice } : {}))!).partChoice;
+  expect(choice({ drums: "generated", bass: "original" })).toEqual({ drums: "pedal", bass: "original", pedalFallback: "generated" });
+  expect(choice({ drums: "original" })).toEqual({ drums: "pedal", pedalFallback: "original" });
+  expect(choice({ drums: "both" })).toEqual({ drums: "pedal" });
+  expect(choice({ bass: "generated" })).toEqual({ bass: "generated", drums: "pedal" });
+  expect(choice()).toEqual({ drums: "pedal" });
+});
+
+it("leaves songs that already chose the pedal, have no cues, or have unreadable options", () => {
+  expect(withPedalDrums(withCues({ partChoice: { drums: "pedal", pedalFallback: "original" } }))).toBeNull();
+  expect(withPedalDrums({ ":options": JSON.stringify({ partChoice: { drums: "generated" } }) })).toBeNull();
   expect(withPedalDrums({ ":options": "not json" })).toBeNull();
 });
 
