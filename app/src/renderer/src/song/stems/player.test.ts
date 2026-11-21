@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlaybackEngine } from "../audio/playback-engine";
 import { DEFAULT_OUTPUTS, type OutputConfig } from "../audio/outputs";
 import type { Stems } from "../types";
@@ -41,6 +41,7 @@ class Context {
         setTargetAtTime: vi.fn(),
       },
       buffer: null,
+      playbackRate: { value: 1 },
       fftSize: 2048,
     };
   }
@@ -893,4 +894,195 @@ it("plays your own samples on the right beats, and the blip for an empty slot", 
   // Samples are never asked of the band's kit.
   expect(loadDrumSample).not.toHaveBeenCalled();
   await player.dispose();
+});
+
+it("plays to the end of the longest stem, so a generated part that rings past the song is not cut", () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: pcm(1000), bass: pcm(1300) });
+  expect(player.length).toBe(13);
+  expect(player.duration).toBe(13);
+});
+
+const countOf = (start: number, seconds = 1) => ({ track: "other", audio: { sampleRate: 100, channels: [new Float32Array(seconds * 100)] }, start });
+
+it("starts the song after the drummer's count: the count plays ahead of the song and ends where the song begins", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  // The count plays from the call (10.02), and the song starts two seconds later, where the count ends.
+  const [count, song] = [ctx.sources[1], ctx.sources[0]];
+  expect(count.start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(song.start.mock.calls[0][0]).toBeCloseTo(12.02);
+  expect(count.playbackRate.value).toBe(1);
+  await player.dispose();
+});
+
+it("plays the drummer's count and the metronome's count-in together, each ending where the song begins", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  // One bar of clicks at 120 BPM is 2 s, and the drummer's count is 3 s: the song starts after the longer, and the clicks start 1 s into it.
+  await player.play({ bpm: 120, countInBeats: 4, drummer: countOf(-3) });
+  const ctx = Context.instances[0];
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(13.02);
+  expect(ctx.sources[1].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(ctx.oscillators[0].start.mock.calls[0][0]).toBeCloseTo(11.02);
+  await player.dispose();
+});
+
+it("leaves the drummer's count out of a start that is not from the beginning of the song", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.seek(5);
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  expect(ctx.sources).toHaveLength(1);
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  await player.dispose();
+});
+
+it("plays a count that falls inside the song where it is, and stops it with the clicks on pause", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  await player.play({ drummer: countOf(3) });
+  const ctx = Context.instances[0];
+  // The song starts at once, and the count joins it three seconds in.
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(10.02);
+  expect(ctx.sources[1].start.mock.calls[0][0]).toBeCloseTo(13.02);
+  player.pause();
+  expect(ctx.sources[1].stop).toHaveBeenCalledWith();
+  await player.dispose();
+});
+
+it("counts at the song's speed, so the count keeps the song's tempo", async () => {
+  vi.stubGlobal("AudioContext", Context);
+  const player = new StemPlayer({ other: { sampleRate: 100, channels: [new Float32Array(2000)] } }, undefined, {}, "now", 0.5);
+  await player.play({ drummer: countOf(-2) });
+  const ctx = Context.instances[0];
+  // Two song seconds at half speed are four audio seconds, and the count's buffer plays at half speed to fill them.
+  expect(ctx.sources[0].start.mock.calls[0][0]).toBeCloseTo(14.02);
+  expect(ctx.sources[1].playbackRate.value).toBe(0.5);
+  await player.dispose();
+});
+
+describe("a vamp's exit bar", () => {
+  const stems = (): Stems => ({ other: { sampleRate: 100, channels: [new Float32Array(2000)] }, vocals: { sampleRate: 100, channels: [new Float32Array(2000)] } });
+  const exitBar = (from = 4, to = 6) => ({ from, to, tracks: { other: { sampleRate: 100, channels: [new Float32Array(300)] } } });
+
+  it("plays in place of the track's last bar at a bar boundary on the audio clock, and the track goes on from the bar's end", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    expect(player.scheduleExit(exitBar())).toBeCloseTo(14.02);
+    const [main, exit, resume] = [ctx.sources[0], ctx.sources[2], ctx.sources[3]];
+    // The track's own audio stops where the exit begins, the exit plays there, and the track resumes at the bar's end from the bar's end.
+    expect(main.stop).toHaveBeenLastCalledWith(expect.closeTo(14.02));
+    expect(exit.start.mock.calls[0][0]).toBeCloseTo(14.02);
+    expect(resume.start.mock.calls[0][0]).toBeCloseTo(16.02);
+    expect(resume.start.mock.calls[0][1]).toBe(6);
+    expect(resume.stop).toHaveBeenLastCalledWith(expect.closeTo(30.02));
+    // The other tracks are untouched, and so is the timeline: the song position is the song's own.
+    expect(ctx.sources[1].stop).not.toHaveBeenCalledWith(expect.closeTo(14.02));
+    expect(player.audioTimeOf(5)).toBeCloseTo(15.02);
+    expect(player.exitAt).toBeCloseTo(14.02);
+    await player.dispose();
+  });
+
+  it("is refused while another is waiting, when the bar is too close, at another speed, or when nothing plays", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    expect(player.scheduleExit(exitBar())).toBeNull();
+    await player.play();
+    const ctx = Context.instances[0];
+    expect(player.scheduleExit(exitBar())).not.toBeNull();
+    expect(player.scheduleExit(exitBar())).toBeNull();
+    player.pause();
+    await player.play();
+    ctx.currentTime = 13.99;
+    expect(player.scheduleExit(exitBar(0.5, 2))).toBeNull();
+    expect(player.scheduleExit({ from: 4, to: 6, tracks: { guitar: { sampleRate: 100, channels: [new Float32Array(1)] } } })).toBeNull();
+    await player.dispose();
+    const slow = new StemPlayer(stems(), undefined, {}, "now", 0.5);
+    await slow.play();
+    expect(slow.scheduleExit(exitBar())).toBeNull();
+    await slow.dispose();
+  });
+
+  it("is taken back before it begins, and then the track plays its own audio to the end as it did", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar());
+    expect(player.cancelExit()).toBe(true);
+    expect(ctx.sources[0].stop).toHaveBeenLastCalledWith(expect.closeTo(30.02));
+    expect(ctx.sources[2].stop).toHaveBeenCalledWith(0);
+    expect(ctx.sources[3].stop).toHaveBeenCalledWith(0);
+    expect(player.exitAt).toBeNull();
+    // A new exit can be placed after it.
+    expect(player.scheduleExit(exitBar())).not.toBeNull();
+    // Too close to begin: it stands.
+    ctx.currentTime = 14;
+    expect(player.cancelExit()).toBe(false);
+    await player.dispose();
+  });
+
+  it("is taken back by a jump that comes before it begins, so a jump cancelled later finds the track as it was", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar(8, 10));
+    // A jump at song 6, before the exit: the exit and what follows it are dropped, and the track's audio stops at the jump as any track's does.
+    expect(player.prepareJump(0, 6)).toBeCloseTo(16.02);
+    expect(ctx.sources[2].stop).toHaveBeenCalledWith(0);
+    expect(ctx.sources[3].stop).toHaveBeenCalledWith(0);
+    expect(ctx.sources[0].stop).toHaveBeenLastCalledWith(expect.closeTo(16.02));
+    expect(player.exitAt).toBeNull();
+    expect(player.cancelJump()).toBe(true);
+    expect(ctx.sources[0].stop).toHaveBeenLastCalledWith(expect.closeTo(30.02));
+    await player.dispose();
+  });
+
+  it("is taken back or cut when the song hands over to the next", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const engine = createPlaybackEngine();
+    const first = new StemPlayer(stems(), engine);
+    await first.play();
+    const next = new StemPlayer(stems(), engine);
+    first.scheduleExit(exitBar(8, 10));
+    expect(first.chainNext(next, { startAt: 15, fadeLength: 0, stopAt: 16, lead: {} })).toBe(true);
+    expect(first.exitAt).toBeNull();
+    await first.dispose();
+    await next.dispose();
+  });
+
+  it("is cut at a jump that comes while it plays, without letting the track's own audio play on", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar(4, 6));
+    ctx.currentTime = 14.5;
+    // The jump is at song 5.5 (audio 15.52): after the exit began (14.02), so the main audio, stopped at 14.02, is not given a later stop.
+    expect(player.prepareJump(0, 5.5)).toBeCloseTo(15.52);
+    expect(ctx.sources[0].stop).not.toHaveBeenCalledWith(expect.closeTo(15.52));
+    expect(ctx.sources[2].stop).toHaveBeenCalledWith(expect.closeTo(15.52));
+    expect(ctx.sources[3].stop).toHaveBeenCalledWith(expect.closeTo(15.52));
+    await player.dispose();
+  });
+
+  it("is silenced with the song on pause", async () => {
+    vi.stubGlobal("AudioContext", Context);
+    const player = new StemPlayer(stems());
+    await player.play();
+    const ctx = Context.instances[0];
+    player.scheduleExit(exitBar());
+    player.pause();
+    for (const index of [0, 2, 3]) expect(ctx.sources[index].stop).toHaveBeenLastCalledWith();
+    expect(player.exitAt).toBeNull();
+    await player.dispose();
+  });
 });

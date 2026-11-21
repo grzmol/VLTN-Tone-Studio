@@ -1,3 +1,4 @@
+import { withToneWarnings } from "@/song/performance/tone-preflight";
 import { PreparationSequenceDetails, preparationSeconds } from "./PreparationSequenceDetails";
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { readLeadInDefaults } from "@/song/performance/lead-in";
@@ -64,20 +65,22 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
       await flushSettings();
       const snapshot = await host.song.library!.preflight(ids);
       if (request !== generation.current) return;
-      setReport(
-        playlistPreflight(ids, snapshot, {
-          preparationDefaults,
-          leadInDefaults: readLeadInDefaults(),
-          tempoOnStart: config.tempoOnStart,
-          tempoChannel: config.tempoChannel,
-          outputName: config.output?.name,
-          renderReady: isRenderedAhead,
-          macros: config.macros,
-          songs: songEntries(songs),
-          bindings: config.bindings,
-          pedals: configuredPedals(pedals),
-        }),
-      );
+      const checks = playlistPreflight(ids, snapshot, {
+        preparationDefaults,
+        leadInDefaults: readLeadInDefaults(),
+        tempoOnStart: config.tempoOnStart,
+        tempoChannel: config.tempoChannel,
+        outputName: config.output?.name,
+        renderReady: isRenderedAhead,
+        macros: config.macros,
+        songs: songEntries(songs),
+        bindings: config.bindings,
+        pedals: configuredPedals(pedals),
+      });
+      // Reading the tone files is asynchronous, so the song's own checks are done first and the tone warnings are added to them.
+      const withTones = await withToneWarnings(checks, ids, snapshot, host.tones);
+      if (request !== generation.current) return;
+      setReport(withTones);
     } catch (e) {
       if (request === generation.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -110,7 +113,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
             {report.filter((result) => result.preparation).length} entries. Fresh song loads with Send cues enabled are assumed. Audio loading, MIDI delivery,
             start delay and count-in can add time; entries with errors need fixing first.
           </p>
-          <PlaylistPreflightIssues report={report} />
+          <PlaylistPreflightIssues report={report} onDownloaded={() => void check()} />
           <ol className="max-h-80 space-y-2 overflow-auto">
             {report.map((r) => (
               <li key={r.entry} className="rounded border border-seam p-2">
