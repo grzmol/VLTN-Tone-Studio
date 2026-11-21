@@ -5,6 +5,7 @@ import { applyPracticeMute, loadSongAudio, useSongLibrary, type PreparedSong } f
 import { usePracticeMute } from "./performance/practice-mute";
 import { clearSettingsCache, flushSettings, getSetting, performanceKey, setSetting } from "./performance/settings";
 import { useNav } from "@/state/nav";
+import { loadResumePoint, saveResumePoint } from "./performance/resume-point";
 
 const api = vi.hoisted(() => ({
   index: vi.fn(),
@@ -220,6 +221,16 @@ it("plays every playlist entry including repeats, persists outgoing settings, an
   await useSongLibrary.getState().advancePlaylist();
   expect(useSongLibrary.getState().playlistPlaying).toBe(false);
   expect(useSongLibrary.getState().notice).toBe("Playlist finished.");
+});
+
+it("forgets the resume point when the set runs to its end", async () => {
+  const second = { ...saved, id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Second song" };
+  api.index.mockResolvedValue({ ...emptyLibrary(), songs: [saved, second] });
+  await useSongLibrary.getState().playPlaylist([saved.id, second.id]);
+  saveResumePoint({ version: 1, savedAt: Date.now(), playlistId: null, queue: [saved.id, second.id], position: 1, songId: second.id, songTime: 10, playing: true, sendCues: false, stageMode: false });
+  await useSongLibrary.getState().advancePlaylist();
+  await useSongLibrary.getState().advancePlaylist();
+  expect(loadResumePoint(Date.now())).toBeNull();
 });
 
 it("cancels autoplay when Stop is pressed during an audio load", async () => {

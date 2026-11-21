@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { buildMenu } from "./menu";
-import { isJobRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
+import { closeDecision, isJobRunning, isShowRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
 import { sendTo } from "./ipc/handle";
 import { registerFilesIpc } from "./ipc/files";
 import { writeJsonAtomicSync } from "./ipc/fs-atomic";
@@ -26,6 +26,8 @@ import { registerBandSyncIpc } from "./ipc/band-sync";
 import { APP_SCHEME_PRIVILEGES } from "./app-scheme";
 import { devUserDataPath } from "./user-data";
 import { isOwnRenderer } from "./permissions";
+import { RECOVERY_LOAD_TIMEOUT_MS, UNRESPONSIVE_GRACE_MS, decideRecoveryLoad, decideRenderGone, recoveredUrl, type RecoveryEvent } from "./crash-recovery";
+import { logMain } from "./ipc/log";
 
 // Development runs keep their own library and settings, so testing never touches the installed app's songs.
 // Before the single-instance lock, which is per data folder.
@@ -202,7 +204,8 @@ async function createWindow() {
   win.on("close", (e) => {
     if (!win) return;
     // overlays.md › Electron notes: don't drop a backup or write by closing the window by accident.
-    if (isJobRunning()) {
+    const decision = closeDecision({ job: isJobRunning(), show: isShowRunning() && !quitConfirmed });
+    if (decision === "job-prompt") {
       const choice = dialog.showMessageBoxSync(win, {
         type: "warning",
         buttons: ["Keep open", "Close anyway"],
@@ -211,7 +214,15 @@ async function createWindow() {
         message: "Tone Studio is still writing to or backing up the pedal",
         detail: "Close after it finishes? If you close now, an unfinished write is discarded by the pedal and that slot keeps its old preset.",
       });
-      if (choice === 0) return e.preventDefault();
+      if (choice === 0) {
+        quitConfirmed = false;
+        return e.preventDefault();
+      }
+    }
+    // With a pedal job and a show both running, the show is asked about after the job.
+    if ((decision === "show-prompt" || (decision === "job-prompt" && isShowRunning() && !quitConfirmed)) && askKeepPlaying(win) === 0) {
+      quitConfirmed = false;
+      return e.preventDefault();
     }
     saveBounds(win);
   });
@@ -227,7 +238,11 @@ async function createWindow() {
       message: "The open song has audio that isn't saved yet",
       detail: "Generated or imported tracks are lost if you close now. Keep the window open, then save the song from the Song screen.",
     });
-    if (choice === 1) e.preventDefault();
+    if (choice === 1) {
+      // Keeping the window open also cancels a quit that was already confirmed.
+      quitConfirmed = false;
+      e.preventDefault();
+    }
   });
   win.on("focus", () => sendEvent({ type: "window-focus", focused: true }));
   win.on("blur", () => sendEvent({ type: "window-focus", focused: false }));
@@ -236,8 +251,134 @@ async function createWindow() {
     if (url !== win?.webContents.getURL()) e.preventDefault();
   });
 
+  watchRenderer(win);
+
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadURL(RENDERER_URL);
+}
+
+/**
+ * The renderer holds the audio, the MIDI cues and the playlist, so when it dies the show stops. Reload the window at once, up to three times a
+ * minute; after that ask. A page that is only slow is never reloaded by itself, since its audio may still be playing from the audio thread.
+ */
+function watchRenderer(w: BrowserWindow): void {
+  let reloads: number[] = [];
+  let recovery = { pending: false };
+  let loadTimer: ReturnType<typeof setTimeout> | undefined;
+  let prompting = false;
+
+  // Shows the Reload / Quit choice once at a time. Reload starts another recovery reload; Quit ends the app.
+  const askRecovery = async (message: string, detail: string): Promise<void> => {
+    if (prompting || w.isDestroyed()) return;
+    prompting = true;
+    try {
+      const { response } = await dialog.showMessageBox(w, { type: "error", buttons: ["Reload", "Quit"], defaultId: 0, cancelId: 1, message, detail });
+      if (response === 0) {
+        reloads = [];
+        reload();
+      } else {
+        quitConfirmed = true;
+        app.quit();
+      }
+    } finally {
+      prompting = false;
+    }
+  };
+
+  // Loads the page again, flagged as following a crash so the renderer offers to resume the set (spec 120). Nothing plays until the performer asks.
+  const reload = (): void => {
+    if (w.isDestroyed()) return;
+    step("start");
+    const fallback = process.env.ELECTRON_RENDERER_URL ?? RENDERER_URL;
+    void w.webContents
+      .loadURL(recoveredUrl(w.webContents.getURL(), fallback))
+      .catch((e) => logMain("Crash", `reload failed: ${e instanceof Error ? e.message : e}`));
+  };
+
+  // Follows one recovery reload: a failed load, or one still pending after the timeout, asks the user instead of leaving a blank window.
+  const step = (event: RecoveryEvent): void => {
+    const next = decideRecoveryLoad(event, recovery.pending);
+    recovery = { pending: next.pending };
+    clearTimeout(loadTimer);
+    if (event === "start") loadTimer = setTimeout(() => step("timeout"), RECOVERY_LOAD_TIMEOUT_MS);
+    if (next.action === "prompt") {
+      logMain("Crash", `The window did not finish loading after a recovery reload (${event})`);
+      void askRecovery(
+        "Tone Studio's window did not load",
+        "The page did not come back after the crash. Reload to try again, or quit and start the app again.",
+      );
+    }
+  };
+
+  w.webContents.on("did-finish-load", () => step("loaded"));
+  w.webContents.on("did-fail-load", (_e, errorCode, errorDescription, _url, isMainFrame) => {
+    // -3 is a load replaced by another navigation, which is not a failure.
+    if (!isMainFrame || errorCode === -3) return;
+    logMain("Crash", `The window failed to load (${errorCode} ${errorDescription})`);
+    step("failed");
+  });
+  w.webContents.on("render-process-gone", (_e, details) => {
+    logMain("Crash", `The window's renderer is gone (${details.reason}, exit code ${details.exitCode})`);
+    const decision = decideRenderGone(details.reason, reloads, Date.now());
+    reloads = decision.history;
+    if (decision.action === "reload") return reload();
+    if (decision.action !== "prompt") return;
+    recovery = { pending: false };
+    clearTimeout(loadTimer);
+    void askRecovery(
+      "Tone Studio's window keeps crashing",
+      "It was reloaded three times in the last minute. Reload once more, or quit and start the app again.",
+    );
+  });
+  let unresponsive: ReturnType<typeof setTimeout> | undefined;
+  let stuck = false;
+  w.on("responsive", () => {
+    stuck = false;
+    clearTimeout(unresponsive);
+  });
+  w.on("unresponsive", () => {
+    stuck = true;
+    clearTimeout(unresponsive);
+    unresponsive = setTimeout(async () => {
+      if (w.isDestroyed()) return;
+      logMain("Crash", `The window has not answered for ${UNRESPONSIVE_GRACE_MS / 1000} s`);
+      // Not modal, so the page can still recover on its own while this is open.
+      const { response } = await dialog.showMessageBox({
+        type: "warning",
+        buttons: ["Wait", "Reload"],
+        defaultId: 0,
+        cancelId: 0,
+        message: "Tone Studio is not responding",
+        detail: "Music may still be playing. Reloading stops it; you can resume where it stopped afterwards.",
+      });
+      // The page may have answered again while the dialog was open; a healthy page is left alone.
+      if (response === 1 && stuck) reload();
+    }, UNRESPONSIVE_GRACE_MS);
+  });
+  w.once("closed", () => {
+    clearTimeout(unresponsive);
+    clearTimeout(loadTimer);
+  });
+}
+
+// Cmd+Q does not always pass through the window's close event first on macOS, so quitting asks here too, once.
+let quitConfirmed = false;
+app.on("before-quit", (e) => {
+  const win = getWindow();
+  if (quitConfirmed || !win || win.isDestroyed() || !isShowRunning()) return;
+  if (askKeepPlaying(win) === 0) return e.preventDefault();
+  quitConfirmed = true;
+});
+
+function askKeepPlaying(win: BrowserWindow): number {
+  return dialog.showMessageBoxSync(win, {
+    type: "warning",
+    buttons: ["Keep playing", "Stop and close"],
+    defaultId: 0,
+    cancelId: 0,
+    message: "A song is playing",
+    detail: "Closing now stops the music and the pedal cues.",
+  });
 }
 
 app.on("second-instance", (_e, argv) => {
