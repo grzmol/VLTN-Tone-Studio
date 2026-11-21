@@ -1,3 +1,5 @@
+import { clearSettingsCache } from "./settings";
+import { registerBandRefresh } from "@/song/band/refresh";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StemPlayer } from "@/song/stems/player";
 import type { Stems } from "@/song/types";
@@ -13,8 +15,6 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
-import { registerBandRefresh } from "@/song/band/refresh";
-import { clearSettingsCache } from "./settings";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
