@@ -91,7 +91,7 @@ describe("BandSyncSettings", () => {
     expect(await screen.findByText("Listening")).toBeTruthy();
     expect(screen.getByText("http://192.168.1.20:8787/")).toBeTruthy();
     expect(screen.getByText("482910")).toBeTruthy();
-    expect(screen.getByAltText("QR code with the band sync address")).toBeTruthy();
+    expect(await screen.findByAltText("QR code with the band sync address")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop band sync" }));
     await waitFor(() => expect(api.stop).toHaveBeenCalled());
   });

@@ -14,11 +14,24 @@ import { chooseVariation, leadSteps, phraseBars, isPhraseEnd, variationSeed, var
 import type { BeatGrid } from "./beat-grid";
 import { bassRhythmFromAccents, hitSteps, isAccented, type Feel } from "./feel";
 import type { ChordQuality, ChordSeventh, ChordAtBeat, ParsedChord } from "./harmony";
+import { endingBar, endingShape } from "./ending";
 import type { NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle } from "./styles";
 import type { Energy, Style } from "./styles/types";
-import { barBeats, barEnd, barSpans, beatSpan, clampVelocity, planIndexAt, stepAt } from "./timing";
+import {
+  barBeats,
+  barEnd,
+  barSpans,
+  beatSpan,
+  clampVelocity,
+  fitStepsToBar,
+  patternBeats,
+  planOfBar,
+  stepAt,
+  stepsPerGridBeat,
+  stretchesToBar,
+} from "./timing";
 
 /** Lowest and highest MIDI note of each range, and where the line starts (around A1 to A2). */
 export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; high: number; centre: number }> = {
@@ -31,6 +44,9 @@ export const BASS_NOTE_RANGES: Record<"low" | "normal" | "high", { low: number; 
 const LOCK_WINDOW = 0.03;
 /** A note stops this far short of the next bass note. */
 const NOTE_GAP = 0.03;
+/** How much of a beat a unison hit of a three-hit ending lasts, and how much of a bar a root of a slow-down lasts. */
+const UNISON_SHARE = 0.8;
+const SLOWING_SHARE = 0.9;
 /** The shortest a bass note may be, in seconds. */
 const MIN_DURATION = 0.05;
 /** A downbeat takes the lowest octave within this many semitones of the note before, so the line stays low on the beat. */
@@ -347,12 +363,13 @@ function buildSlots(
   random: Random,
   feel: Feel | undefined,
   seed: number,
+  endTime: number | undefined,
 ): Slot[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
   const spans = barSpans(grid);
   const starts = spans.map((span) => span.start);
-  const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   const barsInPlan = new Map<number, number>();
   for (const index of planOf) if (index >= 0) barsInPlan.set(index, (barsInPlan.get(index) ?? 0) + 1);
   // Each plan's occurrence of its name, counted from the first time round. A name that appears twice repeats.
@@ -365,6 +382,8 @@ function buildSlots(
     return plan.name === "" ? 0 : before;
   });
   const slots: Slot[] = [];
+  const ending = endingBar(grid, plans, settings.ending, endTime);
+  const shape = ending >= 0 ? endingShape(grid, ending, settings.ending) : null;
   const chordAt = (beat: number): ParsedChord | null => harmony[beat]?.chord ?? null;
   const nameAt = (beat: number): string | null => chordAt(beat)?.name ?? null;
 
@@ -372,19 +391,21 @@ function buildSlots(
   const firstSegment = new Map<string, { rhythm: number; barsLeft: number }>();
   let segment: Segment | null = null;
   let previousBeat = -1;
+  let endingSlot: ((time: number, held: number, index: number) => Slot) | null = null;
   let currentPlan = -2;
   let barInPlan = 0;
   let pedalChord: ParsedChord | null = null;
   let phraseRandom = createRandom(0);
 
   for (let k = 0; k < starts.length; k++) {
+    if (ending >= 0 && k > ending) break;
     const start = starts[k];
     const planIndex = planOf[k];
     if (planIndex !== currentPlan) {
       currentPlan = planIndex;
       barInPlan = 0;
       // A pedal holds the chord the section starts on, whatever the chords do after it.
-      const first = planIndex >= 0 ? beats.findIndex((time) => time >= plans[planIndex].start - 1e-9) : -1;
+      const first = planIndex >= 0 ? starts[k] : -1;
       pedalChord = first >= 0 ? chordAt(first) : null;
       if (planIndex >= 0) phraseRandom = createRandom(variationSeed(seed, plans[planIndex].name, occurrence[planIndex]));
     } else {
@@ -401,42 +422,52 @@ function buildSlots(
     const length = spans[k].beats;
     const end = barEnd(beats, start, length);
     const nextBarBass = chordAt(start + length)?.bass ?? null;
-    if (k === starts.length - 1) {
-      if (!feel?.stops.has(start)) {
-        slots.push({
-          time: beats[start],
-          beat: start,
-          chord: plan.bassPart === "pedal" ? pedalChord : chordAt(start),
-          style,
-          plan: planIndex,
-          part: plan.bassPart,
-          method: methodOf(plan.bassPart, settings.bassMode),
-          walking: false,
-          loud: plan.loud,
-          octave: plan.octave,
-          busy: plan.busy,
-          slides: plan.slides,
-          deadNotes: plan.deadNotes,
-          index: 0,
-          last: true,
-          strong: true,
-          downbeat: true,
-          locked: false,
-          hitOne: false,
-          holdUntil: end,
-          name: plan.name,
-          occurrence: occurrence[planIndex],
-          repeats: nameCount.get(plan.name)! > 1,
-          forced: false,
-          fifth: false,
-          role: "root",
-          ending: true,
-          barEnd: end,
-          nextBarBass,
-        });
+    const makeEnding = (time: number, beat: number, held: number, index: number): Slot => ({
+      time,
+      beat,
+      chord: plan.bassPart === "pedal" ? pedalChord : chordAt(start),
+      style,
+      plan: planIndex,
+      part: plan.bassPart,
+      method: methodOf(plan.bassPart, settings.bassMode),
+      walking: false,
+      loud: plan.loud,
+      octave: plan.octave,
+      busy: plan.busy,
+      slides: plan.slides,
+      deadNotes: plan.deadNotes,
+      index,
+      last: true,
+      strong: true,
+      downbeat: true,
+      locked: false,
+      hitOne: false,
+      holdUntil: end,
+      name: plan.name,
+      occurrence: occurrence[planIndex],
+      repeats: nameCount.get(plan.name)! > 1,
+      forced: false,
+      fifth: false,
+      role: "root",
+      ending: true,
+      barEnd: time + held,
+      nextBarBass,
+    });
+    if (k === ending) {
+      // A note past the grid's end sits on the bar's own first beat as far as the slot's place goes.
+      const at = (time: number, held: number, index: number) => makeEnding(time, start, held, index);
+      if (shape?.replacesBar) {
+        // The unison hits last a bit less than a beat each, and the last note rings.
+        const beatLength = beatSpan(beats, start);
+        const silent = settings.ending.kind === "hit" && feel?.stops.has(start) === true;
+        if (!silent) {
+          shape.unison.forEach((time, i) => slots.push(at(time, beatLength * UNISON_SHARE, i)));
+          slots.push(at(shape.final, shape.ring, shape.unison.length));
+        }
+        previousBeat = start;
+        continue;
       }
-      previousBeat = start;
-      continue;
+      endingSlot = at;
     }
 
     // A lead is the first bars of a section that play another part. It needs a section of at least four bars.
@@ -464,8 +495,8 @@ function buildSlots(
     // Steps are drawn the same way in every mode, so the variation a bar gets does not depend on the mode or on the kick.
     const steps = style.meter.beatsPerBar * style.meter.stepsPerBeat;
     // The bar's own steps: the pattern's steps, cut short or carried on to the bar's length.
-    const barSteps = Math.max(1, Math.round((steps * length) / perBar));
-    const points = Array.from({ length: Math.max(steps, barSteps) }, (_, step) => stepAt(beats, style, start, step, steps, perBar, settings.swing));
+    const barSteps = Math.max(1, Math.round(stepsPerGridBeat(style, perBar) * length));
+    const points = Array.from({ length: Math.max(steps, barSteps) }, (_, step) => stepAt(beats, style, start, step, perBar, settings.swing));
     const walking = part === "walking" || (part === "groove" && settings.bassMode === "walking" && style.bass.walking);
     const own = ownSteps(part, plan.busy, steps, style.meter.stepsPerBeat, barInPlan);
     const roles = new Map<number, "root" | "fifth">();
@@ -474,8 +505,16 @@ function buildSlots(
       rhythm = own.map((entry) => entry.step);
       for (const entry of own) roles.set(entry.step, entry.role);
     } else {
-      rhythm = walking ? quarterSteps(steps, perBar) : variations[segment.rhythm];
+      rhythm = walking ? quarterSteps(steps, patternBeats(style, perBar)) : variations[segment.rhythm];
     }
+    // A style written for another number of beats than the bar has plays the part of its pattern that fits the bar.
+    if (!stretchesToBar(style) && style.meter.beatsPerBar !== length)
+      rhythm = fitStepsToBar(
+        rhythm.map((step) => ({ step })),
+        steps,
+        style.meter.beatsPerBar,
+        length,
+      ).map((entry) => entry.step);
     let locked = new Set<number>();
     if (grooveLike) {
       const kicks = settings.lockToKick ? kick.filter((note) => note.time >= beats[start] - LOCK_WINDOW && note.time < end - LOCK_WINDOW) : [];
@@ -491,7 +530,7 @@ function buildSlots(
         if (points[step].beat < beats.length && nameAt(points[step].beat) !== nameAt(points[step - 1].beat)) rhythm.push(step);
       }
     }
-    if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, steps)];
+    if (feel) rhythm = [...rhythm, ...hitSteps(feel, start, perBar, stepsPerGridBeat(style, perBar))];
 
     // The phrase variations and the lead-in. The lead-in takes the second half of the section's last bar, and the variation a phrase's last bar.
     const quality = chordAt(start)?.quality ?? "major";
@@ -508,7 +547,7 @@ function buildSlots(
       nextPlan.bassPart !== "rest" &&
       !lead
     ) {
-      const firstBeat = beats.findIndex((time) => time >= nextPlan.start - 1e-9);
+      const firstBeat = starts[planOf.indexOf(planIndex + 1)] ?? -1;
       const first = firstBeat >= 0 ? chordAt(firstBeat) : null;
       const quiet = Array.from({ length }, (_, b) => start + b).some((beat) => feel?.stops.has(beat));
       if (first && !quiet) leadTarget = first.bass;
@@ -583,6 +622,17 @@ function buildSlots(
     });
   }
 
+  // A hold or a slow ending plays on after its bar, which may be past the grid's end: a root on each bar of a slow-down, then the last
+  // note, which rings.
+  if (shape && endingSlot) {
+    const slowing = shape.slowing.filter((beat) => beat.downbeat);
+    slowing.forEach((beat, i) => {
+      const next = slowing[i + 1]?.time ?? shape.final;
+      slots.push(endingSlot!(beat.time, (next - beat.time) * SLOWING_SHARE, i));
+    });
+    slots.push(endingSlot(shape.final, shape.ring, slowing.length));
+  }
+
   return slots;
 }
 
@@ -603,11 +653,12 @@ export function generateBass(
   kick: readonly NoteEvent[],
   seed: number,
   feel?: Feel,
+  endTime?: number,
 ): NoteEvent[] {
   if (grid.beats.length === 0 || plans.length === 0) return [];
 
   const random = createRandom(seed);
-  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed);
+  const slots = buildSlots(grid, harmony, plans, settings, kick, random, feel, seed, endTime);
   const range = BASS_NOTE_RANGES[settings.bassRange];
   let previous = range.centre;
   const streams = new Map<string, { occurrence: number; random: Random }>();
