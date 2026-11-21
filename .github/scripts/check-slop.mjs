@@ -53,7 +53,12 @@ export function checkPr({ title, body, bot }) {
   else if (VAGUE.test(title)) out.push(`${at}: title is too vague, say what changed`);
   if (title.length > MAX_SUBJECT) out.push(`${at}: title is ${title.length} characters, keep it under ${MAX_SUBJECT}`);
   out.push(...prose(at, title));
-  const text = (body ?? "").replace(/<!--[\s\S]*?-->/g, "").replace(/^#+.*$/gm, "");
+  let text = body ?? "";
+  for (let before = ""; before !== text; ) {
+    before = text;
+    text = text.replace(/<!--[\s\S]*?-->/g, "");
+  }
+  text = text.replace(/^#+.*$/gm, "");
   if (!bot && text.replace(/\s+/g, "").length < 30) out.push("PR description is empty: say what changed and why, in your own words");
   out.push(...prose("PR description", text));
   return out;
