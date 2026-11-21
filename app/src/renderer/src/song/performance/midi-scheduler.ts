@@ -49,6 +49,8 @@ export interface SchedulerConfig {
    * song is due at its position's clock time less the count-in, not at song position zero, which is long past by then. Defaults to the start position's clock time.
    */
   tempoAt?: number;
+  /** Opening preset messages already sent and settled before the count-in. */
+  prepared?: { position: number; messages: number[][] };
   /** Seconds of cues to emit ahead of the audio position. Defaults to the Bluetooth value. */
   lookahead?: number;
   /** The GP-150 / GP-180 receive channel. Messages due together go to other channels first (see midi-pedal-order.ts). Missing keeps chart order. */
@@ -140,7 +142,7 @@ const START_FAULT = "The audio did not start. Cues disarmed.";
  */
 function orderSameTime(messages: ScheduledMessage[], pedalChannel: number | undefined): ScheduledMessage[] {
   const ordered: ScheduledMessage[] = [];
-  for (let start = 0; start < messages.length; ) {
+  for (let start = 0; start < messages.length;) {
     let end = start + 1;
     while (end < messages.length && messages[end].due === messages[start].due) end++;
     ordered.push(...orderForPedal(messages.slice(start, end), pedalChannel, (m) => m.bytes));
@@ -214,6 +216,7 @@ export class MidiSchedule {
   private tail: TimecodeTail | null = null;
   /** The click messages still to send, soonest first. */
   private timed: TimedMessage[] = [];
+  private prepared: { position: number; keys: Set<string> } | null = null;
   constructor(
     config: SchedulerConfig,
     now: number,
@@ -222,10 +225,9 @@ export class MidiSchedule {
     // A resync moves the origin, so keep the caller's object untouched.
     this.config = { ...config };
     this.rate = clampRate(config.rate ?? 1);
-    this.cues = config.cues
-      .filter((c) => c.messages.length && !c.trigger && c.time <= config.duration)
-      .sort((a, b) => a.time - b.time);
+    this.cues = config.cues.filter((c) => c.messages.length && !c.trigger && c.time <= config.duration).sort((a, b) => a.time - b.time);
     this.playTriggers = config.playTriggers ?? [];
+    this.prepared = config.prepared ? { position: config.prepared.position, keys: new Set(config.prepared.messages.map((bytes) => bytes.join(","))) } : null;
     this.chaseTriggers = chaseTriggerSet(config.chaseTriggers);
     this.next = this.cursorAt(config.position);
     this.pulse = Math.ceil(((Math.max(0, config.position) * config.bpm) / 60) * 24);
@@ -362,6 +364,7 @@ export class MidiSchedule {
   /** Moves the schedule to the planned position. The audio jumped at the same boundary, so the audio checkpoint restarts here too. */
   private jump() {
     const jump = this.pendingJump!;
+    if (!jump.keepsPosition) this.prepared = null;
     this.pendingJump = null;
     // A new rate re-anchors the clock on the last pulse already sent, so the spacing changes after it. Pulses sent in the lookahead
     // keep the old spacing, and none is sent twice or bunched up.
@@ -462,7 +465,10 @@ export class MidiSchedule {
     // The cap is exclusive: a cue on the boundary waits for the plan, so a jump at that boundary never sends the passage after it.
     while (this.next < this.cues.length && this.cues[this.next].time <= until && this.cues[this.next].time < this.cap - 0.001) {
       const cue = this.cues[this.next++];
-      for (const bytes of cue.messages) candidates.push({ bytes, due: this.clockAt(cue.time), label: cue.label || "Song cue", time: cue.time });
+      for (const bytes of cue.messages) {
+        if (this.prepared && Math.abs(cue.time - this.prepared.position) <= 0.001 && this.prepared.keys.has(bytes.join(","))) continue;
+        candidates.push({ bytes, due: this.clockAt(cue.time), label: cue.label || "Song cue", time: cue.time });
+      }
     }
     while (this.timed.length && this.timed[0].due <= now + lookahead * 1000) {
       const { bytes, due } = this.timed.shift()!;
@@ -513,8 +519,9 @@ export class MidiSchedule {
     const lostState = dropped.some((m) => (m.bytes[0] >= 176 && m.bytes[0] < 208) || m.bytes[0] === 240 || m.bytes[0] === 243);
     if (this.chasePending || lostState) {
       const chasePosition = this.chasePending ? this.config.position : position;
+      const prepared = this.chasePending ? this.prepared : null;
       this.chasePending = false;
-      const sent = new Set(messages.map((m) => m.bytes.join(",")));
+      const sent = new Set([...messages.map((m) => m.bytes.join(",")), ...(prepared?.keys ?? [])]);
       // A cue at the chase position sends its own state at that moment, so the chase leaves those channels and controllers out.
       const chase = computeChaseState(this.cues, chasePosition, this.chaseTriggers, settledAt(this.cues, chasePosition))
         .filter((m) => !sent.has(m.bytes.join(",")))
@@ -522,6 +529,7 @@ export class MidiSchedule {
       messages.unshift(...chase);
     }
     const ordered = orderSameTime(messages, this.config.pedalChannel);
-    if (messages.length || dropped.length) this.emit({ type: "batch", messages: ordered, ...(dropped.length ? { dropped } : {}), timecode: this.timecodeStream() });
+    if (messages.length || dropped.length)
+      this.emit({ type: "batch", messages: ordered, ...(dropped.length ? { dropped } : {}), timecode: this.timecodeStream() });
   }
 }
