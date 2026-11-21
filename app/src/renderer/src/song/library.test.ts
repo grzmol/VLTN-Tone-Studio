@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "./store";
-import { applyPracticeMute, loadSongAudio, useSongLibrary } from "./library";
+import { applyPracticeMute, loadSongAudio, useSongLibrary, type PreparedSong } from "./library";
 import { usePracticeMute } from "./performance/practice-mute";
 import { clearSettingsCache, flushSettings, getSetting, performanceKey, setSetting } from "./performance/settings";
 import { useNav } from "@/state/nav";
@@ -72,6 +72,19 @@ it("loads a saved song's audio for an analysis without opening it or changing th
 
 it("refuses to load audio for a song that is not in the library", async () => {
   await expect(loadSongAudio("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")).rejects.toThrow("Song is missing from the library.");
+});
+it("discards a prepared playlist player when its trim or tempo settings change", () => {
+  const dispose = vi.fn();
+  const nextId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const next = { ...saved, id: nextId };
+  const prepared = { id: nextId, settings: {}, player: { dispose } } as unknown as PreparedSong;
+  useSongLibrary.setState({ index: { ...emptyLibrary(), songs: [saved, next] }, queue: [saved.id, nextId], position: 0, playlistPlaying: true, prepared });
+  api.audioUrls.mockReturnValueOnce(new Promise(() => {}));
+  expect(useSongLibrary.getState().preparedNext()).toBe(prepared);
+  setSetting(`vltn.song:${nextId}`, ":options", JSON.stringify({ trimStart: 1, trimEnd: 2 }));
+  expect(useSongLibrary.getState().prepared).toBeNull();
+  expect(dispose).toHaveBeenCalledTimes(1);
+  useSongLibrary.setState({ playlistPlaying: false });
 });
 
 it("loads saved source/stems and preserves queue positions for repeated entries", async () => {
@@ -724,11 +737,11 @@ describe("warning when the next song cannot be loaded in the background", () => 
 
 describe("playlist writes", () => {
   const first = { id: "p1", name: "Set", songs: [] as string[], sets: [] };
-  let stored: typeof first[] = [];
+  let stored: (typeof first)[] = [];
   beforeEach(() => {
     stored = [first];
     api.index.mockImplementation(async () => ({ ...emptyLibrary(), songs: [saved], playlists: stored }));
-    api.playlists.mockImplementation(async (next: typeof first[]) => {
+    api.playlists.mockImplementation(async (next: (typeof first)[]) => {
       stored = next;
     });
     useSongLibrary.setState({ index: { ...emptyLibrary(), songs: [saved], playlists: [first] }, busy: false, error: "" });
@@ -736,7 +749,7 @@ describe("playlist writes", () => {
 
   it("lands two edits made back to back, in order, the second on top of the first", async () => {
     let release!: () => void;
-    api.playlists.mockImplementationOnce(async (next: typeof first[]) => {
+    api.playlists.mockImplementationOnce(async (next: (typeof first)[]) => {
       await new Promise<void>((done) => (release = done));
       stored = next;
     });
@@ -765,16 +778,58 @@ describe("playlist writes", () => {
   });
 
   it("adds and deletes playlists from the latest list, so neither overwrites the other", async () => {
-    await Promise.all([
-      useSongLibrary.getState().addPlaylist({ id: "p2", name: "Two", songs: [], sets: [] }),
-      useSongLibrary.getState().deletePlaylist("p1"),
-    ]);
+    await Promise.all([useSongLibrary.getState().addPlaylist({ id: "p2", name: "Two", songs: [], sets: [] }), useSongLibrary.getState().deletePlaylist("p1")]);
     expect(stored.map((p) => p.id)).toEqual(["p2"]);
   });
 });
 
 /** Each decode gives its own audio object, as the real decoder does, so each track's identity is its own. */
 const decodeAll = () => codec.decodeTrack.mockImplementation(async () => ({ sampleRate: 44100, channels: [new Float32Array([0, 0.25, -0.25])] }));
+it("saves refreshed audio and its fresh marker together before the next playlist song starts", async () => {
+  decodeAll();
+  await useSongLibrary.getState().load(saved.id);
+  const key = performanceKey(useSong.getState().source);
+  setSetting(key, ":options", JSON.stringify({ bandOutOfDate: true, bandTempoChanged: true }));
+  useSongLibrary.setState({ playlistPlaying: true });
+  useSong.setState({ stems: { ...useSong.getState().stems, guitar: { sampleRate: 44100, channels: [new Float32Array([0.5, 0.5, 0.5])] } } });
+  await useSongLibrary.getState().saveBeforePlayback(true);
+  const [metadata, assets] = api.save.mock.calls[0];
+  expect(assets.map((a: { name: string }) => a.name)).toEqual(["guitar.flac"]);
+  expect(JSON.parse(metadata.settings[":options"])).toMatchObject({ bandOutOfDate: false, bandTempoChanged: false });
+  expect(JSON.parse(getSetting(key, ":options") ?? "{}").bandOutOfDate).toBe(false);
+  useSongLibrary.setState({ playlistPlaying: false });
+});
+it("keeps the refresh pending when saving the new audio fails", async () => {
+  decodeAll();
+  await useSongLibrary.getState().load(saved.id);
+  const key = performanceKey(useSong.getState().source);
+  setSetting(key, ":options", JSON.stringify({ bandOutOfDate: true }));
+  useSongLibrary.setState({ playlistPlaying: true });
+  useSong.setState({ stems: { ...useSong.getState().stems, guitar: { sampleRate: 44100, channels: [new Float32Array([0.5, 0.5, 0.5])] } } });
+  api.save.mockRejectedValueOnce(new Error("Disk full"));
+  await expect(useSongLibrary.getState().saveBeforePlayback(true)).rejects.toThrow("Disk full");
+  expect(JSON.parse(getSetting(key, ":options") ?? "{}").bandOutOfDate).toBe(true);
+  expect(useSongLibrary.getState().saveError).toBe("Disk full");
+  await useSongLibrary.getState().saveBeforePlayback(true);
+  useSongLibrary.setState({ playlistPlaying: false });
+});
+it("refuses to mark audio fresh if its musical inputs change during encoding", async () => {
+  decodeAll();
+  await useSongLibrary.getState().load(saved.id);
+  useSongLibrary.setState({ playlistPlaying: true });
+  const key = performanceKey(useSong.getState().source);
+  setSetting(key, ":options", JSON.stringify({ bandOutOfDate: true }));
+  useSong.setState({ stems: { ...useSong.getState().stems, guitar: { sampleRate: 44100, channels: [new Float32Array([0.5, 0.5, 0.5])] } } });
+  codec.encodeTrack.mockImplementationOnce(async () => {
+    setSetting(key, ":bpm", "140");
+    return new Uint8Array([1, 2, 3, 4]);
+  });
+  await expect(useSongLibrary.getState().saveBeforePlayback(true)).rejects.toThrow("song changed");
+  expect(api.save).not.toHaveBeenCalled();
+  expect(JSON.parse(getSetting(key, ":options") ?? "{}").bandOutOfDate).toBe(true);
+  await useSongLibrary.getState().saveBeforePlayback();
+  useSongLibrary.setState({ playlistPlaying: false });
+});
 it("a settings-only re-save keeps every stored file and encodes nothing", async () => {
   decodeAll();
   await useSongLibrary.getState().load(saved.id);
@@ -848,7 +903,9 @@ it("a re-save keeps an unread stem but drops one the user removed", async () => 
 describe("the practice mute on a prepared song", () => {
   const prepared = (settings: Record<string, string> = {}) => {
     const player = { names: ["vocals", "guitar", "drums"], setMix: vi.fn(), dispose: vi.fn(() => Promise.resolve()) };
-    return { id: "two", title: "Two", stems: { vocals: audio, guitar: audio, drums: audio }, tracks: {}, settings, skipped: [], player } as never as Parameters<typeof applyPracticeMute>[0] & {
+    return { id: "two", title: "Two", stems: { vocals: audio, guitar: audio, drums: audio }, tracks: {}, settings, skipped: [], player } as never as Parameters<
+      typeof applyPracticeMute
+    >[0] & {
       player: typeof player;
     };
   };
