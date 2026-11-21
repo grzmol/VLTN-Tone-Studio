@@ -203,6 +203,8 @@ export type DeviceFeature =
   | "globalEq"
   /** GrooveGurus mod: the four scenes of each preset, read and written (gp-200-re RFC-0030, record 0x200C) */
   | "modScenes"
+  /** GrooveGurus mod: scene records written and deleted from the app (HELLO's SCENES_WRITE bit) */
+  | "modScenesWrite"
   /** GrooveGurus mod: its global settings (tap tempo per preset or global) */
   | "modSettings"
   /** GrooveGurus mod: guest effects each block offers */

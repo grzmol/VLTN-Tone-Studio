@@ -53,6 +53,7 @@ import {
   SERVICE_TYPE,
   STATUS as MOD_STATUS,
   TARGET_INDEX,
+  bitsToFloat,
   decodeSceneRecord,
   decodeServiceData,
   decodeSettingsRecord,
@@ -673,8 +674,40 @@ export class MockGp200 {
 
   #modWritten(slot) {
     this.mod.writes++;
-    if (slot === this.current && this.mod.activeScene !== NO_SCENE) this.mod.activeScene = NO_SCENE; // back to the base
+    if (slot === this.current) {
+      // the firmware reloads the active preset on its next tick: the base plays, the new scenes apply on the next change
+      this.mod.activeScene = NO_SCENE;
+      this.#modPlay();
+    }
     this.#modNotify(NOTIFY.RECORD | (slot === this.current ? NOTIFY.SCENE : 0));
+  }
+
+  /** What the mod's tick puts in the edit buffer: the stored preset, plus the active scene in scene mode (`compoe`). */
+  #modPlay() {
+    const m = this.mod;
+    const stored = this.modScenes(this.current);
+    let scene = null;
+    if (m.sceneMode && m.activeScene !== NO_SCENE && stored) {
+      try {
+        scene = decodeSceneRecord(stored).scenes[m.activeScene];
+      } catch {
+        scene = null;
+      }
+    }
+    let image = this.slots[this.current].slice();
+    if (scene) {
+      const blocks = {};
+      const block = (i) => (blocks[i] ??= {});
+      const was = parsePatch(image).blocks;
+      if (scene.mask !== null) was.forEach((b, i) => { if (!!(scene.mask & (1 << i)) !== b.enabled) block(i).enabled = !!(scene.mask & (1 << i)); });
+      for (const p of scene.params) if (!scene.reserve[p.block]) (block(p.block).params ??= {})[p.slot] = bitsToFloat(p.bits);
+      for (const [b, r] of Object.entries(scene.reserve)) Object.assign(block(Number(b)), { fxid: r.fxid, params: r.params.map(bitsToFloat) });
+      image = applyPatchEdits(image, { blocks, ...(scene.volume !== null ? { volume: scene.volume } : {}), ...(scene.bpm !== null ? { tempo: scene.bpm } : {}) });
+    }
+    this.editBuffer = image;
+    const dirty = !!scene;
+    if (dirty !== this.dirty) this.#reply(rec.status(STATUS.DIRTY, dirty ? 1 : 0));
+    this.dirty = dirty;
   }
 
   #modWrite(seq, arg, payload) {
@@ -728,12 +761,14 @@ export class MockGp200 {
   setSceneMode(on) {
     this.mod.sceneMode = on;
     this.mod.activeScene = NO_SCENE;
+    this.#modPlay();
     this.#modNotify(NOTIFY.SCENE);
   }
 
   /** A-D on the pedal in scene mode -> NOTIFY. */
   selectScene(k) {
     this.mod.activeScene = k;
+    this.#modPlay();
     this.#modNotify(NOTIFY.SCENE);
   }
 }

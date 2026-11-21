@@ -13,11 +13,13 @@ import { host } from "@/host";
 import { useDevice, usePedalName } from "@/state/device";
 import type { PresetState } from "@/state/device-types";
 import { slotNameError } from "@/state/device-model";
+import { useScenes } from "@/state/scenes";
 import { useCommand } from "@/state/ui";
 import { playPreset, redo, undo } from "./edits";
 import { ExpControl } from "./ExpControl";
 import { FootswitchControl } from "./FootswitchControl";
 import { PatchPanel } from "./PatchPanel";
+import { ScenesControl } from "./Scenes";
 import { TempoControl } from "./TempoControl";
 import { Tuner } from "./Tuner";
 import { VariationMenu } from "./Variation";
@@ -47,9 +49,13 @@ export function RigHeader({ preset, connected }: Props) {
   const [target, setTarget] = useState<number | null>(null);
   const [slotPicker, setSlotPicker] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const scenes = useDevice((s) => s.features.includes("modScenes"));
+  const sceneEditing = useScenes((s) => s.editing !== null);
 
   const live = connected && !busy;
   const editable = live && !compare && !comparing;
+  /** Saving or renaming the preset would store the scene being edited as the base: finish the scene first. */
+  const savable = editable && !sceneEditing;
   const shownChanges = compare ? compare.changes : unsaved;
 
   const toggleCompare = async () => {
@@ -75,6 +81,7 @@ export function RigHeader({ preset, connected }: Props) {
   const discard = async () => {
     try {
       useRig.setState({ compare: null });
+      if (useScenes.getState().editing !== null) return void (await useScenes.getState().leave());
       await useDevice.getState().discard();
       useHistory.getState().clear();
     } catch (e) {
@@ -92,7 +99,7 @@ export function RigHeader({ preset, connected }: Props) {
   };
 
   const saveTarget = (slot: number) => {
-    if (!editable) return;
+    if (!savable) return;
     setTarget(slot);
   };
 
@@ -102,8 +109,8 @@ export function RigHeader({ preset, connected }: Props) {
   useCommand("redo", () => void redo(), editable);
   useCommand("compare-with-saved", () => void ((useDevice.getState().unsavedChanges > 0 || useRig.getState().compare) && toggleCompare()), live);
   useCommand("discard-changes", () => void ((useDevice.getState().unsavedChanges > 0 || useRig.getState().compare) && discard()), live);
-  useCommand("save-to-slot", () => saveTarget(preset.slot), editable);
-  useCommand("rename-slot", () => setRenaming(true), editable);
+  useCommand("save-to-slot", () => saveTarget(preset.slot), savable);
+  useCommand("rename-slot", () => setRenaming(true), savable);
 
   const writeTitle =
     target === null
@@ -116,17 +123,20 @@ export function RigHeader({ preset, connected }: Props) {
   return (
     <div className="flex items-center gap-6 px-7 pt-4 pb-3 max-[1320px]:gap-4 [@media(max-height:820px)]:pt-2.5 [@media(max-height:820px)]:pb-2">
       <div className="min-w-0">
-        {renaming ? (
-          <RenameField preset={preset} onDone={() => setRenaming(false)} />
-        ) : (
-          <h1
-            className={cn("m-0 truncate text-[32px] leading-[1.05] font-bold tracking-[-0.02em]", !connected && "text-silkscreen-2")}
-            onDoubleClick={() => editable && setRenaming(true)}
-          >
-            <span className="mr-3 font-semibold text-silkscreen-4">{profile.slotLabel(preset.slot)}</span>
-            {preset.name}
-          </h1>
-        )}
+        <div className="flex min-w-0 items-center gap-5">
+          {renaming ? (
+            <RenameField preset={preset} onDone={() => setRenaming(false)} />
+          ) : (
+            <h1
+              className={cn("m-0 min-w-0 truncate text-[32px] leading-[1.05] font-bold tracking-[-0.02em]", !connected && "text-silkscreen-2")}
+              onDoubleClick={() => savable && setRenaming(true)}
+            >
+              <span className="mr-3 font-semibold text-silkscreen-4">{profile.slotLabel(preset.slot)}</span>
+              {preset.name}
+            </h1>
+          )}
+          {scenes && <ScenesControl preset={preset} disabled={!editable} />}
+        </div>
         <div className="mt-2 flex items-center gap-[18px] text-sm whitespace-nowrap text-silkscreen-3 max-[1320px]:gap-3.5">
           {shownChanges > 0 ? (
             <span className="flex items-center gap-1.5 font-semibold text-silkscreen">
@@ -194,13 +204,15 @@ export function RigHeader({ preset, connected }: Props) {
           <Tooltip>
             <TooltipTrigger asChild>
               <span tabIndex={connected ? -1 : 0}>
-                <Button disabled={!editable} onClick={() => saveTarget(preset.slot)} className="rounded-r-none pr-3">
+                <Button disabled={!savable} onClick={() => saveTarget(preset.slot)} className="rounded-r-none pr-3">
                   <SaveIcon aria-hidden />
                   {busy?.kind === "write" ? `Writing ${Math.round(busy.progress * 100)}%` : `Save to slot ${profile.slotLabel(preset.slot)}`}
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent>{!connected ? `Connect the ${pedal} to save` : compare ? "Go back to your edits to save" : keyLabel(["Mod", "S"])}</TooltipContent>
+            <TooltipContent>
+              {!connected ? `Connect the ${pedal} to save` : compare ? "Go back to your edits to save" : sceneEditing ? "Save the scene or go back to the base first" : keyLabel(["Mod", "S"])}
+            </TooltipContent>
           </Tooltip>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -209,14 +221,14 @@ export function RigHeader({ preset, connected }: Props) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem disabled={!editable} onSelect={() => saveTarget(preset.slot)}>
+              <DropdownMenuItem disabled={!savable} onSelect={() => saveTarget(preset.slot)}>
                 Save to slot {profile.slotLabel(preset.slot)}
                 <DropdownMenuShortcut>{keyLabel(["Mod", "S"])}</DropdownMenuShortcut>
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!editable} onSelect={() => setSlotPicker(true)}>
+              <DropdownMenuItem disabled={!savable} onSelect={() => setSlotPicker(true)}>
                 Save to another slot…
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!editable} onSelect={() => setRenaming(true)}>
+              <DropdownMenuItem disabled={!savable} onSelect={() => setRenaming(true)}>
                 Rename on pedal…
                 <DropdownMenuShortcut>F2</DropdownMenuShortcut>
               </DropdownMenuItem>

@@ -1,5 +1,5 @@
 // Type declarations for session.mjs (the JS stays the tested source of truth; keep these in sync).
-import type { ModGuest, ModHello, ModSettings, Scene, ScenePre2, SceneListEntry, SceneRecord } from "./mod-service.mjs";
+import type { ModGuest, ModHello, ModNotify, ModSettings, Scene, ScenePre2, SceneListEntry, SceneRecord } from "./mod-service.mjs";
 import type { Bytes, ChainDef, DecodedRecord, ExpSlotDef, GlobalName, Gp200FamilyKey, HeaderRecord, Message } from "./protocol.mjs";
 
 export type { Gp200FamilyKey };
@@ -86,6 +86,7 @@ export interface UploadResult {
 /** Unsolicited traffic: a decoded record plus the message header, or a patch reply nobody waited for. */
 export type Gp200Event =
   | (DecodedRecord & { header: HeaderRecord | null })
+  | (ModNotify & { header: HeaderRecord | null })
   | { kind: "flush"; header: null }
   | { kind: "softwareState"; state: number | null; deviceType: number | null; header: null }
   | { kind: "softwareJump"; header: null }

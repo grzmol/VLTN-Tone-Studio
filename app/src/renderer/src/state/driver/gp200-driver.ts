@@ -7,12 +7,12 @@ import { MockGp200, type MockGp200Options } from "@/gp200/lib/mock-device.mjs";
 import { BUILT_IN_CATALOG } from "@/gp200/lib/catalog-data.mjs";
 import { GLOBAL_EQ_BANDS, PATCH_SETTING, type DecodedMessage } from "@/gp200/lib/protocol.mjs";
 import { buildPrst, imagesMatch, parsePatch } from "@/gp200/lib/prst.mjs";
-import type { ModHello } from "@/gp200/lib/mod-service.mjs";
+import { STATUS as MOD_STATUS, type ModHello, type Scene, type ScenePre2 } from "@/gp200/lib/mod-service.mjs";
 import { connectWebMidi } from "@/gp5/lib/transport-webmidi.mjs";
 import { profileFor, type DeviceKey } from "@shared/devices";
 import type { BackupEntry, ConnectionError, DeviceFeature, GlobalEq, GlobalName, Globals, ModFirmware, SlotName } from "../device-types";
 import { GP200_EQ_DEFAULTS, clampGp200Eq, clampGp200Global, gp200GlobalRecords, gp200GlobalSpec, type Gp200GlobalName, type Gp200Globals } from "./gp200-globals";
-import type { DeviceDriver, DriverEvent, DriverOptions, GlobalsSnapshot, ProgressOptions, SyncSnapshot } from "./types";
+import type { DeviceDriver, DriverEvent, DriverOptions, GlobalsSnapshot, ProgressOptions, SceneList, SlotScenes, SyncSnapshot } from "./types";
 
 /** GP-5 family SnapTone upload file (Suite's cut-down clone): too short for the GP-200, which keeps 1024 IR taps. */
 const GP5_SNAPTONE_FILE_BYTES = 2696;
@@ -20,6 +20,9 @@ const GP5_SNAPTONE_FILE_BYTES = 2696;
 const USER_IR_MAX_SAMPLES = profileFor("gp200").userIr.samples;
 /** How long a select we sent may still come back as the pedal's "patch changed" echo. */
 const ECHO_WINDOW_MS = 1000;
+/** The mod answers "busy" until it has put the active preset back to its base (one 100 ms tick): retry this often. */
+const MOD_BUSY_RETRY_MS = 150;
+const MOD_BUSY_TRIES = 10;
 
 /**
  * Pacing of the simulator, scaled down on both sides together (the session's waits and MockGp200's gap and deaf-window
@@ -82,6 +85,7 @@ export class Gp200Driver implements DeviceDriver {
     const mod = this.#session.mod;
     const extra: DeviceFeature[] = [];
     if (mod?.has.SCENES_READ) extra.push("modScenes");
+    if (mod?.has.SCENES_READ && mod.has.SCENES_WRITE) extra.push("modScenesWrite");
     if (mod?.has.SETTINGS_READ) extra.push("modSettings");
     if (mod?.has.GUESTS) extra.push("modGuests");
     return [...BASE_FEATURES, ...extra];
@@ -173,6 +177,8 @@ export class Gp200Driver implements DeviceDriver {
         return { type: "param", block: msg.block, index: msg.paramId, value: msg.value };
       case "blockEnabled":
         return { type: "block", block: msg.block, enabled: msg.enabled };
+      case "modNotify":
+        return { type: "scenes", events: msg.events, sceneMode: msg.sceneMode, activeScene: msg.activeScene, savedScenes: msg.savedScenes, slot: msg.slot };
       case "patchSetting":
         if (msg.target === PATCH_SETTING.VOL) return { type: "patchSetting", field: "volume", value: msg.value };
         if (msg.target === PATCH_SETTING.TEMPO) return { type: "patchSetting", field: "bpm", value: msg.value };
@@ -415,6 +421,36 @@ export class Gp200Driver implements DeviceDriver {
   /** `data`: 24-bit samples at 44.1 kHz as int32 LE, up to 1024 (4096 bytes); a 512-sample GP-5 block also works. */
   async uploadUserIr(slot: number, name: string, data: Uint8Array, opts: ProgressOptions = {}): Promise<string> {
     return this.#uploaded("irs", await this.#session.uploadUserIr(slot, name, irSamples(data), { confirm: true, onProgress: opts.onProgress }));
+  }
+
+  /** Scene records on the pedal, by slot (GrooveGurus mod). */
+  async readSceneList(): Promise<SceneList> {
+    const list = await this.#session.readSceneList();
+    const slots = new Map<number, number>();
+    for (const r of list.records) if (r.slot !== null) slots.set(r.slot, r.scenes);
+    return { free: list.free, total: list.total, slots, orphans: list.records.filter((r) => r.slot === null).length };
+  }
+
+  async readScenes(slot: number): Promise<SlotScenes> {
+    const r = await this.#session.readScenes(slot);
+    return { slot, owner: r.owner, record: r.record, bytes: r.bytes, ...(r.error ? { error: r.error } : {}) };
+  }
+
+  /** Encoded with the slot's record number, verified by reading back; "busy" (the pedal returning to the base) is retried. */
+  async writeScenes(slot: number, scenes: (Scene | null)[], pre2: ScenePre2 | null): Promise<SlotScenes> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        // Nothing left to store: the delete op (an empty record can't be encoded; the firmware deletes it either way).
+        if (scenes.every((x) => !x) && !pre2) await this.#session.deleteScenes(slot, { confirm: true });
+        else await this.#session.writeScenes(slot, { scenes, pre2 }, { confirm: true, verify: true });
+        break;
+      } catch (e) {
+        const busy = e instanceof Gp200Error && e.code === "mod" && e.status === MOD_STATUS.BUSY;
+        if (!busy || attempt >= MOD_BUSY_TRIES) throw e;
+        await new Promise((r) => setTimeout(r, MOD_BUSY_RETRY_MS));
+      }
+    }
+    return this.readScenes(slot);
   }
 
   subscribe(listener: (event: DriverEvent) => void): () => void {

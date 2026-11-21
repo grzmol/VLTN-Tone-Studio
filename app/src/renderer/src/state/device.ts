@@ -2,6 +2,7 @@
 // memory writes run only after the user confirmed them. Screens use `useDevice`.
 import { create } from "zustand";
 import { useGp200Catalog } from "@/gp200/app/catalog-store";
+import { NOTIFY } from "@/gp200/lib/mod-service.mjs";
 import { host } from "@/host";
 import { profileFor, type DeviceProfile } from "@shared/devices";
 import { pedalOnUsb } from "@shared/host/device";
@@ -68,6 +69,15 @@ let watchTimer: number | undefined;
 let logNotifyTimer: number | undefined;
 /** Frames the pedal sent; every driver logs each incoming frame, unreadable ones too. */
 let rxFrames = 0;
+
+/** GrooveGurus mod NOTIFY events, for the scenes store (state/scenes.ts). */
+export type SceneEvent = Extract<DriverEvent, { type: "scenes" }>;
+const sceneListeners = new Set<(e: SceneEvent) => void>();
+/** Listen to the mod's scene events of the open connection; returns the unsubscribe function. */
+export function onSceneEvent(listener: (e: SceneEvent) => void): () => void {
+  sceneListeners.add(listener);
+  return () => sceneListeners.delete(listener);
+}
 
 /** Advanced access for diagnostics and tests (the open connection); not for screens' normal use. */
 export const getDriver = () => driver;
@@ -247,6 +257,12 @@ export const useDevice = create<DeviceState>((set, get) => {
   const onDriverEvent = (e: DriverEvent) => {
     if (e.type === "resync") return scheduleResync();
     if (e.type === "listChanged") return scheduleListRead(e.list);
+    if (e.type === "scenes") {
+      for (const l of sceneListeners) l(e);
+      // The pedal played a scene or its base, or reloaded the active preset after a record write: re-read what plays.
+      if (e.events & NOTIFY.SCENE || (e.events & NOTIFY.RECORD && e.slot === get().slot)) scheduleResync();
+      return;
+    }
     if (e.type === "global") {
       if (!isEcho(`global:${e.name}`)) set({ globals: { ...(get().globals ?? {}), [e.name]: e.value } });
       return;
