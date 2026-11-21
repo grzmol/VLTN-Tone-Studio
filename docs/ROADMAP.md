@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **proposed**, 2026-11-21. Built from the plans in this folder, the open items in the [changelog](../CHANGELOG.md), the [README](../README.md) support table and the hardware notes in the guides. Nothing here has an owner or a date yet; the maintainer sets both. Priorities are a judgement using Now / Next / Later, MoSCoW and value against effort, because there is no usage data to score with RICE.
+Status: **proposed**, 2026-11-21. Built from the plans in this folder, the open items in the [changelog](../CHANGELOG.md), the [README](../README.md) support table and the hardware notes in the guides. Nothing here has an owner or a date yet; the maintainer sets both. The market analysis and the detailed work packages are in the [product plan](PRODUCT-PLAN.md). Priorities are a judgement using Now / Next / Later, MoSCoW and value against effort, because there is no usage data to score with RICE.
 
 ## Where the product stands
 
