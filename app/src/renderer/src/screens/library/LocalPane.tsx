@@ -1,5 +1,22 @@
 import { useMemo, useState, type DragEvent } from "react";
-import { ArchiveIcon, ArrowDownToLineIcon, DownloadIcon, FolderOpenIcon, FolderPlusIcon, HistoryIcon, ImportIcon, InfoIcon, ListMusicIcon, PencilIcon, RefreshCwIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArrowDownToLineIcon,
+  DownloadIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+  GitCompareArrowsIcon,
+  PinIcon,
+  PinOffIcon,
+  HistoryIcon,
+  ImportIcon,
+  InfoIcon,
+  ListMusicIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -17,6 +34,7 @@ import { usePedalName, useDevice } from "@/state/device";
 import { pedalName, profileOrDefault, slotLabel } from "@/state/device-model";
 import type { CollectionInfo, LocalPreset } from "@shared/host/files";
 import { useLibraryActions } from "./actions";
+import { ComparePedalDialog } from "./ComparePedalDialog";
 import { useLibrary } from "./store";
 import { matchesQuery, metaKey, useMeta, useTags } from "./tags";
 import { formatDay, hasFiles, SLOTS_MIME, LOCAL_MIME, startDrag, endDrag } from "./dnd";
@@ -27,7 +45,10 @@ function subtitle(c: CollectionInfo): string {
   switch (c.kind) {
     case "backup": {
       const all = c.count === profileOrDefault(c.device).slotCount;
-      return `${formatDay(c.createdAt)} ${new Date(c.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}, ${all ? `all ${c.count} slots` : `${c.count} ${c.count === 1 ? "slot" : "slots"}`}`;
+      const time = new Date(c.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      const amount = all ? `all ${c.count} slots` : `${c.count} ${c.count === 1 ? "slot" : "slots"}`;
+      const when = `${formatDay(c.createdAt)} ${time}, ${amount}`;
+      return c.pinned ? `Pinned · ${when}` : when;
     }
     case "imported":
       return ".prst files you added";
@@ -120,7 +141,14 @@ function CollectionItem({ c, current }: { c: CollectionInfo; current: boolean })
   const Icon = ICONS[c.kind];
   const accepts = c.kind !== "backup" && drag?.kind === "slots";
 
+  const [comparing, setComparing] = useState(false);
+  const refreshCollections = useLibrary((s) => s.refreshCollections);
   const reveal = () => host.files.revealCollection(c.id).catch((e) => notifyError("Couldn't show the folder", e));
+  const togglePin = () =>
+    host.files
+      .setBackupPinned(c.id, !c.pinned)
+      .then(() => refreshCollections())
+      .catch((e) => notifyError("Couldn't change the pin", e));
 
   return (
     <li>
@@ -172,6 +200,18 @@ function CollectionItem({ c, current }: { c: CollectionInfo; current: boolean })
                 Rename
               </ContextMenuItem>
             )}
+            {c.kind === "backup" && (
+              <>
+                <ContextMenuItem onSelect={() => setComparing(true)}>
+                  <GitCompareArrowsIcon />
+                  Compare with pedal
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => void togglePin()}>
+                  {c.pinned ? <PinOffIcon /> : <PinIcon />}
+                  {c.pinned ? "Unpin backup" : "Pin backup"}
+                </ContextMenuItem>
+              </>
+            )}
             {c.kind !== "collection" && host.kind !== "electron" && <ContextMenuItem disabled>{c.kind === "backup" ? "Backups are read-only" : "Built-in collection"}</ContextMenuItem>}
           </ContextMenuGroup>
           {c.kind === "collection" && (
@@ -187,6 +227,7 @@ function CollectionItem({ c, current }: { c: CollectionInfo; current: boolean })
           )}
         </ContextMenuContent>
       </ContextMenu>
+      <ComparePedalDialog collection={comparing ? c : null} onOpenChange={(open) => !open && setComparing(false)} />
     </li>
   );
 }

@@ -4,7 +4,7 @@
 // exchanges the code itself, so nothing has to listen on the redirect URI.
 import { BrowserWindow, WebContentsView, session, shell } from "electron";
 import type { FlowRequest, ViewBounds } from "@shared/host/tones";
-import { T3K_ORIGIN } from "./api";
+import { isT3kUrl, T3K_ORIGIN } from "./api";
 import { createPkce } from "./pkce";
 
 export const PARTITION = "persist:tone3000";
@@ -65,12 +65,7 @@ export function isRedirect(url: string, redirectUri: string): boolean {
 
 /** Only TONE3000 (and the intercepted redirect) may load in the view; anything else opens in the browser. */
 function allowedInView(url: string): boolean {
-  try {
-    const { protocol, hostname } = new URL(url);
-    return protocol === "https:" && (hostname === "tone3000.com" || hostname.endsWith(".tone3000.com"));
-  } catch {
-    return false;
-  }
+  return isT3kUrl(url);
 }
 
 function openExternally(url: string): void {

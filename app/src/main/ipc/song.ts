@@ -1,14 +1,13 @@
-import { app, net, type BrowserWindow } from "electron";
+import { app, net, powerMonitor, powerSaveBlocker, shell, type BrowserWindow } from "electron";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import {
   findModel,
   MODEL_CHECKSUM_ERROR,
   MODEL_FILES,
   MODEL_MISSING_ERROR,
-  modelDownloadError,
   modelFiles,
   UNKNOWN_MODEL_ERROR,
   type ModelFile,
@@ -17,7 +16,13 @@ import {
 } from "@shared/host/song";
 import { sanitizeFileName } from "@shared/files-naming";
 import { HostError } from "@shared/ipc";
-import { handle, showOpenDialog, showSaveDialog } from "./handle";
+import { handle, sendTo, showOpenDialog, showSaveDialog } from "./handle";
+import { downloadPart as downloadPartFile } from "./model-download";
+import { songSaveFilters } from './song-save-options';
+import { StagePower } from './stage-power';
+import { SongLibraryStore } from './song-library-store';
+import { createTrash } from './trash';
+import type { LibraryChange, LibrarySong, LibraryTransferProgress, Playlist, RestoreMode } from '@shared/song-library';
 
 // The Song screen's separation models (src/shared/host/song.ts): each file is downloaded on first use into
 // userData/models, resumed from a `.part` file after an interrupted download, checked against its pinned SHA-256
@@ -27,7 +32,6 @@ import { handle, showOpenDialog, showSaveDialog } from "./handle";
 const modelsDir = () => join(app.getPath("userData"), "models");
 const filePath = (f: ModelFile) => join(modelsDir(), f.file);
 const partPath = (f: ModelFile) => `${filePath(f)}.part`;
-const PROGRESS_EVERY_BYTES = 1 << 20;
 
 async function fileSize(path: string): Promise<number | null> {
   return stat(path).then((s) => s.size, () => null);
@@ -47,51 +51,14 @@ function modelOrThrow(id: string): SeparationModel {
   return model;
 }
 
-/** Append the rest of `f` to its `.part` (HTTP Range when part of it is there already); `onBytes` gets the bytes in `.part`. */
-async function downloadPart(f: ModelFile, onBytes: (received: number) => void): Promise<void> {
-  let have = (await fileSize(partPath(f))) ?? 0;
-  if (have > f.bytes) {
-    await rm(partPath(f));
-    have = 0;
-  }
-  if (have === f.bytes) return;
-  let res: Response;
-  try {
-    res = await net.fetch(f.url, { headers: have ? { Range: `bytes=${have}-` } : {} });
-  } catch {
-    throw new HostError("network", modelDownloadError(null));
-  }
-  if (res.status !== 200 && res.status !== 206) throw new HostError("network", modelDownloadError(res.status));
-  // A server that ignores Range sends the whole file again: start over.
-  if (res.status === 200) have = 0;
-  const file = await open(partPath(f), have ? "a" : "w");
-  try {
-    let received = have;
-    let reported = 0;
-    onBytes(received);
-    const reader = res.body!.getReader();
-    for (;;) {
-      const chunk = await reader.read().catch(() => {
-        throw new HostError("network", modelDownloadError(null));
-      });
-      if (chunk.done) break;
-      await file.write(chunk.value);
-      received += chunk.value.byteLength;
-      if (received - reported >= PROGRESS_EVERY_BYTES) {
-        reported = received;
-        onBytes(received);
-      }
-    }
-    onBytes(received);
-  } finally {
-    await file.close();
-  }
-}
+/** Append the rest of `f` to its `.part`; see model-download.ts for the watchdog and resume. */
+const downloadPart = (f: ModelFile, onBytes: (received: number) => void, signal?: AbortSignal) =>
+  downloadPartFile(f.url, f.bytes, partPath(f), (url, init) => net.fetch(url, init), onBytes, signal);
 
-async function ensureFile(f: ModelFile, onBytes: (received: number) => void): Promise<void> {
+async function ensureFile(f: ModelFile, onBytes: (received: number) => void, signal?: AbortSignal): Promise<void> {
   if (await isDownloaded(f)) return;
   await mkdir(modelsDir(), { recursive: true });
-  await downloadPart(f, onBytes);
+  await downloadPart(f, onBytes, signal);
   if ((await fileSize(partPath(f))) !== f.bytes || (await sha256File(partPath(f))) !== f.sha256) {
     await rm(partPath(f), { force: true });
     throw new HostError("invalid", MODEL_CHECKSUM_ERROR);
@@ -99,15 +66,97 @@ async function ensureFile(f: ModelFile, onBytes: (received: number) => void): Pr
   await rename(partPath(f), filePath(f));
 }
 
-export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
-  // One download per file at a time; a second request (retry, another model sharing the file) joins it.
-  const pending = new Map<string, Promise<void>>();
-  const progress = (p: ModelProgress) => getWindow()?.webContents.send("song:modelProgress", p);
+/** Where saved songs live. `main/index.ts` serves files below it through the `app://library` protocol. */
+export const libraryRoot = () => join(app.getPath('userData'), 'song-library');
 
-  function fileOnce(f: ModelFile, onBytes: (received: number) => void): Promise<void> {
+export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
+  const stagePower = new StagePower(powerSaveBlocker);
+  const watched = new Set<number>();
+  handle('song:stagePower', (event, token: string, enabled: boolean) => {
+    const owner = event.sender.id;
+    if (!watched.has(owner)) {
+      watched.add(owner);
+      event.sender.once('destroyed', () => {
+        stagePower.release(owner);
+        watched.delete(owner);
+      });
+      event.sender.on('render-process-gone', () => stagePower.release(owner));
+    }
+    stagePower.update(owner, token, enabled);
+  });
+  app.once('will-quit', () => stagePower.close());
+  // After sleep the USB MIDI ports are re-enumerated. The renderer asks the browser for them again rather than trusting the old ones.
+  powerMonitor.on('resume', () => sendTo(getWindow, 'song:systemResume'));
+  // Deleted songs and PDFs go to the OS Trash; the library's own .trash folder only when the OS refuses.
+  const library = new SongLibraryStore(libraryRoot(), Date.now, createTrash(libraryRoot(), (path) => shell.trashItem(path)));
+  handle('song:library:preflight', (_e, ids: string[]) => library.preflight(ids));
+  handle('song:library:index', () => library.index());
+  handle('song:library:v1BackupBytes', () => library.v1BackupBytes());
+  handle('song:library:removeV1Backup', () => library.removeV1Backup());
+  handle('song:library:begin', (_e, song: LibrarySong) => library.begin(song));
+  handle('song:library:write', (_e, token: string, name: string, bytes: Uint8Array) => library.write(token, name, bytes));
+  handle('song:library:commit', (_e, token: string) => library.commit(token));
+  handle('song:library:abort', (_e, token: string) => library.abort(token));
+  handle('song:library:audioUrls', (_e, id: string) => library.audioUrls(id));
+  handle('song:library:playlists', (_e, playlists: Playlist[]) => library.playlists(playlists));
+  handle('song:library:organise', (_e, change: LibraryChange) => library.organise(change));
+  handle('song:library:updateSettings', (_e, id: string, patch: Record<string, string>) => library.updateSettings(id, patch));
+  handle('song:library:applyTrackSettings', (_e, id: string) => library.applyTrackSettings(id));
+  handle('song:library:remove', (_e, id: string) => library.remove(id));
+  handle('song:library:attachChart', (_e, id: string, bytes: Uint8Array) => library.attachChart(id, bytes));
+  handle('song:library:removeChart', (_e, id: string) => library.removeChart(id));
+  handle('song:library:saveAnnotations', (_e, id: string, json: string) => library.saveAnnotations(id, json));
+  handle('song:library:chartUrls', (_e, id: string) => library.chartUrls(id));
+  const transferProgress = (value: LibraryTransferProgress) => sendTo(getWindow, 'song:library:progress', value);
+  handle('song:library:exportBackup', async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const selection = await showSaveDialog(getWindow(), {
+      title: 'Export portable song library',
+      defaultPath: join(app.getPath('documents'), 'Tone-Studio-library-' + stamp + '.tar.gz'),
+      filters: [{ name: 'Portable song library', extensions: ['tar.gz'] }],
+    });
+    if (selection.canceled || !selection.filePath) return null;
+    const result = await library.exportBackup(selection.filePath, transferProgress);
+    return { ...result, fileName: basename(selection.filePath) };
+  });
+  // The renderer never names a path: the backup it inspected is the one it restores.
+  let chosenBackup: string | null = null;
+  handle('song:library:inspectBackup', async () => {
+    const selection = await showOpenDialog(getWindow(), {
+      title: 'Restore song library',
+      properties: ['openFile'],
+      filters: [{ name: 'Portable song library', extensions: ['gz', 'tgz'] }],
+    });
+    chosenBackup = null;
+    if (selection.canceled || !selection.filePaths[0]) return null;
+    const path = selection.filePaths[0];
+    const preview = await library.inspectBackup(path);
+    chosenBackup = path;
+    return { ...preview, fileName: basename(path) };
+  });
+  handle('song:library:restoreBackup', async (_e, mode: RestoreMode) => {
+    if (!chosenBackup) throw new HostError('invalid', 'Choose a backup to restore first.');
+    if (mode !== 'skip' && mode !== 'copy') throw new HostError('invalid', 'Unknown restore mode.');
+    const path = chosenBackup;
+    chosenBackup = null;
+    const result = await library.restoreBackup(path, transferProgress, mode);
+    return { ...result, fileName: basename(path) };
+  });
+  library.startSweeping();
+  app.once('will-quit', () => library.stopSweeping());
+  // Songs saved by an earlier version are converted to FLAC in the background; the song list shows them as soon as they have finished.
+  void library.migrate(transferProgress).catch((e) => console.error('Song library conversion failed', e));
+  // One download per file at a time; a second request (retry, another model sharing the file) joins it. A joined
+  // download keeps the signal of the request that started it, so cancelling a joiner doesn't stop the file.
+  const pending = new Map<string, Promise<void>>();
+  // The model downloads running now, by model id: song:cancelDownload aborts one.
+  const running = new Map<string, AbortController>();
+  const progress = (p: ModelProgress) => sendTo(getWindow, "song:modelProgress", p);
+
+  function fileOnce(f: ModelFile, onBytes: (received: number) => void, signal?: AbortSignal): Promise<void> {
     let job = pending.get(f.file);
     if (!job) {
-      job = ensureFile(f, onBytes).finally(() => pending.delete(f.file));
+      job = ensureFile(f, onBytes, signal).finally(() => pending.delete(f.file));
       pending.set(f.file, job);
     }
     return job;
@@ -124,11 +173,24 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
     const missing: ModelFile[] = [];
     for (const f of modelFiles(model)) if (!(await isDownloaded(f))) missing.push(f);
     const total = missing.reduce((sum, f) => sum + f.bytes, 0);
-    let done = 0;
-    for (const f of missing) {
-      await fileOnce(f, (received) => progress({ received: done + received, total }));
-      done += f.bytes;
+    const stop = new AbortController();
+    running.set(id, stop);
+    try {
+      let done = 0;
+      for (const f of missing) {
+        if (stop.signal.aborted) throw new HostError("cancelled", "The download was cancelled.");
+        await fileOnce(f, (received) => progress({ received: done + received, total }), stop.signal);
+        done += f.bytes;
+      }
+    } finally {
+      if (running.get(id) === stop) running.delete(id);
     }
+  });
+
+  // Stops the running download of model `id` (if any). Its finished files stay, and the partial one stays as a .part.
+  handle("song:cancelDownload", (_e, id: string) => {
+    modelOrThrow(id);
+    running.get(id)?.abort();
   });
 
   handle("song:modelFile", async (_e, name: string) => {
@@ -154,7 +216,7 @@ export function registerSongIpc(getWindow: () => BrowserWindow | null): void {
     const win = getWindow();
     if (names.length === 1) {
       const name = sanitizeFileName(names[0], "Audio");
-      const opts = { title, defaultPath: join(app.getPath("music"), name), filters: [{ name: "WAV audio", extensions: ["wav"] }] };
+      const opts = { title, defaultPath: join(app.getPath("music"), name), filters: songSaveFilters(name) };
       const res = await showSaveDialog(win, opts);
       target = res.canceled || !res.filePath ? null : { kind: "file", path: res.filePath };
     } else {

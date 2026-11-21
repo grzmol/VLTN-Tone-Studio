@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LibraryStore, readPrstPaths } from "./files-store";
 import { IMPORTED_ID, REPLACED_ID } from "@shared/host/files";
 import { PRST_MODELS } from "@shared/devices";
+import { applyPatchEdits } from '../../renderer/src/gp150/lib/prst.mjs';
 
 /** Minimal bytes with the model's header and a name at 0x19 (the store only reads those). */
 function fakePrst(name: string, device: "gp5" | "gp50" = "gp5"): Uint8Array {
@@ -35,6 +36,14 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 
 describe("backups", () => {
   const day = new Date(2026, 9, 7, 14, 32);
+
+  it('retains the GP-180 source model despite its shared GP-150 preset format', async () => {
+    const prst = applyPatchEdits(null, { name: 'Inspection', slot: 14 });
+    const info = await store.saveBackup([{ slot: 14, name: 'Inspection', prst }], day, 'gp180');
+    expect(info).toMatchObject({ id: 'backups/gp180-2026-10-07', device: 'gp180', count: 1 });
+    expect((await store.listPresets(info.id))[0].prst).toEqual(prst);
+    await expect(store.saveBackup([{ slot: 14, name: 'Inspection', prst }], day, 'gp5')).rejects.toThrow(/one pedal model/);
+  });
 
   it("writes NN-Name.prst files into gp5-YYYY-MM-DD and numbers a second backup of the day", async () => {
     const slots = [
@@ -172,6 +181,71 @@ describe("collections", () => {
   });
 });
 
+describe("deleting goes to the Trash", () => {
+  it("moves a deleted collection into .trash, and it no longer lists", async () => {
+    const c = await store.createCollection("Gig");
+    await store.addPresets(c.id, [{ name: "Zed", prst: fakePrst("Zed") }]);
+
+    await store.deleteCollection(c.id);
+
+    expect(await store.listCollections()).toEqual([]);
+    const trashed = await readdir(join(root, ".trash"));
+    expect(trashed).toHaveLength(1);
+    expect(await readFile(join(root, ".trash", trashed[0], "Zed.prst"))).toHaveLength(fakePrst("Zed").length);
+  });
+
+  it("moves a removed preset into .trash and updates collection.json as before", async () => {
+    const c = await store.createCollection("Set");
+    await store.addPresets(c.id, [
+      { name: "Zed", prst: fakePrst("Zed") },
+      { name: "Alpha", prst: fakePrst("Alpha") },
+    ]);
+
+    await store.removePreset(c.id, "Zed.prst");
+
+    expect((await store.listPresets(c.id)).map((p) => p.name)).toEqual(["Alpha"]);
+    expect(await readdir(join(root, ".trash"))).toHaveLength(1);
+    const meta = JSON.parse(await readFile(join(root, "library", "Set", "collection.json"), "utf8"));
+    expect(meta.order).toEqual(["Alpha.prst"]);
+    expect(meta.items["Zed.prst"]).toBeUndefined();
+  });
+
+  it("keeps the collection and its presets when the Trash refuses, and reports the error", async () => {
+    const refusing = new LibraryStore(root, undefined, async () => {
+      throw new Error("Trash refused");
+    });
+    const c = await refusing.createCollection("Gig");
+    await refusing.addPresets(c.id, [{ name: "Zed", prst: fakePrst("Zed") }]);
+
+    await expect(refusing.deleteCollection(c.id)).rejects.toThrow("Trash refused");
+    await expect(refusing.removePreset(c.id, "Zed.prst")).rejects.toThrow("Trash refused");
+
+    expect(await refusing.listCollections()).toMatchObject([{ id: c.id, count: 1 }]);
+    expect((await refusing.listPresets(c.id)).map((p) => p.name)).toEqual(["Zed"]);
+  });
+
+  it("hands the Trash the collection folder it is deleting", async () => {
+    const seen: string[] = [];
+    const recording = new LibraryStore(root, undefined, async (path) => {
+      seen.push(path);
+    });
+    const c = await recording.createCollection("Gig");
+
+    await recording.deleteCollection(c.id);
+
+    expect(seen).toEqual([join(root, "library", "Gig")]);
+  });
+
+  it("never lists the .trash folder, even when it holds a collection-shaped folder", async () => {
+    const c = await store.createCollection("Gig");
+    await store.deleteCollection(c.id);
+    await mkdir(join(root, ".trash", "Hidden"), { recursive: true });
+    await writeFile(join(root, ".trash", "Hidden", "collection.json"), JSON.stringify({ title: "Hidden", kind: "collection" }));
+
+    expect(await store.listCollections()).toEqual([]);
+  });
+});
+
 describe("readPrstPaths", () => {
   it("reads .prst files and explains what it rejects", async () => {
     const ok = join(root, "65-Puppy.prst");
@@ -186,5 +260,123 @@ describe("readPrstPaths", () => {
     expect(b.error).toBe(`Not a ${PRST_MODELS} preset.`);
     expect(c.error).toBe("Not a .prst preset file.");
     expect(d.error).toMatch(/Couldn't read/);
+  });
+});
+
+describe("interrupted backups", () => {
+  const day = new Date(2026, 9, 7, 14, 32);
+  const slots = (n: number) => Array.from({ length: n }, (_, i) => ({ slot: i, name: `P${i}`, prst: fakePrst(`P${i}`) }));
+
+  it("leaves no backup listed when a write fails partway, and no temp folder either", async () => {
+    let writes = 0;
+    const flaky = new LibraryStore(root, async (path, bytes) => {
+      if (++writes === 5) throw new Error("disk full");
+      await writeFile(path, bytes);
+    });
+    await expect(flaky.saveBackup(slots(6), day)).rejects.toThrow("disk full");
+    expect(await flaky.listCollections()).toEqual([]);
+    expect(await readdir(join(root, "backups"))).toEqual([]);
+  });
+
+  it("never lists a temp folder, even one with a complete-looking backup.json", async () => {
+    const temp = join(root, "backups", ".tmp-abc");
+    await mkdir(temp, { recursive: true });
+    await writeFile(join(temp, "00-A.prst"), fakePrst("A"));
+    expect(await store.listCollections()).toEqual([]);
+  });
+
+  it("sweeps temp folders older than an hour and keeps recent ones", async () => {
+    const old = join(root, "backups", ".tmp-old");
+    const fresh = join(root, "backups", ".tmp-fresh");
+    await mkdir(old, { recursive: true });
+    await mkdir(fresh, { recursive: true });
+    const hourAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    await utimes(old, hourAgo, hourAgo);
+    expect(await store.sweepTempBackups()).toBe(1);
+    expect(await readdir(join(root, "backups"))).toEqual([".tmp-fresh"]);
+  });
+
+  it("flags a backup whose backup.json lists a file that is now missing", async () => {
+    const info = await store.saveBackup(slots(3), day);
+    await rm(join(root, info.id, "01-P1.prst"));
+    const [listed] = await store.listCollections();
+    expect(listed).toMatchObject({ id: info.id, incomplete: true, count: 2 });
+  });
+
+  it("does not flag a complete backup or a hand-made folder with no backup.json", async () => {
+    await store.saveBackup(slots(2), day);
+    await mkdir(join(root, "backups", "gp5-2026-01-02"), { recursive: true });
+    await writeFile(join(root, "backups", "gp5-2026-01-02", "05-Pure Clean.prst"), fakePrst("Pure Clean"));
+    expect((await store.listCollections()).map((c) => c.incomplete)).toEqual([false, false]);
+  });
+
+  it("names a second backup of the day with a suffix once the first is renamed into place", async () => {
+    const first = await store.saveBackup(slots(1), day);
+    const second = await store.saveBackup(slots(1), day);
+    expect([first.id, second.id]).toEqual(["backups/gp5-2026-10-07", "backups/gp5-2026-10-07-2"]);
+    expect(await readdir(join(root, "backups"))).toEqual(["gp5-2026-10-07", "gp5-2026-10-07-2"]);
+  });
+});
+
+describe("pinning a backup", () => {
+  const day = new Date(2026, 9, 7, 14, 32);
+
+  it("pins and unpins a backup, and the listing shows it", async () => {
+    const info = await store.saveBackup([{ slot: 0, name: "GreatPedal", prst: fakePrst("GreatPedal") }], day);
+    expect(info.pinned).toBe(false);
+    expect((await store.setBackupPinned(info.id, true)).pinned).toBe(true);
+    expect((await store.listCollections())[0]).toMatchObject({ id: info.id, pinned: true });
+    expect((await store.setBackupPinned(info.id, false)).pinned).toBe(false);
+  });
+
+  it("keeps the rest of backup.json when pinning", async () => {
+    const info = await store.saveBackup([{ slot: 0, name: "GreatPedal", prst: fakePrst("GreatPedal") }], day);
+    await store.setBackupPinned(info.id, true);
+    const meta = JSON.parse(await readFile(join(root, "backups", "gp5-2026-10-07", "backup.json"), "utf8"));
+    expect(meta).toMatchObject({ device: "gp5", slots: 1, files: ["00-GreatPedal.prst"], pinned: true });
+  });
+
+  it("pins a hand-copied folder by writing backup.json with only the flag", async () => {
+    await mkdir(join(root, "backups", "gp5-hand"), { recursive: true });
+    await writeFile(join(root, "backups", "gp5-hand", "00-GreatPedal.prst"), fakePrst("GreatPedal"));
+    expect((await store.setBackupPinned("backups/gp5-hand", true)).pinned).toBe(true);
+  });
+
+  it("refuses library collections and missing backups", async () => {
+    const imported = await store.addPresets(IMPORTED_ID, [{ name: "Lead", prst: fakePrst("Lead") }]);
+    expect(imported).toHaveLength(1);
+    await expect(store.setBackupPinned(IMPORTED_ID, true)).rejects.toThrow(/Only backups/);
+    await expect(store.setBackupPinned("backups/gp5-2000-01-01", true)).rejects.toThrow(/no longer exists/);
+  });
+});
+
+describe("keeping backups (Keep backups setting)", () => {
+  const slots = [{ slot: 0, name: "GreatPedal", prst: fakePrst("GreatPedal") }];
+  const dayOf = (d: number) => new Date(2026, 9, d, 9, 0);
+  const now = dayOf(29);
+
+  it("moves the oldest backups beyond the newest 10 to the Trash", async () => {
+    for (let d = 1; d <= 12; d++) await store.saveBackup(slots, dayOf(d));
+    const moved = await store.pruneBackups("gp5", "10", now);
+    expect(moved).toEqual(["backups/gp5-2026-10-01", "backups/gp5-2026-10-02"]);
+    const left = (await store.listCollections()).filter((c) => c.kind === "backup").map((c) => c.id);
+    expect(left).toHaveLength(10);
+    expect(left).not.toContain("backups/gp5-2026-10-01");
+    expect(await readdir(join(root, ".trash"))).toHaveLength(2);
+  });
+
+  it("keeps pinned backups and never prunes another model's", async () => {
+    for (let d = 1; d <= 3; d++) await store.saveBackup(slots, dayOf(d));
+    await store.saveBackup([{ slot: 0, name: "Lead", prst: fakeGp200Prst("Lead") }], dayOf(4), "gp200");
+    await store.setBackupPinned("backups/gp5-2026-10-01", true);
+    expect(await store.pruneBackups("gp5", "10", now)).toEqual([]);
+    expect(await store.pruneBackups("gp5", "30", now)).toEqual([]);
+    const ayearOn = new Date(now.getTime() + 365 * 86_400_000);
+    expect(await store.pruneBackups("gp5", "90d", ayearOn)).toEqual(["backups/gp5-2026-10-02", "backups/gp5-2026-10-03"]);
+  });
+
+  it("prunes nothing when the setting keeps every backup", async () => {
+    for (let d = 1; d <= 12; d++) await store.saveBackup(slots, dayOf(d));
+    expect(await store.pruneBackups("gp5", "all", now)).toEqual([]);
   });
 });

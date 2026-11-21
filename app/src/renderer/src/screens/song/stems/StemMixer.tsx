@@ -11,18 +11,21 @@ import { cn } from "@/lib/utils";
 import { useNav } from "@/state/nav";
 import { useStatusHints } from "@/state/ui";
 import { useSong } from "@/song/store";
-import { defaultMix, formatTime, peaks, type Mix, type StemMix } from "@/song/stems/mix";
+import { defaultMix, formatTime, mergeMix, peaks, type Mix, type StemMix } from "@/song/stems/mix";
 import { findQuality } from "@/song/stems/options";
 import { StemPlayer } from "@/song/stems/player";
+import { fmtShift, TransposeControl, useTranspose } from "./TransposeControl";
 import { encodeWav } from "@/song/wav";
 import { STEM_NAMES, type StemName, type Stems, type SplitInfo } from "@/song/types";
 import { findModel } from "@shared/host/song";
+import { performanceKey, readOptions, setSetting } from "@/song/performance/settings";
 import { SplitOptions } from "./SplitOptions";
 
 const PANEL = "glass rounded-xl min-w-0 min-h-0";
 const WAVE_BUCKETS = 800;
 const HINTS = [{ keys: ["Space"], label: "play" }];
-const STEM_LABEL: Record<StemName, string> = { drums: "Drums", bass: "Bass", other: "Other", vocals: "Vocals", guitar: "Guitar", piano: "Piano" };
+/** The name each split stem has in the mixers: the Stems tab and the Performance mixer show the same ones. */
+export const STEM_LABEL: Record<StemName, string> = { drums: "Drums", bass: "Bass", other: "Other", vocals: "Vocals", guitar: "Guitar", piano: "Piano" };
 const STEM_COLOR: Record<StemName, string> = {
   drums: "var(--block-dst)",
   bass: "var(--block-mod)",
@@ -60,33 +63,58 @@ function splitSummary({ model, quality, seconds, backends, range }: SplitInfo): 
 /** Transport, one row per stem (mute, solo, volume, waveform, level), the export and splitting again. */
 export function StemMixer({ stems, songName }: { stems: Stems; songName: string }) {
   const lastSplit = useSong((s) => s.lastSplit);
+  const settingsKey = performanceKey(useSong(s => s.source));
   // Created in an effect so StrictMode's mount/unmount/mount gets a live AudioContext.
   const [player, setPlayer] = useState<StemPlayer | null>(null);
   const names = useMemo(() => STEM_NAMES.filter((n) => stems[n]), [stems]);
   const first = stems[names[0]]!;
   const duration = first.channels[0].length / first.sampleRate;
-  const [mix, setMix] = useState<Mix>(defaultMix);
+  const [mix, setMix] = useState<Mix>(() => readOptions(settingsKey, { mix: defaultMix() }).mix);
+  // The mix as last read or saved: the Performance mixer saves into the same options, so only what changed here is written.
+  const savedMix = useRef<Mix | null>(mix);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState<Partial<Record<StemName, number>> | null>(null);
   const waves = useMemo(() => Object.fromEntries(names.map((n) => [n, peaks(stems[n]!.channels, WAVE_BUCKETS)])) as Partial<Record<StemName, Float32Array>>, [stems, names]);
   useStatusHints(HINTS);
+  // Tuning the song swaps the stems under the player: it picks up at the same second, playing or paused.
+  const resume = useRef<{ at: number; play: boolean } | null>(null);
+  const transpose = useTranspose(stems, () => {
+    resume.current = player ? { at: player.position, play: player.isPlaying } : null;
+  });
+  const heard = transpose.heard;
 
   useEffect(() => {
-    const p = new StemPlayer(stems);
+    const p = new StemPlayer(heard);
     p.onEnded = () => {
       setPlaying(false);
       setTime(p.duration);
     };
     setPlayer(p);
+    const r = resume.current;
+    resume.current = null;
+    if (r) {
+      void p
+        .seek(r.at)
+        .then(() => (r.play ? p.play().then(() => setPlaying(true)) : setTime(r.at)))
+        .catch(() => {});
+    }
     return () => {
       setPlayer(null);
       setPlaying(false);
       void p.dispose();
     };
-  }, [stems]);
+  }, [heard]);
 
   useEffect(() => player?.setMix(mix), [player, mix]);
+  useEffect(() => {
+    try {
+      const options = readOptions<{ mix?: Mix }>(settingsKey, {});
+      setSetting(settingsKey, ':options', JSON.stringify({ ...options, mix: mergeMix(options.mix, savedMix.current, mix) }));
+      savedMix.current = mix;
+    }
+    catch (e) { notifyError('Could not save mixer settings', e); }
+  }, [settingsKey, mix]);
 
   // Position and meters follow the audio clock while playing.
   useEffect(() => {
@@ -141,6 +169,7 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
 
   const update = (name: StemName, patch: Partial<StemMix>) => setMix((m) => ({ ...m, [name]: { ...m[name], ...patch } }));
   const progress = duration ? time / duration : 0;
+  const exportName = transpose.semitones ? `${songName} (${fmtShift(transpose.semitones)} st)` : songName;
 
   return (
     <section aria-label="Stems" className={cn(PANEL, "flex min-h-0 flex-col gap-3 px-4 py-3.5")}>
@@ -160,6 +189,7 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
           value={[time]}
           onValueChange={([v]) => seek(v)}
         />
+        <TransposeControl semitones={transpose.semitones} job={transpose.job} onChange={(n) => void transpose.set(n)} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline">
@@ -170,8 +200,9 @@ export function StemMixer({ stems, songName }: { stems: Stems; songName: string 
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>{COUNT_WORD[names.length]} WAV files, 44.1 kHz stereo</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => void exportStems(songName, stems, names, 16)}>WAV 16-bit</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void exportStems(songName, stems, names, 24)}>WAV 24-bit</DropdownMenuItem>
+            {transpose.semitones !== 0 && <DropdownMenuLabel>Tuned {fmtShift(transpose.semitones)} semitones, as you hear it</DropdownMenuLabel>}
+            <DropdownMenuItem onSelect={() => void exportStems(exportName, heard, names, 16)}>WAV 16-bit</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void exportStems(exportName, heard, names, 24)}>WAV 24-bit</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

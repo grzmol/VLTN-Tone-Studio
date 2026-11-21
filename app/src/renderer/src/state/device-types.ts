@@ -200,7 +200,9 @@ export type DeviceFeature =
   /** Move a slot in the list, the ones in between shift (GP-50 11 5A) */
   | "movePreset"
   /** Global EQ values set one at a time (GP-200 family 0x1005) */
-  | "globalEq";
+  | "globalEq"
+  /** Rename a stored SnapTone or User IR, verified by reading the name back (GP-200 0x1015 / 0x100c) */
+  | "renameToneSlots";
 
 /**
  * Global EQ of the GP-200 family: the 31 values in the order of gp200/lib protocol GLOBAL_EQ_INDEX (ranges:
@@ -213,7 +215,7 @@ export interface GlobalEq {
 }
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
-export type DeviceMode = "webmidi" | "mock";
+export type DeviceMode = "webmidi" | "bluetooth" | "mock";
 
 export type ConnectionErrorCode =
   | "unsupported" // no WebMIDI
@@ -238,6 +240,11 @@ export interface ConnectionError {
 export interface WriteOptions {
   /** Called with 0..1 while frames are sent and verified */
   onProgress?: (fraction: number) => void;
+}
+
+/** A full write to a slot; `discardUnsaved` lets it replace a different slot's edits (the edits go with the write) */
+export interface WritePresetOptions extends WriteOptions {
+  discardUnsaved?: boolean;
 }
 
 export interface BackupEntry {
@@ -286,6 +293,11 @@ export interface DeviceState {
   preset: PresetState | null;
   /** The preset as last read/saved, for "Compare with saved" and the unsaved-changes count */
   saved: PresetState | null;
+  /**
+   * SHA-256 (hex) of the full preset bytes each slot had when the store last read or wrote it on this connection.
+   * Cleared on disconnect and on a new connection. A backup copy is trusted only when its bytes hash the same.
+   */
+  slotHashes: ReadonlyMap<number, string>;
   /** Number of differing params/blocks between preset and saved */
   unsavedChanges: number;
   globals: Globals | null;
@@ -367,7 +379,7 @@ export interface DeviceState {
   // memory writes (callers MUST confirm with the user first)
   saveToSlot(slot: number, name?: string): Promise<void>;
   rename(slot: number, name: string): Promise<void>;
-  writePreset(slot: number, prst: Uint8Array, opts?: WriteOptions): Promise<void>;
+  writePreset(slot: number, prst: Uint8Array, opts?: WritePresetOptions): Promise<void>;
   readPreset(slot: number): Promise<Uint8Array>;
   backupAll(opts?: WriteOptions): Promise<BackupEntry[]>;
   /** Reset `slots` to the empty preset (deletePreset feature), then re-read the names */
@@ -393,6 +405,11 @@ export interface DeviceState {
    * with the user first. Resolves with the name as stored on the pedal.
    */
   uploadUserIr(slot: number, name: string, data: Uint8Array, opts?: WriteOptions): Promise<string>;
+  /**
+   * Feature "renameToneSlots": rename a stored SnapTone or User IR (0-based table index), then re-read that list.
+   * Only the name changes. Resolves with the name as stored on the pedal.
+   */
+  renameToneSlot(kind: "snaptone" | "ir", slot: number, name: string): Promise<string>;
   /**
    * Write several presets (a backup) slot by slot, each acknowledged and verified by read-back (3 attempts).
    * Callers MUST confirm with the user first. Throws RestoreError naming done / failed / not started slots.

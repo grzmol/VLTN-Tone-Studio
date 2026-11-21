@@ -1,9 +1,13 @@
 // The library on disk (no Electron imports, so it is testable against a temp dir).
 //   <root>/backups/<device key>-YYYY-MM-DD[-n]/<slot label>-Name.prst (+ backup.json)   read-only snapshots of the pedal
+//   <root>/backups/.tmp-*  backups being written: renamed into place when complete, swept on start-up if abandoned
 //   <root>/library/<dir>/collection.json + *.prst                                       Imported files, Replaced presets, user collections
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open as openFile, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
+import { renameRetry, rmRetry, writeJsonAtomic } from "./fs-atomic";
+import { backupsToPrune, type BackupRetention } from "@shared/backup-retention";
+import { createTrash, sweepLibraryTrash, type TrashFn } from "./trash";
 import type { BackupSlot, CollectionInfo, CollectionKind, LocalPreset, NewPreset, PickedFile } from "@shared/host/files";
 import { MAX_PRST_BYTES, PRST_MODELS, isDeviceKey, profileFor, prstName, sniffPrst, type DeviceKey } from "@shared/devices";
 import {
@@ -61,9 +65,14 @@ export async function readPrstPaths(paths: string[]): Promise<PickedFile[]> {
       const fileName = path.split(/[\\/]/).pop() ?? path;
       if (!isPrst(fileName)) return { fileName, path, bytes: null, error: "Not a .prst preset file." };
       try {
-        const s = await stat(path);
-        if (!s.isFile() || s.size > MAX_PRST_BYTES) return { fileName, path, bytes: null, error: NOT_A_PRESET };
-        return { fileName, path, bytes: new Uint8Array(await readFile(path)), error: null };
+        const file = await openFile(path, "r");
+        try {
+          const s = await file.stat();
+          if (!s.isFile() || s.size > MAX_PRST_BYTES) return { fileName, path, bytes: null, error: NOT_A_PRESET };
+          return { fileName, path, bytes: new Uint8Array(await file.readFile()), error: null };
+        } finally {
+          await file.close();
+        }
       } catch (e) {
         return { fileName, path, bytes: null, error: `Couldn't read the file: ${(e as Error).message}` };
       }
@@ -71,8 +80,19 @@ export async function readPrstPaths(paths: string[]): Promise<PickedFile[]> {
   );
 }
 
+/** Temp folders are named like this until the backup is complete. */
+const TEMP_PREFIX = ".tmp-";
+/** A temp folder this old was left by a run that quit mid-backup (a backup takes seconds, not hours). */
+const TEMP_MAX_AGE_MS = 60 * 60_000;
+
 export class LibraryStore {
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    /** Writes one preset file of a backup. Tests replace it to fail partway through. */
+    private readonly writePreset: (path: string, bytes: Uint8Array) => Promise<void> = (path, bytes) => writeFile(path, bytes),
+    /** Takes deleted collections and presets out of the library. Desktop passes the OS Trash; the default keeps them in `<root>/.trash`. */
+    private readonly trash: TrashFn = createTrash(root),
+  ) {}
 
   get backupsDir(): string {
     return join(this.root, "backups");
@@ -84,7 +104,7 @@ export class LibraryStore {
   /** Absolute folder of a collection id; throws for ids that are malformed or point outside the root. */
   collectionPath(id: string): { root: "backups" | "library"; dir: string; path: string } {
     const parsed = parseCollectionId(id);
-    if (!parsed) throw new HostError("invalid", `Unknown collection ${id}`);
+    if (!parsed || parsed.dir.startsWith(TEMP_PREFIX)) throw new HostError("invalid", `Unknown collection ${id}`);
     return { ...parsed, path: join(parsed.root === "backups" ? this.backupsDir : this.libraryDir, parsed.dir) };
   }
 
@@ -104,10 +124,7 @@ export class LibraryStore {
   }
 
   private async writeMeta(dir: string, meta: CollectionMeta): Promise<void> {
-    const path = join(this.libraryDir, dir, "collection.json");
-    const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(meta, null, 2));
-    await rename(tmp, path);
+    await writeJsonAtomic(join(this.libraryDir, dir, "collection.json"), meta);
   }
 
   private async prstFiles(path: string): Promise<string[]> {
@@ -119,10 +136,15 @@ export class LibraryStore {
     const files = await this.prstFiles(path);
     let createdAt: string | null = null;
     let device: DeviceKey | null = null;
+    // The files the copy meant to hold, as backup.json lists them once the copy is complete. Older backups list none.
+    let listed: string[] = [];
+    let pinned = false;
     try {
       const raw: unknown = JSON.parse(await readFile(join(path, "backup.json"), "utf8"));
       if (raw && typeof raw === "object" && "createdAt" in raw && typeof raw.createdAt === "string") createdAt = raw.createdAt;
       if (raw && typeof raw === "object" && "device" in raw && isDeviceKey(raw.device)) device = raw.device;
+      if (raw && typeof raw === "object" && "files" in raw && Array.isArray(raw.files)) listed = raw.files.filter((f): f is string => typeof f === "string");
+      pinned = raw !== null && typeof raw === "object" && "pinned" in raw && raw.pinned === true;
     } catch {
       // Folders copied in by hand have no backup.json.
     }
@@ -131,18 +153,31 @@ export class LibraryStore {
     // backup.json before GP-50 support has no device: the folder name says it, else the first preset's header.
     device ??= named?.device ?? (files.length ? sniffPrst(new Uint8Array(await readFile(join(path, files[0])))) : null);
     const title = device ? `${profileFor(device).name} backup` : "Backup";
-    return { id: `backups/${dir}`, kind: "backup", title, device, createdAt, count: files.length, path };
+    const incomplete = listed.some((f) => !files.includes(f));
+    return { id: `backups/${dir}`, kind: "backup", title, device, createdAt, count: files.length, path, incomplete, pinned };
   }
 
   private async libraryInfo(dir: string): Promise<CollectionInfo> {
     const path = join(this.libraryDir, dir);
     const meta = await this.readMeta(dir);
     const files = await this.prstFiles(path);
-    return { id: `library/${dir}`, kind: meta.kind, title: meta.title, device: null, createdAt: meta.createdAt, count: files.length, path };
+    return {
+      id: `library/${dir}`,
+      kind: meta.kind,
+      title: meta.title,
+      device: null,
+      createdAt: meta.createdAt,
+      count: files.length,
+      path,
+      incomplete: false,
+      pinned: false,
+    };
   }
 
   async listCollections(): Promise<CollectionInfo[]> {
-    const backups = await Promise.all((await listDirs(this.backupsDir)).filter((d) => parseCollectionId(`backups/${d}`)).map((d) => this.backupInfo(d)));
+    const backups = await Promise.all(
+      (await listDirs(this.backupsDir)).filter((d) => !d.startsWith(TEMP_PREFIX) && parseCollectionId(`backups/${d}`)).map((d) => this.backupInfo(d)),
+    );
     backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     const lib = await Promise.all((await listDirs(this.libraryDir)).filter((d) => parseCollectionId(`library/${d}`)).map((d) => this.libraryInfo(d)));
     const rank: Record<CollectionKind, number> = { backup: 0, imported: 1, replaced: 2, collection: 3 };
@@ -179,22 +214,57 @@ export class LibraryStore {
     );
   }
 
-  async saveBackup(slots: BackupSlot[], now = new Date()): Promise<CollectionInfo> {
+  async saveBackup(slots: BackupSlot[], now = new Date(), sourceDevice?: DeviceKey): Promise<CollectionInfo> {
     if (!slots.length) throw new HostError("invalid", "Nothing to back up");
-    const device = commonModel(slots.map((s) => s.prst));
+    const device = commonModel(slots.map((s) => s.prst), sourceDevice);
     if (!device) throw new HostError("invalid", "A backup holds the presets of one pedal model");
     await mkdir(this.backupsDir, { recursive: true });
-    const dir = backupDirName(now, await listDirs(this.backupsDir), device);
-    const path = join(this.backupsDir, dir);
-    await mkdir(path);
-    const taken: string[] = [];
-    for (const s of slots) {
-      const fileName = uniqueFileName(presetFileName(s.name, s.slot, device), taken);
-      taken.push(fileName);
-      await writeFile(join(path, fileName), s.prst);
+    // Built in a temp folder and renamed once every file is in, so a backup cut short by a crash or a full disk never
+    // shows up in the library looking complete.
+    const temp = await mkdtemp(join(this.backupsDir, TEMP_PREFIX));
+    let dir: string;
+    try {
+      const files: string[] = [];
+      for (const s of slots) {
+        const fileName = uniqueFileName(presetFileName(s.name, s.slot, device), files);
+        files.push(fileName);
+        await this.writePreset(join(temp, fileName), s.prst);
+      }
+      await writeJsonAtomic(join(temp, "backup.json"), { createdAt: now.toISOString(), device, slots: slots.length, files });
+      // Named just before the rename, so a backup finished meanwhile can't take the name.
+      dir = backupDirName(now, await listDirs(this.backupsDir), device);
+    } catch (e) {
+      await rmRetry(temp, { recursive: true, force: true }).catch(() => {});
+      throw e;
     }
-    await writeFile(join(path, "backup.json"), JSON.stringify({ createdAt: now.toISOString(), device, slots: slots.length }, null, 2));
+    try {
+      await renameRetry(temp, join(this.backupsDir, dir));
+    } catch (e) {
+      // The copy is complete, so it stays where it is rather than being thrown away with the failed rename.
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new HostError("io", `The backup is complete but couldn't be moved into place (${reason}). Its files are in ${temp}`);
+    }
     return this.backupInfo(dir);
+  }
+
+  /**
+   * Removes temp backup folders left by a run that quit or crashed mid-backup. Only folders older than an hour go, so a
+   * backup running right now is never touched. Returns how many were removed.
+   */
+  async sweepTempBackups(now = Date.now()): Promise<number> {
+    let removed = 0;
+    for (const name of await listDirs(this.backupsDir)) {
+      if (!name.startsWith(TEMP_PREFIX)) continue;
+      const path = join(this.backupsDir, name);
+      const modified = await stat(path).then(
+        (s) => s.mtimeMs,
+        () => now,
+      );
+      if (now - modified < TEMP_MAX_AGE_MS) continue;
+      await rmRetry(path, { recursive: true, force: true });
+      removed++;
+    }
+    return removed;
   }
 
   /** Make sure a library collection folder exists (Imported files / Replaced presets are created on demand). */
@@ -207,6 +277,22 @@ export class LibraryStore {
       await this.writeMeta(dir, { ...FIXED[dir], createdAt: new Date().toISOString(), order: [], items: {} });
     }
     return { dir, path };
+  }
+
+  /** Pins or unpins a backup in its backup.json. Pinned backups are never pruned. Returns the backup as listed now. */
+  async setBackupPinned(id: string, pinned: boolean): Promise<CollectionInfo> {
+    const { root, dir, path } = this.collectionPath(id);
+    if (root !== "backups") throw new HostError("invalid", "Only backups can be pinned");
+    if (!(await exists(path))) throw new HostError("not-found", "This backup no longer exists");
+    const file = join(path, "backup.json");
+    const raw: unknown = await readFile(file, "utf8").then(
+      (text) => JSON.parse(text) as unknown,
+      () => null,
+    );
+    // A folder copied in by hand has no backup.json; pinning it writes one that holds only the flag.
+    const meta = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    await writeJsonAtomic(file, { ...meta, pinned });
+    return this.backupInfo(dir);
   }
 
   async createCollection(title: string): Promise<CollectionInfo> {
@@ -233,7 +319,23 @@ export class LibraryStore {
     const { root, dir, path } = this.collectionPath(id);
     if (root !== "library") throw new HostError("invalid", "Backups are read-only");
     if ((await this.readMeta(dir)).kind !== "collection") throw new HostError("invalid", "Only your own collections can be deleted");
-    await rm(path, { recursive: true, force: true });
+    await this.trash(path);
+  }
+
+  /**
+   * Moves the backups of `device` that `policy` no longer keeps to the Trash, oldest first. Pinned backups and other models'
+   * backups stay. Returns the ids moved.
+   */
+  async pruneBackups(device: DeviceKey, policy: BackupRetention, now = new Date()): Promise<string[]> {
+    const backups = (await this.listCollections()).filter((c) => c.kind === "backup" && c.device === device);
+    const doomed = backupsToPrune(backups, policy, now);
+    for (const c of doomed) await this.trash(this.collectionPath(c.id).path);
+    return doomed.map((c) => c.id);
+  }
+
+  /** Drops entries that have been in the in-library Trash for 30 days. Run at start-up. */
+  async sweepTrash(): Promise<number> {
+    return sweepLibraryTrash(this.root);
   }
 
   async addPresets(id: string, items: NewPreset[]): Promise<LocalPreset[]> {
@@ -257,7 +359,7 @@ export class LibraryStore {
   async removePreset(id: string, presetId: string): Promise<void> {
     const { dir, path } = await this.ensureLibrary(id);
     if (!isSafePresetFileName(presetId)) throw new HostError("invalid", "Unknown preset");
-    await rm(join(path, presetId), { force: true });
+    await this.trash(join(path, presetId));
     const meta = await this.readMeta(dir);
     delete meta.items[presetId];
     meta.order = meta.order.filter((f) => f !== presetId);

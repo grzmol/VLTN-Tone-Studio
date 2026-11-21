@@ -1,5 +1,6 @@
-import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type OpenDialogOptions, type SaveDialogOptions } from "electron";
+import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type OpenDialogOptions, type SaveDialogOptions } from "electron";
 import { HostError, type Result } from "@shared/ipc";
+import { ShellPaths } from "./shell-paths";
 
 /** Register an invoke handler that always resolves to a Result (Electron only serializes Error.message). */
 export function handle<A extends unknown[], T>(channel: string, fn: (event: IpcMainInvokeEvent, ...args: A) => Promise<T> | T): void {
@@ -15,12 +16,29 @@ export function handle<A extends unknown[], T>(channel: string, fn: (event: IpcM
   });
 }
 
-/** Open dialog, modal to the window when there is one. */
-export function showOpenDialog(win: BrowserWindow | null, options: OpenDialogOptions) {
-  return win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options);
+/**
+ * Send a message to the performance window if it is still open. On macOS the app outlives its window, and timers or
+ * background jobs can fire after it closed. Those messages are dropped instead of throwing "Object has been destroyed".
+ */
+export function sendTo(getWindow: () => BrowserWindow | null, channel: string, payload?: unknown): void {
+  const win = getWindow();
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send(channel, payload);
 }
 
-/** Save dialog, modal to the window when there is one. */
-export function showSaveDialog(win: BrowserWindow | null, options: SaveDialogOptions) {
-  return win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options);
+/** Paths the user picked in a dialog, plus userData: the only ones the renderer may open (see shell-paths.ts). */
+export const shellPaths = new ShellPaths({ userData: () => app.getPath("userData") });
+
+/** Open dialog, modal to the window when there is one. Every chosen path is allowed for openPath / showItemInFolder. */
+export async function showOpenDialog(win: BrowserWindow | null, options: OpenDialogOptions) {
+  const res = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  for (const path of res.filePaths) shellPaths.allow(path);
+  return res;
+}
+
+/** Save dialog, modal to the window when there is one. The chosen path is allowed for openPath / showItemInFolder. */
+export async function showSaveDialog(win: BrowserWindow | null, options: SaveDialogOptions) {
+  const res = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (res.filePath) shellPaths.allow(res.filePath);
+  return res;
 }

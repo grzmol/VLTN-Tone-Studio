@@ -101,6 +101,10 @@
   ::selection { background: rgb(255 255 255 / 0.24); color: var(--silkscreen); }
   ::placeholder { color: var(--silkscreen-3); opacity: 1; }
   :root { caret-color: var(--silkscreen); scrollbar-color: rgb(255 255 255 / 0.22) transparent; scrollbar-width: thin; accent-color: var(--silkscreen); }
+  /* Native <select> lists: Chromium on Linux draws the open list on a light background whatever color-scheme says,
+     while the options inherit the theme's white text, so they can't be read. Give the options an opaque dark surface. */
+  option, optgroup { background-color: var(--surface-solid-raised); color: var(--silkscreen); }
+  option:disabled { color: var(--silkscreen-4); }
 }
 
 /* Liquid Glass by role (design/DESIGN.md › Elevation & Depth). */

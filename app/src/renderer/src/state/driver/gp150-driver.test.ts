@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { CMD, GLOBAL_EQ, eqValues } from "@/gp150/lib/protocol.mjs";
+import { CMD, GLOBAL_EQ, GLOBALS, eqValues } from "@/gp150/lib/protocol.mjs";
 import { applyPatchEdits, parsePrst } from "@/gp150/lib/prst.mjs";
 import type { DriverEvent } from "./types";
 import { Gp150Driver } from "./gp150-driver";
@@ -74,6 +74,20 @@ describe("Gp150Driver", () => {
     expect((await d.readGlobals()).values.globalEq).toBe(0);
   });
 
+  it("reads a record level at the pedal's −21 dB and sets it again, leaving a −21 sibling alone", async () => {
+    const { d, dev } = await connected();
+    const record = Uint8Array.from(dev.records.get(GLOBALS.micRecLevel.cmd)!);
+    record.set([0xeb, 0xff], GLOBALS.micRecLevel.off);
+    dev.records.set(GLOBALS.micRecLevel.cmd, record);
+    const snap = await d.readGlobals();
+    expect(snap.values.micRecLevel).toBe(-21);
+    await d.setGlobal("btRecLevel", -21);
+    const after = await d.readGlobals();
+    expect(after.values.btRecLevel).toBe(-21);
+    expect(after.values.micRecLevel).toBe(-21);
+    expect(d.clampGlobal("micRecLevel", -21)).toBe(-21);
+  });
+
   it("sends a param with the model of its module", async () => {
     const { d, dev } = await connected();
     await d.setParam(4, 0, 33);
@@ -116,6 +130,19 @@ describe("Gp150Driver", () => {
     await d.writePreset(120, prst);
     expect(parsePrst(dev.presets[120]).name).toBe("Moved");
     expect(dev.activeSlot).toBe(120);
+  });
+
+  it("backs up 200 presets in their own slots while the pedal changes preset", async () => {
+    const { d, dev } = await connected();
+    const pushes: Promise<void>[] = [];
+    const all = await d.backupAll({
+      onProgress: (done) => {
+        if (done % 10 === 0) pushes.push(dev.selectOnPedal(150 + (done % 20)));
+      },
+    });
+    await Promise.all(pushes);
+    expect(all).toHaveLength(200);
+    for (const e of all) expect(e.name).toBe(parsePrst(dev.presets[e.slot]).name);
   });
 
   it("reports pedal-side edits: a knob as a param, another preset as a resync", async () => {

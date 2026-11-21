@@ -47,8 +47,17 @@ function toGlobals(values: Gp200Globals, firmware: string | null): Gp200GlobalsS
   return { values: { ...values }, records: gp200GlobalRecords(values), ...(firmware ? { firmware } : {}) };
 }
 
-/** Name tables of the SnapTone and User IR slots: flag 1 = the slot holds data. */
-const toTable = (list: NameEntry[]): SlotName[] => list.map((e) => ({ slot: e.slot, name: e.name, kind: e.flag ? "user" : "empty" }));
+/** A name the pedal gives a SnapTone or User IR slot it holds nothing in ("", "User IR", "User IR 3", "SnapTone 3", "Empty"). */
+const isDefaultSlotName = (name: string) => /^(|Empty|User IR( \d+)?|SnapTone( \d+)?)$/.test(name.trim());
+
+/**
+ * Name tables of the SnapTone and User IR slots. The pedal flags each slot: 0 = holds data, 1 = empty (the GP-5 and
+ * GP-150 families use the same convention). Any other flag, or an "empty" slot with a name of its own, is "unknown":
+ * never offered as empty, so it can't be overwritten without the Replace warning.
+ */
+export const gp200SlotKind = (e: Pick<NameEntry, "flag" | "name">): NonNullable<SlotName["kind"]> =>
+  e.flag === 0 ? "user" : e.flag === 1 ? (isDefaultSlotName(e.name) ? "empty" : "unknown") : "unknown";
+const toTable = (list: NameEntry[]): SlotName[] => list.map((e) => ({ slot: e.slot, name: e.name, kind: gp200SlotKind(e) }));
 
 /** The GP-200's default slot names ("User IR 3", "SnapTone 3") for a table the pedal didn't list: contents unknown. */
 const unlistedTable = (kind: "irs" | "snapTones"): SlotName[] => {
@@ -65,12 +74,19 @@ function irSamples(data: Uint8Array): Int32Array {
   return Int32Array.from({ length: data.byteLength / 4 }, (_, i) => view.getInt32(i * 4, true));
 }
 
+/** Features of every GP-200 family model (see Gp200Driver.features). */
+const GP200_FEATURES: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified"];
+
 export class Gp200Driver implements DeviceDriver {
   /**
    * "exportPreset": stored reads never select; "liveBpm": the patch tempo goes out as 0x0006; "globalEq": 0x1005;
    * "modified": the edit buffer differs from its slot (the pedal's 0x1011 report, or at connect the sync's own reads).
    */
-  readonly features: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified"];
+  get features(): readonly DeviceFeature[] {
+    // "renameToneSlots": tested on a GP-200 only. The LT and JR share the protocol; the LT in issue #22 doesn't answer
+    // User IR name reads, so a rename there couldn't be verified.
+    return this.#session.device === "gp200" ? [...GP200_FEATURES, "renameToneSlots"] : GP200_FEATURES;
+  }
   readonly #session: Gp200Session;
   readonly #listeners = new Set<(e: DriverEvent) => void>();
   /** Global EQ as the pedal reported it and as set here, over the editor's factory values (no request reads it). */
@@ -397,6 +413,14 @@ export class Gp200Driver implements DeviceDriver {
   /** `data`: 24-bit samples at 44.1 kHz as int32 LE, up to 1024 (4096 bytes); a 512-sample GP-5 block also works. */
   async uploadUserIr(slot: number, name: string, data: Uint8Array, opts: ProgressOptions = {}): Promise<string> {
     return this.#uploaded("irs", await this.#session.uploadUserIr(slot, name, irSamples(data), { confirm: true, onProgress: opts.onProgress }));
+  }
+
+  /** "renameToneSlots" (GP-200 only): 0x1015 / 0x100c, then the name is read back and must match. */
+  async renameToneSlot(kind: "snaptone" | "ir", slot: number, name: string): Promise<string> {
+    if (!this.features.includes("renameToneSlots")) throw new Error("Renaming SnapTones and User IRs is only available on the GP-200.");
+    return kind === "snaptone"
+      ? this.#session.renameSnapTone(slot, name, { confirm: true })
+      : this.#session.renameUserIr(slot, name, { confirm: true });
   }
 
   subscribe(listener: (event: DriverEvent) => void): () => void {

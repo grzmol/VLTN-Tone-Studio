@@ -4,13 +4,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { notifyError } from "@/app/notify";
 import { host, isElectron } from "@/host";
 import { useNav } from "@/state/nav";
 import { loadAccount, setAppKey, signOut, useTones } from "@/screens/tones/store";
 import { listNames } from "@shared/devices";
+import { BACKUP_RETENTIONS, RETENTION_LABELS } from "@shared/backup-retention";
 import { useAppSettings } from "./settings-store";
+import { OldLibraryCopy } from "./OldLibraryCopy";
 import { useDevice, usePedalName, useProfile } from "@/state/device";
 import { EXPERIMENTAL_FEATURES } from "@/state/device-model";
 import { SUPPORTED_DEVICE_KEYS } from "@/state/driver/types";
@@ -55,13 +58,43 @@ export function SettingsView() {
           <Row label="Back up before every write" description="Before the app saves, renames or writes a slot, it copies what is in that slot now into Replaced presets.">
             <Switch checked={settings.backupBeforeWrite} disabled={!loaded} onCheckedChange={(v) => save({ backupBeforeWrite: v })} aria-label="Back up before every write" />
           </Row>
+          {/* Pruning runs in the desktop app, where the backups folder is. */}
+          {isElectron && (
+            <Row
+              label="Keep backups"
+              description={
+                "After each backup, the older backups of that pedal move to the Trash. " +
+                "Pinned backups are never moved, and backups of other pedals are left alone."
+              }
+            >
+              <Select
+                value={settings.backupRetention}
+                disabled={!loaded}
+                onValueChange={(v) => {
+                  const retention = BACKUP_RETENTIONS.find((r) => r === v);
+                  if (retention) save({ backupRetention: retention });
+                }}
+              >
+                <SelectTrigger aria-label="Keep backups" className="w-[240px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BACKUP_RETENTIONS.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {RETENTION_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+          )}
         </Section>
 
         <Section title="Pedal connection">
           <PortPatternRow value={settings.portPattern} disabled={!loaded} onSave={(portPattern) => save({ portPattern })} />
           {/* Only Windows and macOS builds read anything from the Suite install (the SnapTone test signal). */}
           {isElectron && host.platform !== "linux" && (
-            <SuitePathRow value={settings.valetonSuitePath} disabled={!loaded} onSave={(valetonSuitePath) => save({ valetonSuitePath })} />
+            <SuitePathRow value={settings.suitePathPicked ? settings.valetonSuitePath : null} disabled={!loaded} />
           )}
           {/* The setting keeps its stored key (gp50Extras); EXPERIMENTAL_FEATURES lists what it unlocks per family. */}
           <Row
@@ -83,6 +116,8 @@ export function SettingsView() {
             />
           </Row>
         </Section>
+
+        <OldLibraryCopy />
 
         <Section title="TONE3000 account">
           <AppKeyRow />
@@ -106,6 +141,7 @@ export function SettingsView() {
             <Row label="Tone Studio in the browser" description="Backups stay in this browser. Valeton Suite and folders on disk need the desktop app." />
           )}
         </Section>
+        <OldLibraryCopy />
       </div>
     </div>
   );
@@ -222,11 +258,13 @@ function PortPatternRow({ value, disabled, onSave }: { value: string | null; dis
   );
 }
 
-function SuitePathRow({ value, disabled, onSave }: { value: string | null; disabled: boolean; onSave: (v: string | null) => void }) {
+function SuitePathRow({ value, disabled }: { value: string | null; disabled: boolean }) {
+  const load = useAppSettings((s) => s.load);
   const pick = async () => {
     try {
+      // The main process stores the chosen path itself (device:pickSuitePath), so reload instead of saving it here.
       const path = await host.device.pickSuitePath();
-      if (path) onSave(path);
+      if (path) await load();
     } catch (e) {
       notifyError("Couldn't choose Valeton Suite", e);
     }
@@ -251,7 +289,7 @@ function SuitePathRow({ value, disabled, onSave }: { value: string | null; disab
           size="icon"
           aria-label="Open Valeton Suite"
           title="Open Valeton Suite"
-          onClick={() => void host.app.openPath(value).catch((e) => notifyError("Couldn't open Valeton Suite", e))}
+          onClick={() => void host.app.launchSuite().catch((e) => notifyError("Couldn't open Valeton Suite", e))}
         >
           <FolderOpen aria-hidden />
         </Button>
@@ -339,7 +377,17 @@ function AccountRow() {
 
   const user = account?.status === "signed-in" ? account.user : null;
   return (
-    <Row label="TONE3000" description="Browse and download NAM captures and IRs. Signing in happens on TONE3000's own page.">
+    <Row
+      label="TONE3000"
+      description={
+        <>
+          Browse and download NAM captures and IRs. Signing in happens on TONE3000's own page.
+          {account?.insecureStorage && (
+            <span className="block">No system keyring was found, so the TONE3000 sign-in lasts only this session. Install a keyring to stay signed in.</span>
+          )}
+        </>
+      }
+    >
       {!account ? null : user ? (
         <>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">

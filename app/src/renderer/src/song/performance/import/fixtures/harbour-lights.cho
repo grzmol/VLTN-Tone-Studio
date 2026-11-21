@@ -1,0 +1,40 @@
+{title: Harbour Lights}
+{subtitle: Original test song}
+{artist: A. Tester}
+{key: A}
+{capo: 2}
+{tempo: 96}
+{duration: 3:42}
+{year: 2024}
+{textfont: Serif}
+# Written for the import tests. Lyrics and chords are original.
+
+{start_of_verse}
+[A]Lanterns on the [D]water, [A]low and [E]slow
+[A]We keep the [D]kettle [A]warm and [E]wait
+{end_of_verse}
+
+{start_of_chorus: Chorus}
+[D]Hold the light [E]steady, [F#m]hold it [D]high
+[A]Harbour [E]lights, [F#m]come [D]home [A]tonight
+{end_of_chorus}
+
+{comment: Half time from here}
+{start_of_bridge}
+[F#m]Count the [D]boats we [E]lost to the [A]tide
+[F#m]Count them [D]back, [E]one [A]by one
+{end_of_bridge}
+
+{start_of_tab: Riff}
+e|-----0-----|
+B|---1---1---|
+{end_of_tab}
+
+{soc}
+[D]Hold the light [E]steady, [F#m]hold it [D]high  {color:red}Final line{/color}
+{eoc}
+{chorus}
+Plain line with [N]no chord  // remember the capo
+{new_song}
+{title: Second Song}
+[G]This line belongs to the second song

@@ -1,0 +1,12 @@
+{
+  "name": "vltn-tone-studio-root",
+  "private": true,
+  "description": "Workspace root forwarding scripts to app/",
+  "scripts": {
+    "dev": "npm --prefix app run dev",
+    "web": "npm --prefix app run web",
+    "build": "npm --prefix app run build",
+    "test": "npm --prefix app run test",
+    "typecheck": "npm --prefix app run typecheck"
+  }
+}

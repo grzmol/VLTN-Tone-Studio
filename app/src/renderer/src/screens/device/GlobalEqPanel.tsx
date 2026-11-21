@@ -20,6 +20,7 @@ export function GlobalEqPanel({ offline }: { offline: boolean }) {
       eq: s.globalEq,
       on: s.globals?.globalEq,
       device: s.device,
+      mode: s.mode,
       experimental: s.lockedFeatures.includes("globalEq"),
       attached: attachedDevice(s),
     })),
@@ -27,7 +28,8 @@ export function GlobalEqPanel({ offline }: { offline: boolean }) {
   // Another model attached: the remembered EQ is not its EQ (the faceplate above shows no values either).
   if (!s.eq || s.attached !== s.device) return null;
   const pedal = pedalName(s.device);
-  const disabled = offline || s.experimental;
+  const locked = offline;
+  const disabled = locked || s.experimental;
   const values = s.eq.values;
 
   /** `name`: the accessible name ("Band 1 frequency") */
@@ -61,7 +63,7 @@ export function GlobalEqPanel({ offline }: { offline: boolean }) {
         <div className="flex items-center gap-2.5 text-sm font-[550] text-silkscreen-2">
           <Switch
             checked={s.on === 1}
-            disabled={offline || s.on === undefined}
+            disabled={locked || s.on === undefined}
             onCheckedChange={(v) => useDevice.getState().setGlobal("globalEq", v ? 1 : 0)}
             aria-label="Global EQ on"
           />

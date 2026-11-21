@@ -2,12 +2,13 @@
 
 <br>
 
-# VLTN Tone Studio
+<img src="assets/banner.png" alt="VLTN Tone Studio" width="100%">
 
 A desktop editor and librarian for Valeton multi-effects:<br>
 **GP-5 · GP-50 · GP-150 · GP-180 · GP-200 · GP-200LT · GP-200JR**
 
-Shape tones live, sort and back up every slot, match a song's guitar tone, and bring NAM captures and IRs from TONE3000 straight to the pedal.
+Shape tones live, sort and back up every slot, match a song's guitar tone, and bring NAM captures and IRs from TONE3000 straight to the pedal.<br>
+Then play your set: stems, lyrics and chords, a generated band, and MIDI cues that switch your pedals on time.
 
 <br>
 
@@ -25,14 +26,14 @@ Shape tones live, sort and back up every slot, match a song's guitar tone, and b
 <br>
 <br>
 
-### Download v0.9.0
+### Download v1.0.0
 
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x64.exe"><img src="https://img.shields.io/badge/Windows-x64_installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows (x64 installer)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple_silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Apple silicon)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Intel)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v1.0.0/vltn-tone-studio-1.0.0-x64.exe"><img src="https://img.shields.io/badge/Windows-x64_installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows (x64 installer)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v1.0.0/vltn-tone-studio-1.0.0-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple_silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Apple silicon)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v1.0.0/vltn-tone-studio-1.0.0-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS (Intel)"></a>
 <br>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-x86_64.AppImage"><img src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux (AppImage)"></a>
-<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v0.9.0/vltn-tone-studio-0.9.0-amd64.deb"><img src="https://img.shields.io/badge/Linux-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" alt="Download for Debian and Ubuntu (.deb)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v1.0.0/vltn-tone-studio-1.0.0-x86_64.AppImage"><img src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux (AppImage)"></a>
+<a href="https://github.com/grzmol/VLTN-Tone-Studio/releases/download/v1.0.0/vltn-tone-studio-1.0.0-amd64.deb"><img src="https://img.shields.io/badge/Linux-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" alt="Download for Debian and Ubuntu (.deb)"></a>
 
 <sub>Also runs in Chrome & Edge &nbsp;·&nbsp; <a href="#install">Install notes</a> &nbsp;·&nbsp; <a href="https://github.com/grzmol/VLTN-Tone-Studio/releases">All versions and release notes</a></sub>
 
@@ -46,7 +47,7 @@ Bugs and ideas are welcome in [Issues](https://github.com/grzmol/VLTN-Tone-Studi
 <br>
 <br>
 
-[Download](#download-v090) &nbsp;·&nbsp; [Rig](#every-knob-live) &nbsp;·&nbsp; [Library](#every-preset-one-view) &nbsp;·&nbsp; [Tones](#tones-from-tone3000) &nbsp;·&nbsp; [Song](#from-a-song-to-a-tone) &nbsp;·&nbsp; [GP-200 family](#the-gp-200-family) &nbsp;·&nbsp; [Devices](#devices) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Troubleshooting](#when-the-pedal-doesnt-connect) &nbsp;·&nbsp; [Build](#build-it-yourself) &nbsp;·&nbsp; [License](#license)
+[Download](#download-v100) &nbsp;·&nbsp; [Rig](#every-knob-live) &nbsp;·&nbsp; [Library](#every-preset-one-view) &nbsp;·&nbsp; [Tones](#tones-from-tone3000) &nbsp;·&nbsp; [Song](#from-a-song-to-a-tone) &nbsp;·&nbsp; [Perform](#perform-a-set) &nbsp;·&nbsp; [GP-200 family](#the-gp-200-family) &nbsp;·&nbsp; [Devices](#devices) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Troubleshooting](#when-the-pedal-doesnt-connect) &nbsp;·&nbsp; [Build](#build-it-yourself) &nbsp;·&nbsp; [License](#license)
 
 <br>
 
@@ -161,7 +162,7 @@ Search presets, models, and every preset that uses a model, all from one box.
 
 ## Your pedal, looked after.
 
-Change the pedal's global settings, and the Global EQ on the GP-200 family. Back up every slot with one click, and restore any backup.<br>
+Change the pedal's global settings, and the Global EQ on the GP-200 family. Back up every slot with one click, and restore any backup. A restore compares each slot with the pedal first and writes only the slots that changed, unless you choose *Write all*. A backup's menu in the Library has *Compare with pedal* (read-only) and *Pin backup*. *Settings › Keep backups* can move older backups of each pedal to the Trash, and never moves pinned ones.<br>
 Diagnostics check each step of the connection: the USB device, the driver Windows gave it, the MIDI port, and whether Valeton Suite or the GP-200 editor holds the port.<br>
 A session log keeps every connection step, error and MIDI message, ready to attach to a bug report. A live MIDI monitor shows and decodes the messages as they go.
 
@@ -281,6 +282,159 @@ The NAM captures you downloaded from TONE3000 are ranked against the song's guit
 
 <br>
 
+## Perform a set.
+
+Save a song with its stems, lyrics, chords, sections and MIDI cues, line songs up in a playlist and play the whole set from one screen.<br>
+The next song loads while the current one plays, so songs join without a gap, or with a crossfade you choose. Split a playlist into sets, let a smart playlist pick songs by rules, and check the whole set before the gig.
+
+<br>
+
+<img src="assets/perform-library.png" alt="Saved songs and a playlist, checked before the set" width="100%">
+
+<br>
+<br>
+
+Play at 50 to 150% speed, shift the pitch, set a capo, and send the click to its own output for in-ear monitors.<br>
+The metronome and the one-bar count-in can be a click, sticks, a hi-hat, a rock beat or your own drum samples, or go out as MIDI notes to a drum plugin.
+
+<br>
+
+<img src="assets/perform-play.png" alt="The Play view: transport, count-in sounds, sections and the mixer" width="100%">
+
+<br>
+<br>
+
+New audio saves itself, and the header always says whether the song is saved.<br>
+Songs are stored as lossless FLAC, a save never touches the old copy until the new one is on disk, and a deleted song goes to the Trash. The library, its playlists and its audio go into one portable backup. See the [song library guide](docs/SONG-LIBRARY.md).
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## Your pedals follow the song.
+
+Patch changes, tempo and any other MIDI message go out at the right moment of the song, to your GP-150 or GP-180 and the pedals behind it.<br>
+Fire a cue at a time, on load, play or stop, or at the start of every chorus. Cues on a section follow the sections when you move them. Start in the middle of a song and every pedal is set as if you'd played from the top.
+
+<br>
+
+The timing runs in its own worker on the audio clock, so a busy screen never makes a cue late.<br>
+Named commands for the GP-150 and GP-180 and other popular pedals save you looking up MIDI numbers, and a check before the set says what a cue needs that isn't connected. MIDI clock and MIDI timecode are there for gear that follows them.
+
+<br>
+
+<img src="assets/perform-cues.png" alt="Song MIDI cues, with a GP-180 patch change on every chorus" width="100%">
+
+<br>
+<br>
+
+Connect a GP-150 or GP-180 over Bluetooth MIDI and lose the cable on stage.<br>
+The link packs messages that go out together, reconnects by itself when it drops, and switches Send cues back on when it's back. Editing stays on USB. See the [Performance guide](docs/PERFORMANCE.md) and [Bluetooth MIDI](docs/BLUETOOTH.md).
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## Hands on the guitar.
+
+Every live action can run from a footswitch, a MIDI message, a key or a Bluetooth page-turner: play, next section, next song, tap tempo, scroll the lyrics.<br>
+A program change can load the song that goes with your patch.
+
+<br>
+
+<img src="assets/perform-remote.png" alt="Remote control: a key bound to the guitar practice mute" width="100%">
+
+<br>
+<br>
+
+Stage mode fills the screen with big lyrics and chords and locks everything you shouldn't touch mid-song. A PDF chart can take the text chart's place, with your pen and highlighter marks.<br>
+An audience display shows the lyrics on a projector, and band sync puts them on your bandmates' phones over the local network, behind a PIN.
+
+<br>
+
+<img src="assets/perform-stage.png" alt="Stage mode following the lyrics and chords" width="100%">
+
+<br>
+<br>
+
+Not sure where to take a solo? Solo scale shows the song's scale on the neck, for the key as you play it, capo and pitch shift included.<br>
+It starts on the minor pentatonic, offers seven more scales, lights up one box position at a time, and shows fret numbers or note names.
+
+<br>
+<br>
+
+Practising? Mute the guitar, the vocals or any other instrument in every song of a playlist at once, with one footswitch.<br>
+Each song keeps its own mix, and turning the practice mute off brings it all back.
+
+<br>
+
+<img src="assets/perform-practice.png" alt="Guitar muted in every song, with the Practice badge in the mixer" width="100%">
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
+## A band behind you.
+
+Tone Studio finds a song's beat, key, chords and sections on your computer, and writes down the lyrics from the vocals stem, timed to the song.<br>
+Analyse one song, or the whole library in one go.
+
+<br>
+
+<img src="assets/band-beat.png" alt="The Band panel: the beat grid with the song's chords" width="100%">
+
+<br>
+<br>
+
+Missing a drummer or a bass player? Generate drums and bass that follow the song's beat, chords and sections, preview any section, and export them as MIDI.<br>
+Fix a wrong bass note by hand, and play the bass and the drums through NAM captures and IRs from TONE3000.
+
+<br>
+
+<img src="assets/band-panel.png" alt="Drum and bass tone chains, and the bar with Close and Play from" width="100%">
+
+<br>
+<br>
+
+For a careful map of a song, export a song brief, have an assistant fill in its sections, drums, bass, chords and lyrics, and import the song map.<br>
+You see what each part changes before it's applied, and Undo puts the song back. See [Song maps](docs/SONG-MAP.md).
+
+<br>
+
+<img src="assets/songmap-import.png" alt="Importing a song map: each part listed before it's applied" width="100%">
+
+<br>
+<br>
+
+</div>
+
+---
+
+<div align="center">
+
+<br>
+
 ## The GP-200 family.
 
 The GP-200 (also R and X), GP-200LT and GP-200JR get the same screens, shaped to how they work.
@@ -321,39 +475,21 @@ The GP-200 (also R and X), GP-200LT and GP-200JR get the same screens, shaped to
 
 <br>
 
-| | GP-5 | GP-50 | GP-150 | GP-180 | GP-200 · 200R · 200X | GP-200LT | GP-200JR |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Recognised over USB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Live editing | ✅ | ✅ | ✅ | ✅ | ✅¹ | ✅¹ | ✅¹ |
-| Preset library | ✅ 100 slots | ✅ 100 slots | ✅ 200 slots | ✅ 200 slots | ✅ 256 slots | ✅ 256 slots | ✅ 255 slots |
-| Backups | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Restore a backup | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `.prst` export | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `.prst` import | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Pedal settings | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Global EQ | — | — | ✅ | ✅ | ✅² | ✅² | ✅² |
-| Footswitches and chain order | ✅ FS1–2 | ✅³ FS1–2 | ✅ FS A–B | ✅ FS A–C | ✅ CTRL 1–8 | ✅ | ✅ |
-| Tempo and tap tempo | ✅ | ✅³ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Expression pedal and patch settings | — | ✅³ | ✖️ | ✖️ | ✅ | ✅ | ✅ |
-| SnapTones (NAM) over USB | ✅ 30 user slots | ✅ 30 user slots | ✅ 50 user slots | ✅ 50 user slots | ✅ 10 slots | ❔ | ❔ |
-| Cab IR inside a SnapTone | ✅ | ✅ | — | — | — | — | — |
-| User IRs over USB | ✅ 20 × 512 | ✅ 20 × 512 | ✅ 20 slots | ✅ 20 slots | ✅ 20 × 1024 | ✅ 20 × 1024 | ✅ 20 × 1024 |
-| Tone Match | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| [Simulated pedal](#build-it-yourself) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+Supported devices:
 
-<sub>✅ works &nbsp;·&nbsp; ✖️ not in Tone Studio &nbsp;·&nbsp; ❔ not known yet whether the pedal has it &nbsp;·&nbsp; — the pedal doesn't have it or doesn't need it</sub>
-
-<br>
-
-¹ **GP-200 knobs come from the built-in [effect list](#the-gp-200-family)**, or from Valeton's editor if you import its list.<br>
-² **The Global EQ write** is known only from Valeton's GP-200 editor, so it's behind *Settings › Experimental pedal commands*.<br>
-³ **Some GP-50 commands sit behind Settings › Experimental pedal commands**: live footswitch, order and tempo changes, expression pedal settings, reading a slot without selecting it, and the pedal's own delete, copy and move. With the switch off, footswitches, order and tempo reach the pedal when you save. The simulator always has them.
+- Valeton GP-5
+- Valeton GP-50
+- Valeton GP-150
+- Valeton GP-180
+- Valeton GP-200, GP-200R and GP-200X
+- Valeton GP-200LT
+- Valeton GP-200JR
 
 <br>
 
 **Which pedal is connected?** Tone Studio works it out by itself and names it everywhere.<br>
 **Presets across models.** A GP-5 preset goes onto a GP-50 unchanged. A GP-50 preset loses its GP-50-only models, its expression pedal settings and synced Time/Rate values on a GP-5, and the app lists what changes before writing. The GP-200, LT and JR share one `.prst` file. Presets don't move between the GP-5 and GP-200 families.<br>
-**GP-150 and GP-180.** Both speak one protocol and use one `.prst` file, known from USB captures of a GP-180 published by [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Tone Studio tells them apart by the MIDI port name. All 12 modules in any order, with the models and knob ranges of Valeton Suite 2.1.0's GP-150 list built in. The library shows 200 slots, `001` to `200`. A preset's expression pedal and knob 1–3 assignments are kept as they are, not edited. The `.prst` files carry a checksum whose algorithm isn't known: Tone Studio clears it when it changes a preset (the pedal is reported to accept that) and checks imported files by their layout only. The GP-180 has a third footswitch (FS C) in the footswitch assignments.
+**GP-150 and GP-180.** Both speak one protocol and use one `.prst` file, known from USB captures of a GP-180 published by [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Tone Studio tells them apart by the MIDI port name. All 12 modules in any order, with the models and knob ranges of Valeton Suite 2.1.0's GP-150 list built in. The library shows 200 slots, `001` to `200`. A preset's expression pedal and knob 1–3 assignments are kept as they are, not edited. The `.prst` files carry a checksum whose algorithm isn't known: Tone Studio clears it when it changes a preset (the pedal is reported to accept that) and checks imported files by their layout only. The GP-180 has a third footswitch (FS C) in the footswitch assignments. The Device screen can also open a Bluetooth MIDI link to either pedal; editing stays on USB, see [BLUETOOTH.md](docs/BLUETOOTH.md). Both also send performance MIDI (timed program changes and tempo) over USB or Bluetooth, see [Performance](docs/PERFORMANCE.md).
 
 <br>
 
@@ -423,6 +559,9 @@ Still stuck? *Copy diagnostic report* gives a short summary without preset conte
 | **SnapTones** | Converts NAM A1 and A2 captures the way Valeton Suite does, in a Web Worker, then uploads them over USB |
 | **User IRs** | Prepared like Valeton Suite does it (first channel, 44.1 kHz, 24-bit), 512 or 1024 samples per model |
 | **Stems** | Demucs on your computer: Standard (`htdemucs_6s`), Fine-tuned (`htdemucs_ft`) or Best (both); WebGPU when the graphics card can run it |
+| **Song library** | Lossless FLAC, every save staged and flushed to disk before the library points at it; deleted songs go to the Trash |
+| **Performance** | Web Audio playback with gapless joins; MIDI cues scheduled in a worker on the audio clock, over USB or Bluetooth LE MIDI |
+| **Analysis** | Beat, key, chords and sections in Web Workers; lyrics with Whisper on your computer |
 | **Safety** | Backs up a slot automatically before it's overwritten |
 | **GP-200 effect list** | Generated from [GP200 Studio](https://github.com/kabir0st/gp200-studio)'s catalog at a pinned commit (`app/scripts/gp200-catalog-from-studio.mjs`); your own `algorithm.xml` replaces it |
 | **Diagnostics** | USB, driver and port checks per OS, and a rotating session log (4 MB files, newest 20 MB) in the app's data folder |
@@ -455,7 +594,7 @@ No pedal? Add `?mock` to the browser address for a simulated GP-5 loaded with a 
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `?mock` | `?mock=gp50` | `?mock=gp150` | `?mock=gp180` | `?mock=gp200` | `?mock=gp200lt` | `?mock=gp200jr` |
 
-The desktop app offers the same under *Device › Simulate*. All commands and the code layout are in [`app/README.md`](app/README.md); what changed in each version is in the [changelog](CHANGELOG.md).
+The desktop app offers the same under *Device › Simulate*. All commands and the code layout are in [`app/README.md`](app/README.md); the guides, architecture, contributing notes and roadmap are in [`docs/`](docs/README.md); what changed in each version is in the [changelog](CHANGELOG.md).
 
 <br>
 
@@ -471,7 +610,7 @@ The desktop app offers the same under *Device › Simulate*. All commands and th
 
 <br>
 
-VLTN Tone Studio is free software under the [GNU General Public License v3.0](LICENSE). You may use, study, change and share it; a version you distribute must stay under the same license, with its source. The GP-200 effect list comes from [GP200 Studio](https://github.com/kabir0st/gp200-studio) (GPL-3.0), the GP-150 protocol and effect list from [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Other open-source work it builds on is credited in `app/src/renderer/src/gp5/NOTICE.md`, `app/src/renderer/src/gp200/NOTICE.md` and `app/src/renderer/src/gp150/NOTICE.md`.
+VLTN Tone Studio is free software under the [GNU General Public License v3.0](LICENSE). You may use, study, change and share it; a version you distribute must stay under the same license, with its source. The GP-200 effect list comes from [GP200 Studio](https://github.com/kabir0st/gp200-studio) (GPL-3.0), the GP-150 protocol and effect list from [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Tuning a song down or up in the Song screen uses the [Rubber Band Library](https://breakfastquay.com/rubberband/) by Breakfast Quay (GPL v2 or later; the app ships its WebAssembly build, [rubberband-wasm](https://github.com/Daninet/rubberband-wasm)). Other open-source work it builds on is credited in `app/src/renderer/src/gp5/NOTICE.md`, `app/src/renderer/src/gp200/NOTICE.md`, `app/src/renderer/src/gp150/NOTICE.md` and `app/src/renderer/src/song/audio/NOTICE.md` (which includes pdf.js, for PDF charts).
 
 <br>
 

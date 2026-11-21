@@ -20,7 +20,7 @@ import { Section } from "./parts";
 const METER_FLOOR_DB = -60;
 const PLOT_POINTS = Array.from({ length: 6 * 9 + 1 }, (_, i) => 40 * 2 ** (i / 6)); // 40 Hz–20 kHz, 1/6 octave
 
-function Meter({ level }: { level: Level | null }) {
+export function Meter({ level }: { level: Level | null }) {
   const pct = (db: number) => Math.max(0, Math.min(100, ((db - METER_FLOOR_DB) / -METER_FLOOR_DB) * 100));
   const rms = level ? pct(level.rmsDb) : 0;
   const peak = level ? pct(level.peakDb) : 0;

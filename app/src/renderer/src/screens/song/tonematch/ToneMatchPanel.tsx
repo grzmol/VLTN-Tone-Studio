@@ -12,6 +12,7 @@ import { DEFAULT_MODEL_ID, findModel } from "@shared/host/song";
 import { AnalysisCard } from "./AnalysisCard";
 import { IrMatchCard } from "./IrMatchCard";
 import { PANEL } from "./parts";
+import { PedalRefineCard } from "./PedalRefineCard";
 import { ProposalCard } from "./ProposalCard";
 import { SnapToneMatchCard } from "./SnapToneMatchCard";
 
@@ -119,6 +120,7 @@ export function ToneMatchPanel() {
       <div className="mx-auto flex max-w-[860px] flex-col gap-3.5 pb-6">
         <Limits />
         <ProposalCard proposal={proposal} />
+        <PedalRefineCard />
         <AnalysisCard analysis={analysis} />
         <IrMatchCard />
         <SnapToneMatchCard analysis={analysis} />

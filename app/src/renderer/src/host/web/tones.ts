@@ -8,7 +8,7 @@ const desktopOnly = (what: string) => async (): Promise<never> => {
 };
 
 export const webTones: TonesApi = {
-  account: async () => ({ status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true }),
+  account: async () => ({ status: "signed-out", user: null, configured: false, appKey: null, splashSeen: true, insecureStorage: false }),
   markSplashSeen: async () => {},
   beginFlow: desktopOnly("Signing in to TONE3000"),
   setFlowBounds: async () => {},
@@ -25,6 +25,7 @@ export const webTones: TonesApi = {
   prepareSnapTone: desktopOnly("Downloading from TONE3000"),
   readLocalIr: desktopOnly("Opening files by path"),
   readLocalNam: desktopOnly("Opening files by path"),
+  chooseLocalFile: desktopOnly("Opening files by path"),
   readIr: desktopOnly("Reading downloaded impulse responses"),
   readNam: desktopOnly("Reading downloaded captures"),
   link: desktopOnly("Linking slots to TONE3000 tones"),
