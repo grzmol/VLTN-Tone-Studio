@@ -12,7 +12,7 @@ import { CRASH, DRUM_DURATION, KICK, type NoteEvent } from "./note";
 import { createRandom, type Random } from "./random";
 import { findStyle, type Style } from "./styles";
 import { playsAt, type DrumHit, type Energy } from "./styles/types";
-import { barBeats, barSpans, clampVelocity, fitStepsToBar, planIndexAt, stepAt } from "./timing";
+import { barBeats, barSpans, clampVelocity, fitStepsToBar, patternBeats, planOfBar, stepAt, stepsPerGridBeat } from "./timing";
 
 export { playsAt, BUSY_FROM, LEAN_FROM } from "./styles/types";
 
@@ -63,9 +63,9 @@ function pickSegment(plan: number, energy: Energy, style: Style, accent: AccentP
 /**
  * A crash and a kick on each hit beat of the bar that the bar does not already have there. The hit after a stop is then a clear restart.
  */
-function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number, steps: number): DrumHit[] {
+function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number, stepsPerBeat: number): DrumHit[] {
   const extra: DrumHit[] = [];
-  for (const step of hitSteps(feel, start, perBar, steps)) {
+  for (const step of hitSteps(feel, start, perBar, stepsPerBeat)) {
     if (!hits.some((hit) => hit.step === step && hit.pitch === CRASH)) extra.push({ step, pitch: CRASH, velocity: CRASH_VELOCITY });
     if (!hits.some((hit) => hit.step === step && hit.pitch === KICK)) extra.push({ step, pitch: KICK, velocity: HIT_KICK_VELOCITY });
   }
@@ -73,7 +73,7 @@ function hitBeatHits(hits: DrumHit[], feel: Feel, start: number, perBar: number,
 }
 
 /**
- * Drum notes for the whole song, sorted by time. A bar belongs to the plan covering its first beat. Bars of a plan with drums off, and
+ * Drum notes for the whole song, sorted by time. A bar belongs to the plan covering its middle. Bars of a plan with drums off, and
  * the pickup, are silent. The last bar of the song ends on a crash and a kick on its downbeat, and nothing follows.
  *
  * With `feel` (follow my playing), the variation follows the accents, strong off-beat accents get pushes, the beats of a stop are silent,
@@ -88,7 +88,7 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
   const perBar = barBeats(grid);
   const spans = barSpans(grid);
   const starts = spans.map((span) => span.start);
-  const planOf = starts.map((beat) => planIndexAt(plans, beats[beat]));
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   const emit = (time: number, pitch: number, velocity: number) => notes.push({ time, pitch, velocity: clampVelocity(velocity), duration: DRUM_DURATION });
   const quiet = (beat: number): boolean => feel?.stops.has(beat) === true;
 
@@ -148,16 +148,17 @@ export function generateDrums(grid: BeatGrid, plans: readonly SectionPlan[], set
     if ((sectionCrash || crashAfterFill) && !hits.some((hit) => hit.step === 0 && hit.pitch === CRASH)) {
       hits = [...hits, { step: 0, pitch: CRASH, velocity: CRASH_VELOCITY }];
     }
-    if (feel) hits = hitBeatHits(hits, feel, start, perBar, groove.steps);
-    // A bar that is shorter or longer than the rest (the bar lines move there) plays the part of the pattern that fits it.
-    hits = fitStepsToBar(hits, groove.steps, perBar, spans[k].beats);
+    if (feel) hits = hitBeatHits(hits, feel, start, perBar, stepsPerGridBeat(style, perBar));
+    // A bar that is shorter or longer than the style's bar (a 3/4 song with a 4/4 style, or where the bar lines move) plays the part of
+    // the pattern that fits it.
+    hits = fitStepsToBar(hits, groove.steps, patternBeats(style, perBar), spans[k].beats);
     afterFill = filled;
 
     for (const hit of hits) {
       if (hit.ghost && !settings.ghostNotes) continue;
       if (!playsAt(hit, settings.complexity)) continue;
 
-      const at = stepAt(beats, style, start, hit.step, groove.steps, perBar, settings.swing);
+      const at = stepAt(beats, style, start, hit.step, perBar, settings.swing);
       if (at.beat >= beats.length || quiet(at.beat)) continue;
       let velocity = hit.velocity * LOUD_DRUM_SCALE[plan.loud];
       if (hit.ghost) velocity = Math.min(velocity, GHOST_CEILING);

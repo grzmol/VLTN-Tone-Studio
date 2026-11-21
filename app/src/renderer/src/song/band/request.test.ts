@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Cue } from "../performance/chart";
 import type { Section } from "../performance/sections";
 import type { PcmAudio } from "../types";
-import { DEFAULT_BAND_SETTINGS } from "./arrangement";
+import { DEFAULT_BAND_SETTINGS, planSections } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandHarmony, bandRequest, beatSources, gridThroughSections, levelStems, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandRequest, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -173,5 +173,34 @@ describe("gridThroughSections", () => {
     });
     expect(request.grid.beats).toHaveLength(24);
     expect(request.harmony).toHaveLength(24);
+  });
+});
+
+describe("plansForMeter", () => {
+  const sections: Section[] = [
+    { id: "a", name: "Verse", start: 0, end: 6, mode: "continue" },
+    { id: "b", name: "Chorus", start: 6, end: 12, mode: "continue" },
+  ];
+  const settings = { ...DEFAULT_BAND_SETTINGS, sections: { b: { style: "funk" as const } } };
+
+  it("gives a 3/4 song's sections the 3/4 style unless the section chose its own", () => {
+    const plans = plansForMeter(fixedBeatGrid(120, 0, 3, 24), planSections(sections, 12, settings), settings);
+    expect(plans.map((plan) => plan.style)).toEqual(["three-four", "funk"]);
+    const request = bandRequest({
+      grid: fixedBeatGrid(120, 0, 3, 24),
+      cues: [],
+      chords: [],
+      sections,
+      settings,
+      songEnd: 12,
+      lengthFrames: 44100,
+      sampleUrls: {},
+    });
+    expect(playsThreeFourDefault(request)).toBe(true);
+  });
+
+  it("leaves a 4/4 song's plans alone", () => {
+    const plans = plansForMeter(fixedBeatGrid(120, 0, 4, 24), planSections(sections, 12, settings), settings);
+    expect(plans.map((plan) => plan.style)).toEqual(["rock", "funk"]);
   });
 });
