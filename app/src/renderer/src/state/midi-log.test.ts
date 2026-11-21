@@ -91,6 +91,12 @@ describe("MidiLogDecoder on the GP-200", () => {
   /** A pedal message as the GP-200 session logs it: the last frame, with what it decoded. */
   const rx = (d: MidiLogDecoder, msg: Msg) => d.line("rx", gp200.encodeFrames(msg, gp200.CHUNK.DEVICE).at(-1)!, gp200.decodeMessage(msg))!.text;
 
+  it("names every chunk of a multi-frame pedal reply, not only the last (#136)", () => {
+    const frames = gp200.encodeFrames({ cmd: 0x12, payload: new Uint8Array(846) }, gp200.CHUNK.DEVICE);
+    const d = new MidiLogDecoder();
+    expect(frames.map((f) => d.line("rx", f)!.text)).toEqual([1, 2, 3, 4, 5].map((n) => `Pedal: frame ${n} of 5`));
+  });
+
   it("decodes outgoing selects, reads, edits and settings, naming the param when known", () => {
     const d = new MidiLogDecoder((block, index) => (block === 3 && index === 0 ? "Gain" : undefined), () => "gp200");
     const { encode: e, PATCH_SETTING, GLOBALS } = gp200;
