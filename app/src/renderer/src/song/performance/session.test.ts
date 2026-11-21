@@ -1,5 +1,5 @@
-import { registerBandRefresh } from "@/song/band/refresh";
 import { clearSettingsCache } from "./settings";
+import { registerBandRefresh } from "@/song/band/refresh";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StemPlayer } from "@/song/stems/player";
 import type { Stems } from "@/song/types";
