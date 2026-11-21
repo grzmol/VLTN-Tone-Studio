@@ -32,7 +32,14 @@ const mocks = vi.hoisted(() => ({
   swaps: [] as unknown[],
   applied: [] as unknown[],
   configs: [] as {
-    prepared?: { position: number; messages: number[][] }; rate?: number; clock?: boolean; tempo: number[][] | null; playTriggers?: number[][]; timecode?: { fps: number; offset: number } }[],
+    prepared?: { position: number; messages: number[][] };
+    bpm?: number;
+    rate?: number;
+    clock?: boolean;
+    tempo: number[][] | null;
+    playTriggers?: number[][];
+    timecode?: { fps: number; offset: number };
+  }[],
   swapAt: 2.5,
   swapWhen: 2.6,
   faults: [] as ((message: string) => void)[],
@@ -344,6 +351,59 @@ it("starts immediately even when a background band update has not finished", asy
   }
 });
 
+it("separates RC-10R cue releases and preserves them across pause cleanup", () => {
+  const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+  const cues = parseChart("[00:01] {nochase} {midi:cc 2 80 127} {midi:cc 2 80 0}").map((cue) => ({ ...cue, managed: "rhythm" as const }));
+  const { session, out, unload } = armedSession(output(), { cues });
+  const now = performance.now();
+  session.sendPerformance([0xb1, 80, 127], now);
+  session.sendPerformance([0xb1, 80, 0], now);
+  expect(out.send.mock.calls.slice(-2)).toEqual([
+    [[0xb1, 80, 127], now],
+    [[0xb1, 80, 0], now + 100],
+  ]);
+  out.send.mockClear();
+  session.panic();
+  expect(out.clear).toHaveBeenCalled();
+  expect(out.send).toHaveBeenCalledWith([0xb1, 80, 0], now + 100);
+  unload();
+  session.dispose();
+  clock.mockRestore();
+});
+
+it("holds an automatic RC-10R stop trigger through the transport's pause cleanup", async () => {
+  const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+  const cues = parseChart("{midi@stop:cc 2 83 127}\n{midi@stop:cc 2 83 0}").map((cue) => ({ ...cue, managed: "rhythm" as const }));
+  const { session, out, unload } = armedSession(output(), { cues });
+  try {
+    await session.play();
+    out.send.mockClear();
+    session.pause();
+    const stop = out.send.mock.calls.filter(([bytes]) => bytes[0] === 0xb1 && bytes[1] === 83);
+    expect(stop).toEqual([
+      [[0xb1, 83, 127], undefined],
+      [[0xb1, 83, 0], 1100],
+    ]);
+  } finally {
+    unload();
+    session.dispose();
+    clock.mockRestore();
+  }
+});
+
+it("does not delay unrelated pedal controls or unassigned CCs", () => {
+  const { session, out, unload } = armedSession();
+  const now = performance.now();
+  session.sendPerformance([0xb0, 102, 127], now);
+  session.sendPerformance([0xb0, 102, 0], now);
+  expect(out.send.mock.calls.slice(-2)).toEqual([
+    [[0xb0, 102, 127], now],
+    [[0xb0, 102, 0], now],
+  ]);
+  unload();
+  session.dispose();
+});
+
 it("restores arming handed over by the previous song only for the same output object", () => {
   const { session, out } = armedSession();
   expect(selectArmed(session.state)).toBe(true);
@@ -356,7 +416,6 @@ it("restores arming handed over by the previous song only for the same output ob
   expect(selectArmed(replaced.state)).toBe(false);
   expect(out.send).not.toHaveBeenCalled();
 });
-
 it("releases only the channels that played notes and sends Stop once when paused with clock on", async () => {
   const { session, out } = armedSession();
   session.setClock(true);
@@ -2157,6 +2216,81 @@ describe("Send cues stays on", () => {
     session.bind();
     await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
+  });
+});
+
+describe("managed RC-10R preparation", () => {
+  beforeEach(() => clearSettingsCache());
+  const managed = (chart: string) => parseChart(chart).map((cue) => ({ ...cue, managed: "rhythm" as const }));
+  const chart = "{midi@load:pc 2 0}\n[00:00] {nochase} {midi:cc 2 80 127} {midi:cc 2 80 0}\n{midi@stop:cc 2 83 127} {midi@stop:cc 2 83 0}";
+  it("recalls an edited memory while armed and prepares it again before Play", async () => {
+    const { session, out, unload } = armedSession(output(), { cues: managed(chart) });
+    try {
+      out.send.mockClear();
+      session.update({ cues: managed(chart.replace("pc 2 0", "pc 2 5")) });
+      expect(out.send.mock.calls.some(([bytes]) => bytes[0] === 0xc1 && bytes[1] === 5)).toBe(true);
+      out.send.mockClear();
+      await session.play();
+      expect(out.send.mock.calls.some(([bytes]) => bytes[0] === 0xc1 && bytes[1] === 5)).toBe(true);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("sends the resolved quarter-note tempo independently of the song's dotted-quarter pulse", async () => {
+    const { session, unload } = armedSession(output(), { bpm: 90, rhythmTempo: 135, tempoOnStart: true, tempoChannel: 16, cues: managed(chart) });
+    try {
+      await session.play();
+      expect(mocks.configs.at(-1)?.tempo).toEqual([
+        [0xbf, 73, 1],
+        [0xbf, 74, 7],
+      ]);
+      expect(mocks.configs.at(-1)?.bpm).toBe(135);
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("requires a restart after pausing mid-song and keeps the output armed for that restart", async () => {
+    const { session, unload } = armedSession(output(), { cues: managed(chart) });
+    try {
+      await session.play();
+      mocks.position = 10;
+      session.pause();
+      await session.play();
+      expect(session.state.playing).toBe(false);
+      expect(session.state.rhythmRestart).toBe(true);
+      expect(session.armed).toBe(true);
+      expect(session.state.error).toContain("Play from beginning");
+      await session.playFromBeginning();
+      expect(session.state.playing).toBe(true);
+      expect(session.state.rhythmRestart).toBe(false);
+      expect(session.state.error).toBe("");
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+  it("refuses live section loops, jumps and speed changes with pedal rhythm armed", async () => {
+    const { session, unload } = armedSession(output(), { cues: managed(chart), sections: [{ id: "v", name: "Verse", start: 0, end: 20, mode: "continue" }] });
+    try {
+      await session.play();
+      session.toggleSectionLoop("v");
+      session.tapSection("v");
+      session.jumpSectionNow("v");
+      session.setSpeed({ rate: 0.8 });
+      expect(session.state.sectionLive.loop).toBeNull();
+      expect(session.state.sectionLive.jump).toBeNull();
+      expect(session.state.speed.rate).toBe(1);
+      expect(session.state.error).toContain("Pause and restart");
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
   });
 });
 

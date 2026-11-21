@@ -20,6 +20,8 @@ import { orderedKeys } from "../tracks";
 import { describeBinding, type Binding } from "./bindings";
 import { readTempoSource } from "./tempo-source";
 import { bindingClaiming, triggerClashes, type SongEntry } from "./song-triggers";
+import { currentRhythmAutomation } from "./rhythm-automation";
+import type { RhythmControls } from "./rhythm-automation";
 
 /** The part of a song that plays, when its stored options trim it. Null for a song that plays whole. */
 function trimRange(duration: number, options: object): { start: number; end: number } | undefined {
@@ -34,6 +36,7 @@ export interface PlaylistCheck {
   title: string;
   errors: string[];
   warnings: string[];
+  /** Optional section navigation and intentional trim advice, separate from performance warnings. */
   advice: string[];
   /** Information only, shown without the warning label */
   notes: string[];
@@ -55,6 +58,7 @@ export function playlistPreflight(
     /** Every saved song with its MIDI trigger, so a trigger shared with another song, or answered by a binding, is named. */
     songs?: readonly SongEntry[];
     bindings?: readonly Binding[];
+    rhythmControls?: Partial<RhythmControls>;
     preparationDefaults?: PreparationSettings;
     leadInDefaults?: LeadIn;
   },
@@ -65,7 +69,8 @@ export function playlistPreflight(
       song = saved?.song;
     const errors = [...(saved?.errors ?? ["Song was not checked."])],
       warnings: string[] = [],
-      notes: string[] = [], advice: string[] = [];
+      notes: string[] = [],
+      advice: string[] = [];
     let preparation: PreparationSequence | undefined;
     if (song) {
       if (config.tempoOnStart && !config.outputName)
@@ -96,7 +101,13 @@ export function playlistPreflight(
       if (!Number.isFinite(bpm) || bpm < 30 || bpm > 300) errors.push("Saved BPM must be between 30 and 300.");
       // The pedal is sent the tempo the song plays at, so the tempo range applies to the BPM times the saved speed.
       const speed = clampSpeed(options as Record<string, unknown>);
-      const played = effectiveBpm(bpm, speed.rate);
+      let rhythmBpm: number | null = null;
+      try {
+        rhythmBpm = currentRhythmAutomation({ key: id, title: song.title, duration: song.duration, settings: song.settings })?.draft.bpm ?? null;
+      } catch {
+        /* Song-cue validation reports malformed plans below. */
+      }
+      const played = effectiveBpm(rhythmBpm ?? bpm, speed.rate);
       if (Number.isFinite(played) && config.tempoOnStart && (played < 40 || played > 300))
         errors.push(`At ${Math.round(speed.rate * 100)}% this song plays at ${Math.round(played)} BPM; automatic pedal tempo requires 40–300 BPM.`);
       const changed = speed.rate !== 1 || speed.semitones !== 0 || speed.cents !== 0;
@@ -129,20 +140,30 @@ export function playlistPreflight(
         const bound = bindingClaiming(trigger, config.bindings ?? []);
         if (bound) warnings.push(`A remote action answers its MIDI trigger (${describeBinding(bound)}), so the song does not load from it.`);
       }
-      const cued = songCues(song.settings[""] || "", config.macros ?? [], midiFileFromOptions(options));
+      const cued = songCues(song.settings[""] || "", config.macros ?? [], midiFileFromOptions(options), {
+        duration,
+        settings: song.settings,
+        rhythmControls: config.rhythmControls,
+      });
       if (cued.error) errors.push(`${cued.part === "midi-file" ? "MIDI file" : "Chart"} cannot play: ${cued.error}`);
       else {
+        const settings = savedPreparation(song.settings, config.preparationDefaults ?? PREPARATION_DEFAULTS);
         const start = trimRange(duration, options)?.start ?? 0;
-        const lead = resolveLeadIn({ countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) }, LEAD_IN_DEFAULTS);
+        const lead = resolveLeadIn(
+          { countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) },
+          config.leadInDefaults ?? LEAD_IN_DEFAULTS,
+        );
+        const playbackStart = preRollStart(start, lead.preRollBeats, bpm);
         const report = midiPreflight(cued.cues, {
           duration,
-          playbackStart: preRollStart(start, lead.preRollBeats, bpm),
           clock: options.clock === true,
           tempoChannel: config.tempoOnStart ? config.tempoChannel : undefined,
           outputName: config.outputName,
           pedals: config.pedals,
           sections: parseSections(options.sections),
           range: trimRange(duration, options),
+          preparation: settings,
+          playbackStart,
           bpm,
           beats: typeof options.beats === "number" ? options.beats : 4,
           firstBeat: typeof options.firstBeat === "number" ? options.firstBeat : 0,
@@ -150,18 +171,12 @@ export function playlistPreflight(
         warnings.push(...report.warnings.map((i) => i.text));
         advice.push(...report.advice.map((i) => i.text));
         try {
-          const settings = savedPreparation(song.settings, config.preparationDefaults ?? PREPARATION_DEFAULTS);
-          const start = trimRange(duration, options)?.start ?? 0;
-          const lead = resolveLeadIn(
-            { countInBars: "", startDelay: "", preRollBeats: ownLeadIn("preRollBeats", options.preRollBeats) },
-            config.leadInDefaults ?? LEAD_IN_DEFAULTS,
-          );
           // An invalid tempo already has its own actionable error above. Do not encode it as MIDI.
           const tempo =
             config.tempoOnStart && Number.isFinite(played) && played >= 40 && played <= 300 ? pedalTempoMessages(played, config.tempoChannel) : null;
           const plan = preparationSequence({
             cues: expandSectionCues(cued.cues, parseSections(options.sections)),
-            position: preRollStart(start, lead.preRollBeats, bpm),
+            position: playbackStart,
             requestedPosition: start,
             start,
             settings,

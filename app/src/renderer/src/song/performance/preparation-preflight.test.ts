@@ -4,7 +4,7 @@ import { PreparationHistory } from "./preparation-repeat";
 import { preparationSequence } from "./preparation-sequence";
 import { preparationPreflight } from "./preparation-preflight";
 import { pedalTempoMessages } from "./pedal-tempo";
-const pedals = [{ name: "Test pedal", channel: 2, triggers: [[2, 80] as [number, number]] }];
+const pedals = [{ name: "BOSS RC-10R", channel: 2, triggers: [[2, 80] as [number, number]] }];
 const plan = (chart: string, history = new PreparationHistory()) =>
   preparationSequence({
     cues: parseChart(chart),
