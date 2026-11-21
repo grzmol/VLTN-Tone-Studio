@@ -3,11 +3,14 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useBluetooth } from "@/bluetooth/connection";
 import { MidiHealth } from "./MidiHealth";
 import { parseChart } from "@/song/performance/chart";
+import { useDevice } from "@/state/device";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   useMidiDiagnostics.getState().reset();
+  localStorage.clear();
+  useDevice.setState({ device: null, status: "idle", names: [] });
 });
 it("refreshes the counters at most every 500 ms however often they change", () => {
   vi.useFakeTimers();
@@ -66,4 +69,18 @@ it("counts arrangement advice separately and leaves it collapsed below real MIDI
   expect(advice instanceof HTMLDetailsElement && !advice.open).toBe(true);
   expect(advice.textContent).toContain("If you loop or jump there");
   expect(screen.getByText(/beyond the 10.00 s audio/)).toBeTruthy();
+});
+
+it("warns when a cue recalls a GP-180 preset that now holds a different sound", () => {
+  const cues = parseChart("[00:02] {label:GP-180: 002 Crunch Lead} {midi:cc 1 0 0} {midi:pc 1 1}");
+  useDevice.setState({
+    device: "gp180",
+    status: "connected",
+    names: [
+      { slot: 0, name: "Clean" },
+      { slot: 1, name: "Clean Verb" },
+    ],
+  });
+  render(<MidiHealth cues={cues} duration={10} clock={false} parseError="" />);
+  expect(screen.getByText(/recalls GP-180 preset 002, saved as "Crunch Lead". That slot now holds "Clean Verb"/)).toBeTruthy();
 });

@@ -1,3 +1,4 @@
+import { knownPresetNames } from "./use-preset-names";
 import { PreparationSequenceDetails, preparationSeconds } from "./PreparationSequenceDetails";
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { readLeadInDefaults } from "@/song/performance/lead-in";
@@ -76,6 +77,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
           songs: songEntries(songs),
           bindings: config.bindings,
           pedals: configuredPedals(pedals),
+          presetNames: knownPresetNames(),
         }),
       );
     } catch (e) {
