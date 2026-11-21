@@ -80,7 +80,7 @@ Registry and `DeviceKey` union; replace every `gp5`/`gp50` binary branch and sil
 Library with 256 (JR 255) slots and bank labels `01-A`…`64-D`; Rig with 11 blocks (WAH, VOL, FX-loop send/return nodes, all movable); EXP1 A/B + EXP2 (9 slots), 8 CTRL masks, 3 Quick-Access knobs; globals incl. global EQ; User IR (20 × 1024 samples) and SnapTone (5 AMP + 5 DST) from TONE3000 and local files, reusing the SnapTone converter with the 1024-tap cap; Tone Match model mapping for the GP-200 catalog (or hidden until mapped); LT/JR differences from the profile (footswitches, MIDI labels, slot count). Updater-mode detection (SOFTWARE_STATE 0, PID `002B`) shows "update with Valeton's tool" and sends nothing.
 
 ### Phase 7 — Hardware verification and release gates
-Run the hardware checklists for the GP-50 and the GP-200 (read-only first, writes on scratch slots, everything logged as fixtures). A feature leaves "experimental" only after its round trip passes on hardware on the current firmware; CHANGELOG and README support table updated per release. Firmware gating: GP-50 1.0.5 vs 1.1.0, GP-200 by the 0x1007 version.
+Run the hardware checklists for the GP-50 and the GP-200 (read-only first, writes on scratch slots, everything logged as fixtures). A feature leaves "experimental" only after its round trip passes on hardware on the current firmware; CHANGELOG and the support matrix in `docs/DEVICES.md` updated per release. Firmware gating: GP-50 1.0.5 vs 1.1.0, GP-200 by the 0x1007 version.
 
 ## 4. Simulators
 Goal: the whole app, tests and demos run without a pedal, and the simulators fail the same way the pedals do.
