@@ -1,4 +1,5 @@
 import { pcmMemoryShape } from "@/song/audio/playback-pcm";
+import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { partSplitNote, selectWholeSongStems, useSong } from "@/song/store";
@@ -52,6 +53,7 @@ import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, re
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
+import { preparationSettings, usePreparationDefaults } from "@/song/performance/start-preparation";
 import { effectiveMute, noTrackNote, practiceSet, readCountsAs, usePracticeMute, type CountsAs, type PracticeTracks } from "@/song/performance/practice-mute";
 import { PracticeMuteBanner, PracticeMuteMenu } from "./PracticeMute";
 import { StageView } from "./StageView";
@@ -132,6 +134,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     formatTime,
   );
   const key = performanceKey(source);
+  const settingsVersion = useSongSettingsRevision(key);
   const library = useSongLibrary();
   const queued = !!source?.libraryId && library.queue[library.position] === source.libraryId;
   const options = useMemo(
@@ -249,6 +252,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const bass = useMemo(() => bassOf(stems), [stems]);
   // The song's MIDI file is saved with its options, so it is read back here when the song is shown.
   const [midiFile, setMidiFile] = useState<MidiFileOption | null>(() => midiFileFromOptions(options));
+  useSongSettingsRevision(key);
+  const cueOptions = readOptions<Record<string, unknown>>(key, {});
+  const preparationDefaults = usePreparationDefaults((s) => s.settings);
+  const beforeSong = useMemo(() => preparationSettings(cueOptions.preparation, preparationDefaults), [JSON.stringify(cueOptions.preparation), preparationDefaults]);
   const parsed = useMemo(() => {
     const cued = songCues(chart, midiConfig.macros, midiFile);
     return { cues: cued.cues, error: cued.error };
@@ -294,6 +301,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           cues: parsed.cues,
           parseError: parsed.error,
           bpm,
+          preparationSettings: beforeSong,
           sections: sectionList,
           bindings: midiConfig.bindings,
           timecode,
@@ -388,6 +396,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       cues: parsed.cues,
       parseError: parsed.error,
       bpm,
+      preparationSettings: beforeSong,
       timing,
       sections: sectionList,
       bindings: midiConfig.bindings,
@@ -492,6 +501,26 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setLoudness(loudnessFromOptions(getSetting(key, ":options")));
     setSilence(saved?.silence ? { songKey: key, ends: saved.silence } : null);
   }, [analysis.revision, key]);
+  const observedSettings = useRef({
+    key,
+    bpm: getSetting(key, ":bpm"),
+    sections: JSON.stringify(readOptions(key, { sections: [] }).sections),
+    firstBeat: readOptions(key, { firstBeat: 0 }).firstBeat,
+    beats: readOptions(key, { beats: 4 }).beats,
+  });
+  useEffect(() => {
+    const saved = readOptions(key, { sections: [], firstBeat: 0, beats: 4 });
+    const next = { key, bpm: getSetting(key, ":bpm"), sections: JSON.stringify(saved.sections), firstBeat: saved.firstBeat, beats: saved.beats };
+    const previous = observedSettings.current;
+    observedSettings.current = next;
+    if (previous.key !== key) return;
+    // Read only fields that actually changed in storage, so unrelated saves cannot overwrite an in-progress local edit.
+    if (previous.bpm !== next.bpm) setBpm(readNumber(next.bpm, 120, 30, 300));
+    if (previous.firstBeat !== next.firstBeat) setFirstBeat(next.firstBeat);
+    if (previous.beats !== next.beats) setBeats(next.beats);
+    if (previous.sections !== next.sections)
+      setSectionList((current) => (JSON.stringify(current) === JSON.stringify(parseSections(saved.sections)) ? current : parseSections(saved.sections)));
+  }, [key, settingsVersion]);
   const detectTempo = (analyseAgain: boolean) => {
     if (analyseAgain) analysis.analyseAgain();
     else analysis.detect();
@@ -585,9 +614,16 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     player?.setMetronome({ mode: metronome, bpm, beats, volume, firstBeat, sound: sounds.sound, countInSound: sounds.countInSound });
   }, [player, metronome, bpm, beats, volume, firstBeat, sounds]);
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
+  const playedShapeSignature = JSON.stringify(playerShapeFromOptions(getSetting(key, ":options")));
   useEffect(() => {
+    const start = player?.start,
+      end = player?.duration;
     player?.setShape(playerShapeFromOptions(getSetting(key, ":options")));
-  }, [player, key, shapeVersion]);
+    if (start !== player?.start || end !== player?.duration) {
+      session.cancelStart();
+      session.invalidatePreparation();
+    }
+  }, [player, key, shapeVersion, playedShapeSignature]);
   useEffect(() => {
     try {
       localStorage.setItem("vltn.performance.metronome", String(metronome));
@@ -737,6 +773,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         <BandPanel
           songKey={key}
           playing={playing || library.playlistPlaying}
+          audioPlaying={playing}
           chart={chart}
           chords={chords}
           sections={sectionList}
@@ -788,6 +825,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         <SessionMidiHealth session={session} firstBeat={firstBeat} />
         <PerformanceMidiSetup
           session={session}
+          songKey={key}
           chart={chart}
           onSaveChart={saveChart}
           onShowChart={() => chooseView("lyrics")}

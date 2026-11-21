@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings } from "./arrangement";
+import { DEFAULT_BAND_SETTINGS, TONE_BLOCK_TYPE, planSections, type BandSettings } from "./arrangement";
 import { fixedBeatGrid, type BeatGrid } from "./beat-grid";
 import type { Section } from "../performance/sections";
 import { generateDrums } from "./drums";
@@ -28,7 +28,7 @@ const constant = (value: number, length: number): PcmAudio => ({
 /** Stub samples for every drum piece the styles use, and three bass roots. The audio is constant, so the tests look at timing and level. */
 function stubSamples(): SampleSet {
   const drums = new Map<number, DrumLayer[]>();
-  for (const pitch of DRUM_PITCHES) drums.set(pitch, [{ velocity: [1, 127], nominal: 100, transpose: 0, audio: constant(0.1, RATE / 4) }]);
+  for (const pitch of DRUM_PITCHES) drums.set(pitch, [{ velocity: [1, 127], nominal: 100, transpose: 0, takes: [constant(0.1, RATE / 4)] }]);
   const bass: BassSample[] = [36, 48, 60].map((root) => ({ root, layer: "p", velocity: [1, 127], audio: constant(0.1, RATE) }));
   return { drums, bass };
 }
@@ -86,6 +86,50 @@ describe("runBandJob", () => {
     const stages: string[] = [];
     runBandJob(request(), stubSamples(), (stage) => stages.push(stage));
     expect(stages).toEqual(["generating", "rendering"]);
+  });
+});
+
+describe("runBandJob: the built-in room", () => {
+  /** Drums that are one frame long, so everything between the hits is the room. */
+  function clickKit(): SampleSet {
+    const click = { sampleRate: RATE, channels: [new Float32Array(1).fill(0.5), new Float32Array(1).fill(0.5)] };
+    const drums = new Map<number, DrumLayer[]>();
+    for (const pitch of DRUM_PITCHES) drums.set(pitch, [{ velocity: [1, 127], nominal: 100, transpose: 0, takes: [click] }]);
+    const tail = new Float32Array(RATE / 2);
+    tail[0] = 1;
+    tail[Math.round(0.1 * RATE)] = 0.5;
+    return { drums, bass: [], room: { sampleRate: RATE, channels: [tail, tail] } };
+  }
+  const drumsOf = (settings: Partial<BandSettings>, samples = clickKit()): Float32Array =>
+    runBandJob(request({ settings: { ...DEFAULT_BAND_SETTINGS, ...settings }, parts: { drums: true, bass: false } }), samples).drums!.channels[0];
+  const quiet = (channel: Float32Array): number => channel.reduce((count, value) => count + (Math.abs(value) < 1e-9 ? 1 : 0), 0);
+
+  it("gives the same drums with the room at 0 as a kit that has no room", () => {
+    const { room, ...noRoom } = clickKit();
+    expect(room).toBeDefined();
+    expect(sameSamples(drumsOf({ drumRoom: 0 }), drumsOf({ drumRoom: 0.25 }, noRoom))).toBe(true);
+  });
+
+  it("adds sound after the dry hit has ended when the room is up", () => {
+    const dry = drumsOf({ drumRoom: 0 });
+    const wet = drumsOf({ drumRoom: 0.25 });
+    expect(quiet(dry)).toBeGreaterThan(SONG_SECONDS * RATE * 0.9);
+    // Dry, only the hits' own frames make sound; with the room, every hit is followed by its tail.
+    expect(wet.length - quiet(wet)).toBeGreaterThan((dry.length - quiet(dry)) * 5);
+  });
+
+  it("gives a kit that wants more room more of it", () => {
+    const loud = { ...clickKit(), roomScale: 1.6 };
+    const energy = (channel: Float32Array): number => channel.reduce((sum, value) => sum + value * value, 0);
+    expect(energy(drumsOf({ drumRoom: 0.25 }, loud))).toBeGreaterThan(energy(drumsOf({ drumRoom: 0.25 })));
+    expect(sameSamples(drumsOf({ drumRoom: 0 }, loud), drumsOf({ drumRoom: 0 }))).toBe(true);
+  });
+
+  it("skips the room when the drum tone chain has a space block that is on", () => {
+    const space = { type: TONE_BLOCK_TYPE.space, role: "space" as const, file: null, inputDb: 0, outputDb: 0, mix: 0.3, on: true };
+    const withChain = (on: boolean): Partial<BandSettings> => ({ drumRoom: 0.5, drumTone: { kind: "chain", blocks: [{ ...space, on }], dryWet: 1, fast: false } });
+    expect(sameSamples(drumsOf(withChain(true)), drumsOf({ drumRoom: 0 }))).toBe(true);
+    expect(sameSamples(drumsOf(withChain(false)), drumsOf({ drumRoom: 0.5 }))).toBe(true);
   });
 });
 
@@ -189,6 +233,35 @@ describe("runBandJob humanising", () => {
     expect(pitches(humanised.notes.drums)).toEqual(pitches(flat.notes.drums));
     expect(pitches(humanised.notes.bass)).toEqual(pitches(flat.notes.bass));
     expect(humanised.notes.drums.map((note) => note.time)).not.toEqual(flat.notes.drums.map((note) => note.time));
+  });
+});
+
+describe("runBandJob bass techniques", () => {
+  it("keeps the slides and dead notes the bass generator makes when humanising is on", () => {
+    const settings: BandSettings = {
+      ...DEFAULT_BAND_SETTINGS,
+      humanise: { amount: 0.5, feel: "style" },
+      bassMode: "roots",
+      complexity: 1,
+      sections: {
+        funk: { style: "funk", bassPart: "ring", busy: 3, deadNotes: true, slides: false, fills: 0 },
+        ballad: { style: "ballad", bassPart: "pulse", busy: 2, loud: 1, deadNotes: false, slides: true, fills: 0 },
+      },
+    };
+    const sections: Section[] = [
+      { id: "funk", name: "Verse", start: 0, end: 16, mode: "continue" },
+      { id: "ballad", name: "Chorus", start: 16, end: 64, mode: "continue" },
+    ];
+    const seconds = 64;
+    const grid = steadyGrid(seconds);
+    const chord = parseChordName("C");
+    const harmony: ChordAtBeat[] = grid.beats.map((time, beat) => ({ beat, time, chord }));
+    const result = runBandJob(
+      request({ grid, harmony, settings, plans: planSections(sections, seconds, settings), lengthFrames: seconds * RATE, parts: { drums: false, bass: true } }),
+      stubSamples(),
+    );
+    expect(result.notes.bass.some((note) => note.dead)).toBe(true);
+    expect(result.notes.bass.some((note) => note.slideFrom !== undefined)).toBe(true);
   });
 });
 
