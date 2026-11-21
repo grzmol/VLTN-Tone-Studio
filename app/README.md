@@ -2,7 +2,7 @@
 
 A desktop editor and librarian for the Valeton GP-5, GP-50, the GP-200 family (GP-200, GP-200LT, GP-200JR), the GP-150 and the GP-180, built with Electron 43 (Chromium 150), React 19, TypeScript, Tailwind v4 and shadcn/ui (radix).
 
-The design source is `../design/` (DESIGN.md, the screen specs and the mockups). The pedal protocol code lives in `src/renderer/src/gp5/` (GP-5/GP-50), `src/renderer/src/gp200/` (GP-200 family) and `src/renderer/src/gp150/` (GP-150); those folders are the source of truth.
+The pedal protocol code lives in `src/renderer/src/gp5/` (GP-5/GP-50), `src/renderer/src/gp200/` (GP-200 family) and `src/renderer/src/gp150/` (GP-150); those folders are the source of truth.
 
 ## GP-5 and GP-50
 Both pedals use the same USB-MIDI SysEx protocol, so one `Gp5Session` drives either. The session learns the model from the length of the first active-preset read (0x41 body: 466 bytes GP-5, 511 bytes GP-50) and exposes it as `session.device`; the store keeps it in `useDevice().device` (remembered across launches) and every `PresetState` carries its own `device`.
@@ -36,7 +36,7 @@ Electron is pinned to 43.x because Chromium 152 (Electron 44) breaks WebMIDI Sys
 
 Bluetooth MIDI is available for Performance cues, MIDI clock and transport input. Bluetooth editor management is disabled: `useDevice.connect('bluetooth')` rejects before changing the active editor connection. Use USB to inspect or manage the pedal. GP-150 and GP-180 USB editor writes are enabled normally; this does not imply physical write validation.
 
-The Bluetooth store retains completed-write, notification and decoded-message counts for the last session after cleanup. Diagnostics includes these counts in copied and saved reports. See [Bluetooth and hardware results](../PERFORMANCE.md#bluetooth), [Performance](../PERFORMANCE.md) and [saved songs](../SONG-LIBRARY.md).
+The Bluetooth store retains completed-write, notification and decoded-message counts for the last session after cleanup. Diagnostics includes these counts in copied and saved reports. See [Bluetooth and hardware results](../docs/PERFORMANCE.md#bluetooth), [Performance](../docs/PERFORMANCE.md) and [saved songs](../docs/SONG-LIBRARY.md).
 
 ## Song performance
 
@@ -44,7 +44,7 @@ Performance combines synchronized stem playback, a song-following metronome, a l
 
 The desktop library copies source/stem PCM and stores charts, lyrics and options under unique song IDs. Portable `.tar.gz` backups stream through the main process with a versioned SHA-256 manifest; restore validates the archive and atomically adds new copies with remapped song/playlist IDs. Playlists advance sequentially; loads between songs are not gapless. MIDI port/configuration preferences are global, while cue arming stays session-only. Note-release resets are restricted to channels where this session sent note messages, since CC64 is a GP-180 looper command.
 
-See [the Performance guide](../PERFORMANCE.md) and [storage and playlist behaviour](../SONG-LIBRARY.md).
+See [the Performance guide](../docs/PERFORMANCE.md) and [storage and playlist behaviour](../docs/SONG-LIBRARY.md).
 
 ## Commands
 | Command | What it does |
@@ -67,7 +67,7 @@ See [the Performance guide](../PERFORMANCE.md) and [storage and playlist behavio
 
 ## Launch parameters (web build, demos, E2E)
 - `?mock=<device key>` connects that simulated model: `?mock` or `?mock=gp5` a GP-5 with the bundled 100-slot backup, `?mock=gp50` a GP-50 with a native bank (GP-50 fixtures as seeds plus generated presets, user slots 55–99 empty), and `gp200`, `gp200lt`, `gp200jr`, `gp150` or `gp180` that model with a generated bank. The Device screen offers "Simulate a …" for every model whose profile has `simulator: true`.
-- `?screen=rig|library|tones|device|capture|song` opens that screen. Add `&param=` to pass a value: `device` + `settings` opens Settings, `capture` takes a capture id, and `song` takes the tab (`stems` or `tone`, e.g. `?screen=song&param=tone` opens Tone match; without it Song reopens the tab used last).
+- `?screen=rig|library|setlist|tones|device|capture|song` opens that screen. Add `&param=` to pass a value: `device` + `settings` opens Settings, `capture` takes a capture id, and `song` takes the tab (`stems` or `tone`, e.g. `?screen=song&param=tone` opens Tone match; without it Song reopens the tab used last).
 
 ## Layout
 - `src/main/`: the window, menu, permissions (`midi`/`midiSysex`, audio-only `media`) and CSP. It also has the `app://bundle` protocol and one IPC module per domain in `ipc/`.
@@ -128,4 +128,4 @@ Tone Match (`song/tonematch/`, `screens/song/tonematch/`, every supported pedal)
 Tone Match also builds a SnapTone from the user's own captures (`song/tonematch/capture-*.ts`, `SnapToneMatchCard`). Candidates are the downloaded TONE3000 NAM models of amp, amp + cab and pedal tones (main `tones:readNam` reads them from `userData/tones/`; one per model name, A2 before A1), plus any the user picks with the Select flow, which downloads the best SnapTone-ready model. There is no search: the free API tier has none. A worker plays seconds 50–70 of Valeton's test signal through each one with the SnapTone renderer (`snaptone/pipeline.ts` `renderNam`, ×0.31 like the conversion). That segment is guitar DI and the part the clone's last IR is fit on. A capture without a cab then goes through a cab IR designed from the stem's LTAS against its render (`irdesign.ts`, no recording needed); one whose TONE3000 gear or NAM `gear_type` includes a cab is compared as it is. Ranking distance = |gain score − stem's| / 0.1 + LTAS residual (100 Hz–6.3 kHz, levelled at 200 Hz–4 kHz) / 6 dB, shown as 100·e^(−D/3). The chosen capture is converted with its IR inside on the GP-5 family (`convertToClone`). On the GP-200 family it is converted without the IR, which goes to a User IR slot for CAB. The clone becomes a Tones send draft at the Write step (`startSendDraft` `built`), so slot, name, write, read-back and link are the Tones flow. The IR can be saved as WAV or written to a User IR slot. Limits: the excitation's level and the stem's mix (compression, EQ, doubled parts) both move the gain score, and a capture is heard at one gain setting.
 
 ## TONE3000
-Sign-in needs a TONE3000 app key (client_id). Enter it in Settings › TONE3000 account (saved as `clientId` in `userData/tone3000.json`; changing it signs out), or set `MAIN_VITE_T3K_CLIENT_ID` at build time, or `T3K_CLIENT_ID` at runtime. The Settings key wins. See `../design/tone3000.md`. Tokens are encrypted with Electron `safeStorage`. When the OS keychain is unavailable, for example KWallet not initialised, they are kept in memory only.
+Sign-in needs a TONE3000 app key (client_id). Enter it in Settings › TONE3000 account (saved as `clientId` in `userData/tone3000.json`; changing it signs out), or set `MAIN_VITE_T3K_CLIENT_ID` at build time, or `T3K_CLIENT_ID` at runtime. The Settings key wins. Tokens are encrypted with Electron `safeStorage`. When the OS keychain is unavailable, for example KWallet not initialised, they are kept in memory only.

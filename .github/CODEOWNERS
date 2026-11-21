@@ -1,0 +1,4 @@
+# Pull requests that touch these paths ask the owner for review.
+*                @grzmol
+/.github/        @grzmol
+/app/src/main/   @grzmol
