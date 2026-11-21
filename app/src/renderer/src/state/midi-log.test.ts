@@ -115,6 +115,8 @@ describe("MidiLogDecoder on the GP-200", () => {
     const { rec, concat, CMD, STATUS } = gp200;
     expect(rx(d, { cmd: CMD.SET, payload: rec.system(0, 7) })).toBe("Pedal: Preset 02-D selected");
     expect(rx(d, { cmd: CMD.SET, payload: concat([rec.header(1, 5), generatePatch(5)]) })).toBe("Reply: slot 02-B");
+    const frames = gp200.encodeFrames({ cmd: CMD.SET, payload: concat([rec.header(1, 5), generatePatch(5)]) }, gp200.CHUNK.DEVICE);
+    expect(frames.slice(0, -1).map((f) => d.line("rx", f)!.text)).toEqual(frames.slice(0, -1).map((_, i) => `Pedal: frame ${i + 1} of ${frames.length}`));
     expect(rx(d, { cmd: CMD.SET, payload: rec.status(STATUS.DIRTY, 1) })).toBe("Pedal: Active preset edited");
     expect(d.line("warn", new Uint8Array(), { kind: "resend", what: "read slot 5", attempt: 1 })!.text).toBe("No reply to read slot 5: sending it again (try 2)");
     expect(d.line("warn", new Uint8Array(), { kind: "verify", slot: 5, attempt: 1, offset: 9 })!.text).toBe("Slot 02-B didn't read back the same after write 1");

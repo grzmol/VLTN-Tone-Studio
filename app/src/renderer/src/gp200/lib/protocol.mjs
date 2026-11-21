@@ -544,26 +544,21 @@ function dangerOfRecords(cmd, payload) {
 
 // ------------------------------------------------------------------------------------------- decoding
 
-/** Firmware version from the first 4 bytes of 0x1007: [patch, minor, major, 0]. */
-export const decodeFirmware = (d) => `${d[2]}.${d[1]}.${d[0]}`;
-export const encodeFirmware = (version) => {
-  const [major = 0, minor = 0, patch = 0] = String(version).split(".").map(Number);
-  return [patch, minor, major, 0];
-};
+export const GLOBALS_RECORD_TAG = Object.freeze([0x00, 0x06, 0x01, 0x00]);
 
 const readTyped = (d, off, type) => (type === "u8" ? d[off] : type === "i16" ? readI16(d, off) : readU16(d, off));
 
-/** 0x1007 payload -> { firmware, currentSlot, values: { [GLOBALS name]: number } }. */
+/** 0x1007 payload -> { currentSlot, values: { [GLOBALS name]: number } }. */
 export function decodeGlobals(d) {
   const values = {};
   for (const [name, g] of Object.entries(GLOBALS)) if (g.off !== null && g.off + (g.type === "u8" ? 1 : 2) <= d.length) values[name] = readTyped(d, g.off, g.type);
-  return { firmware: decodeFirmware(d), currentSlot: d.length >= 6 ? readU16(d, 4) : null, values };
+  return { currentSlot: d.length >= 6 ? readU16(d, 4) : null, values };
 }
 
 /** Inverse of decodeGlobals (simulator). */
-export function encodeGlobals({ firmware, currentSlot, values }) {
+export function encodeGlobals({ currentSlot, values }) {
   const d = new Uint8Array(GLOBALS_RECORD_SIZE);
-  d.set(encodeFirmware(firmware), 0);
+  d.set(GLOBALS_RECORD_TAG, 0);
   d.set(u16le(currentSlot), 4);
   for (const [name, g] of Object.entries(GLOBALS)) {
     const v = values[name];

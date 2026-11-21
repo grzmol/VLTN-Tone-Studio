@@ -2,6 +2,13 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Fixed
+- **SnapTone and User IR uploads on the GP-200JR** (#136, reported by [@ilygomzzz](https://github.com/ilygomzzz)). The JR dropped frames sent 10 ms apart, so every upload timed out after 8 s. The frames of a multi-frame message now go 50 ms apart on the GP-200JR and GP-200LT; the GP-200 keeps 10 ms, and single-frame requests stay as fast as before.
+- **No more made-up GP-200 firmware version** (#136). Tone Studio showed "1.6.0" on every GP-200 model. Those bytes of the settings record read the same on a GP-200 and a GP-200JR on firmware 1.8.0, so they aren't the firmware version, and the pedal doesn't report one. Tone Studio no longer shows a firmware version for the GP-200 family.
+- **The session log shows every frame the GP-200 sends** (#136). A reply split over several frames used to log only its last frame. Each earlier frame now shows as *Pedal: frame 1 of 5* and so on.
+
 ## [1.0.0] - 2026-11-20
 
 ### Added

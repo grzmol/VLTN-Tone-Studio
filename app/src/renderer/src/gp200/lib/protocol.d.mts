@@ -232,15 +232,13 @@ export const encode: {
 export function dangerOf(bytes: Bytes): string | null;
 export function dangerOfMessage(msg: Message): string | null;
 
-export function decodeFirmware(d: ArrayLike<number>): string;
-export function encodeFirmware(version: string): number[];
+export const GLOBALS_RECORD_TAG: readonly number[];
 export interface GlobalsState {
-  firmware: string;
   currentSlot: number | null;
   values: Partial<Record<GlobalName, number>>;
 }
 export function decodeGlobals(d: Uint8Array): GlobalsState;
-export function encodeGlobals(g: { firmware: string; currentSlot: number; values: Partial<Record<GlobalName, number>> }): Uint8Array;
+export function encodeGlobals(g: { currentSlot: number; values: Partial<Record<GlobalName, number>> }): Uint8Array;
 
 export interface HeaderRecord {
   kind: "header";

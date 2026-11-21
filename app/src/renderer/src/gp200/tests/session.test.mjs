@@ -47,9 +47,9 @@ const gaps = (sent) => sent.slice(1).map((x, i) => x.t - sent[i].t);
 const dataViolations = (dev) => dev.violations.filter((v) => v.kind !== "deaf");
 
 test("connect: 0x2001, 100 ms, SOFTWARE_STATE, pushed 0x1007", async () => {
-  const { dev, s, sent } = await setup({ firmware: "1.8.2" });
+  const { dev, s, sent } = await setup();
   const info = await s.connect();
-  assert.deepEqual({ device: info.device, deviceType: info.deviceType, name: info.name, firmware: info.firmware, currentSlot: info.currentSlot }, { device: "gp200", deviceType: 2, name: "GP-200", firmware: "1.8.2", currentSlot: 0 });
+  assert.deepEqual({ device: info.device, deviceType: info.deviceType, name: info.name, currentSlot: info.currentSlot }, { device: "gp200", deviceType: 2, name: "GP-200", currentSlot: 0 });
   assert.equal(info.globals.inputMode, 1);
   assert.equal(decodeFrame(sent[0].bytes).data[0], 0x01, "first frame: 0x2001 query");
   assert.equal(decodeFrame(sent[1].bytes).address, "softwareState");
@@ -70,14 +70,14 @@ const sentKinds = (sent) =>
 
 test("connects when the pedal never answers SOFTWARE_STATE (captured behaviour)", async () => {
   // USB captures of the editor and a GP-200 on firmware 1.8.0 (phash/gp200editor): 0x2001 is answered, SOFTWARE_STATE is not
-  const dev = new MockGp200({ deafMs: 20, firmware: "1.8.2" });
+  const dev = new MockGp200({ deafMs: 20 });
   const t = dev.transport();
   const received = [];
   const watched = { ...t, onMessage: (cb) => t.onMessage((bytes) => (received.push(decodeFrame(bytes)), cb(bytes))) };
   const { transport, sent } = recorder(watched);
   const s = new Gp200Session(transport, { timing: fast });
   const info = await s.connect();
-  assert.deepEqual({ device: info.device, deviceType: info.deviceType, firmware: info.firmware }, { device: "gp200", deviceType: 2, firmware: "1.8.2" });
+  assert.deepEqual({ device: info.device, deviceType: info.deviceType }, { device: "gp200", deviceType: 2 });
   assert.equal(received.filter((f) => f?.kind === "address").length, 0, "the pedal sent no SOFTWARE_STATE reply");
   assert.deepEqual(sentKinds(sent), ["identity", "softwareState"], "nothing resent");
   await s.close();
@@ -107,7 +107,7 @@ test("connect: a lost 0x2001 reply resends the identity query and SOFTWARE_STATE
 test("connect falls back to 0x1006 when the pedal does not push 0x1007", async () => {
   const { s, sent } = await setup({ push1007: false });
   const info = await s.connect();
-  assert.equal(info.firmware, "1.8.0");
+  assert.equal(info.currentSlot, 0);
   assert.equal(decodeFrame(sent.at(-1).bytes).data[0], 0x06, "0x1006 state dump");
   await s.close();
 });
@@ -173,7 +173,7 @@ test("sync: editor order, every slot, names; a lost reply is resent", async () =
 });
 
 test("sync: a pedal that never answers User IR name reads still syncs; the names are skipped after one query", async () => {
-  // Field report: a GP-200LT (firmware 1.6.0) answered the identity, 0x1006 and 0x1000 but never 0x1009.
+  // Field report: a GP-200LT answered the identity, 0x1006 and 0x1000 but never 0x1009.
   const dev = new MockGp200({ type: "gp200lt", deafMs: 20, silentQueries: [REC.IR_NAME] });
   const warnings = [];
   const s = new Gp200Session(dev.transport(), { timing: { ...fast, replyTimeoutMs: 100 }, log: (dir, _bytes, d) => dir === "warn" && warnings.push(d) });
@@ -380,6 +380,40 @@ test("User IR upload: 1024 x int32, byte sum, 0x100B result, name refresh", asyn
   dev.failUploads = true;
   await assert.rejects(s.uploadUserIr(0, "Bad", samples, { confirm: true }), { code: "verify" });
   await assert.rejects(s.uploadUserIr(20, "Range", samples, { confirm: true }), { code: "unsafe" });
+  await s.close();
+});
+
+test("the frames of an upload are 50 ms apart on the GP-200JR and GP-200LT, 10 ms on the GP-200 (issue #136)", async () => {
+  const samples = new Array(1024).fill(1000);
+  for (const [type, min, max] of [
+    ["gp200jr", 50, Infinity],
+    ["gp200lt", 50, Infinity],
+    ["gp200", 10, 45],
+  ]) {
+    const { s, sent } = await setup({ type }, { ...fast, frameGapMs: 10 });
+    await s.connect();
+    const before = sent.length;
+    const r = await s.uploadUserIr(2, "Cab", samples, { confirm: true });
+    const upload = gaps(sent.slice(before, before + r.frames));
+    assert.equal(upload.length, r.frames - 1);
+    assert.ok(Math.min(...upload) >= min - 1, `${type}: shortest gap ${Math.min(...upload)} ms`);
+    assert.ok(Math.max(...upload) < max, `${type}: longest gap ${Math.max(...upload)} ms`);
+    await s.close();
+  }
+});
+
+test("the log gets every frame of a multi-frame reply, the last one with the decoded message (issue #136)", async () => {
+  const dev = new MockGp200({ deafMs: 20 });
+  const rx = [];
+  const s = new Gp200Session(dev.transport(), { timing: fast, log: (dir, bytes, decoded) => dir === "rx" && rx.push({ frame: decodeFrame(bytes), decoded }) });
+  await s.connect();
+  rx.length = 0;
+  await s.readStored(3);
+  const frames = rx.filter((e) => e.frame?.kind === "data");
+  assert.ok(frames.length > 1);
+  assert.deepEqual(frames.map((e) => e.frame.off), frames.map((_, i) => i * 185));
+  assert.ok(frames.slice(0, -1).every((e) => e.decoded === undefined));
+  assert.equal(frames.at(-1).decoded.patch.slot, 3);
   await s.close();
 });
 

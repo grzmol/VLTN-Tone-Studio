@@ -66,7 +66,7 @@ describe("Gp200Driver sync", () => {
     expect(isGp200Prst(snap.prst)).toBe(true);
     expect(parsePrst(snap.prst).patch.name).toBe(snap.names[0].name);
     expect(snap.globals?.values).toMatchObject({ inputMode: 1 });
-    expect(snap.globals?.firmware).toBe("1.8.0");
+    expect(snap.globals).not.toHaveProperty("firmware");
     expect(snap.globals?.records.find((r) => r.a === 0x02)?.value).toBe(1);
     expect(progress.at(-1)).toEqual([progress.at(-1)![1], progress.at(-1)![1]]);
     expect(progress.length).toBeGreaterThan(count);
@@ -93,7 +93,7 @@ describe("Gp200Driver sync", () => {
   });
 
   it("connects to a pedal that never answers User IR name reads: IR names unavailable, slots still read", async () => {
-    // Field report: a real GP-200LT (firmware 1.6.0) never answered 0x1009 and every connect failed.
+    // Field report: a real GP-200LT never answered 0x1009 and every connect failed.
     const warnings: unknown[] = [];
     const d = await Gp200Driver.simulate("gp200lt", {
       log: (dir, _bytes, decoded) => void (dir === "warn" && warnings.push(decoded)),

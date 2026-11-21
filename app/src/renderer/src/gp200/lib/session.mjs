@@ -38,6 +38,7 @@ export const SLOT_NAME_MAX = 15;
 
 export const DEFAULT_TIMING = Object.freeze({
   frameGapMs: 10, // the editor pumps its TX queue with a 10 ms timer, one frame per tick
+  chunkGapMs: null,
   multiChunkPauseMs: 1000, // the editor sleeps 1 s after any multi-chunk message
   identityGapMs: 100, // 0x2001 query -> SOFTWARE_STATE
   replyTimeoutMs: 1000, // per query (sync step)
@@ -51,6 +52,8 @@ export const DEFAULT_TIMING = Object.freeze({
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export const MODEL_CHUNK_GAP_MS = Object.freeze({ gp200lt: 50, gp200jr: 50 });
 
 export class Gp200Error extends Error {
   constructor(code, message) {
@@ -109,10 +112,6 @@ export class Gp200Session extends EventTarget {
   get isUpdater() {
     return this.#updater;
   }
-  /** "major.minor.patch" from the last 0x1007, or null. */
-  get firmware() {
-    return this.#globals?.firmware ?? null;
-  }
   /** Last known globals { [name]: value } (0x1007 + echoes), or null before connect. */
   get globals() {
     return this.#globals ? { ...this.#globals.values } : null;
@@ -161,7 +160,10 @@ export class Gp200Session extends EventTarget {
       return;
     }
     const msg = this.#reasm.push(frame);
-    if (!msg) return;
+    if (!msg) {
+      this.#log?.("rx", bytes);
+      return;
+    }
     const decoded = decodeMessage(msg);
     this.#log?.("rx", bytes, decoded);
     this.#observe(decoded);
@@ -172,7 +174,7 @@ export class Gp200Session extends EventTarget {
   #observe(m) {
     for (const r of m.records) {
       if (r.kind === "globals") {
-        this.#globals = { firmware: r.firmware, values: { ...r.values } };
+        this.#globals = { values: { ...r.values } };
         if (r.currentSlot !== null && r.currentSlot < this.slotCount) this.#current = r.currentSlot;
       } else if (r.kind === "patchChanged") {
         this.#current = r.slot;
@@ -242,10 +244,12 @@ export class Gp200Session extends EventTarget {
     const frames = encodeFrames(msg);
     const flushes = this.#flushes;
     let sent = 0;
+    const chunkGap = this.#timing.chunkGapMs ?? MODEL_CHUNK_GAP_MS[this.device] ?? this.#timing.frameGapMs;
     for (const f of frames) {
       if (this.#flushes !== flushes) break;
       await this.#sendFrame(f);
       sent++;
+      if (sent < frames.length) this.#nextSendAt = Math.max(this.#nextSendAt, Date.now() + chunkGap);
       onFrame?.(sent, frames.length);
     }
     if (frames.length > 1) this.#nextSendAt = Math.max(this.#nextSendAt, Date.now() + this.#timing.multiChunkPauseMs);
@@ -305,7 +309,7 @@ export class Gp200Session extends EventTarget {
    * like any query. The 0x2001 reply `{state, deviceType}` identifies the pedal; SOFTWARE_STATE has no reply in normal
    * mode (USB captures of the editor and a GP-200 on firmware 1.8.0, phash/gp200editor), so only an update-mode answer
    * `{0, type}` is taken from it. State 0 = updater mode -> Gp200Error "updater" and the session sends nothing else.
-   * Then wait for the pushed 0x1007 (firmware + globals + current slot), falling back to a 0x1006 state-dump request.
+   * Then wait for the pushed 0x1007 (globals + current slot), falling back to a 0x1006 state-dump request.
    */
   connect() {
     return this.exclusive(async () => {
@@ -329,7 +333,7 @@ export class Gp200Session extends EventTarget {
         const push = this.#waitFor(kindIs("globals"), this.#timing.globalsPushMs, "0x1007 push");
         await push.promise.catch(() => this.#query(encode.stateDump(), kindIs("globals"), "0x1006 state dump"));
       }
-      return { device: this.device, deviceType: type, name: this.deviceName, firmware: this.firmware, currentSlot: this.#current, globals: this.globals };
+      return { device: this.device, deviceType: type, name: this.deviceName, currentSlot: this.#current, globals: this.globals };
     });
   }
 
@@ -440,16 +444,16 @@ export class Gp200Session extends EventTarget {
       return { playing, flag, exp1AB };
     });
   }
-  /** 0x1006 state dump -> { firmware, currentSlot, values }. */
+  /** 0x1006 state dump -> { currentSlot, values }. */
   readGlobals() {
     return this.exclusive(async () => {
       const g = recordOf(await this.#query(encode.stateDump(), kindIs("globals"), "0x1006 state dump"), "globals");
-      return { firmware: g.firmware, currentSlot: g.currentSlot, values: g.values };
+      return { currentSlot: g.currentSlot, values: g.values };
     });
   }
   /**
    * An optional read (sync tables, the name read-back after an upload): no reply after the resends means this pedal
-   * doesn't answer that query (a GP-200LT on firmware 1.6.0 never answered 0x1009), so it yields null and a "skipped"
+   * doesn't answer that query (a GP-200LT never answered 0x1009), so it yields null and a "skipped"
    * warning instead of failing. A list stops at its first unanswered entry: a silent pedal costs one entry's tries, not 20 x 4 s.
    */
   async #optional(read, what) {
@@ -482,7 +486,7 @@ export class Gp200Session extends EventTarget {
     step("editBuffer");
     const snapToneNames = await this.#optional(() => this.readSnapToneNames(), "SnapTone names");
     step("snapToneNames", SNAPTONE.SLOTS);
-    return { device: this.device, firmware: this.firmware, currentSlot: this.#current, globals: this.globals, drum, irNames, presets, styles, editBuffer, snapToneNames };
+    return { device: this.device, currentSlot: this.#current, globals: this.globals, drum, irNames, presets, styles, editBuffer, snapToneNames };
   }
 
   // ------------------------------------------------------------------------------------------- select + live edits

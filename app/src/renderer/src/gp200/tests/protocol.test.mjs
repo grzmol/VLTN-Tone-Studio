@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CMD,
+  GLOBALS_RECORD_TAG,
   PATCH_SETTING,
   REC,
   Reassembler,
@@ -211,8 +212,8 @@ test("SysexAssembler joins fragments and passes short messages", () => {
 });
 
 test("device records decode: globals, names, results, dirty, select echo", () => {
-  const g = decodeGlobals(encodeGlobals({ firmware: "1.8.0", currentSlot: 42, values: { inputLevel: -6, displayMode: 2, fsMode: 1 } }));
-  assert.equal(g.firmware, "1.8.0");
+  const g = decodeGlobals(encodeGlobals({ currentSlot: 42, values: { inputLevel: -6, displayMode: 2, fsMode: 1 } }));
+  assert.equal("firmware" in g, false);
   assert.equal(g.currentSlot, 42);
   assert.equal(g.values.inputLevel, -6);
   assert.equal(g.values.displayMode, 2);
@@ -245,4 +246,17 @@ test("slot labels", () => {
   assert.equal(slotLabel(5), "02-B");
   assert.equal(slotLabel(254), "64-C");
   assert.equal(slotLabel(255), "64-D");
+});
+
+test("0x1007 from a GP-200JR on firmware 1.8.0 (issue #136): settings and current slot, no firmware version", () => {
+  const frame = decodeFrame(fromHex("F021257E47502D32124E06000000070100040800000000000600010000060400000000000000000000000000000000000000000000000100000001000000010000000000000000000000000000000200000000000000000000000000000F0F0F0F0004000000000000000000000000000000050000000000000000000000000000000B0307010700000000000000000000000000000000000000000000000100000001000000020100000800000001000007080000050000000609030801000100000400000B08000100010000000001000006000000000000000000000000000000040100070C0000000000000800030F00000000090A04020C030F050608030F0000000000000000000000000A000401080F0C020305030F0000000000000000000000000800030F00000000060304030C0D0C0C060C04000000000000000C00000000000800030F0000080001030404080F0C020305030F0000000000000000000000000800030F000006000C0C0404080F0C020305030F000000000800F7"));
+  assert.equal(frame.off, 0);
+  assert.equal(frame.len, 846);
+  const [record] = walkTlv(frame.data);
+  assert.equal(record.type, REC.GLOBALS);
+  assert.deepEqual([...frame.data.slice(4, 8)], [...GLOBALS_RECORD_TAG]);
+  const g = decodeRecord(record);
+  assert.equal(g.kind, "globals");
+  assert.equal(g.currentSlot, 100);
+  assert.equal("firmware" in g, false);
 });

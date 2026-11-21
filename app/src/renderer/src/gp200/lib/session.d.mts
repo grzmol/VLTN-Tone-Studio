@@ -12,6 +12,7 @@ export interface Gp200Transport {
 
 export interface Gp200Timing {
   frameGapMs: number;
+  chunkGapMs: number | null;
   multiChunkPauseMs: number;
   identityGapMs: number;
   replyTimeoutMs: number;
@@ -24,6 +25,7 @@ export interface Gp200Timing {
   verifyReads: number;
 }
 export const DEFAULT_TIMING: Readonly<Gp200Timing>;
+export const MODEL_CHUNK_GAP_MS: Readonly<Partial<Record<Gp200FamilyKey, number>>>;
 /** Longest SnapTone / User IR name a rename writes (the 16-byte field keeps a terminating NUL). */
 export const SLOT_NAME_MAX: number;
 
@@ -38,7 +40,6 @@ export interface ConnectInfo {
   device: Gp200FamilyKey;
   deviceType: 2 | 3 | 4;
   name: "GP-200" | "GP-200LT" | "GP-200JR";
-  firmware: string | null;
   currentSlot: number | null;
   globals: Gp200Globals | null;
 }
@@ -57,7 +58,6 @@ export interface NameEntry {
 }
 export interface SyncSnapshot {
   device: Gp200FamilyKey | null;
-  firmware: string | null;
   currentSlot: number | null;
   globals: Gp200Globals | null;
   /** null: the pedal didn't answer (drum state and the name tables are optional sync steps) */
@@ -98,7 +98,6 @@ export class Gp200Session extends EventTarget {
   get deviceType(): 2 | 3 | 4 | null;
   get deviceName(): "GP-200" | "GP-200LT" | "GP-200JR" | null;
   get isUpdater(): boolean;
-  get firmware(): string | null;
   get globals(): Gp200Globals | null;
   get currentSlot(): number | null;
   get dirty(): boolean;
@@ -120,7 +119,7 @@ export class Gp200Session extends EventTarget {
   readSnapToneNames(): Promise<NameEntry[]>;
   readStyleNames(): Promise<(string | null)[]>;
   readDrumState(): Promise<{ playing: boolean; flag: number; exp1AB: number }>;
-  readGlobals(): Promise<{ firmware: string; currentSlot: number | null; values: Gp200Globals }>;
+  readGlobals(): Promise<{ currentSlot: number | null; values: Gp200Globals }>;
   sync(opts?: { onProgress?: (done: number, total: number, step: string) => void }): Promise<SyncSnapshot>;
 
   selectPreset(slot: number): Promise<number>;

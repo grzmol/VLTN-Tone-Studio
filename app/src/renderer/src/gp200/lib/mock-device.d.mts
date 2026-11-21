@@ -9,7 +9,6 @@ export interface MockGp200Options {
   type?: Gp200FamilyKey | 2 | 3 | 4;
   /** 1 normal, 0 firmware-update mode (answers SOFTWARE_STATE only) */
   state?: 0 | 1;
-  firmware?: string;
   /** patch images or .prst files for slots 0.. (the rest is generated) */
   images?: Bytes[];
   catalog?: Gp200Catalog;
@@ -47,7 +46,6 @@ export class MockGp200 {
   name: string;
   slotCount: number;
   state: 0 | 1;
-  firmware: string;
   slots: Uint8Array[];
   current: number;
   editBuffer: Uint8Array;

@@ -25,7 +25,7 @@ const ECHO_WINDOW_MS = 1000;
  * checks), so a 256-slot sync takes well under a second and the reads that verify a write don't land in a deaf window.
  */
 export const FAST_SIMULATOR = {
-  timing: { frameGapMs: 1, multiChunkPauseMs: 20, identityGapMs: 5, selectSettleMs: 2, replyTimeoutMs: 300, globalsPushMs: 300, uploadTimeoutMs: 2000, saveTimeoutMs: 500 },
+  timing: { frameGapMs: 1, chunkGapMs: 1, multiChunkPauseMs: 20, identityGapMs: 5, selectSettleMs: 2, replyTimeoutMs: 300, globalsPushMs: 300, uploadTimeoutMs: 2000, saveTimeoutMs: 500 },
   mock: { latencyMs: 0, minGapMs: 0, deafMs: 0 },
 } as const satisfies { timing: Partial<Gp200Timing>; mock: Omit<MockGp200Options, "type"> };
 
@@ -43,8 +43,8 @@ export class Gp200UpdaterError extends Error implements ConnectionError {
   }
 }
 
-function toGlobals(values: Gp200Globals, firmware: string | null): Gp200GlobalsSnapshot {
-  return { values: { ...values }, records: gp200GlobalRecords(values), ...(firmware ? { firmware } : {}) };
+function toGlobals(values: Gp200Globals): Gp200GlobalsSnapshot {
+  return { values: { ...values }, records: gp200GlobalRecords(values) };
 }
 
 /** A name the pedal gives a SnapTone or User IR slot it holds nothing in ("", "User IR", "User IR 3", "SnapTone 3", "Empty"). */
@@ -249,7 +249,7 @@ export class Gp200Driver implements DeviceDriver {
       names: snap.presets.map((p) => ({ slot: p.slot, name: p.name })),
       slot: snap.editBuffer.slot,
       prst: buildPrst(image),
-      globals: snap.globals ? { ...toGlobals(snap.globals, snap.firmware), eq: this.#eq } : null,
+      globals: snap.globals ? { ...toGlobals(snap.globals), eq: this.#eq } : null,
       modified: this.#session.dirty || (stored ? !imagesMatch(image, stored) : null),
     };
   }
@@ -358,7 +358,7 @@ export class Gp200Driver implements DeviceDriver {
   /** 0x1006 state dump. Values are keyed by the GP-200 setting names (gp200-globals.ts GP200_GLOBAL_SPECS). */
   async readGlobals(): Promise<Gp200GlobalsSnapshot> {
     const g = await this.#session.readGlobals();
-    return { ...toGlobals(g.values, g.firmware), eq: this.#eq };
+    return { ...toGlobals(g.values), eq: this.#eq };
   }
 
   /** Settings of the connected model only; anything else (a GP-5 setting, a destructive id) is a RangeError. */
