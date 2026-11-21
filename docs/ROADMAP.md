@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **proposed**, 2026-11-21. Built from the plans in this folder, the open items in the [changelog](../CHANGELOG.md), the [README](../README.md) support table and the hardware notes in the guides. Nothing here has an owner or a date yet; the maintainer sets both. The market analysis and the detailed work packages are in the [product plan](PRODUCT-PLAN.md). Priorities are a judgement using Now / Next / Later, MoSCoW and value against effort, because there is no usage data to score with RICE.
+Status: **proposed**, 2026-11-21. Built from the plans in this folder, the open items in the [changelog](../CHANGELOG.md), the [support matrix](DEVICES.md) and the hardware notes in the guides. Nothing here has an owner or a date yet; the maintainer sets both. The market analysis and the detailed work packages are in the [product plan](PRODUCT-PLAN.md). Priorities are a judgement using Now / Next / Later, MoSCoW and value against effort, because there is no usage data to score with RICE.
 
 ## Where the product stands
 
@@ -25,8 +25,8 @@ Status: **proposed**, 2026-11-21. Built from the plans in this folder, the open 
 |---|---|---|---|
 | Signed and notarized macOS and Windows packages | today every first launch shows a Gatekeeper or SmartScreen warning | M, needs certificates | Should |
 | Promote GP-50 experimental commands (live footswitch, order, tempo, expression, delete, copy, move) once each passes a hardware round trip | removes a Settings switch users must find | M | Should |
-| Make the GP-200LT and GP-200JR writable after a unit is tested; settle whether they have SnapTone slots (README shows unknown) | two of seven models are read-only on real pedals | M, needs units | Should |
-| GP-150 and GP-180: expression pedal and patch settings (README: not in Tone Studio) | the one clear feature gap in the support table | M | Could |
+| Make the GP-200LT and GP-200JR writable after a unit is tested; settle whether they have SnapTone slots (the support matrix shows unknown) | two of seven models are read-only on real pedals | M, needs units | Should |
+| GP-150 and GP-180: expression pedal and patch settings (support matrix: not in Tone Studio) | the one clear feature gap in the support matrix | M | Could |
 | Stable app MIDI clock; today the recommended setup is a one-time tempo command | the continuous clock was unstable on the tested rig | M | Could |
 | Hardware tests for other pedal profiles (BOSS and others) | profiles come from manuals and are tested at byte level only | S per pedal | Could |
 

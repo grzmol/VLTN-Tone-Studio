@@ -6,6 +6,7 @@ Guides for people who use VLTN Tone Studio, and notes for people who build it. T
 
 | Guide | Read it to |
 |---|---|
+| [Supported devices](DEVICES.md) | see what the app does on each pedal, model by model |
 | [Performance](PERFORMANCE.md) | play a song or a set, send MIDI cues, use stage mode, practice mute, the generated band and PDF charts |
 | [Song library](SONG-LIBRARY.md) | save songs, playlists, sets, the queue, backups and the Trash |
 | [Song maps](SONG-MAP.md) | export a song brief, have an assistant map the song, import the reply and undo it |
