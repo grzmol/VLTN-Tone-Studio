@@ -19,7 +19,7 @@ export function untimedLines(text: string): string[] {
     .filter((line) => !/^\[[\w]+:/.test(line))
     .map((line) =>
       line
-        .replace(/\{(?:midi(?:@\w+)?|label):[^}]*\}/g, "")
+        .replace(/\{(?:midi(?:@[^:{}]+)?|label):[^}]*\}/g, "")
         .replace(/\[\d+:[0-5]\d(?:\.\d+)?\]/g, "")
         .trim(),
     )
