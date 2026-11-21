@@ -72,7 +72,8 @@ export const NONE_FXID = 0x06000003;
 /** Knob targets besides the 12 modules. */
 export const KNOB_TARGET = Object.freeze({ PATCH_VOL: 0x0c, PATCH_BPM: 0x0d, NONE: 0xffff });
 
-export const SLOTS = Object.freeze({ PRESETS: 200, SNAPTONES: 100, NAMS: 100, USER_IRS: 20 });
+// Native NAM has 20 selectable models (0x10000000..0x10000013), even though its name reply contains 100 records plus None.
+export const SLOTS = Object.freeze({ PRESETS: 200, SNAPTONES: 100, NAMS: 20, USER_IRS: 20 });
 
 /**
  * Pedal settings: where each lives in the global-settings records (0x2010..0x2050; the pedal reports them all in the
@@ -312,7 +313,11 @@ export const setCtrl = (record) => setRecord(CMD.CTRL, [...record]);
 /** Whole global-settings record `cmd` (0x2010..0x2060). */
 export const setGlobalRecord = (cmd, record) => setRecord(cmd, [...record]);
 /** Rename list slot `slot` (IR, SnapTone or NAM rename command). */
-export const rename = (cmd, slot, name) => setRecord(cmd, [...u32le(slot), ...nameField(name)], 4);
+export const rename = (cmd, slot, name) => {
+  // Both captured NAM renames use a SnapTone record inside the NAM envelope (0x1091 / 0x1051).
+  const record = cmd === CMD.NAM_RENAME ? CMD.SNAPTONE_RENAME : cmd;
+  return encodeMessage({ p: P.SET, cmd, payload: [...u16le(record), ...u16le(24), ...u32le(slot), ...nameField(name)] });
+};
 
 /** File upload into a list slot: [cmd][len][u32 slot][cmd][len][name16][8192 data] (both lengths are the outer one). */
 export function upload(cmd, slot, name, data) {

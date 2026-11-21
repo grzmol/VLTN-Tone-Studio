@@ -16,6 +16,7 @@ import { clampGp200Eq } from "./driver/gp200-globals";
 import type { DeviceDriver, DriverEvent } from "./driver/types";
 import { clampParamValue, editPrst, orderError, syncParams, toPresetState } from "./preset-codec";
 import { SendQueue } from "./send-queue";
+import { useStageActivity } from "./stage-activity";
 import { diffPresets } from "./unsaved-diff";
 import {
   RestoreError,
@@ -57,7 +58,10 @@ let mockDevice: DeviceKey = DEFAULT_DEVICE;
 let reconnects = 0;
 let userDisconnected = false;
 let resyncTimer: number | undefined;
-const listTimers: Partial<Record<"presets" | "snaptones" | "irs", number>> = {};
+const listTimers: Partial<Record<"presets" | "snaptones" | "irs" | "nams", number>> = {};
+/** Reads the pedal asked for while a performance was using it; one catch-up read each runs when the performance stops. */
+let pendingResync = false;
+const pendingLists = new Set<"presets" | "snaptones" | "irs" | "nams">();
 /** When a setting/global/assignment was last edited here (key → ms), to recognise the pedal's echoes. */
 const localEdits = new Map<string, number>();
 /** A connection attempt the user cancelled; checked after every await in connect(). */
@@ -214,24 +218,66 @@ export const useDevice = create<DeviceState>((set, get) => {
   };
 
   const scheduleResync = () => {
+    if (useStageActivity.getState().busy) {
+      clearTimeout(resyncTimer);
+      resyncTimer = undefined;
+      pendingResync = true;
+      set({ stale: true });
+      return;
+    }
     clearTimeout(resyncTimer);
     resyncTimer = window.setTimeout(() => {
       resyncTimer = undefined;
-      if (driver && get().status === "connected" && !get().busy) void readActive(driver, get().names, true).catch(() => {});
+      if (useStageActivity.getState().busy) return scheduleResync();
+      if (!driver || get().status !== "connected" || get().busy) return set({ stale: pendingResync });
+      void readActive(driver, get().names, true)
+        .catch(() => {})
+        .finally(() => set({ stale: pendingResync }));
     }, RESYNC_DEBOUNCE_MS);
   };
 
+  const clearDeferredReads = () => {
+    pendingResync = false;
+    pendingLists.clear();
+    set({ stale: false });
+  };
+
+  /** When the performance stops, the reads that were held back run once, in place of the ones that would have run along the way. */
+  useStageActivity.subscribe((state, previous) => {
+    if (state.busy && !previous.busy) {
+      // A read armed just before the performance started is held back with the rest.
+      if (resyncTimer !== undefined) scheduleResync();
+      for (const list of ["presets", "snaptones", "irs", "nams"] as const) if (listTimers[list] !== undefined) scheduleListRead(list);
+      return;
+    }
+    if (state.busy || !previous.busy) return;
+    const resync = pendingResync;
+    const lists = [...pendingLists];
+    pendingResync = false;
+    pendingLists.clear();
+    if (resync) scheduleResync();
+    for (const list of lists) scheduleListRead(list);
+  });
+
   /** A name list changed on the pedal: re-read it (debounced; a running job re-reads what it changed itself). */
-  const scheduleListRead = (list: "presets" | "snaptones" | "irs") => {
+  const scheduleListRead = (list: "presets" | "snaptones" | "irs" | "nams") => {
+    if (useStageActivity.getState().busy) {
+      clearTimeout(listTimers[list]);
+      listTimers[list] = undefined;
+      pendingLists.add(list);
+      return;
+    }
     clearTimeout(listTimers[list]);
     listTimers[list] = window.setTimeout(async () => {
       listTimers[list] = undefined;
+      if (useStageActivity.getState().busy) return scheduleListRead(list);
       const d = driver;
       if (!d || get().status !== "connected" || get().busy) return;
       try {
         if (list === "presets") setNames(await d.readNames());
         else if (list === "snaptones") set({ snapTones: await d.readSnapTones() });
-        else set({ userIRs: await d.readUserIRs() });
+        else if (list === "nams" && d.readNams) set({ nams: await d.readNams() });
+        else if (list === "irs") set({ userIRs: await d.readUserIRs() });
       } catch (e) {
         noteError(e);
       }
@@ -245,7 +291,9 @@ export const useDevice = create<DeviceState>((set, get) => {
     if (e.type === "param") editLocal({ blocks: { [e.block]: { params: { [e.index]: e.value } } } });
     else if (e.type === "block") editLocal({ blocks: { [e.block]: { enabled: e.enabled } } });
     else if (e.type === "patchSetting" && !isEcho(`setting:${e.field}`)) {
-      if (e.field === "volume" || e.field === "bpm") editLocal({ [e.field]: e.value });
+      if (e.field === "namMode") {
+        if (e.value === 0 || e.value === 1) editLocal({ namMode: e.value });
+      } else if (e.field === "volume" || e.field === "bpm") editLocal({ [e.field]: e.value });
       else if (p.exp) editLocal({ exp: { [e.field]: e.value } });
     } else if (e.type === "footswitches" && !isEcho("footswitches")) editLocal({ footswitches: [e.fs1, e.fs2] });
     else if (e.type === "order" && !isEcho("order") && orderError(p.device, e.order) === null) editLocal({ order: e.order });
@@ -304,6 +352,7 @@ export const useDevice = create<DeviceState>((set, get) => {
         globalRecords: snap.globals?.records ?? null,
         firmware: snap.globals?.firmware ?? null,
         snapTones: null,
+        nams: null,
         userIRs: null,
         connectedAt: now,
         lastConnectedAt: now,
@@ -326,6 +375,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     driver = null;
     sends.clear();
     void d?.close().catch(() => {});
+    clearDeferredReads();
     set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "lost", features: [], lockedFeatures: [], slotHashes: new Map() });
     if (!userDisconnected && get().mode === "webmidi" && reconnects < MAX_RECONNECTS) {
       reconnects++;
@@ -415,6 +465,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     preset: null,
     saved: null,
     slotHashes: new Map(),
+    stale: false,
     unsavedChanges: 0,
     globals: null,
     globalEq: null,
@@ -423,6 +474,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     lockedFeatures: [],
     gp50Extras: false,
     snapTones: null,
+    nams: null,
     userIRs: null,
     busy: null,
     disconnectReason: null,
@@ -529,6 +581,7 @@ export const useDevice = create<DeviceState>((set, get) => {
       driver = null;
       sends.clear();
       await d?.close().catch(() => {});
+      clearDeferredReads();
       set({ status: "disconnected", portName: null, busy: null, connectedAt: null, disconnectReason: "user", features: [], lockedFeatures: [], slotHashes: new Map() });
     },
 
@@ -623,6 +676,17 @@ export const useDevice = create<DeviceState>((set, get) => {
       touch("setting:bpm");
       const d = liveWith("liveBpm");
       if (d?.setBpm) sends.push("setting:bpm", () => d.setBpm!(v));
+    },
+
+    setNamMode(mode) {
+      if (mode !== 0 && mode !== 1) throw new RangeError("Neural-model mode must be SnapTone (0) or NAM (1)");
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before changing neural-model mode");
+      if (!get().preset || get().preset!.namMode === mode) return;
+      editLocal({ namMode: mode });
+      touch("setting:namMode");
+      sends.push("setting:namMode", () => d.setNamMode!(mode));
     },
 
     setExp(edit) {
@@ -785,6 +849,29 @@ export const useDevice = create<DeviceState>((set, get) => {
       const list = await requireDriver().readSnapTones();
       set({ snapTones: list });
       return list;
+    },
+
+    async readNams() {
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before reading NAM slots");
+      const list = await d.readNams!();
+      if (driver === d && get().status === "connected") set({ nams: list });
+      return list;
+    },
+
+    async renameNam(slot, name) {
+      const d = requireFeature("nam");
+      requireIdle();
+      if (useStageActivity.getState().busy) throw new DeviceError("busy", "Stop the performance before renaming a NAM slot");
+      set({ busy: { kind: "manage", progress: 0, label: `Renaming NAM slot ${slot}` } });
+      try {
+        await d.renameNam!(slot, name);
+        const list = await d.readNams!();
+        if (driver === d && get().status === "connected") set({ nams: list });
+      } finally {
+        if (driver === d) set({ busy: null });
+      }
     },
 
     async uploadSnapTone(slot, name, file, opts) {

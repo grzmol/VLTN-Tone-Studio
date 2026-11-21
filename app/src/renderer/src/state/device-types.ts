@@ -74,6 +74,8 @@ export interface PresetState {
   volume: number;
   /** Tempo in BPM, within profileFor(device).tempo */
   bpm: number;
+  /** GP-150/180 neural-model mode: 0 SnapTone, 1 NAM; absent on other families. */
+  namMode?: number;
   /**
    * Switch assignments, one block list per switch: FS1 and FS2 on the GP-5 family, CTRL 1-8 on the GP-200 family
    * (every CTRL record of the patch; how many a model shows is up to the screen). Names: switchLabel (device-model).
@@ -118,6 +120,7 @@ export interface PresetEdits {
   name?: string;
   volume?: number;
   bpm?: number;
+  namMode?: 0 | 1;
   order?: number[];
   footswitches?: number[][];
   blocks?: Record<number, { enabled?: boolean; fxid?: number; params?: Record<number, number> }>;
@@ -202,7 +205,9 @@ export type DeviceFeature =
   /** Global EQ values set one at a time (GP-200 family 0x1005) */
   | "globalEq"
   /** Rename a stored SnapTone or User IR, verified by reading the name back (GP-200 0x1015 / 0x100c) */
-  | "renameToneSlots";
+  | "renameToneSlots"
+  /** GP-150/180 NAM name list, rename and preset mode. Upload is not supported. */
+  | "nam";
 
 /**
  * Global EQ of the GP-200 family: the 31 values in the order of gp200/lib protocol GLOBAL_EQ_INDEX (ranges:
@@ -275,6 +280,8 @@ export class RestoreError extends Error {
 }
 
 export interface DeviceState {
+  /** The preset changed on the pedal while a song was playing; the editor refreshes it when playback stops. */
+  stale: boolean;
   mode: DeviceMode;
   status: ConnectionStatus;
   error: ConnectionError | null;
@@ -313,6 +320,8 @@ export interface DeviceState {
   gp50Extras: boolean;
   /** SnapTone slot names (user + factory), when read */
   snapTones: SlotName[] | null;
+  /** GP-150/180 NAM slots, numbered 1-20; excludes None. */
+  nams: SlotName[] | null;
   /** User IR slot names (1-based display), when read */
   userIRs: SlotName[] | null;
   /** A long job (backup/write) is running; screens disable conflicting actions */
@@ -364,6 +373,7 @@ export interface DeviceState {
   setVolume(volume: number): void;
   /** Tempo, clamped to profileFor(device).tempo; live where the pedal takes it (liveBpm), else it reaches the pedal on save */
   setBpm(bpm: number): void;
+  setNamMode(mode: 0 | 1): void;
   /** EXP settings of the active preset (needs the "exp" feature); every value is checked first (RangeError) */
   setExp(edit: ExpEdit): void;  /**
    * Switch assignments, one block list per switch (PresetState.footswitches); live where the pedal takes it
@@ -392,6 +402,9 @@ export interface DeviceState {
   /** One Global EQ value (globalEq feature), clamped to its range; sent live like the settings. RangeError for an unused index */
   setGlobalEq(index: number, value: number): void;
   readSnapTones(): Promise<SlotName[]>;
+  readNams(): Promise<SlotName[]>;
+  /** Rename one NAM slot, then verify the pedal's names. Callers confirm through the rename dialog. */
+  renameNam(slot: number, name: string): Promise<void>;
   readUserIRs(): Promise<SlotName[]>;
   /**
    * Upload a 2696-byte SnapTone file into a user SnapTone slot (profile snapTone.userRange), then re-read the SnapTone list.

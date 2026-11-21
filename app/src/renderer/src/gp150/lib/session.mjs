@@ -245,6 +245,7 @@ export class Gp150Session extends EventTarget {
       case CMD.PRESET_NAMES:
         return { kind: "names", names: decodeNames(msg.cmd, msg.payload) };
       case CMD.SNAPTONE_NAMES:
+      case CMD.NAM_NAMES:
       case CMD.IR_NAMES:
         return { kind: "listChanged", cmd: msg.cmd };
       case CMD.GLOBAL_EQ:
@@ -383,6 +384,13 @@ export class Gp150Session extends EventTarget {
   readSnapToneNames() {
     return this.exclusive(async () =>
       toEntries(decodeNames(CMD.SNAPTONE_NAMES, (await this.#query(CMD.SNAPTONE_NAMES, [], "SnapTone names")).payload)).filter((e) => e.slot >= 1),
+    );
+  }
+
+  /** Usable NAM slots 1-20; None and reserved records through 100 remain outside the editable bank. */
+  readNamNames() {
+    return this.exclusive(async () =>
+      toEntries(decodeNames(CMD.NAM_NAMES, (await this.#query(CMD.NAM_NAMES, [], "NAM names")).payload)).filter((e) => e.slot >= 1 && e.slot <= SLOTS.NAMS),
     );
   }
 
@@ -556,9 +564,12 @@ export class Gp150Session extends EventTarget {
     return this.#upload(CMD.SNAPTONE_UPLOAD, CMD.SNAPTONE_NAMES, slot, name, file, opts);
   }
 
-  /** Rename a User IR (0-19) or SnapTone (1-100) slot. */
+  /** Rename a User IR (0-19), SnapTone (1-100) or NAM (1-20) slot. */
   renameListSlot(kind, slot, name, opts) {
     needConfirm(opts, "Renaming a slot");
-    return this.set(renameMessage(kind === "ir" ? CMD.IR_RENAME : CMD.SNAPTONE_RENAME, slot, name));
+    const cmd = { ir: CMD.IR_RENAME, snaptone: CMD.SNAPTONE_RENAME, nam: CMD.NAM_RENAME }[kind];
+    if (cmd === undefined) throw new RangeError(`Unknown slot kind ${kind}`);
+    if (kind === "nam" && (!Number.isInteger(slot) || slot < 1 || slot > SLOTS.NAMS)) throw new RangeError(`NAM slot ${slot} is outside 1..${SLOTS.NAMS}`);
+    return this.set(renameMessage(cmd, slot, name));
   }
 }
