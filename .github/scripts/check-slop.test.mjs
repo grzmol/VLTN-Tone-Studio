@@ -4,9 +4,20 @@ import { checkCommit, checkDiff, checkPr } from "./check-slop.mjs";
 
 const commit = (message) => checkCommit({ sha: "abcdef0123", message });
 
-test("accepts plain conventional commits, including the Claude co-author trailer", () => {
+test("accepts plain conventional commits", () => {
   assert.deepEqual(commit("fix(gp200): read SnapTone slot flags the right way round"), []);
-  assert.deepEqual(commit("feat(song): open on Stems\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"), []);
+});
+
+test("rejects a Co-authored-by trailer", () => {
+  assert.match(commit("feat(song): open on Stems\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")[0], /Co-authored-by/);
+  assert.equal(commit("feat(song): open on Stems\n\nco-authored-by: A Person <a@example.com>").length, 1);
+});
+
+test("rejects an assistant as author or committer", () => {
+  const ok = "fix(gp200): read slot flags the right way round";
+  assert.deepEqual(checkCommit({ sha: "abcdef0123", message: ok, author: "grzmol <me@example.com>", committer: "GitHub <noreply@github.com>" }), []);
+  assert.match(checkCommit({ sha: "abcdef0123", message: ok, author: "Claude <noreply@anthropic.com>", committer: "grzmol <me@example.com>" })[0], /author/);
+  assert.match(checkCommit({ sha: "abcdef0123", message: ok, author: "grzmol <me@example.com>", committer: "Copilot <x@users.noreply.github.com>" })[0], /committer/);
 });
 
 test("rejects free-form, vague, long and emoji subjects", () => {
