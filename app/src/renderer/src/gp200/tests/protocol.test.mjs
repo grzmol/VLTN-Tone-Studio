@@ -24,6 +24,7 @@ import {
 } from "../lib/protocol.mjs";
 import { encodePatchImage } from "../lib/prst.mjs";
 import { checkGp200SnapTone, crc16Modbus } from "../lib/snaptone.mjs";
+import { JR_GLOBALS_REPLY } from "./jr-globals.mjs";
 import { VECTORS } from "./vectors.mjs";
 
 const hex = (b) => toHex(b, "");
@@ -246,4 +247,16 @@ test("slot labels", () => {
   assert.equal(slotLabel(5), "02-B");
   assert.equal(slotLabel(254), "64-C");
   assert.equal(slotLabel(255), "64-D");
+});
+
+test("a GP-200JR 1.8.0 reply to the settings request reassembles from its 5 frames and carries no firmware version (#136)", () => {
+  const re = new Reassembler();
+  const msgs = JR_GLOBALS_REPLY.map((h) => re.push(decodeFrame(fromHex(h))));
+  assert.deepEqual(msgs.map((m) => m !== null), [false, false, false, false, true]);
+  const { payload } = msgs[4];
+  assert.equal(payload.length, 846);
+  const [g] = decodeMessage(msgs[4]).records;
+  assert.equal(g.kind, "globals");
+  assert.equal("firmware" in g, false);
+  assert.deepEqual([...payload.slice(4, 8)], [0, 6, 1, 0], "record data starts 00 06 01 00, as on a GP-200 1.8.0");
 });
