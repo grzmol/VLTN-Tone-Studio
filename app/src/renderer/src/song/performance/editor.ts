@@ -1,3 +1,4 @@
+import { MIDI_TRIGGER_PATTERN, preparationWaitMs } from "./preparation-wait";
 import { COLOUR_TAG, parseChart } from "./chart";
 import type { Chord } from "./chords";
 import { checkCommandText, type MidiMacro } from "./midi-macros";
@@ -31,7 +32,14 @@ export function editableEvents(chart: string, lyrics: string, estimates: Chord[]
   const cues = parseChart(chart, macros),
     rows: EditableEvent[] = [];
   const add = (seconds: number | null) => {
-    const created = { id: rows.length, seconds: seconds !== null && Number.isFinite(seconds) ? String(seconds) : "", lyrics: "", chords: "", midi: "", label: "" };
+    const created = {
+      id: rows.length,
+      seconds: seconds !== null && Number.isFinite(seconds) ? String(seconds) : "",
+      lyrics: "",
+      chords: "",
+      midi: "",
+      label: "",
+    };
     rows.push(created);
     return created;
   };
@@ -46,19 +54,22 @@ export function editableEvents(chart: string, lyrics: string, estimates: Chord[]
     const target = row(chord.time);
     target.chords = [target.chords, chord.name].filter(Boolean).join(" ");
   }
+  const preparationRows = new Map<number, EditableEvent>();
   for (const cue of cues)
     if (cue.messages.length || cue.label) {
-      const target = cue.trigger ? add(null) : row(cue.time);
+      const line = cue.trigger === "prepare" ? cue.source?.line : undefined;
+      const target = line !== undefined ? (preparationRows.get(line) ?? add(null)) : cue.trigger ? add(null) : row(cue.time);
+      if (line !== undefined) preparationRows.set(line, target);
       const lines = cue.tokens ?? cue.messages.map(command);
       target.midi = [target.midi, ...lines].filter(Boolean).join("\n");
-      target.label = [target.label, cue.label].filter(Boolean).join(" / ");
+      target.label = [...new Set([target.label, cue.label].filter(Boolean))].join(" / ");
     }
   return rows.sort((a, b) => (a.seconds === "" ? Infinity : Number(a.seconds)) - (b.seconds === "" ? Infinity : Number(b.seconds)));
 }
 
 /** The chart token for one command line: `{midi:…}`, or `{midi@load: …}` for a trigger line such as `@load pc 1 5`. */
 function token(line: string): string {
-  const trigger = /^@(load|play|stop|end) (.+)$/.exec(line);
+  const trigger = new RegExp(String.raw`^@(${MIDI_TRIGGER_PATTERN}) (.+)$`).exec(line);
   return trigger ? `{midi@${trigger[1]}: ${trigger[2]}}` : `{midi:${line}}`;
 }
 
@@ -85,8 +96,9 @@ export function eventChart(rows: EditableEvent[]): string {
       if (commands.length > triggers.length && seconds === null) throw new Error(`Line ${index + 1}: MIDI needs a timestamp.`);
       if (triggers.length && seconds !== null) throw new Error(`Line ${index + 1}: a MIDI trigger has no timestamp. Clear the time to use it.`);
       for (const c of commands) {
-        const trigger = /^@(load|play|stop|end) (.+)$/.exec(c);
-        if (c.startsWith("@") && !trigger) throw new Error(`Line ${index + 1}: a MIDI trigger starts @load, @play, @stop or @end, then one command.`);
+        const trigger = new RegExp(String.raw`^@(${MIDI_TRIGGER_PATTERN}) (.+)$`).exec(c);
+        if (c.startsWith("@") && !trigger) throw new Error(`Line ${index + 1}: a MIDI trigger starts @load, @prepare, @play, @stop or @end, then one command.`);
+        if (trigger) preparationWaitMs(trigger[1]);
         checkCommandText(trigger ? trigger[2] : c);
       }
       // A colour span is part of the lyric text, so it is allowed; any other brace is not.

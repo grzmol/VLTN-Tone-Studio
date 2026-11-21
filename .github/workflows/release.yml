@@ -18,6 +18,9 @@ permissions:
 
 env:
   NODE_VERSION: "26"
+  # onnxruntime-node (through @huggingface/transformers) downloads optional Linux CUDA binaries on install.
+  # The 1.21.0 archive now returns 404, which fails npm ci; the app never uses CUDA.
+  npm_config_onnxruntime_node_install_cuda: skip
 
 jobs:
   version:

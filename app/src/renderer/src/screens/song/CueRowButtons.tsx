@@ -21,7 +21,14 @@ export function CueRowButtons({
   onRemove: () => void;
 }) {
   if (!cue.source && !cue.line) return null;
-  const when = cue.trigger === "section" ? describeSectionCue(cue, sections).text : cue.trigger ? `On ${cue.trigger}` : lrcTime(cue.time);
+  const when =
+    cue.trigger === "section"
+      ? describeSectionCue(cue, sections).text
+      : cue.trigger === "prepare"
+        ? "Before song"
+        : cue.trigger
+          ? `On ${cue.trigger}`
+          : lrcTime(cue.time);
   const name = `${when}: ${cue.label || "Raw MIDI command"}`;
   const title = locked ? "Stop playback to change cues" : undefined;
   return (
