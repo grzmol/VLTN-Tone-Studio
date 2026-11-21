@@ -31,7 +31,7 @@ describe("split passes", () => {
 
   it("runs the pass whose file is loaded first, the rest in order", () => {
     const best = model("hybrid");
-    const files = (passes: typeof best.passes) => passes.map((p) => p.file.file.replace(/_fp16weights|\.onnx/g, ""));
+    const files = (passes: typeof best.passes) => passes.map((p) => p.file.file.replace("_fp16weights", "").replace(/\.onnx$/, ""));
     expect(files(orderPasses(best.passes, "htdemucs_ft_bass_fp16weights.onnx"))).toEqual(["htdemucs_ft_bass", "htdemucs_6s", "htdemucs_ft_drums", "htdemucs_ft_vocals"]);
     expect(files(orderPasses(best.passes, "htdemucs_ft_other_fp16weights.onnx"))).toEqual(["htdemucs_6s", "htdemucs_ft_drums", "htdemucs_ft_bass", "htdemucs_ft_vocals"]);
     expect(files(orderPasses(best.passes, null))[0]).toBe("htdemucs_6s");

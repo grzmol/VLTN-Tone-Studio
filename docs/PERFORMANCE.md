@@ -495,7 +495,7 @@ The parts are normal tracks in the mixer, so you can mute, solo or set their vol
 - A song with no click may need beat corrections before its parts line up. Check the first and last bars of each section.
 - Listen before a show. Preview a few sections, then check the whole song.
 
-The drum and bass samples are CC0, so they need no attribution. The [sample notice](app/src/renderer/src/song/band/NOTICE.md) lists the libraries and the files used.
+The drum and bass samples are CC0, so they need no attribution. The [sample notice](../app/src/renderer/src/song/band/NOTICE.md) lists the libraries and the files used.
 
 ## Stage mode
 
