@@ -109,7 +109,7 @@ Issue ids come from the UI × model review.
 - `midi-log.ts` decodes all traffic as GP-5 SysEx; decode GP-200 frames with `gp200/lib/protocol.mjs`.
 
 ## Step 3: docs and release gates
-- README support table, CHANGELOG `Unreleased`, `app/README.md` (drivers, `?mock=gp200*`), and the status of `docs/device-expansion-plan.md`.
+- support matrix in `docs/DEVICES.md`, CHANGELOG `Unreleased`, `app/README.md` (drivers, `?mock=gp200*`), and the status of `docs/device-expansion-plan.md`.
 - Hardware verification (phase 7) on a real GP-200: read-only first, writes on scratch user slots ≥ 100 after a full backup. Open items: CC0 bank polarity, `0x2009` init-patch, the CTRL count on LT/JR, and the GP-200 backup time (the profile's `backupSeconds: 300` is an estimate).
 
 ## Decisions already made

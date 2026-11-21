@@ -11,6 +11,7 @@ const REPO = "https://github.com/grzmol/VLTN-Tone-Studio";
 // source file (relative to the repository root) -> wiki page name, in sidebar order, grouped.
 export const GROUPS = [
   ["Using the app", [
+    ["docs/DEVICES.md", "Supported-devices"],
     ["docs/PERFORMANCE.md", "Performance"],
     ["docs/SONG-LIBRARY.md", "Song-library"],
     ["docs/SONG-MAP.md", "Song-maps"],
