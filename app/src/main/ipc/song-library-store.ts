@@ -292,7 +292,7 @@ export class SongLibraryStore {
   }
   private async publish(index: DiskIndex): Promise<void> {
     await mkdir(this.root, { recursive: true });
-    // A v4 library is refused by older apps, which would otherwise misread the metadata and folders. See SONG-LIBRARY.md.
+    // A v4 library is refused by older apps, which would otherwise misread the metadata and folders. See docs/SONG-LIBRARY.md.
     await writeJsonAtomic(join(this.root, "library.json"), { ...index, version: LIBRARY_VERSION });
   }
   async preflight(ids: string[]): Promise<import("@shared/song-library").LibraryPreflightSong[]> {

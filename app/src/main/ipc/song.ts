@@ -17,7 +17,7 @@ import {
 import { sanitizeFileName } from "@shared/files-naming";
 import { HostError } from "@shared/ipc";
 import { handle, sendTo, showOpenDialog, showSaveDialog } from "./handle";
-import { downloadPart as downloadPartFile, PROGRESS_EVERY_BYTES } from "./model-download";
+import { downloadPart as downloadPartFile } from "./model-download";
 import { songSaveFilters } from './song-save-options';
 import { StagePower } from './stage-power';
 import { SongLibraryStore } from './song-library-store';
