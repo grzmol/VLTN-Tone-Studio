@@ -5,11 +5,10 @@ import { getSetting, readOptions, setSetting } from "@/song/performance/settings
 import { audibleRange, CROSSFADE_MAX_S } from "@/song/performance/transition";
 import { END_BEHAVIOUR_LABELS, END_BEHAVIOURS, isEndBehaviour, shapeFromOptions, type StoredShape } from "@/song/performance/song-shape";
 import type { SilenceEnds } from "@/song/analysis/silence";
+import { SecondsField } from "./SecondsField";
+import { seconds } from "./format";
 
 const field = "rounded border border-seam bg-transparent p-2";
-
-/** A number from a text box; an empty box means the value is not set. */
-const parse = (text: string): number | undefined => (text.trim() === "" ? undefined : Number(text));
 
 /**
  * The song's trim, fades and end behaviour. They are saved in the song's options, and the player takes them on the next change of
@@ -51,30 +50,25 @@ export function SongShapeControls({
   const duration = audio ? (audio.channels[0]?.length ?? 0) / audio.sampleRate : 0;
   const trailing = silence ? duration - silence.end : 0;
   const offer = silence && trailing > 0 && shape.trimEnd === undefined ? silence : null;
-  const fade = (text: string) => Math.max(0, Math.min(CROSSFADE_MAX_S, Number(text) || 0));
+  const fade = (value: number | undefined) => Math.max(0, Math.min(CROSSFADE_MAX_S, value ?? 0));
   // With no trim start of its own, the song starts after the silence the analysis found (see playerShapeFromOptions). 0 plays from the very start.
   const autoStart = shape.trimStart === undefined && silence && silence.start > 0 ? silence.start : undefined;
   return (
     <div aria-label="Song shape" className="flex flex-wrap items-end gap-3 rounded border border-seam p-3">
       {offer && (
-        <Button
-          variant="outline"
-          onClick={() => save({ trimEnd: offer.end })}
-        >
-          Trim end silence ({trailing.toFixed(1)} s)
+        <Button variant="outline" onClick={() => save({ trimEnd: offer.end })}>
+          Trim end silence ({seconds(trailing)} s)
         </Button>
       )}
       <label className="flex flex-col gap-1">
         Trim start (s)
-        <input
-          type="number"
-          min={0}
-          step={0.1}
+        <SecondsField
+          label="Trim start (s)"
           className={field}
-          value={shape.trimStart ?? ""}
-          placeholder={autoStart === undefined ? undefined : `${autoStart.toFixed(1)} (silence skipped)`}
+          value={shape.trimStart}
+          placeholder={autoStart === undefined ? undefined : `${seconds(autoStart)} (silence skipped)`}
           title="Empty skips the silence at the start of the song. 0 plays from the very start."
-          onChange={(e) => save({ trimStart: parse(e.target.value) })}
+          onValue={(value) => save({ trimStart: value })}
         />
       </label>
       <label className="flex items-center gap-2">
@@ -83,16 +77,16 @@ export function SongShapeControls({
       </label>
       <p className="w-full text-sm text-silkscreen-3">
         {autoStart !== undefined
-          ? `Automatically skipping ${autoStart.toFixed(1)} s of detected start silence. Quiet intros may be included; select Play from the very start to keep them.`
+          ? `Automatically skipping ${seconds(autoStart)} s of detected start silence. Quiet intros may be included; select Play from the very start to keep them.`
           : shape.trimStart === 0
             ? "Playing from the very start, including any silence or quiet intro."
             : shape.trimStart !== undefined
-              ? `Starting at ${shape.trimStart.toFixed(1)} s (manual trim).`
+              ? `Starting at ${seconds(shape.trimStart)} s (manual trim).`
               : "Playing from the very start; no start silence detected."}
       </p>
       <label className="flex flex-col gap-1">
         Trim end (s)
-        <input type="number" min={0} step={0.1} className={field} value={shape.trimEnd ?? ""} onChange={(e) => save({ trimEnd: parse(e.target.value) })} />
+        <SecondsField label="Trim end (s)" className={field} value={shape.trimEnd} onValue={(value) => save({ trimEnd: value })} />
       </label>
       <Button variant="outline" disabled={!audio} title="Trim to the audible part of the song." onClick={auto}>
         Auto
@@ -106,11 +100,11 @@ export function SongShapeControls({
       </Button>
       <label className="flex flex-col gap-1">
         Fade in (s)
-        <input type="number" min={0} max={CROSSFADE_MAX_S} step={0.5} className={field} value={shape.fadeIn} onChange={(e) => save({ fadeIn: fade(e.target.value) })} />
+        <SecondsField label="Fade in (s)" className={field} value={shape.fadeIn} onValue={(value) => save({ fadeIn: fade(value) })} />
       </label>
       <label className="flex flex-col gap-1">
         Fade out (s)
-        <input type="number" min={0} max={CROSSFADE_MAX_S} step={0.5} className={field} value={shape.fadeOut} onChange={(e) => save({ fadeOut: fade(e.target.value) })} />
+        <SecondsField label="Fade out (s)" className={field} value={shape.fadeOut} onValue={(value) => save({ fadeOut: fade(value) })} />
       </label>
       <label className="flex flex-col gap-1">
         At the end

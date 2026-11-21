@@ -1,16 +1,22 @@
 import { lrcTime } from "@/song/performance/chart";
-import { useClockText, useClockTenths } from "@/song/performance/playback-clock";
+import { useClockText, useClockTenths, usePlaybackClock } from "@/song/performance/playback-clock";
+import { clock } from "./format";
 
 /** Current song position. Subscribes to the clock so its parent does not re-render while playing. */
 export function ClockText() {
   return <>{useClockText()}</>;
 }
 
-/** "position / duration" text for the transport. */
-export function ClockOverDuration({ duration, className }: { duration: number; className?: string }) {
+/** "m:ss" for the current position, in the places that do not show the chart's bracketed time. */
+function ClockSeconds() {
+  return <>{clock(usePlaybackClock((s) => Math.floor(s.position)))}</>;
+}
+
+/** "position / duration" text for the transport: `[00:12.50] / [05:30.00]`, or `0:12 / 5:30` with `plain`. Stage mode keeps the bracketed form. */
+export function ClockOverDuration({ duration, className, plain = false }: { duration: number; className?: string; plain?: boolean }) {
   return (
     <span className={className}>
-      <ClockText /> / {lrcTime(duration)}
+      {plain ? <ClockSeconds /> : <ClockText />} / {plain ? clock(duration) : lrcTime(duration)}
     </span>
   );
 }
