@@ -174,11 +174,11 @@ test("backupAll keeps every entry in its own slot when the pedal changes preset 
 test("renamePreset keeps the slot's own sound when the pedal pushes another preset", async () => {
   const { mock, session } = await slowConnected();
   const before = mock.presets[10].slice();
-  const other = mock.presets[150].slice();
+  const untouched = mock.presets[150].slice();
   const [res] = await Promise.all([session.renamePreset(10, "X", { confirm: true }), mock.selectOnPedal(150)]);
   assert.equal(res.name, "X");
   assert.ok(imagesMatch(mock.presets[10], applyPatchEdits(before, { name: "X" })));
-  assert.deepEqual([...mock.presets[150]], [...other]);
+  assert.deepEqual([...mock.presets[150]], [...untouched]);
 });
 
 test("a write's verify read is not fooled by a push", async () => {

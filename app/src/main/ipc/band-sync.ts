@@ -545,7 +545,7 @@ export const DEFAULT_SETTINGS: BandSyncSettings = { address: null, port: BAND_SY
 export function parseSettings(value: unknown): BandSyncSettings {
   if (typeof value !== "object" || value === null) return { ...DEFAULT_SETTINGS };
   const saved = value as Record<string, unknown>;
-  let port: number = BAND_SYNC_LIMITS.defaultPort;
+  let port: number;
   try {
     port = parseSyncPort(saved.port);
   } catch {
