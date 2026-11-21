@@ -19,6 +19,7 @@ Guides for people who use VLTN Tone Studio, and notes for people who build it. T
 | [Architecture](ARCHITECTURE.md) | find your way around the code: processes, folders, the device layer, data flow |
 | [Contributing](CONTRIBUTING.md) | set up, run the checks, name a branch and a commit, open a pull request, cut a release |
 | [Roadmap](ROADMAP.md) | see what is being worked on, what comes next and what is parked |
+| [Product plan](PRODUCT-PLAN.md) | read the market and feature analysis and the detailed, phased development plan behind the roadmap |
 | [`app/README.md`](../app/README.md) | look up commands, launch parameters and the details of each pedal family, SnapTones, User IRs and stems |
 | [`AGENTS.md`](../AGENTS.md) | brief a coding assistant on the repository |
 
