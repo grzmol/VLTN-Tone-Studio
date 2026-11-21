@@ -1,0 +1,22 @@
+name: Feature request
+description: An idea for something the app could do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: How would you like it to work? Other tools that do it well are useful to mention.
+  - type: dropdown
+    id: pedals
+    attributes:
+      label: Which pedals does it matter for
+      multiple: true
+      options: [GP-5, GP-50, GP-150, GP-180, GP-200 family, Other MIDI pedals, All of them]
