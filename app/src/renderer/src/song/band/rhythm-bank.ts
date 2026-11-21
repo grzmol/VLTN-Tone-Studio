@@ -72,8 +72,10 @@ export function encodeRhythmBank(patterns: readonly RhythmBankPattern[]): Uint8A
     }
     const sorted = [...pattern.notes].sort((a, b) => a.tick - b.tick);
     let previous = 0;
-    for (let i = 0; i <= sorted.length; i++) {
-      const note = sorted[i];
+    // One record per hit, then an empty record at the passage end that closes the track.
+    const records = [...sorted, undefined];
+    for (let i = 0; i < records.length; i++) {
+      const note = records[i];
       if (note && (!integer(note.tick, 0, pattern.endTick - 1) || !integer(note.pitch, 1, 127) || !integer(note.velocity, 1, 127)))
         throw new Error("A native drum hit has an invalid position, pitch or velocity.");
       const tick = Math.floor(((note?.tick ?? pattern.endTick) * RHYTHM_BANK_PPQ) / EXPORT_PPQ);
