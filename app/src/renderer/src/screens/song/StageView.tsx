@@ -191,6 +191,7 @@ export function StageView({
                 <p>Desktop sleep prevention requested during playback.</p>
               )}
               <PracticeMuteBanner />
+              <SongPreparationStatus session={session} />
             </div>
           </>
         )}
