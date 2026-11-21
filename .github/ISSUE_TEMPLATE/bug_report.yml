@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work, or works differently from the guide.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown under About in the app's settings, for example 1.0.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer
+      options: [Windows, macOS, Linux, Browser (Chrome or Edge)]
+    validations:
+      required: true
+  - type: dropdown
+    id: pedal
+    attributes:
+      label: Pedal
+      options: [GP-5, GP-50, GP-150, GP-180, GP-200, GP-200R, GP-200X, GP-200LT, GP-200JR, Simulated pedal, None]
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Pedal firmware
+      description: For example 1.0.6. Leave empty for a simulated pedal.
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options: [USB, Bluetooth, Simulated]
+  - type: textarea
+    id: log
+    attributes:
+      label: Session log
+      description: For a pedal problem, attach the log (Device > Diagnostics > Save log). Remove anything you do not want to share.
