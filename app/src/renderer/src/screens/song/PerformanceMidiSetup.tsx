@@ -1,7 +1,10 @@
+import { preRollStart } from "@/song/performance/rhythm";
 import { PreparationSequencePreview } from "./PreparationSequencePreview";
 import { SongPreparationSettings } from "./SongPreparationSettings";
 import { moveCueToPreparation, movePreparationLine, setPreparationRepeat, setPreparationWait } from "@/song/performance/start-preparation";
-import { preRollStart } from "@/song/performance/rhythm";
+import { hasPedalRhythm } from "@/song/performance/rhythm-runtime";
+import { RhythmHardwareTest } from "./RhythmHardwareTest";
+import { RhythmTempoStatus } from "./RhythmTempoStatus";
 import { SettingsCard } from "@/components/ui/settings-card";
 import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -18,15 +21,34 @@ import { HelpNote } from "@/components/ui/help-note";
 
 const field = "rounded border border-seam bg-transparent p-2";
 
+/** Turns Send cues on or off. A song with pedal rhythm cues pauses the pedal first; any other song silences held notes. */
+export function setSendCues(session: PerformanceSession, on: boolean) {
+  if (hasPedalRhythm(session.state.cues)) session.pause();
+  else session.panic();
+  session.sendCues(on);
+  session.setMidiStatus("");
+}
+
 /** MIDI preflight and timing for the current song and output. */
-export function SessionMidiHealth({ session, firstBeat = 0 }: { session: PerformanceSession; firstBeat?: number }) {
+export function SessionMidiHealth({
+  session,
+  firstBeat = 0,
+  pedalDrumsChosen = false,
+}: {
+  session: PerformanceSession;
+  firstBeat?: number;
+  /** The song chose RC-10R pedal drums, so the check warns when the cues are off. */
+  pedalDrumsChosen?: boolean;
+}) {
+  const armed = useSession(session, selectArmed);
   const cues = useSession(session, (s) => s.cues);
   const parseError = useSession(session, (s) => s.parseError);
   const sections = useSession(session, (s) => s.sections);
   const player = useSession(session, (s) => s.player);
+  const clock = useSession(session, (s) => s.clock);
   const bpm = useSession(session, (s) => s.bpm);
   const timing = useSession(session, (s) => s.timing);
-  const clock = useSession(session, (s) => s.clock);
+  const preparation = useSession(session, (s) => s.preparationSettings);
   const tempoOnStart = useSession(session, (s) => s.tempoOnStart);
   const portId = useSession(session, (s) => s.portId);
   const output = useSession(session, selectOutput);
@@ -50,15 +72,17 @@ export function SessionMidiHealth({ session, firstBeat = 0 }: { session: Perform
       sections={sections}
       duration={player?.length ?? 0}
       range={range}
+      clock={clock}
+      preparation={preparation ?? undefined}
       playbackStart={player ? preRollStart(player.start, timing.preRollBeats, bpm) : undefined}
       bpm={bpm}
       beats={timing.beatsPerBar}
       firstBeat={firstBeat}
-      clock={clock}
       tempoChannel={tempoOnStart ? midiConfig.tempoChannel : undefined}
       timecode={timecode}
       outputName={portId === BLUETOOTH_PORT_ID ? `Bluetooth ${output?.name || ""}` : output?.name || undefined}
       parseError={parseError}
+      pedalDrums={{ chosen: pedalDrumsChosen, armed }}
     />
   );
 }
@@ -95,7 +119,7 @@ export function PerformanceMidiSetup({
   const cues = useSession(session, (s) => s.cues);
   const sections = useSession(session, (s) => s.sections);
   const parseError = useSession(session, (s) => s.parseError);
-  const output =useSession(session, selectOutput);
+  const output = useSession(session, selectOutput);
   const armed = useSession(session, selectArmed);
   const remembered = useSession(session, (s) => s.armedByPreference);
   const playing = useSession(session, (s) => s.playing);
@@ -206,7 +230,8 @@ export function PerformanceMidiSetup({
           )}
         </div>
         <BluetoothControls
-          locked={playing}
+          locked={playing || starting}
+          onSetupOpening={session.invalidatePreparation}
           onSystemReady={session.connectMidi}
           onConnected={(connection) => {
             session.panic();
@@ -246,9 +271,7 @@ export function PerformanceMidiSetup({
             disabled={output?.state !== "connected" || !!parseError}
             checked={armed}
             onChange={(e) => {
-              session.panic();
-              session.sendCues(e.target.checked);
-              session.setMidiStatus("");
+              setSendCues(session, e.target.checked);
             }}
           />{" "}
           Send cues
@@ -275,8 +298,7 @@ export function PerformanceMidiSetup({
         <Button
           variant="outline"
           onClick={() => {
-            session.panic();
-            session.disarm();
+            session.panicAndDisarm();
           }}
         >
           Panic / disarm
@@ -299,8 +321,10 @@ export function PerformanceMidiSetup({
           and TRS clock output On. Continuous app clock fluctuated in real GP-180 USB and Bluetooth tests with a TimeLine and caused audible delay changes.
         </p>
       </HelpNote>
-      {songKey && <SongPreparationSettings songKey={songKey} locked={playing || starting} session={session} />}
+      {songKey && <SongPreparationSettings songKey={songKey} session={session} locked={playing || starting} />}
+      <RhythmTempoStatus session={session} />
       <PreparationSequencePreview session={session} />
+      <RhythmHardwareTest session={session} />
       <TimecodeSettings session={session} offset={timecodeOffset} onOffset={onTimecodeOffset} bluetooth={portId === BLUETOOTH_PORT_ID} />
       <MidiFileField file={midiFile} onChange={onMidiFile} />
       {midiConfig.showCommands && (

@@ -2,6 +2,11 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Added
+- **RC-10R rhythms.** Export native six-part rhythms or MIDI, plan song/playlist rhythm cues, track export and explicit transfer revisions, and prepare memory/tempo before playback.
+
 ## [1.0.0] - 2026-11-20
 
 ### Added

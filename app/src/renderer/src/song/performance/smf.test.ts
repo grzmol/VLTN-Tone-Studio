@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeMidiFile, encodeMidiFile, encodeSmf, MAX_SMF_BYTES, midiFileFromOptions, parseSmf, smfCues } from "./smf";
+import { decodeMidiFile, encodeDrumSmf, encodeMidiFile, encodeSmf, MAX_SMF_BYTES, midiFileFromOptions, parseSmf, smfCues } from "./smf";
 import { fixedBeatGrid, type BeatGrid } from "../band/beat-grid";
 import type { NoteEvent } from "../band/note";
 
@@ -21,6 +21,49 @@ function smf(format: number, division: number, tracks: number[][][], raw: number
 }
 
 const tempo = (microseconds: number) => [0xff, 0x51, 3, (microseconds >> 16) & 255, (microseconds >> 8) & 255, microseconds & 255];
+
+describe("single-track drum MIDI", () => {
+  it("writes format 0, musical metadata, ordered notes and a whole-bar endpoint after silence", () => {
+    const file = encodeDrumSmf([{ tick: 0, duration: 96, pitch: 36, velocity: 100 }], 120, 4, 4, 3840);
+    expect(Array.from(file.slice(0, 14))).toEqual([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 1, 224]);
+    expect(new TextDecoder().decode(file.slice(14, 18))).toBe("MTrk");
+    expect(new DataView(file.buffer).getUint32(18)).toBe(file.length - 22);
+    // Independent byte-level check: final delta is 3840 - 96 = 3744 ticks, including the silent second bar.
+    expect(Array.from(file.slice(22))).toEqual([0, 255, 88, 4, 4, 2, 24, 8, 0, 255, 81, 3, 7, 161, 32, 0, 153, 36, 100, 96, 137, 36, 0, 157, 32, 255, 47, 0]);
+  });
+  it("writes true 6/8 metadata and quarter-note tempo", () => {
+    const file = encodeDrumSmf([], 150, 6, 8, 1440);
+    expect(Array.from(file.slice(22, 37))).toEqual([0, 255, 88, 4, 6, 3, 36, 8, 0, 255, 81, 3, 6, 26, 128]);
+    expect(Array.from(file.slice(37))).toEqual([139, 32, 255, 47, 0]);
+  });
+  it("places note-offs before repeated note-ons at the same tick", () => {
+    const file = encodeDrumSmf(
+      [
+        { tick: 0, duration: 240, pitch: 38, velocity: 99 },
+        { tick: 240, duration: 240, pitch: 38, velocity: 80 },
+      ],
+      120,
+      4,
+      4,
+      1920,
+    );
+    expect(parseSmf(file).map((message) => message.bytes[0])).toEqual([0x99, 0x89, 0x99, 0x89]);
+  });
+  it("rejects invalid MIDI values and events beyond the declared endpoint", () => {
+    const note = { tick: 0, duration: 96, pitch: 36, velocity: 100 };
+    for (const bad of [
+      { ...note, tick: NaN },
+      { ...note, velocity: 0 },
+      { ...note, duration: 2000 },
+      { ...note, pitch: 200 },
+    ]) {
+      expect(() => encodeDrumSmf([bad], 120, 4, 4, 1920)).toThrow("drum hit");
+    }
+    expect(() => encodeDrumSmf([], 0, 4, 4, 1920)).toThrow("tempo");
+    expect(() => encodeDrumSmf([], 120, 4, 3, 1920)).toThrow("time signature");
+    expect(() => encodeDrumSmf([], 120, 4, 4, Infinity)).toThrow("length");
+  });
+});
 
 describe("standard MIDI files", () => {
   it("places messages in seconds at the default 120 BPM", () => {

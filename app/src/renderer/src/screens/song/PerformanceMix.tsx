@@ -49,6 +49,8 @@ export function PerformanceMix({
   onTrackBus,
   onTrackInfo,
   partChoices = ORIGINAL_PARTS,
+  pedalPlays = false,
+  drumsFallback = false,
   countsAs = {},
   onCountsAs,
 }: {
@@ -62,6 +64,10 @@ export function PerformanceMix({
   onTrackInfo: (key: string, patch: Partial<Omit<TrackInfo, "kind">>) => void;
   /** What "What plays" is set to. A track it silences is marked, so a muted original or generated part does not look like a fault. */
   partChoices?: PartChoices;
+  /** True while the RC-10R plays the drums, so every drum track is off. `partChoices` holds what really plays (see withResolvedDrums). */
+  pedalPlays?: boolean;
+  /** True when the song chose the pedal but its fallback drums play, so their badges say so. */
+  drumsFallback?: boolean;
   /** What each imported track counts as for the practice mute, by key. A track without an entry goes by its name. */
   countsAs?: Record<string, CountsAs>;
   onCountsAs?: (key: string, value: CountsAs | undefined) => void;
@@ -70,7 +76,12 @@ export function PerformanceMix({
   const player = useSession(session, (s) => s.player);
   const speed = useSession(session, (s) => s.speed);
   if (!player) return null;
-  const practiceMuted = practiceMutedKeys(practiceSet(practiceKinds), { keys: player.names, info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs });
+  const practiceMuted = practiceMutedKeys(practiceSet(practiceKinds), {
+    keys: player.names,
+    info: tracks,
+    split: !!stems && Object.keys(stems).length > 0,
+    countsAs,
+  });
   const groups = groupsOf(tracks);
   const busOf = (name: string): BusName => trackBuses[name] ?? tracks[name]?.bus ?? "main";
   const warning = clickStretchWarning(
@@ -78,7 +89,7 @@ export function PerformanceMix({
     player.names.map((name) => ({ key: name, name: tracks[name]?.name ?? name, bus: busOf(name) })),
   );
   const label = (name: string) => rowName(name, stems, tracks[name]);
-  const silenced = silencedByChoice(partChoices, partKeysOf(tracks, stems));
+  const silenced = silencedByChoice(partChoices, partKeysOf(tracks, stems), drumsFallback);
   const usedGroups = [...new Set(Object.values(groups).flat())].sort((a, b) => a - b);
   return (
     <div aria-label="Performance mixer" className="flex flex-col gap-3">
@@ -119,6 +130,7 @@ export function PerformanceMix({
           const info = tracks[name];
           const off = silenced[name];
           const byPractice = practiceMuted.has(name);
+          const byPedal = pedalPlays && kindOfTrack(name, info, countsAs[name]) === "drums";
           return (
             <div
               key={name}
@@ -132,7 +144,8 @@ export function PerformanceMix({
                   <input
                     type="checkbox"
                     aria-label={`${label(name)} enabled`}
-                    checked={!entry.mute && !byPractice}
+                    checked={!entry.mute && !byPractice && !byPedal}
+                    disabled={byPedal}
                     onChange={(e) => {
                       // Read the input now: an updater runs after React has put a controlled input back, so its value would be stale.
                       const enabled = e.target.checked;
@@ -147,6 +160,7 @@ export function PerformanceMix({
                   />
                   <span className="truncate">{label(name)}</span>
                 </label>
+                {byPedal && !off && <span className="text-xs text-led-warn">Off: RC-10R plays</span>}
                 {byPractice && <span className="shrink-0 rounded-md border border-led-warn px-1.5 py-0.5 text-xs text-led-warn">Practice</span>}
                 {info?.kind === "user" && onCountsAs && (
                   <select

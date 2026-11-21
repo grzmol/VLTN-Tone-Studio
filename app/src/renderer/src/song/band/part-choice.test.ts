@@ -204,3 +204,41 @@ describe("effectiveChoice", () => {
     expect(effectiveChoice("both", BOTH.drums!)).toBe("both");
   });
 });
+
+describe("pedal drums", () => {
+  it("mutes both drum tracks while the pedal plays", () => {
+    const keys: PartKeys = { drums: { original: "drums", generated: "track1" } };
+    const mix: Mix = { drums: { volume: 1, mute: false, solo: false }, track1: { volume: 1, mute: false, solo: false } };
+    const next = muteSilencedParts(mix, choices("pedal"), keys);
+    expect(next.drums.mute).toBe(true);
+    expect(next.track1.mute).toBe(true);
+    expect(silencedByChoice(choices("pedal"), keys)).toEqual({ drums: "Off: RC-10R plays", track1: "Off: RC-10R plays" });
+  });
+
+  it("saves pedal drums into the mix as their fallback, so the fallback is never muted", () => {
+    expect(muted(BOTH, { drums: "pedal", bass: "original", pedalFallback: "generated" })).toMatchObject({ drums: true, track1: false });
+    expect(muted(BOTH, { drums: "pedal", bass: "original", pedalFallback: "original" })).toMatchObject({ drums: false, track1: true });
+    expect(muted(BOTH, { drums: "pedal", bass: "original" })).toMatchObject({ drums: true, track1: false });
+  });
+
+  it("marks the badges of a fallback", () => {
+    expect(silencedByChoice(choices("generated"), BOTH, true).drums).toBe("Off: generated plays (fallback)");
+    expect(silencedByChoice(choices("original"), BOTH, true).track1).toBe("Off: original plays (fallback)");
+    expect(silencedByChoice(choices("original"), BOTH).track1).toBe("Off: original plays");
+  });
+
+  it("reads pedal and its fallback from the saved option, and rejects both on bad values", () => {
+    const base = ORIGINAL_PARTS;
+    expect(readPartChoices({ drums: "pedal", bass: "original", pedalFallback: "original" }, base)).toEqual({ drums: "pedal", bass: "original", pedalFallback: "original" });
+    expect(readPartChoices({ drums: "pedal", pedalFallback: "loud" }, base)).toEqual({ drums: "pedal", bass: "original" });
+    expect(readPartChoices({ drums: "nonsense" }, base).drums).toBe("original");
+  });
+
+  it("does not take pedal for bass", () => {
+    expect(readPartChoices({ bass: "pedal" }, ORIGINAL_PARTS).bass).toBe("original");
+  });
+
+  it("shows pedal as the choice that plays even without a generated track", () => {
+    expect(effectiveChoice("pedal", {})).toBe("pedal");
+  });
+});

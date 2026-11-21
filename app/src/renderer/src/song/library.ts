@@ -1,4 +1,7 @@
 import { create } from "zustand";
+import { migratePedalDrums, pedalDrumMix } from "./performance/pedal-drums";
+import { resolveDrums, withResolvedDrums } from "./band/drum-source";
+import { hasSavedPedalRhythm } from "./performance/rhythm-runtime";
 import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
 import { selectWholeSongStems, useSong } from "./store";
@@ -27,7 +30,7 @@ import { migrateLyricsJob } from "./performance/lyrics-jobs";
 import { playerShapeFromOptions } from "./performance/song-shape";
 import { sharedPlaybackEngine } from "./audio/playback-engine";
 import { loudnessFromOptions, normalisingGain } from "./audio/loudness";
-import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, readPartChoices } from "./band/part-choice";
+import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, pedalFallbackOf, readPartChoices } from "./band/part-choice";
 import { mixDefaults } from "./tracks";
 import type { Mix } from "./stems/mix";
 import { StemPlayer, yieldToMain } from "./stems/player";
@@ -356,6 +359,7 @@ async function readIndex(): Promise<SongLibrary> {
   const index = await api().index();
   // A failed move leaves the localStorage copies for the next start; it must not hide the library.
   await migrateLocalSettings(index.songs).catch((e) => console.error("Could not move song settings into the library", e));
+  await migratePedalDrums(index.songs).catch((e) => console.error("Could not move the pedal drums switch into the songs", e));
   return index;
 }
 /**
@@ -374,11 +378,18 @@ export function applyPracticeMute(song: PreparedSong): void {
   const keys = partKeysOf(song.tracks, song.stems);
   const choices = readPartChoices(saved?.partChoice, defaultPartChoices(null, keys));
   const base = { ...mixDefaults(song.tracks), ...(saved?.mix && typeof saved.mix === "object" ? saved.mix : {}) };
-  const mix = muteSilencedParts(saved?.partChoice === undefined ? applyPartChoices(base, choices, keys) : base, choices, keys);
+  // A prepared song's drums are decided as it is handed over: the pedal plays only when the song has RC-10R cues and the set is armed.
+  const drums = resolveDrums({
+    choice: choices.drums,
+    fallback: pedalFallbackOf(choices, keys.drums?.generated !== undefined),
+    hasRhythmCues: hasSavedPedalRhythm(song.settings),
+    armed: !!useSongLibrary.getState().midiSession?.armed,
+  });
+  const mix = muteSilencedParts(saved?.partChoice === undefined ? applyPartChoices(base, choices, keys) : base, withResolvedDrums(choices, drums), keys);
   const tracks = { keys: song.player.names, info: song.tracks, split: Object.keys(song.stems).length > 0, countsAs: readCountsAs(saved) };
   const loudness = loudnessFromOptions(options);
   const gain = loudness.normalise && loudness.lufs !== null ? normalisingGain(loudness.lufs, loudness.peakDb) : 1;
-  song.player.setMix(effectiveMute(mix, practiceSet(usePracticeMute.getState().kinds), tracks), gain);
+  song.player.setMix(pedalDrumMix(effectiveMute(mix, practiceSet(usePracticeMute.getState().kinds), tracks), tracks, drums.plays === "pedal"), gain);
 }
 const api = () => {
   if (!host.song.library) throw new Error("Saved songs are available in the desktop app.");
@@ -1075,3 +1086,4 @@ useSong.subscribe((state, previous) => {
   if (!state.source?.libraryId || ["decoding", "model", "splitting"].includes(state.status.kind)) return;
   useSongLibrary.getState().autosave();
 });
+
