@@ -576,8 +576,8 @@ export function barStartsFromChords(beats: readonly number[], changes: readonly 
       for (let d = bar - PHASE_SHIFT_MAX; d <= bar + PHASE_SHIFT_MAX; d++) {
         const candidate = cursor + d;
         if (best >= 0) break;
-        if (d >= 1 && candidate < beats.length && phaseAt(candidate) === want && (best < 0 || Math.abs(d - bar) < Math.abs(best - cursor - bar)))
-          best = candidate;
+        // The loop stops at the first hit, so `best` is still unset here.
+        if (d >= 1 && candidate < beats.length && phaseAt(candidate) === want) best = candidate;
       }
       if (best >= 0) {
         line = best;
