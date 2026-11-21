@@ -52,6 +52,7 @@ import { applyPartChoices, defaultPartChoices, muteSilencedParts, partKeysOf, re
 import { PerformanceOutputs } from "./PerformanceOutputs";
 import { PerformanceMidiSetup, SessionMidiHealth } from "./PerformanceMidiSetup";
 import { PerformanceAnalysis, useChordAnalysis } from "./PerformanceAnalysis";
+import { preparationSettings, usePreparationDefaults } from "@/song/performance/start-preparation";
 import { effectiveMute, noTrackNote, practiceSet, readCountsAs, usePracticeMute, type CountsAs, type PracticeTracks } from "@/song/performance/practice-mute";
 import { PracticeMuteBanner, PracticeMuteMenu } from "./PracticeMute";
 import { StageView } from "./StageView";
@@ -250,6 +251,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   const bass = useMemo(() => bassOf(stems), [stems]);
   // The song's MIDI file is saved with its options, so it is read back here when the song is shown.
   const [midiFile, setMidiFile] = useState<MidiFileOption | null>(() => midiFileFromOptions(options));
+  useSongSettingsRevision(key);
+  const cueOptions = readOptions<Record<string, unknown>>(key, {});
+  const preparationDefaults = usePreparationDefaults((s) => s.settings);
+  const beforeSong = useMemo(() => preparationSettings(cueOptions.preparation, preparationDefaults), [JSON.stringify(cueOptions.preparation), preparationDefaults]);
   const parsed = useMemo(() => {
     const cued = songCues(chart, midiConfig.macros, midiFile);
     return { cues: cued.cues, error: cued.error };
@@ -295,6 +300,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           cues: parsed.cues,
           parseError: parsed.error,
           bpm,
+          preparationSettings: beforeSong,
           sections: sectionList,
           bindings: midiConfig.bindings,
           timecode,
@@ -389,6 +395,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
       cues: parsed.cues,
       parseError: parsed.error,
       bpm,
+      preparationSettings: beforeSong,
       timing,
       sections: sectionList,
       bindings: midiConfig.bindings,
@@ -608,7 +615,13 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
   // The song's trim, fades and end are read from its stored options, so a player always takes the song's own values.
   const playedShapeSignature = JSON.stringify(playerShapeFromOptions(getSetting(key, ":options")));
   useEffect(() => {
+    const start = player?.start,
+      end = player?.duration;
     player?.setShape(playerShapeFromOptions(getSetting(key, ":options")));
+    if (start !== player?.start || end !== player?.duration) {
+      session.cancelStart();
+      session.invalidatePreparation();
+    }
   }, [player, key, shapeVersion, playedShapeSignature]);
   useEffect(() => {
     try {
@@ -822,6 +835,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           <SessionMidiHealth session={session} firstBeat={firstBeat} />
           <PerformanceMidiSetup
             session={session}
+            songKey={key}
             chart={chart}
             onSaveChart={saveChart}
             onShowChart={() => chooseView("lyrics")}
