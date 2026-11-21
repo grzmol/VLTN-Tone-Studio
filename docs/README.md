@@ -20,6 +20,7 @@ Guides for people who use VLTN Tone Studio, and notes for people who build it. T
 | [Contributing](CONTRIBUTING.md) | set up, run the checks, name a branch and a commit, open a pull request, cut a release |
 | [Roadmap](ROADMAP.md) | see what is being worked on, what comes next and what is parked |
 | [Product plan](PRODUCT-PLAN.md) | read the market and feature analysis and the detailed, phased development plan behind the roadmap |
+| [Custom effects and sharing](CUSTOM-EFFECTS-AND-SHARING.md) | see what exists on GitHub for firmware and custom effects, and the plan for sharing presets, blocks and captures by hash on every model |
 | [`app/README.md`](../app/README.md) | look up commands, launch parameters and the details of each pedal family, SnapTones, User IRs and stems |
 | [`AGENTS.md`](../AGENTS.md) | brief a coding assistant on the repository |
 
