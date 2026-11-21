@@ -2,7 +2,7 @@
 //   <root>/backups/<device key>-YYYY-MM-DD[-n]/<slot label>-Name.prst (+ backup.json)   read-only snapshots of the pedal
 //   <root>/backups/.tmp-*  backups being written: renamed into place when complete, swept on start-up if abandoned
 //   <root>/library/<dir>/collection.json + *.prst                                       Imported files, Replaced presets, user collections
-import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open as openFile, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostError } from "@shared/ipc";
 import { renameRetry, rmRetry, writeJsonAtomic } from "./fs-atomic";
@@ -65,9 +65,14 @@ export async function readPrstPaths(paths: string[]): Promise<PickedFile[]> {
       const fileName = path.split(/[\\/]/).pop() ?? path;
       if (!isPrst(fileName)) return { fileName, path, bytes: null, error: "Not a .prst preset file." };
       try {
-        const s = await stat(path);
-        if (!s.isFile() || s.size > MAX_PRST_BYTES) return { fileName, path, bytes: null, error: NOT_A_PRESET };
-        return { fileName, path, bytes: new Uint8Array(await readFile(path)), error: null };
+        const file = await openFile(path, "r");
+        try {
+          const s = await file.stat();
+          if (!s.isFile() || s.size > MAX_PRST_BYTES) return { fileName, path, bytes: null, error: NOT_A_PRESET };
+          return { fileName, path, bytes: new Uint8Array(await file.readFile()), error: null };
+        } finally {
+          await file.close();
+        }
       } catch (e) {
         return { fileName, path, bytes: null, error: `Couldn't read the file: ${(e as Error).message}` };
       }
