@@ -38,6 +38,7 @@ export const SLOT_NAME_MAX = 15;
 
 export const DEFAULT_TIMING = Object.freeze({
   frameGapMs: 10, // the editor pumps its TX queue with a 10 ms timer, one frame per tick
+  slowPedalGapMs: 50, // GP-200JR and LT: between the frames of a multi-frame message (JR drops frames at 10 ms, works at 50, #136; smaller untested)
   multiChunkPauseMs: 1000, // the editor sleeps 1 s after any multi-chunk message
   identityGapMs: 100, // 0x2001 query -> SOFTWARE_STATE
   replyTimeoutMs: 1000, // per query (sync step)
@@ -109,10 +110,6 @@ export class Gp200Session extends EventTarget {
   get isUpdater() {
     return this.#updater;
   }
-  /** "major.minor.patch" from the last 0x1007, or null. */
-  get firmware() {
-    return this.#globals?.firmware ?? null;
-  }
   /** Last known globals { [name]: value } (0x1007 + echoes), or null before connect. */
   get globals() {
     return this.#globals ? { ...this.#globals.values } : null;
@@ -161,7 +158,7 @@ export class Gp200Session extends EventTarget {
       return;
     }
     const msg = this.#reasm.push(frame);
-    if (!msg) return;
+    if (!msg) return this.#log?.("rx", bytes); // a middle chunk of a multi-frame reply: still log it
     const decoded = decodeMessage(msg);
     this.#log?.("rx", bytes, decoded);
     this.#observe(decoded);
@@ -172,7 +169,7 @@ export class Gp200Session extends EventTarget {
   #observe(m) {
     for (const r of m.records) {
       if (r.kind === "globals") {
-        this.#globals = { firmware: r.firmware, values: { ...r.values } };
+        this.#globals = { values: { ...r.values } };
         if (r.currentSlot !== null && r.currentSlot < this.slotCount) this.#current = r.currentSlot;
       } else if (r.kind === "patchChanged") {
         this.#current = r.slot;
@@ -224,7 +221,7 @@ export class Gp200Session extends EventTarget {
     for (let now = Date.now(); now < t; now = Date.now()) await sleep(t - now);
   }
 
-  async #sendFrame(bytes) {
+  async #sendFrame(bytes, gapMs = this.#timing.frameGapMs) {
     if (this.#closed) throw new Gp200Error("closed", "session closed");
     if (this.#updater) throw new Gp200Error("updater", "the pedal is in firmware-update mode; nothing is sent");
     const why = dangerOf(bytes);
@@ -232,7 +229,7 @@ export class Gp200Session extends EventTarget {
     await this.#waitUntil(this.#nextSendAt);
     this.#log?.("tx", bytes);
     this.#t.send(bytes);
-    this.#nextSendAt = Date.now() + this.#timing.frameGapMs;
+    this.#nextSendAt = Date.now() + gapMs;
   }
 
   /** Frame and send one message; returns the number of frames sent (fewer when the pedal asked for a flush). */
@@ -241,10 +238,12 @@ export class Gp200Session extends EventTarget {
     if (why) throw new Gp200Error("unsafe", `refusing to send ${why}`);
     const frames = encodeFrames(msg);
     const flushes = this.#flushes;
+    const slow = frames.length > 1 && (this.#deviceType === 3 || this.#deviceType === 4);
+    const gap = slow ? Math.max(this.#timing.frameGapMs, this.#timing.slowPedalGapMs) : this.#timing.frameGapMs;
     let sent = 0;
     for (const f of frames) {
       if (this.#flushes !== flushes) break;
-      await this.#sendFrame(f);
+      await this.#sendFrame(f, gap);
       sent++;
       onFrame?.(sent, frames.length);
     }
@@ -329,7 +328,7 @@ export class Gp200Session extends EventTarget {
         const push = this.#waitFor(kindIs("globals"), this.#timing.globalsPushMs, "0x1007 push");
         await push.promise.catch(() => this.#query(encode.stateDump(), kindIs("globals"), "0x1006 state dump"));
       }
-      return { device: this.device, deviceType: type, name: this.deviceName, firmware: this.firmware, currentSlot: this.#current, globals: this.globals };
+      return { device: this.device, deviceType: type, name: this.deviceName, currentSlot: this.#current, globals: this.globals };
     });
   }
 
@@ -440,11 +439,11 @@ export class Gp200Session extends EventTarget {
       return { playing, flag, exp1AB };
     });
   }
-  /** 0x1006 state dump -> { firmware, currentSlot, values }. */
+  /** 0x1006 state dump -> { currentSlot, values }. */
   readGlobals() {
     return this.exclusive(async () => {
       const g = recordOf(await this.#query(encode.stateDump(), kindIs("globals"), "0x1006 state dump"), "globals");
-      return { firmware: g.firmware, currentSlot: g.currentSlot, values: g.values };
+      return { currentSlot: g.currentSlot, values: g.values };
     });
   }
   /**
@@ -482,7 +481,7 @@ export class Gp200Session extends EventTarget {
     step("editBuffer");
     const snapToneNames = await this.#optional(() => this.readSnapToneNames(), "SnapTone names");
     step("snapToneNames", SNAPTONE.SLOTS);
-    return { device: this.device, firmware: this.firmware, currentSlot: this.#current, globals: this.globals, drum, irNames, presets, styles, editBuffer, snapToneNames };
+    return { device: this.device, currentSlot: this.#current, globals: this.globals, drum, irNames, presets, styles, editBuffer, snapToneNames };
   }
 
   // ------------------------------------------------------------------------------------------- select + live edits

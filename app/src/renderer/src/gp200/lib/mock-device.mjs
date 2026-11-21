@@ -80,7 +80,7 @@ export function generatePatch(slot, { catalog } = {}) {
 export class MockGp200 {
   /**
    * @param opts {
-   *   type: "gp200" | "gp200lt" | "gp200jr" | 2 | 3 | 4 = "gp200", state = 1 (0 = updater mode), firmware = "1.8.0",
+   *   type: "gp200" | "gp200lt" | "gp200jr" | 2 | 3 | 4 = "gp200", state = 1 (0 = updater mode),
    *   images?: (image | .prst)[] seeding slots 0.. (others generated), catalog? (params of generated patches),
    *   latencyMs = 1, minGapMs = 10, deafMs = 800, push1007 = true, verifyGlitch = 0 (probability of a corrupt byte
    *   at file offset 0x9F in stored reads after a write), loseWrites = 0 (next N full writes are lost),
@@ -92,7 +92,6 @@ export class MockGp200 {
   constructor({
     type = "gp200",
     state = 1,
-    firmware = "1.8.0",
     images = [],
     catalog,
     latencyMs = 1,
@@ -116,7 +115,6 @@ export class MockGp200 {
     this.name = dev.name;
     this.slotCount = dev.slots;
     this.state = state;
-    this.firmware = firmware;
     this.catalog = catalog;
     this.slots = Array.from({ length: dev.slots }, (_, i) => normalizeStored(images[i] ? imageOf(images[i]) : generatePatch(i, { catalog }), i));
     this.current = 0;
@@ -224,7 +222,7 @@ export class MockGp200 {
   }
 
   #pushGlobals() {
-    this.#reply(rec.globals(encodeGlobals({ firmware: this.firmware, currentSlot: this.current, values: this.globals })));
+    this.#reply(rec.globals(encodeGlobals({ currentSlot: this.current, values: this.globals })));
   }
 
   #handle({ cmd, payload }) {

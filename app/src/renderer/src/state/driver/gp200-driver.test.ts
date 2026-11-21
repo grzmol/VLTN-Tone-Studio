@@ -66,7 +66,7 @@ describe("Gp200Driver sync", () => {
     expect(isGp200Prst(snap.prst)).toBe(true);
     expect(parsePrst(snap.prst).patch.name).toBe(snap.names[0].name);
     expect(snap.globals?.values).toMatchObject({ inputMode: 1 });
-    expect(snap.globals?.firmware).toBe("1.8.0");
+    expect(snap.globals?.firmware).toBeUndefined(); // the 0x1007 header is not a firmware version (#136)
     expect(snap.globals?.records.find((r) => r.a === 0x02)?.value).toBe(1);
     expect(progress.at(-1)).toEqual([progress.at(-1)![1], progress.at(-1)![1]]);
     expect(progress.length).toBeGreaterThan(count);

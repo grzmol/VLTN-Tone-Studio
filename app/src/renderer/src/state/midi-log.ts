@@ -251,7 +251,7 @@ function describeGp200Record(r: Gp200Frame, out: boolean, paramName?: ParamNamer
     case "globalEq":
       return `Global EQ value ${r.index} ${num(r.value)}`;
     case "globals":
-      return `Settings, firmware ${r.firmware}`;
+      return "Settings";
     case "stateDump":
       return "Read pedal settings";
     case "drumState":
@@ -464,6 +464,7 @@ export class MidiLogDecoder {
 
   /** A GP-200 frame: incoming ones come with the session's decoding, outgoing ones are reassembled here. */
   #gp200(frame: NonNullable<ReturnType<typeof decodeGp200Frame>>, d: "out" | "in", decoded: unknown): string {
+    if (d === "in" && !decoded && frame.kind === "data") return `Pedal: frame ${Math.floor(frame.off / CHUNK.DEVICE) + 1} of ${Math.ceil(frame.len / CHUNK.DEVICE)}`;
     if (d === "in") return describeGp200(decoded as Gp200Message | Gp200Frame | undefined, false, this.paramName);
     if (frame.kind !== "data") return frame.kind === "address" && frame.address === "softwareState" ? "Read pedal mode" : "SysEx";
     const msg = this.#tx200.push(frame);

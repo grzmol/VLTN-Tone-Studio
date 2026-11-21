@@ -47,9 +47,9 @@ const gaps = (sent) => sent.slice(1).map((x, i) => x.t - sent[i].t);
 const dataViolations = (dev) => dev.violations.filter((v) => v.kind !== "deaf");
 
 test("connect: 0x2001, 100 ms, SOFTWARE_STATE, pushed 0x1007", async () => {
-  const { dev, s, sent } = await setup({ firmware: "1.8.2" });
+  const { dev, s, sent } = await setup();
   const info = await s.connect();
-  assert.deepEqual({ device: info.device, deviceType: info.deviceType, name: info.name, firmware: info.firmware, currentSlot: info.currentSlot }, { device: "gp200", deviceType: 2, name: "GP-200", firmware: "1.8.2", currentSlot: 0 });
+  assert.deepEqual({ device: info.device, deviceType: info.deviceType, name: info.name, currentSlot: info.currentSlot }, { device: "gp200", deviceType: 2, name: "GP-200", currentSlot: 0 });
   assert.equal(info.globals.inputMode, 1);
   assert.equal(decodeFrame(sent[0].bytes).data[0], 0x01, "first frame: 0x2001 query");
   assert.equal(decodeFrame(sent[1].bytes).address, "softwareState");
@@ -70,14 +70,14 @@ const sentKinds = (sent) =>
 
 test("connects when the pedal never answers SOFTWARE_STATE (captured behaviour)", async () => {
   // USB captures of the editor and a GP-200 on firmware 1.8.0 (phash/gp200editor): 0x2001 is answered, SOFTWARE_STATE is not
-  const dev = new MockGp200({ deafMs: 20, firmware: "1.8.2" });
+  const dev = new MockGp200({ deafMs: 20 });
   const t = dev.transport();
   const received = [];
   const watched = { ...t, onMessage: (cb) => t.onMessage((bytes) => (received.push(decodeFrame(bytes)), cb(bytes))) };
   const { transport, sent } = recorder(watched);
   const s = new Gp200Session(transport, { timing: fast });
   const info = await s.connect();
-  assert.deepEqual({ device: info.device, deviceType: info.deviceType, firmware: info.firmware }, { device: "gp200", deviceType: 2, firmware: "1.8.2" });
+  assert.deepEqual({ device: info.device, deviceType: info.deviceType }, { device: "gp200", deviceType: 2 });
   assert.equal(received.filter((f) => f?.kind === "address").length, 0, "the pedal sent no SOFTWARE_STATE reply");
   assert.deepEqual(sentKinds(sent), ["identity", "softwareState"], "nothing resent");
   await s.close();
@@ -107,7 +107,7 @@ test("connect: a lost 0x2001 reply resends the identity query and SOFTWARE_STATE
 test("connect falls back to 0x1006 when the pedal does not push 0x1007", async () => {
   const { s, sent } = await setup({ push1007: false });
   const info = await s.connect();
-  assert.equal(info.firmware, "1.8.0");
+  assert.equal(info.globals.displayMode !== undefined, true, "0x1006 answered with the settings record");
   assert.equal(decodeFrame(sent.at(-1).bytes).data[0], 0x06, "0x1006 state dump");
   await s.close();
 });
@@ -510,4 +510,17 @@ test("SnapTone / User IR rename refuses: no confirm, a slot out of range, an emp
   const kept = dev.userIr;
   Object.defineProperty(dev, "userIr", { get: () => kept, set: () => {} });
   await assert.rejects(s.renameUserIr(1, "Ignored", { confirm: true }), { code: "verify" });
+});
+
+test("JR and LT pace the 45 frames of a SnapTone upload at 50 ms, the GP-200 stays fast (issue #136)", async () => {
+  for (const [type, slow] of [["gp200jr", true], ["gp200lt", true], ["gp200", false]]) {
+    const { s, sent } = await setup({ type }, { ...fast, frameGapMs: 1, slowPedalGapMs: 50, uploadTimeoutMs: 8000 });
+    await s.connect();
+    const n = sent.length;
+    await s.uploadSnapTone(5, "Pace", cloneBlob(), { confirm: true });
+    const g = gaps(sent.slice(n)).sort((a, b) => a - b);
+    const median = g[g.length >> 1];
+    assert.equal(median >= 45, slow, `${type} median gap ${median} ms`);
+    await s.close();
+  }
 });

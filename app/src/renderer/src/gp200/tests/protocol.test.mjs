@@ -211,8 +211,9 @@ test("SysexAssembler joins fragments and passes short messages", () => {
 });
 
 test("device records decode: globals, names, results, dirty, select echo", () => {
-  const g = decodeGlobals(encodeGlobals({ firmware: "1.8.0", currentSlot: 42, values: { inputLevel: -6, displayMode: 2, fsMode: 1 } }));
-  assert.equal(g.firmware, "1.8.0");
+  const g = decodeGlobals(encodeGlobals({ currentSlot: 42, values: { inputLevel: -6, displayMode: 2, fsMode: 1 } }));
+  assert.deepEqual([...encodeGlobals({ currentSlot: 42, values: {} }).slice(0, 4)], [0, 6, 1, 0], "header of every real 0x1007; not a version (#136)");
+  assert.equal("firmware" in g, false);
   assert.equal(g.currentSlot, 42);
   assert.equal(g.values.inputLevel, -6);
   assert.equal(g.values.displayMode, 2);
