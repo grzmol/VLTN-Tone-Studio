@@ -401,9 +401,29 @@ export class Gp150Session extends EventTarget {
     });
   }
 
+  /**
+   * Read a preset and wait for its own reply. The pedal also pushes a PATCH message of the same shape whenever its
+   * active preset changes (footswitch, Program Change), so a stored read or select (slot < 200) takes only the
+   * message whose slot field (u32 at offset 4 of the body) is the slot it asked for. Anything else stays a push.
+   * The capture corpus has no stored read paired with its reply. If matching times out, retry once with any valid PATCH,
+   * as older firmware may not provide the expected reply. The parsed preset must still belong to the requested slot;
+   * a push from another slot must never be returned, exported or written back as this one.
+   * The edit buffer (slot 0xFFFF) accepts any valid preset body: a push is the current edit buffer too.
+   */
   async #readPatch(slot, select) {
-    const reply = await this.#request(readPatch(slot, select), (m) => m.p === P.QUERY && m.cmd === CMD.PATCH && isGp150Prst(m.payload), "preset");
-    return normalize(reply.payload);
+    const validPatch = (m) => m.p === P.QUERY && m.cmd === CMD.PATCH && isGp150Prst(m.payload);
+    const stored = slot < SLOTS.PRESETS;
+    const isReply = (m) => validPatch(m) && (!stored || readU32(m.payload, 4) === slot);
+    let reply;
+    try {
+      reply = await this.#request(readPatch(slot, select), isReply, "preset");
+    } catch (error) {
+      if (!stored || error?.code !== "timeout" || this.#closed) throw error;
+      reply = await this.#request(readPatch(slot, select), validPatch, "preset fallback");
+    }
+    const prst = normalize(reply.payload);
+    if (stored && parsePrst(prst).slot !== slot) throw new Gp150Error("verify", `Slot ${slot + 1} read back as another preset`);
+    return prst;
   }
 
   /** The edit buffer (active preset with its edits); its slot field names the active slot. */
@@ -437,7 +457,9 @@ export class Gp150Session extends EventTarget {
     const names = await this.readPresetNames();
     const out = [];
     for (const n of names) {
-      const prst = await this.readPreset(n.slot);
+      let prst = await this.readPreset(n.slot);
+      if (parsePrst(prst).slot !== n.slot) prst = await this.readPreset(n.slot);
+      if (parsePrst(prst).slot !== n.slot) throw new Gp150Error("verify", `Slot ${n.slot + 1} read back as another preset`);
       out.push({ slot: n.slot, name: parsePrst(prst).name, prst });
       opts.onProgress?.(out.length, names.length);
     }
@@ -510,6 +532,7 @@ export class Gp150Session extends EventTarget {
   async renamePreset(slot, name, opts) {
     needConfirm(opts, "Renaming a preset");
     const prst = await this.readPreset(slot);
+    if (parsePrst(prst).slot !== slot) throw new Gp150Error("verify", `Slot ${slot + 1} read back as another preset`);
     await this.writePreset(slot, applyPatchEdits(prst, { name }), opts);
     return { slot, name: parsePrst(await this.readPreset(slot)).name };
   }
