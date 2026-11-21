@@ -15,6 +15,9 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { performanceKey, setSetting } from "./settings";
+import { packExtras } from "@/song/band/extras";
+import { DEFAULT_BAND_SETTINGS } from "@/song/band/arrangement";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
@@ -920,6 +923,60 @@ it("waits out the start delay, cancels it with a second Play press, and starts w
   session.pause();
   unload();
   vi.useRealTimers();
+});
+
+/** A song with generated drums, and the drummer's count packed beside them as the song store saves it. `start` is the count's song time. */
+function songWithCount(bars: 0 | 1 | 2, start = -2) {
+  const pcm = (frames: number) => ({ sampleRate: 44100, channels: [new Float32Array(frames), new Float32Array(frames)] });
+  const packed = packExtras({ countIn: { audio: pcm(44100), start }, exits: {} })!;
+  const own = { ...source, libraryId: undefined, name: `count-${bars}.wav` };
+  setSetting(
+    performanceKey(own),
+    ":options",
+    JSON.stringify({
+      band: { ...DEFAULT_BAND_SETTINGS, countIn: { bars, sound: "sticks" } },
+      generatedParts: { drums: "track1", drumsExtras: "track2" },
+      bandExtras: { drums: packed.manifest },
+    }),
+  );
+  return { own, stems: { track1: pcm(100), track2: packed.audio } as unknown as Stems };
+}
+
+it("starts a song with the drummer's count through the drums' track, and the count leads the song", async () => {
+  vi.useFakeTimers();
+  mocks.lead = undefined;
+  const { own, stems } = songWithCount(1);
+  const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+  const unload = session.loadSong(own, stems);
+  await session.play();
+  const lead = mocks.lead as { drummer?: { track: string; start: number; audio: { channels: Float32Array[] } } };
+  expect(lead.drummer?.track).toBe("track1");
+  expect(lead.drummer?.start).toBe(-2);
+  expect(lead.drummer?.audio.channels[0]).toHaveLength(44100);
+  session.pause();
+  unload();
+  vi.useRealTimers();
+});
+
+it("plays no count when the song's settings no longer ask for one, or when the song has none", async () => {
+  vi.useFakeTimers();
+  for (const [bars, withStems] of [[0, true], [1, false]] as const) {
+    mocks.lead = undefined;
+    const { own, stems } = songWithCount(bars);
+    const session = new PerformanceSession({ initial: inputs({ bpm: 120 }), carried: null, initialClock: false });
+    const unload = session.loadSong(own, withStems ? stems : null);
+    await session.play();
+    expect((mocks.lead as { drummer?: unknown }).drummer).toBeUndefined();
+    session.pause();
+    unload();
+  }
+  vi.useRealTimers();
+});
+
+it("joins a playlist song gaplessly without the drummer's count, even when its settings ask for one", async () => {
+  const lead = await chainLeadFor({ ":bpm": "90", ":options": JSON.stringify({ band: { countIn: { bars: 2, sound: "hat" } } }) });
+  expect(lead).toEqual({ bpm: 90, countInBeats: 0, preRollBeats: 0 });
+  expect(lead).not.toHaveProperty("drummer");
 });
 
 it("applies the saved outputs to a new player, again when they change, and shows a warning as a toast", () => {

@@ -5,8 +5,11 @@
 import type { BandSettings, SectionPlan } from "./arrangement";
 import { monoSum, onsetStrength, type BeatGrid } from "./beat-grid";
 import { endBeforeNext, generateBass } from "./bass";
+import { countInOf } from "./count-in";
+import type { BandKey } from "./bass-phrases";
 import { drumOnsets, followDrummer } from "./drummer-timing";
 import { generateDrums } from "./drums";
+import { ENDING_TAIL, HOLD_BARS, SLOW_TEMPO } from "./ending";
 import { beatLevelsDb, followFeel, type Feel } from "./feel";
 import type { ChordAtBeat } from "./harmony";
 import { humanise } from "./humanise";
@@ -37,6 +40,13 @@ export interface BandRequest {
   seed: number;
   /** The song's length in frames at RENDER_RATE. The parts are rendered to exactly this length. */
   lengthFrames: number;
+  /**
+   * The song's keys, in song seconds, covering the song (one entry when it has one key). The bass keeps its fills in them. An empty list
+   * means no key is known, and the fills use the chord's own scale.
+   */
+  keys: BandKey[];
+  /** The song's trim end in seconds, when it has one. The ending goes on the last full bar before it (ending.ts). */
+  trimEnd?: number;
   parts: { drums: boolean; bass: boolean };
   /** Where the worker fetches each sample file, by its path in map.json. */
   sampleUrls: Record<string, string>;
@@ -72,6 +82,11 @@ export interface BandResult {
   follow?: FollowReport;
   /** How far under the song each generated part was set. Present for the parts that were matched. */
   levels?: PartLevels;
+  /**
+   * The drummer's count (count-in.ts), rendered like the drums and set to their level, when the settings ask for one. `start` is the song time
+   * its first frame plays at: negative when the song has no room before its first downbeat, so the session plays it ahead of the song.
+   */
+  countIn?: { audio: PcmAudio; start: number };
 }
 
 /** A span of the song, in seconds. */
@@ -124,8 +139,8 @@ function snapToDrummer(request: BandRequest, drums: NoteEvent[], bass: NoteEvent
 function generate(request: BandRequest): Generated {
   const { feel, follow } = feelFor(request);
   const { grid, plans, settings, seed } = request;
-  const drums = generateDrums(grid, plans, settings, seed, feel);
-  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel) : [];
+  const drums = generateDrums(grid, plans, settings, seed, feel, request.trimEnd);
+  const bass = request.parts.bass ? generateBass(grid, request.harmony, plans, settings, drums, seed, feel, request.trimEnd, request.keys) : [];
   const humanDrums = humanise(drums, "drums", grid, plans, settings.humanise, seed);
   const humanBass = humanise(bass, "bass", grid, plans, settings.humanise, seed);
   const snapped = snapToDrummer(request, humanDrums, humanBass);
@@ -152,8 +167,27 @@ function hasOwnSpace(tone: BandSettings["drumTone"]): boolean {
   return tone.kind === "chain" && tone.blocks.some((block) => block.role === "space" && block.on);
 }
 
-function render(request: BandRequest, generated: Generated, samples: SampleSet, lengthFrames: number, onStage?: (stage: BandStage) => void): BandResult {
+/**
+ * How long the rendered parts are. A hold, three hits or a slow ending play past the song's own end, so the parts grow to fit them: a
+ * hold or three hits by at most HOLD_BARS bars, and a slow ending by the bars it slows over as well. Other endings keep the song's length.
+ */
+export function renderLength(request: BandRequest, notes: Notes): number {
+  const { kind, bars } = request.settings.ending;
+  if (kind === "hit" || kind === "none") return request.lengthFrames;
+  const all = [...notes.drums.map((note) => ({ ...note, duration: Math.max(note.duration, ENDING_TAIL) })), ...notes.bass];
+  const latest = all.reduce((end, note) => Math.max(end, note.time + note.duration), 0);
+  const wanted = Math.max(request.lengthFrames, Math.ceil(latest * RENDER_RATE));
+  const beats = request.grid.beats;
+  if (beats.length < 2) return request.lengthFrames;
+  const bar = barBeats(request.grid) * (beats[beats.length - 1] - beats[beats.length - 2]);
+  // A slow ending's bars are stretched to the slowest tempo at most, and so is the hold after them.
+  const allowed = kind === "slow" ? ((bars ?? 1) + HOLD_BARS) / SLOW_TEMPO + 1 : HOLD_BARS;
+  return Math.min(wanted, request.lengthFrames + Math.ceil(allowed * bar * RENDER_RATE));
+}
+
+function render(request: BandRequest, generated: Generated, samples: SampleSet, songFrames: number, onStage?: (stage: BandStage) => void): BandResult {
   onStage?.("rendering");
+  const lengthFrames = Math.max(songFrames, renderLength(request, generated.notes));
   const { notes } = generated;
   const result: BandResult = generated.follow ? { notes, follow: generated.follow } : { notes };
   const songLufs = request.mix ? loudnessOf(request.mix) : -Infinity;
@@ -167,7 +201,24 @@ function render(request: BandRequest, generated: Generated, samples: SampleSet, 
     if (leveled.report) levels[kind] = leveled.report;
   }
   if (levels.drums || levels.bass) result.levels = levels;
+  const count = request.parts.drums ? renderCountIn(request, samples, levels.drums?.gainDb ?? 0) : undefined;
+  if (count) result.countIn = count;
   return result;
+}
+
+/** Scales every channel of a buffer by `gainDb`. The count is short, so a copy is cheap. */
+function withGain(audio: PcmAudio, gainDb: number): PcmAudio {
+  const gain = 10 ** (gainDb / 20);
+  return { sampleRate: audio.sampleRate, channels: audio.channels.map((channel) => channel.map((value) => value * gain)) };
+}
+
+/** The drummer's count as audio: the drums' own render, room and level, so it sits with them. Undefined when the song has no count. */
+function renderCountIn(request: BandRequest, samples: SampleSet, drumsGainDb: number): BandResult["countIn"] {
+  const count = countInOf(request.grid, request.settings.countIn);
+  if (!count) return undefined;
+  const dry = renderPart(count.notes, "drums", samples, Math.ceil(count.length * RENDER_RATE), RENDER_RATE).audio;
+  const rendered = hasOwnSpace(request.settings.drumTone) ? dry : addRoom(dry, samples.room, Math.min(1, request.settings.drumRoom * (samples.roomScale ?? 1)));
+  return { audio: withGain(rendered, drumsGainDb), start: count.start };
 }
 
 /** Generates and renders the whole song's parts. `onStage` is told when each step starts. */
@@ -238,10 +289,12 @@ export function runBandPreview(request: BandRequest, samples: SampleSet, fromTim
   const result: BandResult = { ...full, notes: { drums: inWindow(generated.notes.drums), bass: inWindow(generated.notes.bass) } };
   if (full.drums) result.drums = sliceAudio(full.drums, from, frames);
   if (full.bass) result.bass = sliceAudio(full.bass, from, frames);
+  // A preview plays a window of the song, which has no count before it.
+  delete result.countIn;
   return result;
 }
 
 /** The buffers of a result, so the worker can transfer them to the window instead of copying them. */
 export function transferables(result: BandResult): ArrayBuffer[] {
-  return [result.drums, result.bass].flatMap((part) => (part ? part.channels.map((channel) => channel.buffer as ArrayBuffer) : []));
+  return [result.drums, result.bass, result.countIn?.audio].flatMap((part) => (part ? part.channels.map((channel) => channel.buffer as ArrayBuffer) : []));
 }

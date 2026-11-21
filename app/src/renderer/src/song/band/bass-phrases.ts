@@ -6,18 +6,10 @@
 import type { Fills } from "./arrangement";
 import type { BassPart } from "./bass-parts";
 import type { ChordQuality } from "./harmony";
+import { isPhraseEnd, phraseBars } from "./phrases";
 import type { Random } from "./random";
 
-/** Four bars a phrase, or two in a section shorter than four bars. */
-export function phraseBars(sectionBars: number): number {
-  return sectionBars < 4 ? 2 : 4;
-}
-
-/** Whether a bar (counted from the start of its section) closes a phrase: the last bar of a phrase, or the section's last bar. */
-export function isPhraseEnd(bar: number, sectionBars: number): boolean {
-  const length = phraseBars(sectionBars);
-  return bar % length === length - 1 || bar === sectionBars - 1;
-}
+export { isPhraseEnd, phraseBars };
 
 /** The variation kinds: a pickup of eighths into the next downbeat, an octave pop, an approach run, or an empty last beat. */
 export type VariationKind = "pickup" | "pop" | "run" | "empty";
@@ -102,21 +94,60 @@ export function leadSteps(busy: number, steps: number): VariantNote[] {
 const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 const MINOR = [0, 2, 3, 5, 7, 8, 10];
 
+/** A song key as the bass reads it: the span of the song it covers, in seconds, its tonic as a pitch class, and its mode. */
+export interface BandKey {
+  start: number;
+  end: number;
+  tonic: number;
+  mode: "major" | "minor";
+}
+
+const pitchClassOf = (note: number): number => ((note % 12) + 12) % 12;
+
+/** The pitch classes of a key's scale: the major scale, or the natural minor. */
+export function keyScale(key: Pick<BandKey, "tonic" | "mode">): number[] {
+  return (key.mode === "minor" ? MINOR : MAJOR).map((step) => pitchClassOf(key.tonic + step));
+}
+
+/** The pitch classes of the scale a chord's quality suggests, counted from the chord's root as the tonic: minor for a minor or diminished chord. */
+export function chordScale(root: number, quality: ChordQuality): number[] {
+  return (quality === "minor" || quality === "dim" ? MINOR : MAJOR).map((step) => pitchClassOf(root + step));
+}
+
 /**
- * The note `offset` scale steps below `target` (a MIDI note), in the scale of the chord's quality, counted from the target as the tonic.
- * A minor or diminished chord walks the minor scale, others the major. Chromatic walks by semitones instead, at busy 4 and up.
+ * The scale a fill into a note walks: the song's key when the note is in it, otherwise the scale of the chord's quality (a chord outside
+ * the key is borrowed, and has no place in the key's scale). With no key it is always the chord's scale.
  */
-export function walkDown(target: number, offset: number, quality: ChordQuality, chromatic: boolean): number {
+export function fillScale(target: number, quality: ChordQuality, key: Pick<BandKey, "tonic" | "mode"> | null): number[] {
+  if (key) {
+    const scale = keyScale(key);
+    if (scale.includes(pitchClassOf(target))) return scale;
+  }
+  return chordScale(target, quality);
+}
+
+/**
+ * The note `offset` scale steps below `target` (a MIDI note), in the scale given as pitch classes. Chromatic walks by semitones instead,
+ * at busy 4 and up, which leaves the key on purpose.
+ */
+export function walkDown(target: number, offset: number, scale: readonly number[], chromatic: boolean): number {
   if (offset <= 0) return target;
   if (chromatic) return target - offset;
-  const scale = quality === "minor" || quality === "dim" ? MINOR : MAJOR;
-  const inScale = (note: number): boolean => scale.includes((((note - target) % 12) + 12) % 12);
   let note = target;
   for (let k = 0; k < offset; k++) {
     note -= 1;
-    while (!inScale(note)) note -= 1;
+    while (!scale.includes(pitchClassOf(note))) note -= 1;
   }
   return note;
+}
+
+/** The note a scale step below or above `target`, in the scale given as pitch classes. */
+export function scaleNeighbours(target: number, scale: readonly number[]): [number, number] {
+  let below = target - 1;
+  while (!scale.includes(pitchClassOf(below))) below -= 1;
+  let above = target + 1;
+  while (!scale.includes(pitchClassOf(above))) above += 1;
+  return [below, above];
 }
 
 /**
