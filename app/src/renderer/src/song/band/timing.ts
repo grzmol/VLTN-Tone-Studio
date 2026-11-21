@@ -85,6 +85,12 @@ export function barEnd(beats: readonly number[], start: number, perBar: number):
   return beats[start] + perBar * beatSpan(beats, start);
 }
 
+/** The plan a bar belongs to: the plan covering the bar's middle. A section start within half a bar of a bar line then takes that bar. */
+export function planOfBar(plans: readonly SectionPlan[], beats: readonly number[], span: BarSpan): number {
+  const middle = (beats[span.start] + barEnd(beats, span.start, span.beats)) / 2;
+  return planIndexAt(plans, middle);
+}
+
 /**
  * How late an off-beat step plays, in beats. The off-beat is the odd step of a sixteenth or eighth grid. At full swing (1) it would
  * sit two thirds of the way through the pair, so swing × half a step is close to a triplet feel at the top of the range. Triplet
@@ -98,22 +104,54 @@ export function swingDelay(style: Style, fraction: number, swing: number): numbe
 }
 
 /**
- * One step of a bar. `start` is the bar's first beat, `steps` the style's steps in one bar and `perBar` the grid's beats in one bar.
- * The step's beat may fall past the end of the grid; callers check `beat` before using `time`.
+ * Whether a style's bar is stretched over the grid's bar, whatever the grid's beats. Six-eight has two dotted beats to the bar, and a
+ * song counted in four has a dotted beat every two beats, so its six steps are spread over the whole grid bar. Every other style keeps
+ * its steps per beat and is cut or carried on to the grid's bar.
+ */
+export function stretchesToBar(style: Style): boolean {
+  return style.meter.beatsPerBar === 2 && style.meter.stepsPerBeat === 3;
+}
+
+/** The beats a style's pattern is written for, as `fitStepsToBar` takes them: the grid's own bar for a style that stretches to it. */
+export function patternBeats(style: Style, perBar: number): number {
+  return stretchesToBar(style) ? perBar : style.meter.beatsPerBar;
+}
+
+/** Steps per grid beat that open a hit beat, for `hitSteps`: a stretched style has its steps spread over the grid's bar. */
+export function stepsPerGridBeat(style: Style, perBar: number): number {
+  return stretchesToBar(style) ? (style.meter.beatsPerBar * style.meter.stepsPerBeat) / perBar : style.meter.stepsPerBeat;
+}
+
+/** Steps in a bar of `perBar` beats for a style: its steps per beat stay, and the bar is cut or carried on. */
+export function stepsForBar(style: Style, perBar: number): number {
+  return style.meter.stepsPerBeat * perBar;
+}
+
+/**
+ * One step of a bar. `start` is the bar's first beat and `perBar` the grid's beats in a bar, which only a style that stretches to the bar
+ * uses. A step sits on the same part of its beat whatever the grid's bar length: its
+ * beat is `step / stepsPerBeat` rounded down, and its fraction the rest. The step's beat may fall past the end of the grid; callers
+ * check `beat` before using `time`.
  */
 export function stepAt(
   beats: readonly number[],
   style: Style,
   start: number,
   step: number,
-  steps: number,
   perBar: number,
   swing: number,
 ): { beat: number; time: number } {
-  const scaled = step * perBar;
-  const beatOffset = Math.floor(scaled / steps);
+  const perBeat = style.meter.stepsPerBeat;
+  let beatOffset = Math.floor(step / perBeat);
+  let fraction = (step % perBeat) / perBeat;
+  if (stretchesToBar(style)) {
+    // The style's bar is spread over the grid's bar (see stretchesToBar).
+    const steps = style.meter.beatsPerBar * perBeat;
+    const scaled = step * perBar;
+    beatOffset = Math.floor(scaled / steps);
+    fraction = (scaled - beatOffset * steps) / steps;
+  }
   const beat = start + beatOffset;
-  const fraction = (scaled - beatOffset * steps) / steps;
   return { beat, time: timeIn(beats, beat, fraction + swingDelay(style, fraction, swing)) };
 }
 

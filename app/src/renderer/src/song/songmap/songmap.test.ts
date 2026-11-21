@@ -339,3 +339,146 @@ describe("parseTime and formatTime", () => {
     expect(formatTime(seconds)).toBe(text);
   });
 });
+
+describe("the Marks table", () => {
+  const sections = `| Start | End | Section | Drums | Bass | Style | Energy | Busy | Loud | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 0:00 | 0:20 | Verse | | | | | | | |
+| 0:20 | 0:40 | Chorus 2 | | | | | | | |
+`;
+  const withMarks = (table: string) => `---\nsongmap: 1\n---\n\n## Sections\n\n${sections}\n## Marks\n\n${table}\n`;
+
+  it("reads a mark on a named bar and a mark on a time", () => {
+    const { map, problems } = parseSongMap(
+      withMarks(`| Bar | Time | Mark | Beats |
+|---|---|---|---|
+| Chorus 2:8 | | stop | 2 |
+| | 1:02.5 | No fill | |
+| verse:1 | | fill | 4 |
+| Verse:2 | | crash | 3 |`),
+    );
+    expect(problems).toEqual([]);
+    expect(map?.marks).toEqual([
+      { kind: "stop", beats: 2, bar: { section: "Chorus 2", number: 8 } },
+      { kind: "no-fill", time: 62.5 },
+      { kind: "fill", beats: 4, bar: { section: "verse", number: 1 } },
+      { kind: "crash", bar: { section: "Verse", number: 2 } },
+    ]);
+  });
+
+  it("skips a row it cannot use, says why, and keeps the rest", () => {
+    const { map, problems } = parseSongMap(
+      withMarks(`| Bar | Time | Mark | Beats |
+|---|---|---|---|
+| Chorus 2:8 | | wobble | |
+| Coda:3 | | stop | |
+| Chorus 2:0 | | stop | |
+| Chorus 2 | | stop | |
+| | | stop | |
+| Chorus 2:4 | | fill | 3 |
+| Chorus 2:5 | | hit | |`),
+    );
+    expect(map?.marks).toEqual([{ kind: "hit", bar: { section: "Chorus 2", number: 5 } }]);
+    expect(problems.map((problem) => problem.message)).toEqual([
+      expect.stringContaining('"wobble" is not a mark'),
+      expect.stringContaining('"Coda" is not a section of this map'),
+      expect.stringContaining("bars are counted from 1"),
+      expect.stringContaining('"Chorus 2" is not a bar'),
+      expect.stringContaining("no Bar and no Time"),
+      expect.stringContaining("3 beats is not allowed for a fill"),
+    ]);
+  });
+
+  it("needs a Mark column and a Bar or a Time column", () => {
+    const { map, problems } = parseSongMap(withMarks(`| Bar | Kind |\n|---|---|\n| Verse:1 | stop |`));
+    expect(map?.marks).toBeUndefined();
+    expect(problems[0].message).toContain("needs a Bar or a Time column, and a Mark column");
+  });
+
+  it("has no marks when the map has no table, and writes none", () => {
+    const { map } = parseSongMap(`---\nsongmap: 1\n---\n\n## Sections\n\n${sections}`);
+    expect(map?.marks).toBeUndefined();
+    expect(writeSongMap({ sections: [], bassNotes: [], extra: {}, ignored: [] })).not.toContain("## Marks");
+  });
+
+  it("is written and read back the same", () => {
+    const map: SongMap = {
+      sections: [{ start: 0, end: 20, name: "Chorus 2" }],
+      bassNotes: [],
+      marks: [
+        { kind: "stop", beats: 2, bar: { section: "Chorus 2", number: 8 } },
+        { kind: "hit", time: 62.5 },
+      ],
+      extra: {},
+      ignored: [],
+    };
+    expect(parseSongMap(writeSongMap(map)).map).toEqual(map);
+  });
+});
+
+describe("the Fill column of the Sections table", () => {
+  const read = (cells: string[]) => {
+    const text = `---\nsongmap: 1\n---\n## Sections\n\n| Start | End | Section | Fill |\n|---|---|---|---|\n${cells.map((fill, i) => `| ${i * 10} | ${i * 10 + 10} | S${i} | ${fill} |`).join("\n")}\n`;
+    return parseSongMap(text);
+  };
+
+  it("reads the words and the sizes", () => {
+    const { map, problems } = read(["auto", "none", "Short", "half bar", "Whole-bar", "3", "0", ""]);
+    expect(problems).toEqual([]);
+    expect(map?.sections.map((section) => section.fill)).toEqual([true, 0, 1, 2, 3, 3, 0, undefined]);
+  });
+
+  it("refuses a fill it does not know and keeps the other rows", () => {
+    const { map, problems } = read(["huge", "half"]);
+    expect(problems[0].message).toContain('"huge" is not a fill');
+    expect(map?.sections.map((section) => section.name)).toEqual(["S1"]);
+  });
+
+  it("writes the column only when a section sets a fill, and reads its own writing back", () => {
+    const plain = writeSongMap({ sections: [{ start: 0, end: 10, name: "A" }], bassNotes: [], extra: {}, ignored: [] });
+    expect(plain).not.toContain("Fill");
+    const map: SongMap = {
+      sections: [
+        { start: 0, end: 10, name: "A", fill: true },
+        { start: 10, end: 20, name: "B", fill: 3 },
+        { start: 20, end: 30, name: "C" },
+      ],
+      bassNotes: [],
+      extra: {},
+      ignored: [],
+    };
+    const text = writeSongMap(map);
+    expect(text).toContain("| Loud | Fill | Notes |");
+    expect(parseSongMap(text).map?.sections.map((section) => section.fill)).toEqual([true, 3, undefined]);
+  });
+});
+
+describe("the Shape column of the Sections table", () => {
+  it("reads the four shapes, refuses another and keeps the other rows", () => {
+    const text = "---\nsongmap: 1\n---\n## Sections\n\n| Start | End | Section | Shape |\n|---|---|---|---|\n| 0 | 10 | A | build |\n| 10 | 20 | B | Drop |\n| 20 | 30 | C | quiet |\n| 30 | 40 | D | half |\n| 40 | 50 | E | |\n";
+    const { map, problems } = parseSongMap(text);
+    expect(problems[0].message).toContain('"quiet" is not a shape');
+    expect(map?.sections.map((section) => [section.name, section.shape])).toEqual([
+      ["A", "build"],
+      ["B", "drop"],
+      ["D", "half"],
+      ["E", undefined],
+    ]);
+  });
+
+  it("writes the column only when a section has a shape, after the Fill column, and reads it back", () => {
+    const map: SongMap = {
+      sections: [
+        { start: 0, end: 10, name: "A", fill: 2, shape: "steady" },
+        { start: 10, end: 20, name: "B", shape: "build" },
+      ],
+      bassNotes: [],
+      extra: {},
+      ignored: [],
+    };
+    const text = writeSongMap(map);
+    expect(text).toContain("| Loud | Fill | Shape | Notes |");
+    expect(parseSongMap(text).map?.sections.map((section) => section.shape)).toEqual(["steady", "build"]);
+    expect(writeSongMap({ ...map, sections: [{ start: 0, end: 10, name: "A", fill: 1 }] })).not.toContain("Shape");
+  });
+});

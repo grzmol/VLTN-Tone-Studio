@@ -82,7 +82,7 @@ export function PartToneChain({ part, tone, songSeconds, onChange }: PartToneCha
   };
 
   const names = blocks.map((block) => block.file?.name ?? `${ROLE_LABEL[block.role]}, empty`);
-  const summary = blocks.length === 0 ? "Clean, as generated" : names.join(" → ");
+  const summary = tone.kind === "builtin" ? "Warm (built in)" : blocks.length === 0 ? "Clean, as generated" : names.join(" → ");
   const captures = blocks.filter((block) => block.on && block.file && block.type === "capture").length;
   const estimate =
     songSeconds <= 0
@@ -96,7 +96,7 @@ export function PartToneChain({ part, tone, songSeconds, onChange }: PartToneCha
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-medium">{label.title}</span>
         <span className="min-w-0 text-silkscreen-2">{summary}</span>
-        {blocks.length > 0 && (
+        {(blocks.length > 0 || tone.kind === "builtin") && (
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="ghost" size="sm" onClick={() => onChange({ kind: "clean" })}>
               {label.clean}
@@ -109,6 +109,11 @@ export function PartToneChain({ part, tone, songSeconds, onChange }: PartToneCha
       {blocks.length === 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-silkscreen-2">Start from a preset:</span>
+          {part === "bass" && (
+            <Button variant={tone.kind === "builtin" ? "secondary" : "outline"} size="sm" onClick={() => onChange({ kind: "builtin", id: "warm" })}>
+              Warm (built in)
+            </Button>
+          )}
           {PART_TONE_PRESETS[part].map((preset) => (
             <Button
               key={preset.name}
