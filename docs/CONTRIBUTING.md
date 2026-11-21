@@ -93,6 +93,10 @@ Packages are unsigned for now. The TONE3000 sign-in in release builds needs the 
 | add a pedal model | `shared/devices.ts`, then the family's driver in `state/driver/`, its simulator and tests |
 | fix the docs | this folder; see [Writing documentation](README.md#writing-documentation) |
 
+## Security
+
+Report a vulnerability privately through the repository's Security tab; see the [security policy](../.github/SECURITY.md). Do not open a public issue for it.
+
 ## License
 
 By contributing you agree your work is released under the [GPL-3.0](../LICENSE), like the rest of the project.
