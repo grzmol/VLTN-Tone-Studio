@@ -37,7 +37,7 @@ import { bandHarmony, bandRequest, beatSources, chartChordTimes, followFor, foll
 import type { BassLineBeat } from "@/song/analysis/bass-line";
 import { applyPartTone } from "@/song/band/part-tone";
 import { renderPartChain } from "@/song/band/bass-chain";
-import { bassOf, harmonyOf } from "@/song/analysis/analysis-audio";
+import { bassOf, harmonyInput, harmonyOf } from "@/song/analysis/analysis-audio";
 import { followStatus } from "@/song/band/feel";
 import { levelStatus } from "@/song/band/level";
 import { startChordDetection } from "@/song/band/chord-detect-client";
@@ -415,7 +415,7 @@ function BandBody({
   const detectChords = async (audio: PcmAudio): Promise<Chord[] | null> => {
     setWork("Detecting chords…");
     const stems = selectWholeSongStems(useSong.getState());
-    const detecting = startChordDetection({ harmony: harmonyOf(stems, audio).audio, bass: bassOf(stems), beats: grid?.beats ?? null });
+    const detecting = startChordDetection({ ...harmonyInput(harmonyOf(stems, audio)), bass: bassOf(stems), beats: grid?.beats ?? null });
     job.current = detecting;
     try {
       return await detecting.done;

@@ -33,7 +33,12 @@ export function harmonyOf(stems: Stems | null, mix: PcmAudio, chordChoice: StemN
   const parts = harmonyPartsOf(stems, chordChoice);
   if (!parts) return { name: "mix", audio: mix };
   const audio = parts.length === 1 ? stems![parts[0]]! : sumAudio(parts.map((name) => stems![name]!));
-  return { name: parts.join("+"), audio };
+  return { name: parts.join("+"), audio, parts: parts.map((name) => stems![name]!) };
+}
+
+/** The harmony fields of a chord job: the summed audio and the stems it is the sum of, so background analysis copies the stems. */
+export function harmonyInput({ audio, parts }: NamedAudio): { harmony: PcmAudio; harmonyParts?: PcmAudio[] } {
+  return { harmony: audio, harmonyParts: parts };
 }
 
 /**
