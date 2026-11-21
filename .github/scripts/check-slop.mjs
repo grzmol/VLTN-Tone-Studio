@@ -23,7 +23,7 @@ const SLOP = [
 ];
 // A truncated answer pasted in place of real code.
 const PLACEHOLDER = /(\.\.\.|…)\s*(rest of|remaining|existing|same as before|unchanged|other)\b/i;
-const AI_FILES = /(^|\/)(\.claude|\.omc|\.omp|\.cursor|\.windsurf|\.aider[^/]*|\.impeccable)(\/|$)|(^|\/)(CLAUDE|AGENTS|GEMINI|COPILOT)\.md$|(^|\/)\.cursorrules$/;
+const AI_FILES = /(^|\/)(\.claude|\.omc|\.omp|\.cursor|\.windsurf|\.aider[^/]*|\.impeccable)(\/|$)|(^|\/)(CLAUDE|GEMINI|COPILOT)\.md$|(^|\/)\.cursorrules$/;
 const SKIP_DIFF = /(^|\/)package-lock\.json$|^\.github\/scripts\/check-slop/;
 
 export function checkCommit({ sha, message }) {

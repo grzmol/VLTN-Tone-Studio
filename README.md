@@ -305,7 +305,7 @@ The metronome and the one-bar count-in can be a click, sticks, a hi-hat, a rock 
 <br>
 
 New audio saves itself, and the header always says whether the song is saved.<br>
-Songs are stored as lossless FLAC, a save never touches the old copy until the new one is on disk, and a deleted song goes to the Trash. The library, its playlists and its audio go into one portable backup. See the [song library guide](SONG-LIBRARY.md).
+Songs are stored as lossless FLAC, a save never touches the old copy until the new one is on disk, and a deleted song goes to the Trash. The library, its playlists and its audio go into one portable backup. See the [song library guide](docs/SONG-LIBRARY.md).
 
 <br>
 <br>
@@ -336,7 +336,7 @@ Named commands for the GP-150 and GP-180 and other popular pedals save you looki
 <br>
 
 Connect a GP-150 or GP-180 over Bluetooth MIDI and lose the cable on stage.<br>
-The link packs messages that go out together, reconnects by itself when it drops, and switches Send cues back on when it's back. Editing stays on USB. See the [Performance guide](PERFORMANCE.md) and [Bluetooth MIDI](BLUETOOTH.md).
+The link packs messages that go out together, reconnects by itself when it drops, and switches Send cues back on when it's back. Editing stays on USB. See the [Performance guide](docs/PERFORMANCE.md) and [Bluetooth MIDI](docs/BLUETOOTH.md).
 
 <br>
 <br>
@@ -418,7 +418,7 @@ Fix a wrong bass note by hand, and play the bass and the drums through NAM captu
 <br>
 
 For a careful map of a song, export a song brief, have an assistant fill in its sections, drums, bass, chords and lyrics, and import the song map.<br>
-You see what each part changes before it's applied, and Undo puts the song back. See [Song maps](SONG-MAP.md).
+You see what each part changes before it's applied, and Undo puts the song back. See [Song maps](docs/SONG-MAP.md).
 
 <br>
 
@@ -507,7 +507,7 @@ The GP-200 (also R and X), GP-200LT and GP-200JR get the same screens, shaped to
 
 **Which pedal is connected?** Tone Studio works it out by itself and names it everywhere.<br>
 **Presets across models.** A GP-5 preset goes onto a GP-50 unchanged. A GP-50 preset loses its GP-50-only models, its expression pedal settings and synced Time/Rate values on a GP-5, and the app lists what changes before writing. The GP-200, LT and JR share one `.prst` file. Presets don't move between the GP-5 and GP-200 families.<br>
-**GP-150 and GP-180.** Both speak one protocol and use one `.prst` file, known from USB captures of a GP-180 published by [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Tone Studio tells them apart by the MIDI port name. All 12 modules in any order, with the models and knob ranges of Valeton Suite 2.1.0's GP-150 list built in. The library shows 200 slots, `001` to `200`. A preset's expression pedal and knob 1–3 assignments are kept as they are, not edited. The `.prst` files carry a checksum whose algorithm isn't known: Tone Studio clears it when it changes a preset (the pedal is reported to accept that) and checks imported files by their layout only. The GP-180 has a third footswitch (FS C) in the footswitch assignments. The Device screen can also open a Bluetooth MIDI link to either pedal; editing stays on USB, see [BLUETOOTH.md](BLUETOOTH.md). Both also send performance MIDI (timed program changes and tempo) over USB or Bluetooth, see [Performance](PERFORMANCE.md).
+**GP-150 and GP-180.** Both speak one protocol and use one `.prst` file, known from USB captures of a GP-180 published by [Valeton-GP180-Rev-Eng](https://github.com/majabojarska/Valeton-GP180-Rev-Eng) (GPL-3.0). Tone Studio tells them apart by the MIDI port name. All 12 modules in any order, with the models and knob ranges of Valeton Suite 2.1.0's GP-150 list built in. The library shows 200 slots, `001` to `200`. A preset's expression pedal and knob 1–3 assignments are kept as they are, not edited. The `.prst` files carry a checksum whose algorithm isn't known: Tone Studio clears it when it changes a preset (the pedal is reported to accept that) and checks imported files by their layout only. The GP-180 has a third footswitch (FS C) in the footswitch assignments. The Device screen can also open a Bluetooth MIDI link to either pedal; editing stays on USB, see [BLUETOOTH.md](docs/BLUETOOTH.md). Both also send performance MIDI (timed program changes and tempo) over USB or Bluetooth, see [Performance](docs/PERFORMANCE.md).
 
 <br>
 
@@ -612,7 +612,7 @@ No pedal? Add `?mock` to the browser address for a simulated GP-5 loaded with a 
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `?mock` | `?mock=gp50` | `?mock=gp150` | `?mock=gp180` | `?mock=gp200` | `?mock=gp200lt` | `?mock=gp200jr` |
 
-The desktop app offers the same under *Device › Simulate*. All commands and the code layout are in [`app/README.md`](app/README.md); what changed in each version is in the [changelog](CHANGELOG.md).
+The desktop app offers the same under *Device › Simulate*. All commands and the code layout are in [`app/README.md`](app/README.md); the guides, architecture, contributing notes and roadmap are in [`docs/`](docs/README.md); what changed in each version is in the [changelog](CHANGELOG.md).
 
 <br>
 

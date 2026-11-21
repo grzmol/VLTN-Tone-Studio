@@ -2,4 +2,5 @@ backups/
 .claude/
 .omp/
 skills-lock.json
-docs/
+docs/.omc/
+.omc/
