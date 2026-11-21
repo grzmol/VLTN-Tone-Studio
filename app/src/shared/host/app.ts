@@ -77,6 +77,8 @@ export interface AppApi {
   launchSuite(): Promise<void>;
   /** Taskbar/dock progress for long jobs (0..1), null clears it. */
   setProgress(fraction: number | null): Promise<void>;
+  /** Tells the main process a song or playlist is playing, so quitting or restarting for an update asks first. */
+  setShowRunning(running: boolean): Promise<void>;
   /** Files passed on launch ("Open with", command line) that arrived before the renderer listened; empties the queue. */
   takeOpenedFiles(): Promise<string[]>;
   /** Absolute path of a dropped File (Electron `webUtils.getPathForFile`); null in the web build. */
