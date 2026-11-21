@@ -1,5 +1,5 @@
 # Keeps AI slop out of develop: free-form or filler commit messages, PR titles and descriptions, pasted chatbot
-# footers, truncated "... rest of the code" placeholders and AI tool files. Rules live in scripts/check-slop.mjs.
+# footers, placeholders that stand in for omitted code and AI tool files. Rules live in scripts/check-slop.mjs.
 # Make "Slop check" a required status check on develop and main so a failing PR cannot be merged.
 name: PR hygiene
 
