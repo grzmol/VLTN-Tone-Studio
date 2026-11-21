@@ -46,7 +46,7 @@ import {
   writeGlobal,
   CHUNK,
 } from "./protocol.mjs";
-import { applyPatchEdits, forImport, imagesMatch, isGp150Prst, normalize, parsePrst, PRST_SIZE, settingsRecord } from "./prst.mjs";
+import { applyPatchEdits, forImport, imagesMatch, isGp150Prst, normalize, parsePrst, settingsRecord } from "./prst.mjs";
 
 export const DEFAULT_TIMING = Object.freeze({
   /** Pause between the packets of one message */
