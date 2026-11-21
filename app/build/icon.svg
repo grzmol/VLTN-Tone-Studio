@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- App icon: a pedal knob on the dark chassis, with the engaged LED (the surface-solid and led-on colours in tokens.css).
+       electron-builder reads icon.png from this folder; regenerate it with:
+       rsvg-convert -w 1024 -h 1024 build/icon.svg -o build/icon.png -->
+  <defs>
+    <linearGradient id="chassis" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a2f"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+    <radialGradient id="knob" cx="0.4" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9c9cf"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3ddc84" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3ddc84" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#chassis)"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="6"/>
+  <!-- scale ticks around the knob, 7 o'clock to 5 o'clock -->
+  <g stroke="#ffffff" stroke-opacity="0.55" stroke-width="18" stroke-linecap="round">
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(-135 512 560)"/>
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(-90 512 560)"/>
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(-45 512 560)"/>
+    <line x1="512" y1="196" x2="512" y2="236"/>
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(45 512 560)"/>
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(90 512 560)"/>
+    <line x1="512" y1="196" x2="512" y2="236" transform="rotate(135 512 560)"/>
+  </g>
+  <circle cx="512" cy="580" r="268" fill="#000" fill-opacity="0.35"/>
+  <circle cx="512" cy="560" r="268" fill="url(#knob)"/>
+  <circle cx="512" cy="560" r="214" fill="none" stroke="#000" stroke-opacity="0.08" stroke-width="10"/>
+  <!-- pointer at about 2 o'clock -->
+  <line x1="512" y1="560" x2="512" y2="340" stroke="#141416" stroke-width="40" stroke-linecap="round" transform="rotate(45 512 560)"/>
+  <circle cx="800" cy="226" r="90" fill="url(#glow)"/>
+  <circle cx="800" cy="226" r="40" fill="#3ddc84"/>
+</svg>

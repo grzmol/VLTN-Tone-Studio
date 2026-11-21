@@ -1,6 +1,6 @@
 import { app, shell, type BrowserWindow } from "electron";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open as openFile, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { CaptureDraft, CaptureKey, CaptureRecipe, CaptureState, CaptureVersion } from "@shared/host/capture";
 import type { ToneRecord } from "@shared/host/tones";
@@ -159,8 +159,13 @@ function safeNamName(name: unknown): string {
 export function registerCaptureIpc(getWindow: () => BrowserWindow | null): void {
   handle("capture:importFile", async (_e, path: string) => {
     if (typeof path !== "string" || !/\.nam$/i.test(path)) throw new HostError("invalid", "Only .nam files can be opened here");
-    if ((await stat(path)).size > MAX_NAM_BYTES) throw new HostError("invalid", "This file is too large to be a NAM capture.");
-    return importText(basename(path), await readFile(path, "utf8"));
+    const file = await openFile(path, "r");
+    try {
+      if ((await file.stat()).size > MAX_NAM_BYTES) throw new HostError("invalid", "This file is too large to be a NAM capture.");
+      return importText(basename(path), await file.readFile("utf8"));
+    } finally {
+      await file.close();
+    }
   });
   handle("capture:importText", (_e, fileName: string, text: string) => importText(fileName, text));
   handle("capture:open", (_e, ref: string, modelId?: number | null) => open(ref, modelId));
