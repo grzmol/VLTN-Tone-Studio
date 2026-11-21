@@ -241,6 +241,9 @@ export function humanise(
     // A dead note keeps its own velocity and length: only its timing moves, so it stays just before the note it belongs to.
     if (note.dead) return { ...note, time: Math.max(0, note.time + offsetMs / 1000) };
 
+    // A dead note keeps its own velocity and length: only its timing moves, so it stays just before the note it belongs to.
+    if (note.dead) return { ...note, time: Math.max(0, note.time + offsetMs / 1000) };
+
     let velocity = note.velocity + amount * (accent + spread * jitter);
     // A ghost stays a ghost: its humanised velocity stays under GHOST_BELOW.
     if (note.velocity < GHOST_BELOW) velocity = Math.min(velocity, GHOST_BELOW - 1);

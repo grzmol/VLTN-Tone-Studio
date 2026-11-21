@@ -408,7 +408,8 @@ Analyse one song, or the whole library in one go.
 <br>
 
 Missing a drummer or a bass player? Generate drums and bass that follow the song's beat, chords and sections, preview any section, and export them as MIDI.<br>
-Fix a wrong bass note by hand, and play the bass and the drums through NAM captures and IRs from TONE3000.
+Fix a wrong bass note by hand, and play the bass and the drums through NAM captures and IRs from TONE3000.<br>
+A song in 3/4 gets a 3/4 style, and a section marker that sits a little off the bar line still changes the drums and bass on that bar.
 
 <br>
 

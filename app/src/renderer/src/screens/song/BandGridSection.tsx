@@ -27,9 +27,11 @@ export interface BandGridSectionProps {
   myTempo?: { bpm: number; use: boolean; onUse(use: boolean): void };
   /** The performer's bass notes (spec 87): the strip's beats pick one to edit, and the list shows them. Not shown when not given. */
   bassNotes?: Omit<BassNotesContext, "grid" | "harmony">;
+  /** Which half to show: the timing controls and the tempo summary (Timing tab), or the chord strip with the bass notes (Notes tab). */
+  view: "timing" | "notes";
 }
 
-/** The beat grid: find the beat, the corrections to it, the fixed tempo, and the strip that shows it. */
+/** The beat grid, in two views: the timing controls (find the beat, corrections, fixed tempo), or the chord strip and the bass notes. */
 export function BandGridSection({
   grid,
   harmony,
@@ -43,12 +45,35 @@ export function BandGridSection({
   onSetTempo,
   myTempo,
   bassNotes,
+  view,
 }: BandGridSectionProps) {
   // The beat whose bass note is open in the editor. A beat is toggled off by picking it again.
   const [editing, setEditing] = useState<number | null>(null);
+  if (view === "notes") {
+    return (
+      <section aria-label="Bass notes" className="flex min-w-0 flex-col gap-3">
+        {grid ? (
+          <>
+            <BandGrid
+              grid={grid}
+              harmony={harmony}
+              overrides={bassNotes?.overrides}
+              selected={editing}
+              onSelect={bassNotes ? (beat) => setEditing(editing === beat ? null : beat) : undefined}
+            />
+            {bassNotes && editing !== null && editing < grid.beats.length && (
+              <BassNoteEditor key={editing} beat={editing} context={{ ...bassNotes, grid, harmony }} onClose={() => setEditing(null)} />
+            )}
+            {bassNotes && <BassNoteList harmony={harmony} overrides={bassNotes.overrides} disabled={bassNotes.disabled} onChange={bassNotes.onChange} />}
+          </>
+        ) : (
+          <p className="text-silkscreen-3">No chord strip yet. Find the beat on the Timing tab first.</p>
+        )}
+      </section>
+    );
+  }
   return (
     <section aria-label="Beat grid" className="flex min-w-0 flex-col gap-3">
-      <h3 className="font-semibold">Beat grid</h3>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" disabled={blocked} onClick={onFind}>
           Find the beat
@@ -104,17 +129,6 @@ export function BandGridSection({
               </Button>
             </div>
           )}
-          <BandGrid
-            grid={grid}
-            harmony={harmony}
-            overrides={bassNotes?.overrides}
-            selected={editing}
-            onSelect={bassNotes ? (beat) => setEditing(editing === beat ? null : beat) : undefined}
-          />
-          {bassNotes && editing !== null && editing < grid.beats.length && (
-            <BassNoteEditor key={editing} beat={editing} context={{ ...bassNotes, grid, harmony }} onClose={() => setEditing(null)} />
-          )}
-          {bassNotes && <BassNoteList harmony={harmony} overrides={bassNotes.overrides} disabled={bassNotes.disabled} onChange={bassNotes.onChange} />}
         </>
       ) : (
         <p className="text-silkscreen-3">No beat grid yet. Find the beat, or use the fixed BPM.</p>

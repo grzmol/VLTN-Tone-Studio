@@ -244,4 +244,27 @@ describe("a song the app made itself", () => {
     expect(options.sections).toEqual(JSON.parse(JSON.stringify(madeOptions.sections)));
     expect(options.band.sections.x7f.play).toEqual({ drums: true, bass: true });
   });
+
+  it("writes the song's marks in the draft, and imports them back unchanged", () => {
+    const marked = {
+      ...madeOptions,
+      band: parseBandSettings({
+        marks: [
+          { time: 4.5, kind: "stop", beats: 2 },
+          { time: 8.5, kind: "no-fill" },
+        ],
+      }),
+    };
+    const input: BriefInput = { ...madeInput, options: marked };
+    const text = writeSongMap(draftSongMap(input));
+    expect(text).toContain("## Marks");
+    expect(text).toContain("| 0:04.50 | stop | 2 |");
+    const map = parseSongMap(text).map!;
+    expect(map.marks).toEqual([
+      { kind: "stop", beats: 2, time: 4.5 },
+      { kind: "no-fill", time: 8.5 },
+    ]);
+    expect(planSongMap({ ...madeSaved, options: marked }, map).parts.map((part) => part.part)).not.toContain("marks");
+    expect(songBrief(input)).toContain("`## Marks`");
+  });
 });
