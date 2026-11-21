@@ -1,3 +1,4 @@
+import { startChordDetection } from "@/song/band/chord-detect-client";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { host } from "@/host";
@@ -84,25 +85,27 @@ export function useChordAnalysis(
       return;
     }
     if (!estimate) return;
-    const worker = new Worker(new URL("../../song/performance/chords-worker.ts", import.meta.url), { type: "module" });
+    let active = true;
     setAnalysing(true);
     setChords([]);
-    worker.onmessage = (e) => {
-      setAnalysing(false);
-      if (e.data.error) session.fail(e.data.error);
-      else setChords(e.data.chords);
-      worker.terminate();
-    };
-    worker.onerror = (e) => {
-      setAnalysing(false);
-      session.fail(e.message);
-      worker.terminate();
-    };
-    // The beats of the song's saved grid, so the chords change on the beats the song analysis would use.
+    // The saved beat grid and key use the same priors as the full song analysis.
     const beats = songKey !== undefined ? (readStoredBand(songKey).grid?.beats ?? null) : null;
-    // The key the analysis found for the song sets the key prior, as the song analysis does.
-    worker.postMessage({ harmony: harmonyAudio, bass, beats, key: known?.key?.estimate.name ?? null });
-    return () => worker.terminate();
+    const job = startChordDetection({ harmony: harmonyAudio, bass, beats, key: known?.key?.estimate.name ?? null });
+    void job.done
+      .then((result) => {
+        if (!active) return;
+        setAnalysing(false);
+        setChords(result);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setAnalysing(false);
+        session.fail(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      active = false;
+      job.cancel();
+    };
   }, [session, harmonyName, harmonyAudio, bass, songKey, audioId, estimate]);
   return { chords, analysing };
 }

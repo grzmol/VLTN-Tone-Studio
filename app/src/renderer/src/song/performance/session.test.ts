@@ -598,7 +598,10 @@ it("chains the next playlist song near the end, takes it over at its join, and d
   mocks.library.playlistPlaying = true;
   mocks.library.queue = ["a", "b"];
   mocks.library.preparedNext = () => next as never;
-  mocks.library.advanceToPrepared = vi.fn(() => true);
+  mocks.library.advanceToPrepared = vi.fn(() => {
+    expect(session.state.player).toBeNull();
+    return true;
+  });
   const { session, out, access, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
   // The queued song starts itself; let that start settle.
   await vi.advanceTimersByTimeAsync(10);
@@ -608,11 +611,11 @@ it("chains the next playlist song near the end, takes it over at its join, and d
   mocks.audioNow = 16;
   vi.advanceTimersByTime(250);
   expect(session.state.player).not.toBe(incoming);
+  const outgoing = session.state.player!;
   // The hand-over is taken half a second before the join, which is at the outgoing song's end.
   vi.advanceTimersByTime(3500);
   expect(mocks.library.advanceToPrepared).toHaveBeenCalledWith("b");
   // The library's change re-creates the view: the outgoing session is let go, and the new session takes the chained song up.
-  const outgoing = session.state.player!;
   unload();
   session.dispose();
   expect((outgoing as unknown as { disposed: boolean }).disposed).toBe(true);
@@ -1310,6 +1313,21 @@ describe("remote actions", () => {
     session.keyDown(press("g"));
     session.keyDown(press("h"));
     expect(usePracticeMute.getState().kinds).toEqual([]);
+    session.dispose();
+  });
+
+  it("releases the old view callbacks on disposal and accepts a new view after binding again", () => {
+    const { session, view } = remoteSession();
+    session.keyDown(press("t"));
+    expect(view.tap).toHaveBeenCalledTimes(1);
+    session.dispose();
+    session.keyDown(press("t"));
+    expect(view.tap).toHaveBeenCalledTimes(1);
+    const tap = vi.fn();
+    session.bind();
+    session.setView({ ...view, tap });
+    session.keyDown(press("t"));
+    expect(tap).toHaveBeenCalledTimes(1);
     session.dispose();
   });
 
@@ -2158,6 +2176,33 @@ describe("Send cues stays on", () => {
     await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
   });
+});
+
+it("unloads the player and ignores an in-flight speed render after its song is released", async () => {
+  const { session, unload } = armedSession();
+  const samples = source.audio.channels[0].slice();
+  session.setSpeed({ rate: 0.8 });
+  unload();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(session.state.player).toBeNull();
+  expect(session.state.playing).toBe(false);
+  expect(session.state.rendering).toBeNull();
+  expect(mocks.applied).toHaveLength(0);
+  expect(source.audio.channels[0]).toEqual(samples);
+  session.dispose();
+});
+
+it("does not clear the replacement song when an older load cleanup runs later", async () => {
+  const { session, unload } = armedSession();
+  const nextUnload = session.loadSong({ ...source, name: "next.wav", libraryId: "next" }, null);
+  const current = session.state.player;
+  unload();
+  expect(session.state.player).toBe(current);
+  session.setSpeed({ rate: 0.8 });
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(mocks.applied).toHaveLength(1);
+  nextUnload();
+  session.dispose();
 });
 
 describe("Before song preparation", () => {

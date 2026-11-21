@@ -1,3 +1,4 @@
+import { pcmMemoryShape, sharedPlaybackBuffer, sharePlaybackPcm } from "../audio/playback-pcm";
 import type { PcmAudio, Stems } from "../types";
 import { orderedKeys } from "../tracks";
 import { beatSeconds, clicksWhilePlaying, clicksWhileStopped, preRollStart, type MetronomeMode } from "../performance/rhythm";
@@ -107,6 +108,20 @@ export interface Join {
   lead: Lead;
 }
 
+/** Drops an ended or stopped node's native buffer reference. The player's canonical PCM is owned separately. */
+function releaseSource(source: AudioScheduledSourceNode): void {
+  source.onended = null;
+  if ("buffer" in source) source.buffer = null;
+  source.disconnect();
+}
+
+/** A one-shot buffer source frees its native reference when it ends, including sources replaced by a repeat. */
+function bufferSource(ctx: BaseAudioContext): AudioBufferSourceNode {
+  const source = ctx.createBufferSource();
+  source.onended = () => releaseSource(source);
+  return source;
+}
+
 /** Stops and forgets every click in `clicks`: blips and drum samples alike. */
 function silence(clicks: Set<AudioScheduledSourceNode>): void {
   for (const source of clicks) {
@@ -136,7 +151,26 @@ export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Players that have not been disposed, for the memory estimate (spec 127). Weak references: measuring must never keep a player, and
+ * the audio it holds, alive after the rest of the app has let go of it.
+ */
+const livePlayers = new Set<WeakRef<StemPlayer>>();
+
+/** The audio each live player holds, by song: what the memory line in MIDI health adds up. */
+export function liveAudio(): { player: StemPlayer; rate: number; tracks: { channels: number; frames: number; key: object }[] }[] {
+  const players: StemPlayer[] = [];
+  for (const ref of livePlayers) {
+    const player = ref.deref();
+    if (player) players.push(player);
+    else livePlayers.delete(ref);
+  }
+  return players.map((player) => ({ player, rate: player.playbackRate, tracks: player.bufferShapes() }));
+}
+
 export class StemPlayer {
+  /** This player's entry in `livePlayers`. */
+  private readonly liveRef = new WeakRef<StemPlayer>(this);
   /** The playable range, in song seconds. Trim and the file's length both set it. */
   private range: PlayRange;
   /** The song's length in song seconds, before any trim. The buffers may be a render of it, so this is not their own length. */
@@ -147,6 +181,7 @@ export class StemPlayer {
   readonly names: string[];
   private readonly engine: PlaybackEngine;
   private readonly ownsEngine: boolean;
+  private readonly sharePcm: boolean;
   private readonly ctx: AudioContext;
   private readonly router: PlaybackEngine["router"];
   private fadeIn: number;
@@ -154,6 +189,9 @@ export class StemPlayer {
   private endBehaviour: EndBehaviour = "next";
   private loopTimer: ReturnType<typeof setInterval> | null = null;
   private voices: Record<string, Voice>;
+  private disposed = false;
+  /** Set once the nodes are released. A mixer effect can still reach a closed player, so mix and routing changes are ignored then. */
+  private released = false;
   /** The song's timeline on the audio clock. A jump appends a segment. Empty until something has been started. */
   private segments: Segment[] = [];
   private prepared: PreparedJump | null = null;
@@ -200,13 +238,15 @@ export class StemPlayer {
    */
   /**
    * `stems` are the song's stems, or a render of them at `rate` (see `renderBuffers`). Shape and fades are in song seconds.
+   * `sharePcm` lets the song store read samples from the filled playback buffers instead of keeping a second decoded copy.
    */
-  constructor(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, fill: "now" | "later" = "now", rate = 1) {
+  constructor(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, fill: "now" | "later" = "now", rate = 1, options: { sharePcm?: boolean } = {}) {
+    this.sharePcm = options.sharePcm === true;
     this.names = orderedKeys(Object.keys(stems).filter((name) => stems[name]));
     if (!this.names.length) throw new Error("There are no stems to play.");
     const first = stems[this.names[0]]!;
     this.rate = clampRate(rate);
-    this.fileLength = (first.channels[0].length / first.sampleRate) * this.rate;
+    this.fileLength = (pcmMemoryShape(first).frames / first.sampleRate) * this.rate;
     this.range = playRange(this.fileLength, shape);
     this.offset = this.range.start;
     this.fadeIn = fadeSeconds(shape.fadeIn);
@@ -217,11 +257,16 @@ export class StemPlayer {
     this.ctx = this.engine.ctx;
     this.router = this.engine.router;
     this.unlisten = this.engine.onWarning((message) => this.onOutputWarning?.(message));
+    livePlayers.add(this.liveRef);
     this.voices = Object.fromEntries(
       this.names.map((name) => {
         const pcm = stems[name]!;
-        const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-        if (fill === "now") pcm.channels.forEach((ch, c) => buffer.copyToChannel(ch as Float32Array<ArrayBuffer>, c));
+        const shared = this.sharePcm ? sharedPlaybackBuffer(pcm) : undefined;
+        const buffer = shared ?? this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+        if (fill === "now" && !shared) {
+          pcm.channels.forEach((ch, c) => buffer.copyToChannel(ch as Float32Array<ArrayBuffer>, c));
+          if (this.sharePcm) sharePlaybackPcm(pcm, buffer);
+        }
         const gain = this.ctx.createGain();
         const pan = this.ctx.createStereoPanner();
         const fade = this.ctx.createGain();
@@ -240,17 +285,38 @@ export class StemPlayer {
    * Builds a player whose buffers are filled a channel at a time, yielding between channels, so a long song does not block the
    * renderer. The player is not used until the returned promise resolves.
    */
-  static async create(stems: Stems, engine?: PlaybackEngine, shape: SongShape = {}, pause: () => Promise<void> = yieldToMain, rate = 1): Promise<StemPlayer> {
-    const player = new StemPlayer(stems, engine, shape, "later", rate);
-    for (const name of player.names) {
-      const pcm = stems[name]!;
-      const buffer = player.voice(name).buffer;
-      for (let c = 0; c < pcm.channels.length; c++) {
-        buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
-        await pause();
+  static async create(
+    stems: Stems,
+    engine?: PlaybackEngine,
+    shape: SongShape = {},
+    pause: () => Promise<void> = yieldToMain,
+    rate = 1,
+    options: { sharePcm?: boolean } = {},
+  ): Promise<StemPlayer> {
+    const player = new StemPlayer(stems, engine, shape, "later", rate, options);
+    try {
+      for (const name of player.names) {
+        const pcm = stems[name]!;
+        const buffer = player.voice(name).buffer;
+        if (player.sharePcm && sharedPlaybackBuffer(pcm) === buffer) continue;
+        for (let c = 0; c < pcm.channels.length; c++) {
+          buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
+          await pause();
+        }
+        if (player.sharePcm) sharePlaybackPcm(pcm, buffer);
       }
+      return player;
+    } catch (error) {
+      await player.dispose();
+      throw error;
     }
-    return player;
+  }
+
+  /** Shape of each track's buffer, read without touching its samples. `key` is the buffer, so a buffer shared between players counts once. */
+  bufferShapes(): { channels: number; frames: number; key: object }[] {
+    return Object.values(this.voices).map(({ buffer }) => {
+      return { channels: buffer.numberOfChannels, frames: buffer.length, key: buffer };
+    });
   }
 
   private voice(name: string): Voice {
@@ -305,7 +371,6 @@ export class StemPlayer {
     if (this.playing) this.updateLoop();
   }
 
-
   get isPlaying(): boolean {
     return this.playing;
   }
@@ -349,7 +414,7 @@ export class StemPlayer {
     const start = clickAt + (lead.countInBeats ?? 0) * interval;
     for (const name of this.names) {
       const v = this.voice(name);
-      const source = this.ctx.createBufferSource();
+      const source = bufferSource(this.ctx);
       source.buffer = v.buffer;
       source.connect(v.gain);
       source.start(start, from / this.rate);
@@ -499,7 +564,7 @@ export class StemPlayer {
     const previous: AudioBufferSourceNode[] = [];
     for (const name of this.names) {
       const v = this.voice(name);
-      const source = this.ctx.createBufferSource();
+      const source = bufferSource(this.ctx);
       source.buffer = render?.buffers[name] ?? v.buffer;
       source.connect(v.gain);
       source.start(when, to / rate);
@@ -535,10 +600,14 @@ export class StemPlayer {
     for (const name of this.names) {
       const pcm = stems[name];
       if (!pcm) continue;
-      const buffer = this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-      for (let c = 0; c < pcm.channels.length; c++) {
-        buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
-        await pause();
+      const shared = this.sharePcm ? sharedPlaybackBuffer(pcm) : undefined;
+      const buffer = shared ?? this.ctx.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
+      if (!shared) {
+        for (let c = 0; c < pcm.channels.length; c++) {
+          buffer.copyToChannel(pcm.channels[c] as Float32Array<ArrayBuffer>, c);
+          await pause();
+        }
+        if (this.sharePcm) sharePlaybackPcm(pcm, buffer);
       }
       buffers[name] = buffer;
     }
@@ -608,7 +677,7 @@ export class StemPlayer {
       const pending = v.source!;
       pending.onended = null;
       pending.stop(0);
-      pending.disconnect();
+      releaseSource(pending);
       jump.previous[i].stop(end);
       v.source = jump.previous[i];
     });
@@ -618,6 +687,7 @@ export class StemPlayer {
 
   /** Sends each track to its bus. Tracks without an entry stay on Main. */
   setTrackBuses(routes: TrackBuses): void {
+    if (this.released) return;
     for (const name of this.names) {
       const analyser = this.voice(name).analyser;
       analyser.disconnect();
@@ -640,6 +710,7 @@ export class StemPlayer {
    * when the song is normalised.
    */
   setMix(mix: Mix, master = 1): void {
+    if (this.released) return;
     const gains = stemGains(mix, this.names);
     const now = this.ctx.currentTime;
     for (const name of this.names) {
@@ -678,7 +749,9 @@ export class StemPlayer {
   private prepareClickSounds(): void {
     const { sound, countIn } = this.sounds();
     const { beats } = this.metronome;
-    const wanted = [...new Set([...clickNotes(sound, beats), ...clickNotes(countIn, beats)])].filter((note) => !this.clickBuffers.has(note) && !this.clickLoading.has(note));
+    const wanted = [...new Set([...clickNotes(sound, beats), ...clickNotes(countIn, beats)])].filter(
+      (note) => !this.clickBuffers.has(note) && !this.clickLoading.has(note),
+    );
     if (!wanted.length) return;
     for (const note of wanted) this.clickLoading.add(note);
     // The sample module (and the codec behind it) is only loaded when a drum sound is chosen, so the plain click costs nothing.
@@ -688,6 +761,7 @@ export class StemPlayer {
           wanted.map((note) =>
             loadDrumSample(note)
               .then((audio) => {
+                if (this.disposed) return;
                 const { ctx } = this.router.clickTarget();
                 const buffer = ctx.createBuffer(audio.channels.length, audio.channels[0].length, audio.sampleRate);
                 audio.channels.forEach((channel, index) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, index));
@@ -747,7 +821,7 @@ export class StemPlayer {
     let sources: AudioScheduledSourceNode[];
     let stopAt: number | null = null;
     if (buffer) {
-      const sample = ctx.createBufferSource();
+      const sample = bufferSource(ctx);
       sample.buffer = buffer;
       gain.gain.setValueAtTime(volume * clickAccent(sound, beat), at);
       sources = [sample];
@@ -772,7 +846,7 @@ export class StemPlayer {
       into.add(source);
       source.onended = () => {
         into.delete(source);
-        source.disconnect();
+        releaseSource(source);
         if (--running === 0) gain.disconnect();
       };
       source.start(at);
@@ -792,7 +866,8 @@ export class StemPlayer {
     silence(this.previewing);
     const sounds = this.sounds();
     const start = this.ctx.currentTime + 0.05;
-    for (let beat = 0; beat < beats; beat++) this.click(start + beat * beatInterval(bpm), beat, this.previewing, which === "countIn" ? sounds.countIn : sounds.sound);
+    for (let beat = 0; beat < beats; beat++)
+      this.click(start + beat * beatInterval(bpm), beat, this.previewing, which === "countIn" ? sounds.countIn : sounds.sound);
   }
 
   /** The count-in is always clicked, whatever the metronome mode: it is the lead-in the player asked for. */
@@ -841,7 +916,7 @@ export class StemPlayer {
   levels(): Record<string, number> {
     return Object.fromEntries(
       this.names.map((name) => {
-        if (!this.playing) return [name, 0];
+        if (!this.playing || this.released) return [name, 0];
         this.voice(name).analyser.getFloatTimeDomainData(this.meterBuffer);
         let sum = 0;
         for (const x of this.meterBuffer) sum += x * x;
@@ -860,21 +935,23 @@ export class StemPlayer {
    * A shared engine is left open; a player that owns its engine closes it.
    */
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     this.cancelChain();
     this.playing = false;
     const tail = this.handedOver ? this.tailEnd - this.ctx.currentTime : 0;
     if (tail > 0) {
-      setTimeout(() => void this.release(false), tail * 1000 + 100);
+      setTimeout(() => void this.release(), tail * 1000 + 100);
       return;
     }
-    await this.release(true);
+    await this.release();
   }
 
-  /** Frees the song's nodes. `stop` is false after a hand-over, whose stems have already been scheduled to end. */
-  private async release(stop: boolean): Promise<void> {
+  /** Releases nodes and buffer references after the outgoing tail has ended, even while a caller still holds the disposed player. */
+  private async release(): Promise<void> {
+    livePlayers.delete(this.liveRef);
     this.unlisten();
-    if (stop) this.stopSources();
-    else this.stopMetronome();
+    this.stopSources();
     for (const name of this.names) {
       const { gain, pan, fade, analyser } = this.voice(name);
       gain.disconnect();
@@ -882,6 +959,10 @@ export class StemPlayer {
       fade.disconnect();
       analyser.disconnect();
     }
+    this.voices = {};
+    this.released = true;
+    this.clickBuffers.clear();
+    this.customBuffers = {};
     if (this.ownsEngine) await this.engine.close();
   }
 
@@ -894,6 +975,7 @@ export class StemPlayer {
     const leader = this.voice(this.names[0]);
     const ending = leader.source!;
     ending.onended = () => {
+      releaseSource(ending);
       if (!this.playing || leader.source !== ending) return;
       this.playing = false;
       if (this.next || this.handedOver) {
@@ -921,7 +1003,7 @@ export class StemPlayer {
       if (!v.source) continue;
       v.source.onended = null;
       v.source.stop();
-      v.source.disconnect();
+      releaseSource(v.source);
       v.source = null;
     }
     if (this.prepared) {
@@ -929,7 +1011,7 @@ export class StemPlayer {
       for (const source of this.prepared.previous) {
         source.onended = null;
         source.stop();
-        source.disconnect();
+        releaseSource(source);
       }
       this.prepared = null;
     }

@@ -9,7 +9,10 @@ import type { TrackInfo } from "./tracks";
 // The stem names belong to the model registry, shared with the hosts; the song code reads them from here.
 export { STEM_NAMES, type StemName } from "@shared/host/song";
 
-/** Planar PCM: one Float32Array per channel, all the same length. */
+/**
+ * Planar PCM: one Float32Array per channel, all the same length. Store-owned tracks may expose borrowed playback-buffer views:
+ * treat their samples as read-only and copy before transferring channel buffers to a worker.
+ */
 export interface PcmAudio {
   sampleRate: number;
   channels: Float32Array[];
