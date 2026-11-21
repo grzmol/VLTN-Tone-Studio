@@ -2,6 +2,11 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Added
+- **GP-150/GP-180 cue names and rig checks.** Cue pickers show live or cached preset names; preflight warns when a named preset changed, checks pedal MIDI routing, and offers setting fixes. Editor background reads wait until playback stops.
+
 ## [1.0.0] - 2026-11-20
 
 ### Added
