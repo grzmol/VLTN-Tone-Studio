@@ -514,10 +514,14 @@ test("SnapTone / User IR rename refuses: no confirm, a slot out of range, an emp
 
 test("JR and LT pace the 45 frames of a SnapTone upload at 50 ms, the GP-200 stays fast (issue #136)", async () => {
   for (const [type, slow] of [["gp200jr", true], ["gp200lt", true], ["gp200", false]]) {
-    const { s, sent } = await setup({ type }, { ...fast, frameGapMs: 1, slowPedalGapMs: 50, uploadTimeoutMs: 8000 });
+    const { dev, s, sent } = await setup({ type }, { ...fast, frameGapMs: 1, slowPedalGapMs: 50, uploadTimeoutMs: 8000 });
     await s.connect();
     const n = sent.length;
-    await s.uploadSnapTone(5, "Pace", cloneBlob(), { confirm: true });
+    const r = await s.uploadSnapTone(5, "Pace", cloneBlob(), { confirm: true });
+    const up = sent.slice(n).filter((x) => x.bytes.length > 100);
+    assert.equal(Math.max(...up.map((x) => x.bytes.length)), slow ? 254 : 380, `${type} frame size`); // Chromium on Linux splits above 256 B
+    assert.equal(r.frames, slow ? 69 : 45);
+    assert.equal(checkGp200SnapTone(dev.snapTone[5].data), null, `${type} stored SnapTone is intact`);
     const g = gaps(sent.slice(n)).sort((a, b) => a - b);
     const median = g[g.length >> 1];
     assert.equal(median >= 45, slow, `${type} median gap ${median} ms`);

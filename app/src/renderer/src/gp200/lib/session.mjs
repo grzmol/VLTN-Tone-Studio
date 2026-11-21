@@ -29,6 +29,7 @@ import {
   sanitizeName,
   slotLabel,
   BLOCK,
+  CHUNK,
 } from "./protocol.mjs";
 import { applyPatchEdits, buildPrst, firstDifference, imageOf, parsePatch, withEightCtrl } from "./prst.mjs";
 import { SNAPTONE, isSnapToneSlot, toGp200SnapTone } from "./snaptone.mjs";
@@ -39,6 +40,7 @@ export const SLOT_NAME_MAX = 15;
 export const DEFAULT_TIMING = Object.freeze({
   frameGapMs: 10, // the editor pumps its TX queue with a 10 ms timer, one frame per tick
   slowPedalGapMs: 50, // GP-200JR and LT: between the frames of a multi-frame message (JR drops frames at 10 ms, works at 50, #136; smaller untested)
+  slowPedalUploadChunk: 120, // GP-200JR and LT SnapTone / User IR uploads: data bytes per frame; 120 -> 254 B frames, which Chromium on Linux does not split (it cuts above 256 B and a pedal can lose a split SysEx, #136). The editor sends 183; a value >= 183 does the same. Not checked on a JR yet
   multiChunkPauseMs: 1000, // the editor sleeps 1 s after any multi-chunk message
   identityGapMs: 100, // 0x2001 query -> SOFTWARE_STATE
   replyTimeoutMs: 1000, // per query (sync step)
@@ -233,10 +235,10 @@ export class Gp200Session extends EventTarget {
   }
 
   /** Frame and send one message; returns the number of frames sent (fewer when the pedal asked for a flush). */
-  async #sendMessage(msg, onFrame) {
+  async #sendMessage(msg, onFrame, chunk = CHUNK.HOST) {
     const why = dangerOfMessage(msg);
     if (why) throw new Gp200Error("unsafe", `refusing to send ${why}`);
-    const frames = encodeFrames(msg);
+    const frames = encodeFrames(msg, chunk);
     const flushes = this.#flushes;
     const slow = frames.length > 1 && (this.#deviceType === 3 || this.#deviceType === 4);
     const gap = slow ? Math.max(this.#timing.frameGapMs, this.#timing.slowPedalGapMs) : this.#timing.frameGapMs;
@@ -719,7 +721,7 @@ export class Gp200Session extends EventTarget {
       const result = this.#waitFor(kindIs(resultKind, (r) => r.slot === slot), this.#timing.uploadTimeoutMs, `${what} upload result`);
       let frames;
       try {
-        frames = await this.#sendMessage(msg, onProgress);
+        frames = await this.#sendMessage(msg, onProgress, this.#deviceType === 3 || this.#deviceType === 4 ? Math.max(1, Math.min(CHUNK.HOST, this.#timing.slowPedalUploadChunk)) : CHUNK.HOST);
         const r = recordOf(await result.promise, resultKind);
         if (!r.ok) throw new Gp200Error("verify", `${what} upload to slot ${slot + 1} failed (status ${r.status})`);
       } catch (e) {

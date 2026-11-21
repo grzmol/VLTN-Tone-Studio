@@ -311,7 +311,7 @@ export class Reassembler {
     this.#buf.set(frame.data.subarray(0, n), this.#got);
     this.#got += n;
     this.#at = t;
-    const short = this.#shortChunk > 0 && frame.data.length < this.#shortChunk;
+    const short = this.#shortChunk > 0 && this.#cmd === CMD.QUERY && frame.data.length < this.#shortChunk; // a SET may arrive in small chunks
     if (this.#got < this.#buf.length && !short) return null;
     const out = { cmd: this.#cmd, payload: this.#buf.slice(0, this.#got) };
     this.reset();

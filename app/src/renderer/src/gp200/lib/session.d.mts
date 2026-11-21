@@ -13,6 +13,7 @@ export interface Gp200Transport {
 export interface Gp200Timing {
   frameGapMs: number;
   slowPedalGapMs: number;
+  slowPedalUploadChunk: number;
   multiChunkPauseMs: number;
   identityGapMs: number;
   replyTimeoutMs: number;
