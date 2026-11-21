@@ -12,6 +12,7 @@ import type { PracticeKind } from "./practice-mute";
 export type Hint = string | void;
 
 export interface ActionHost {
+  prepare(): Hint;
   play(): Hint;
   playPause(): Hint;
   stop(): Hint;
@@ -68,6 +69,7 @@ export interface ActionDef {
 const SECTION_MAX = 64;
 
 const DEFINITIONS = {
+  "transport.prepare": { label: "Prepare pedals", group: "Transport", run: (h) => h.prepare() },
   "transport.play": { label: "Play", group: "Transport", run: (h) => h.play() },
   "transport.playPause": { label: "Play or pause", group: "Transport", run: (h) => h.playPause() },
   "transport.stop": { label: "Stop", group: "Transport", run: (h) => h.stop() },
