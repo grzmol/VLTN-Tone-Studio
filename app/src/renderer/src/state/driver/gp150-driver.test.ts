@@ -132,6 +132,19 @@ describe("Gp150Driver", () => {
     expect(dev.activeSlot).toBe(120);
   });
 
+  it("backs up 200 presets in their own slots while the pedal changes preset", async () => {
+    const { d, dev } = await connected();
+    const pushes: Promise<void>[] = [];
+    const all = await d.backupAll({
+      onProgress: (done) => {
+        if (done % 10 === 0) pushes.push(dev.selectOnPedal(150 + (done % 20)));
+      },
+    });
+    await Promise.all(pushes);
+    expect(all).toHaveLength(200);
+    for (const e of all) expect(e.name).toBe(parsePrst(dev.presets[e.slot]).name);
+  });
+
   it("reports pedal-side edits: a knob as a param, another preset as a resync", async () => {
     const { d, dev } = await connected();
     const knob = nextEvents(d, 1);
