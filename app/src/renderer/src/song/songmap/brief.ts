@@ -13,7 +13,7 @@ import type { DetectedSection } from "../analysis/sections";
 import { METER_CERTAIN, parseAnalysis } from "../analysis/song-analysis";
 import type { Chord } from "../performance/chords";
 import { parseSections, type Section } from "../performance/sections";
-import { formatTime, parseSongKey, writeSongMap, type SongMap, type SongMapBassNote, type SongMapSection } from "./songmap";
+import { formatTime, parseSongKey, writeSongMap, type SongMap, type SongMapBassNote, type SongMapMark, type SongMapSection } from "./songmap";
 
 /** What the brief is written from: the song's title and length, its saved tempo, options and chart, and its lyrics chart. */
 export interface BriefInput {
@@ -43,8 +43,13 @@ const INTRO = [
   "- Front matter between `---` lines: `songmap: 1`, then `key`, `bpm`, `meter` (such as 4/4), `first_beat` and `style` when they are known.",
   "- Times are `m:ss.xx`, such as `1:02.50`, or plain seconds.",
   "- `## Sections`: a table with the columns Start, End, Section, Drums (on or off), Bass, Style, Energy, Busy, Loud and Notes. Bass is off, " +
-    `or one of ${BASS_PART_CHOICES.join(", ")}. Style is one of ${STYLE_IDS.join(", ")}. Energy, Busy and Loud are 1 to 5. Leave a cell empty to keep the default.`,
+    `or one of ${BASS_PART_CHOICES.join(", ")}. Style is one of ${STYLE_IDS.join(", ")}. Energy, Busy and Loud are 1 to 5. Leave a cell empty to keep the default. ` +
+    "An optional Fill column sets the drum fill at the end of a section: auto (sized to the change into the next section), none, short (the last beat), half (half a bar) or whole (the whole bar). " +
+    "An optional Shape column says how a section's drums move: steady, build (rising into the next section), drop (kick and hats only) or half (half-time).",
   "- `## Bass notes`: a table with the columns Start, End, Note (C, C#, D … B) and Octave (up, down or empty).",
+  "- `## Marks`: a table with the columns Bar, Time, Mark and Beats. Put a mark on one bar: Bar is the section and the bar counted from the section's " +
+    "start, such as `Chorus 2:8`, or leave it empty and give the bar's Time. Mark is fill, no-fill, stop, crash, no-crash, drums-out, bass-out or hit. " +
+    "Beats is 1, 2 or 4 for a fill and 1 to 4 for a stop. Leave the table out when the band plays straight through.",
   "- `## Chart`: a ```chart fence of lines such as `[1:02.50] [Am]Lyric line`. Chords go in square brackets.",
   "- `## Notes`: free text, for the performer.",
 ].join("\n");
@@ -180,6 +185,8 @@ function sectionOf(section: Section, band: ReturnType<typeof parseBandSettings>)
     ...(override.energy ? { energy: override.energy } : {}),
     ...(override.busy ? { busy: override.busy } : {}),
     ...(override.loud ? { loud: override.loud } : {}),
+    ...(override.fill !== undefined ? { fill: override.fill } : {}),
+    ...(override.shape !== undefined ? { shape: override.shape } : {}),
   };
 }
 
@@ -214,6 +221,7 @@ export function draftSongMap(input: BriefInput): SongMap {
     bassNotes: band.bassOverrides.map((note): SongMapBassNote =>
       note.octave === undefined ? { start: note.start, end: note.end, pc: note.pc } : { ...note, octave: note.octave },
     ),
+    ...(band.marks.length > 0 ? { marks: band.marks.map((mark): SongMapMark => (mark.beats === undefined ? { time: mark.time, kind: mark.kind } : { time: mark.time, kind: mark.kind, beats: mark.beats })) } : {}),
     style: band.style,
     chart,
     notes: notes || undefined,

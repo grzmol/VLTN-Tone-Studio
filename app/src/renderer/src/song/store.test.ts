@@ -376,6 +376,35 @@ describe("generated parts in the song store", () => {
     expect(options(source).generatedParts).toEqual({ drums: "track0", bass: "track1" });
   });
 
+  it("keeps the drummer's count beside the drums as one extras track, and replaces or drops it with the drums", async () => {
+    const useSong = store();
+    await useSong.getState().load(file("song.mp3"));
+    const source = useSong.getState().source;
+    const count = { audio: { sampleRate: 44100, channels: [new Float32Array(300), new Float32Array(300)] }, start: -2 };
+    expect(useSong.getState().applyGeneratedParts({ drums: audio(), bass: audio(), extras: { drums: { countIn: count, exits: {} } } })).toEqual([]);
+    expect(Object.keys(useSong.getState().stems ?? {}).sort()).toEqual(["source", "track0", "track1", "track2"]);
+    expect(useSong.getState().tracks.track2).toMatchObject({ kind: "user", name: "Drums extras (generated)" });
+    expect(useSong.getState().stems?.track2?.channels[0]).toHaveLength(300);
+    expect(options(source).generatedParts).toEqual({ drums: "track0", bass: "track1", drumsExtras: "track2" });
+    expect(options(source).bandExtras.drums.countIn).toEqual({ at: 0, frames: 300, start: -2 });
+    // Generating the drums again without a count drops the extras; the bass is left alone.
+    useSong.getState().applyGeneratedParts({ drums: audio() });
+    expect(Object.keys(useSong.getState().tracks).sort()).toEqual(["source", "track0", "track1"]);
+    expect(options(source).bandExtras).toBeUndefined();
+    expect(options(source).generatedParts).toEqual({ drums: "track0", bass: "track1" });
+  });
+
+  it("removes the extras with the generated parts", async () => {
+    const useSong = store();
+    await useSong.getState().load(file("song.mp3"));
+    const source = useSong.getState().source;
+    const count = { audio: { sampleRate: 44100, channels: [new Float32Array(300), new Float32Array(300)] }, start: -2 };
+    useSong.getState().applyGeneratedParts({ drums: audio(), extras: { drums: { countIn: count, exits: {} } } });
+    expect(useSong.getState().removeGeneratedParts()).toEqual([]);
+    expect(Object.keys(useSong.getState().tracks)).not.toContain("track1");
+    expect(options(source).bandExtras).toBeUndefined();
+  });
+
   it("applying twice replaces the generated tracks instead of adding more", async () => {
     const useSong = store();
     await useSong.getState().load(file("song.mp3"));

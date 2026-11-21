@@ -2,6 +2,13 @@
 
 All notable changes to VLTN Tone Studio. Versions match `app/package.json` and the GitHub Releases. The release workflow copies the section of the version it publishes into the release notes.
 
+## [Unreleased]
+
+### Added
+- Looping generated sections can play a musical exit bar when released.
+- Generated drums can count the song in on sticks or hi-hat.
+- Generated drums use section grooves, phrase turnarounds and fills shaped by the next section.
+
 ## [1.0.0] - 2026-11-20
 
 ### Added

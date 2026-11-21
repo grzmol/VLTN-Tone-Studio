@@ -1,7 +1,8 @@
 // Funk: sixteenth-note grooves, with kick and snare placed on the off-beats and ghost notes between the backbeats.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, SIDE_STICK, SNARE } from "../note";
-import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
+import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS, ramp } from "./notation";
 import type { Style } from "./types";
 
 export const FUNK: Style = {
@@ -105,9 +106,16 @@ export const FUNK: Style = {
     ],
   },
   fills: {
+    short: [
+      bar(16, lane(SNARE, VEL.normal, [12, 14]), lane(SNARE, VEL.ghost, [13, 15], { ghost: true }), lane(KICK, VEL.accent, [15])),
+      bar(16, lane(HIGH_TOM, 74, [12]), lane(MID_TOM, 84, [13, 14]), lane(SNARE, VEL.accent, [15])),
+      bar(16, ramp(SNARE, [12, 13, 14, 15], 64, 106)),
+    ],
     half: [
       bar(16, lane(SNARE, VEL.normal, [8, 10, 12, 14]), lane(SNARE, VEL.ghost, [9, 11, 13, 15], { ghost: true }), lane(KICK, VEL.normal, [14])),
       bar(16, lane(HIGH_TOM, VEL.normal, [8, 10]), lane(MID_TOM, VEL.normal, [12, 13]), lane(LOW_TOM, VEL.normal, [14]), lane(SNARE, VEL.normal, [15])),
+      bar(16, ramp(SNARE, [8, 10, 11, 12, 14, 15], 62, 108), lane(KICK, VEL.normal, [8, 13])),
+      bar(16, lane(KICK, VEL.normal, [8, 11]), ramp(HIGH_TOM, [12, 13], 74, 82), lane(MID_TOM, 90, [14]), lane(LOW_TOM, 98, [15])),
     ],
     bar: [
       bar(
@@ -119,11 +127,42 @@ export const FUNK: Style = {
         lane(SNARE, VEL.normal, [12, 14]),
       ),
       bar(16, lane(KICK, VEL.accent, [0, 8]), lane(SNARE, VEL.normal, [2, 4, 6, 8, 10, 12, 14]), lane(SNARE, VEL.ghost, ODD_SIXTEENTHS, { ghost: true })),
+      bar(16, lane(KICK, VEL.accent, [0, 3, 8]), ramp(SNARE, [4, 6, 10, 12, 13, 14, 15], 66, 112)),
+      bar(
+        16,
+        lane(KICK, VEL.accent, [0, 10]),
+        ramp(HIGH_TOM, [2, 4], 70, 76),
+        ramp(MID_TOM, [6, 8], 82, 88),
+        lane(LOW_TOM, 96, [12, 14]),
+        lane(SNARE, VEL.accent, [15]),
+      ),
     ],
   },
+  turnarounds: [
+    bar(16, lane(OPEN_HAT, VEL.hat, [14])),
+    bar(16, lane(KICK, VEL.normal, [13, 15])),
+    bar(16, lane(SNARE, VEL.normal, [12]), lane(SNARE, VEL.ghost, [13, 15], { ghost: true }), lane(SNARE, 70, [14])),
+  ],
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: true, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . . . . . 5 . . . ."), figure(16, "1 . . . . . . . . . . . . . . ."), figure(16, "1 . . . . . . . . . . . . . 8s .")],
+      2: [figure(16, "1 . . 1s . . . . . . 5 . . . . ."), figure(16, "1 . . . . . 8s . . . 1 . . . . ."), figure(16, "1 . . . . . 1s . . . . . 5 . . .")],
+      3: [figure(16, "1 . . 1s . . 5 . . . 1s . . . 8s ."), figure(16, "1 . . 1s . . . . 8 . 1s . . . 5 ."), figure(16, "1 . . 1 . . 8s . . . 7 . . . 5 .")],
+      4: [
+        figure(16, "1 . . 1s . . 8 . . . 7 5 . . . ."),
+        figure(16, "1 . . 1s . . 7 . 8 . 5 . . . 1s ."),
+        figure(16, "1 . 1s . . 8s . . 1 . . 7 . 5 . ."),
+        figure(16, "1 . . 1s . . 8 . . . 1 . . . 5 ."),
+      ],
+      5: [
+        figure(16, "1 . 1s 1s . . 8s . 1 . 7 5 . . 8s ."),
+        figure(16, "1 . . 1s . . 8s 7 . . 1s . . 5 8s ."),
+        figure(16, "1 . 1s . 1s . 5 8s . 1s . 7 . 5 . ."),
+        figure(16, "1 . 1s 1s . . 8s . 1 . 1 5 . . 8s ."),
+      ],
+    },
     rhythms: {
       1: [[0, 11], [0]],
       2: [
