@@ -2,7 +2,7 @@
 
 <br>
 
-# VLTN Tone Studio
+<img src="assets/banner.png" alt="VLTN Tone Studio" width="100%">
 
 A desktop editor and librarian for Valeton multi-effects:<br>
 **GP-5 · GP-50 · GP-150 · GP-180 · GP-200 · GP-200LT · GP-200JR**
@@ -475,33 +475,15 @@ The GP-200 (also R and X), GP-200LT and GP-200JR get the same screens, shaped to
 
 <br>
 
-| | GP-5 | GP-50 | GP-150 | GP-180 | GP-200 · 200R · 200X | GP-200LT | GP-200JR |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Recognised over USB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Live editing | ✅ | ✅ | ✅ | ✅ | ✅¹ | ✅¹ | ✅¹ |
-| Preset library | ✅ 100 slots | ✅ 100 slots | ✅ 200 slots | ✅ 200 slots | ✅ 256 slots | ✅ 256 slots | ✅ 255 slots |
-| Backups | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Restore a backup | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `.prst` export | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `.prst` import | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Pedal settings | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Global EQ | — | — | ✅ | ✅ | ✅² | ✅² | ✅² |
-| Footswitches and chain order | ✅ FS1–2 | ✅³ FS1–2 | ✅ FS A–B | ✅ FS A–C | ✅ CTRL 1–8 | ✅ | ✅ |
-| Tempo and tap tempo | ✅ | ✅³ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Expression pedal and patch settings | — | ✅³ | ✖️ | ✖️ | ✅ | ✅ | ✅ |
-| SnapTones (NAM) over USB | ✅ 30 user slots | ✅ 30 user slots | ✅ 50 user slots | ✅ 50 user slots | ✅ 10 slots | ❔ | ❔ |
-| Cab IR inside a SnapTone | ✅ | ✅ | — | — | — | — | — |
-| User IRs over USB | ✅ 20 × 512 | ✅ 20 × 512 | ✅ 20 slots | ✅ 20 slots | ✅ 20 × 1024 | ✅ 20 × 1024 | ✅ 20 × 1024 |
-| Tone Match | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| [Simulated pedal](#build-it-yourself) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+Supported devices:
 
-<sub>✅ works &nbsp;·&nbsp; ✖️ not in Tone Studio &nbsp;·&nbsp; ❔ not known yet whether the pedal has it &nbsp;·&nbsp; — the pedal doesn't have it or doesn't need it</sub>
-
-<br>
-
-¹ **GP-200 knobs come from the built-in [effect list](#the-gp-200-family)**, or from Valeton's editor if you import its list.<br>
-² **The Global EQ write** is known only from Valeton's GP-200 editor, so it's behind *Settings › Experimental pedal commands*.<br>
-³ **Some GP-50 commands sit behind Settings › Experimental pedal commands**: live footswitch, order and tempo changes, expression pedal settings, reading a slot without selecting it, and the pedal's own delete, copy and move. With the switch off, footswitches, order and tempo reach the pedal when you save. The simulator always has them.
+- Valeton GP-5
+- Valeton GP-50
+- Valeton GP-150
+- Valeton GP-180
+- Valeton GP-200, GP-200R and GP-200X
+- Valeton GP-200LT
+- Valeton GP-200JR
 
 <br>
 

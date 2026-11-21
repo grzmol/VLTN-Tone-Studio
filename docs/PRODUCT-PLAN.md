@@ -111,8 +111,8 @@ Goal: every shipped claim is true, and users can see what has been proven.
 
 | ID | Work | Scope and acceptance | Size | Depends on |
 |---|---|---|---|---|
-| T1 | Ship 1.0.0 | merge `release/1.0.0`, tag, bring `develop` to 1.0.0; changelog and README download buttons in step | S | PR #122 merged |
-| T2 | Hardware matrix | one table in the docs: model, firmware, what was verified (read, write to a scratch slot, backup, SnapTone, IR, settings), by whom, date; the README support table links to it | S | T1 |
+| T1 | Ship 1.0.0 | merge `release/1.0.0`, tag, bring `develop` to 1.0.0; changelog and README download buttons in step | S | none |
+| T2 | Hardware matrix | one table in the docs: model, firmware, what was verified (read, write to a scratch slot, backup, SnapTone, IR, settings), by whom, date; the [support matrix](DEVICES.md) links to it | S | T1 |
 | T3 | Hardware verification script | a step-by-step checklist per family (read-only first, then scratch-slot writes) that produces a log the app can export, so any contributor with a pedal can run it | M | T2 |
 | T4 | Run T3 on GP-50, the GP-200 family, GP-150 and GP-180 | each passing feature leaves "experimental"; each failure becomes an issue with the log attached | L, needs units | T3 |
 | T5 | SnapTone conversion hardening | a test corpus of NAM A1 and A2 files (sizes, sample rates, lengths); no timeouts on files the pedal accepts; a clear message when a file is too large or unsupported; conversion runs off the UI thread with progress and cancel | M | none |
