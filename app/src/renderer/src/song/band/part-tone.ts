@@ -9,6 +9,7 @@ import { readWavStereo } from "@/userir/convert";
 import { unitEnergy, type GraphStage } from "@/screens/capture/audio/chain-graph";
 import { irLevelGain } from "@/screens/capture/audio/ir-level";
 import { TONE_BLOCK_TYPE, type PartTone, type PartToneFile, type ToneBlock, type ToneRole, type TonePart } from "./arrangement";
+import { warmBassTone } from "./builtin-bass-tone";
 import { PEAK_LIMIT } from "./render";
 import type { PcmAudio } from "../types";
 
@@ -56,6 +57,8 @@ export type LoadedBassTone = LoadedPartTone;
 export interface PartToneResult {
   audio: PcmAudio;
   notice: string | null;
+  /** What the audio was rendered with: "clean" when the part is the clean part, even where its tone asked for a chain (spec 136). */
+  tone: "clean" | "chain";
 }
 
 /** The bass's result, which names its audio `bass` as it always has. */
@@ -368,7 +371,8 @@ const PART_NOTICE: Record<TonePart, { subject: string; plays: string; noun: stri
  * render, returns the clean part with a notice, so one missing file never fails the whole Generate. Drums are rendered in stereo.
  */
 export async function applyPartTone(audio: PcmAudio, tone: PartTone, files: PartToneFiles, chain: PartChain, part: TonePart): Promise<PartToneResult> {
-  if (tone.kind === "clean") return { audio, notice: null };
+  if (tone.kind === "clean") return { audio, notice: null, tone: "clean" };
+  if (tone.kind === "builtin") return { audio: warmBassTone(audio), notice: null, tone: "chain" };
   const { subject, plays, noun } = PART_NOTICE[part];
   const stereo = part === "drums";
   let loaded: LoadedPartTone;
@@ -376,12 +380,12 @@ export async function applyPartTone(audio: PcmAudio, tone: PartTone, files: Part
     loaded = await loadPartTone(tone, files, stereo);
   } catch (error) {
     const reason = error instanceof BlockLoadError ? error.message : `the ${noun} couldn't be loaded (${messageOf(error)})`;
-    return { audio, notice: `${subject} ${plays} clean, because ${reason}.` };
+    return { audio, notice: `${subject} ${plays} clean, because ${reason}.`, tone: "clean" };
   }
   try {
-    return { audio: await renderPartTone(audio, loaded, chain, stereo), notice: null };
+    return { audio: await renderPartTone(audio, loaded, chain, stereo), notice: null, tone: "chain" };
   } catch (error) {
-    return { audio, notice: `${subject} ${plays} clean, because the ${noun} couldn't be rendered (${messageOf(error)}).` };
+    return { audio, notice: `${subject} ${plays} clean, because the ${noun} couldn't be rendered (${messageOf(error)}).`, tone: "clean" };
   }
 }
 

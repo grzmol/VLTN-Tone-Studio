@@ -1,5 +1,6 @@
 // Reggae: the one drop. The kick and the rim or snare land together on beat 3 only, and the hat plays the off-beats (the skank).
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -130,6 +131,13 @@ export const REGGAE: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, ". . . . 1 . . ."), figure(16, ". . . . 1 . . .", ". . . . 5 . . ."), figure(16, ". . . . 1 . . 1")],
+      2: [figure(16, ". . . . 1 . . ."), figure(16, ". 1s . . 1 . . ."), figure(16, ". . . . 1 . 5 .")],
+      3: [figure(16, ". 1s . . 1 . 5 ."), figure(16, ". . . . 1 . 1s ."), figure(16, ". 1s . . 1 1s . .", ". 1s . . 1 . 5 .")],
+      4: [figure(16, "1 . . . 1 . 5 ."), figure(16, ". 1s . 1s 1 . 5 ."), figure(16, ". 1s . . 1 1s 5 .", ". 1s . . 1 . 5 app")],
+      5: [figure(16, "1 . 1s . 1 . 5 ."), figure(16, ". 1s 1s 1 1 . 5 5"), figure(16, "1 . . 1s 1 . 5 1s")],
+    },
     rhythms: {
       1: [[8], [0, 8]],
       2: [[8], [2, 8]],
