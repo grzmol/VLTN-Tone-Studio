@@ -1,0 +1,59 @@
+# Keeps the GitHub wiki in step with docs/: every push to main that touches the docs, the changelog or the
+# generator rebuilds the pages with .github/scripts/build-wiki.mjs and pushes them to the wiki repository.
+# The wiki repository exists only after its first page is created once in the browser (Wiki tab > Create the first page).
+# Edit docs/ in the repository, never the wiki: this workflow overwrites the pages.
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "CHANGELOG.md"
+      - ".github/scripts/build-wiki.mjs"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    # A fork has no wiki of its own that this token may write.
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "26"
+      - name: Check the generator
+        run: node --test .github/scripts/build-wiki.test.mjs
+      - name: Build the pages
+        run: node .github/scripts/build-wiki.mjs wiki-out "${{ github.server_url }}/${{ github.repository }}"
+      - name: Check out the wiki
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+      - name: Publish
+        working-directory: wiki
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          # Remove pages that no longer exist in docs/, then copy the new ones over.
+          find . -maxdepth 1 -name '*.md' -delete
+          cp ../wiki-out/*.md .
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: sync the wiki from ${SOURCE_SHA::7}"
+          git push
