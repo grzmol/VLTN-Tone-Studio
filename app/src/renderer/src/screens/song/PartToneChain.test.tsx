@@ -92,6 +92,22 @@ describe("PartToneChain", () => {
     expect(screen.queryByRole("button", { name: "Clean bass" })).toBeNull();
   });
 
+  it("offers the built-in Warm bass tone, which needs no download, and goes back to clean", () => {
+    const onChange = renderChain(clean);
+    fireEvent.click(screen.getByRole("button", { name: "Warm (built in)" }));
+    expect(onChange).toHaveBeenCalledWith({ kind: "builtin", id: "warm" });
+    cleanup();
+    const back = renderChain({ kind: "builtin", id: "warm" });
+    expect(screen.getAllByText("Warm (built in)").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clean bass" }));
+    expect(back).toHaveBeenCalledWith({ kind: "clean" });
+  });
+
+  it("does not offer Warm for the drums", () => {
+    renderChain(clean, 0, "drums");
+    expect(screen.queryByRole("button", { name: "Warm (built in)" })).toBeNull();
+  });
+
   it("starts from a preset as empty slots with their roles set", () => {
     const onChange = renderChain(clean);
     fireEvent.click(screen.getByRole("button", { name: "Studio bass" }));
