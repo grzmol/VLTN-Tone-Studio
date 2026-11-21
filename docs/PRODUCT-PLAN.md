@@ -176,6 +176,8 @@ Gate: decide M2 only after S1 to S6 land and there is evidence people ask for it
 
 The [Community plan](community-plan.md) is complete and unapproved. Market evidence supports the idea (Cortex Cloud public presets, TONE3000), but the cost is a backend, sign-in, moderation and legal work.
 
+The full analysis, with the GitHub survey and a family-independent design, is in [Custom effects and sharing](CUSTOM-EFFECTS-AND-SHARING.md); its work items C1 to C8 extend this plan.
+
 A cheaper step first, in 1.3: **share without a server.** Export a preset or a "setup" (preset plus notes, guitar, pickups) as one file, and add an import-from-link flow that opens a file hosted anywhere. If people use it, build the server.
 
 Go criteria for the server: answers to the plan's four open questions; a named moderator; a takedown path; and enough hand-exchanged files to show demand (the bar is the maintainer's to set).
