@@ -1,3 +1,4 @@
+import { PreparePedalsButton } from "./PreparePedalsButton";
 import { host } from "@/host";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { SessionTimeline } from "./SessionTimeline";
 import { StageActions } from "./StageActions";
 import { StageSetCard } from "./StageSetCard";
 import { BarsLeft, StageStatusStrip } from "./StageStatusStrip";
+import { SongPreparationStatus } from "./SongPreparationStatus";
 
 /** The reader with its transport, used both inline and as the full-screen stage view. */
 export function StageView({
@@ -107,6 +109,7 @@ export function StageView({
         onImportMetadata={stage ? undefined : onImportMetadata}
         status={
           <>
+            {stage && <SongPreparationStatus session={session} />}
             <p role="status">
               MIDI: {output?.state === "connected" ? `${output.name} · ${armed ? "Cues armed" : "Cues disarmed"}` : "Output disconnected · Cues disarmed"}
             </p>
@@ -126,8 +129,12 @@ export function StageView({
         }
         transport={
           <>
-            <Button disabled={!player || !!parseError || library.busy} onClick={() => (playing ? session.pause() : session.startPlayback())}>
-              {playing ? "Pause" : queued && library.queue.length > 1 ? "Play playlist" : "Play song"}
+            <PreparePedalsButton session={session} />
+            <Button
+              disabled={!starting && (!player || !!parseError || library.busy)}
+              onClick={() => (starting ? session.cancelStart() : playing ? session.pause() : session.startPlayback())}
+            >
+              {starting ? "Cancel start" : playing ? "Pause" : queued && library.queue.length > 1 ? "Play playlist" : "Play song"}
             </Button>
             <Button variant="outline" disabled={!player} onClick={() => void session.seek(0)}>
               Rewind

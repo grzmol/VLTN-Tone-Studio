@@ -1,3 +1,4 @@
+import { MIDI_TRIGGER_PATTERN } from "./preparation-wait";
 import { headingLabel } from "./chart";
 import { isChordName } from "./speed";
 
@@ -22,7 +23,7 @@ const TOKEN = new RegExp(
   [
     String.raw`\[\d+:[0-5]\d(?:\.\d+)?\]`,
     String.raw`\[[^\]\s]+\]`,
-    String.raw`\{midi(?:@(?:load|play|stop|end))?:[^}]*\}`,
+    String.raw`\{midi(?:@(?:${MIDI_TRIGGER_PATTERN}))?:[^}]*\}`,
     String.raw`\{color:[a-z]+\}|\{\/color\}`,
     String.raw`\{label:[^}]*\}|\{(?:no)?chase\}`,
     String.raw`(?<=^|\s)\/\/.*$`,
