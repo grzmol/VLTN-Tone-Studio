@@ -74,7 +74,6 @@ export function PerformanceReader({
   onSaveChart,
   onImportMetadata,
   stage = false,
-  onExitStage,
   pdf,
   soloScale,
   stageTop,
@@ -91,7 +90,6 @@ export function PerformanceReader({
   }) => ReactNode;
   /** Takes the chart area in stage mode, between songs of a set. */
   stageCard?: ReactNode;
-  onExitStage?: () => void;
   /** The song's PDF chart, when it is a saved song. The PDF replaces the lyrics body while its view is on. */
   pdf?: PdfReaderState;
   /** What the Solo scale button needs: the song's settings key and capo. Without it the button is not shown. */
@@ -250,7 +248,7 @@ export function PerformanceReader({
               {title} · <ClockText />
             </p>
           </div>
-          {!stage && onSaveChart && (
+          {onSaveChart && (
             <Button
               variant="outline"
               disabled={editing}
@@ -262,7 +260,7 @@ export function PerformanceReader({
               Edit chords, lyrics & MIDI
             </Button>
           )}
-          {!stage && soloScale && (
+          {soloScale && (
             <Button ref={soloButton} variant="outline" onClick={() => setSoloOpen(true)}>
               Solo scale
             </Button>
@@ -319,15 +317,9 @@ export function PerformanceReader({
           <Button variant="outline" aria-label="Larger performance text" disabled={size >= READER_TEXT.max} onClick={() => useReaderText.getState().step(1)}>
             A+
           </Button>
-          {stage ? (
-            <Button variant="outline" onClick={onExitStage}>
-              Exit stage mode
-            </Button>
-          ) : (
-            <Button ref={expandButton} variant="outline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-              {expanded ? "Close expanded view" : "Expand performance view"}
-            </Button>
-          )}
+          <Button ref={expandButton} variant="outline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "Close expanded view" : "Expand performance view"}
+          </Button>
         </div>
       )}
       {expanded && !stage && <div className="mb-3 flex flex-wrap items-center gap-3">{transport}</div>}
