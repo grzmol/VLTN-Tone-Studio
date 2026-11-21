@@ -36,3 +36,8 @@ test("diff: added AI files, placeholders and filler, with line numbers", () => {
   assert.match(found[2], /src\/a\.ts:12/);
   assert.deepEqual(checkDiff("+++ b/app/package-lock.json\n@@ -1 +1 @@\n+// ... rest of"), []);
 });
+
+test("allows AGENTS.md but not other AI tool files", () => {
+  assert.deepEqual(checkDiff("+++ b/AGENTS.md\n@@ -0,0 +1 @@\n+Run the tests."), []);
+  assert.equal(checkDiff("+++ b/CLAUDE.md\n@@ -0,0 +1 @@\n+hello").length, 1);
+});
