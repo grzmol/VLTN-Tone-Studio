@@ -1,4 +1,14 @@
-import { lateAction, STALE_MS, type TimedMessage, type ScheduledMessage, type SchedulerConfig, type SchedulerJump, type SchedulerReply, type TimecodeStream } from "./midi-scheduler";
+import {
+  lateAction,
+  STALE_MS,
+  type TimedMessage,
+  type ScheduledMessage,
+  type SchedulerConfig,
+  type SchedulerJump,
+  type SchedulerReply,
+  type SchedulerRequest,
+  type TimecodeStream,
+} from "./midi-scheduler";
 const failedWorkers = new WeakMap<Worker, Error>();
 /** The session keeps running through late messages; this reports them so the UI can show a non-blocking notice. */
 export interface SchedulerDegraded {
@@ -66,17 +76,25 @@ export function startMidiScheduler(
   const worker = prepared ?? new Worker(new URL("./midi-scheduler-worker.ts", import.meta.url), { type: "module" });
   const failed = failedWorkers.get(worker);
   if (failed) throw failed;
-  // The worker's clock is set from this time, so the schedule and the audio checkpoints read one clock.
+  // Keep the playback request time while clock probes establish a separate monotonic alignment.
   const requestedAt = midiNow();
   let active = true,
     started = false,
     lastResponse = requestedAt;
   let watchdog: ReturnType<typeof setInterval> | undefined;
+  let clockTimer: ReturnType<typeof setTimeout> | undefined;
+  let clockProbe = NaN;
+  let clockSamples = 0;
+  let bestClock: { rendererAt: number; workerAt: number; roundTrip: number } | null = null;
+  let sentStart = false;
+  const pending: SchedulerRequest[] = [];
   // The quarter-frame stream as the worker last reported it, so a hand-over can carry it on after this schedule stops.
   let latestTimecode: TimecodeStream | null = null;
   const stop = () => {
     active = false;
     clearInterval(watchdog);
+    clearTimeout(clockTimer);
+    pending.length = 0;
     worker.terminate();
   };
   const fault = (message: string) => {
@@ -85,11 +103,56 @@ export function startMidiScheduler(
     onFault(message);
   };
   worker.onerror = () => fault("MIDI scheduling worker failed. Cues disarmed; check the pedal state before rearming.");
+  const probeClock = () => {
+    clockProbe = midiNow();
+    worker.postMessage({ type: "clock", at: clockProbe } satisfies SchedulerRequest);
+  };
+  const post = (request: SchedulerRequest) => {
+    if (!active) return;
+    if (!sentStart) {
+      pending.push(request);
+      return;
+    }
+    try {
+      worker.postMessage(request);
+    } catch (error) {
+      fault(String(error));
+    }
+  };
   worker.onmessage = (event: MessageEvent<SchedulerReply>) => {
     if (!active) return;
     const reply = event.data;
     if (reply.type === "ready") return;
     lastResponse = midiNow();
+    if (reply.type === "clock") {
+      if (sentStart || reply.at !== clockProbe) return;
+      const roundTrip = lastResponse - reply.at;
+      if (!Number.isFinite(reply.workerNow) || !Number.isFinite(roundTrip) || roundTrip < 0) {
+        fault("MIDI worker clock calibration failed. Cues disarmed.");
+        return;
+      }
+      const sample = { rendererAt: (reply.at + lastResponse) / 2, workerAt: reply.workerNow, roundTrip };
+      if (!bestClock || roundTrip < bestClock.roundTrip) bestClock = sample;
+      try {
+        // The midpoint bounds the offset by half a round trip. Repeating avoids anchoring to module/startup congestion.
+        if (++clockSamples < 3) {
+          probeClock();
+          return;
+        }
+        clearTimeout(clockTimer);
+        sentStart = true;
+        worker.postMessage({
+          type: "start",
+          at: requestedAt,
+          clock: { rendererAt: bestClock.rendererAt, workerAt: bestClock.workerAt },
+          config: { ...config, cues: config.cues.filter((c) => c.messages.length && !c.trigger).map((c) => ({ ...c, text: "" })) },
+        } satisfies SchedulerRequest);
+        for (const request of pending.splice(0)) worker.postMessage(request);
+      } catch (error) {
+        fault(String(error));
+      }
+      return;
+    }
     if (reply.type === "started") {
       started = true;
       return;
@@ -128,14 +191,8 @@ export function startMidiScheduler(
       fault(started ? "MIDI scheduler stopped responding. Cues disarmed." : "MIDI scheduler did not acknowledge playback. Cues disarmed.");
   }, 50);
   try {
-    worker.postMessage({
-      type: "start",
-      at: requestedAt,
-      config: {
-        ...config,
-        cues: config.cues.filter((c) => c.messages.length && !c.trigger).map((c) => ({ ...c, text: "" })),
-      },
-    });
+    clockTimer = setTimeout(() => fault("MIDI worker clock did not respond. Cues disarmed."), 2000);
+    probeClock();
   } catch (error) {
     stop();
     throw error;
@@ -143,30 +200,15 @@ export function startMidiScheduler(
   return {
     stop,
     sync(position: number) {
-      if (active)
-        try {
-          worker.postMessage({ type: "sync", position, at: midiNow() });
-        } catch (error) {
-          fault(String(error));
-        }
+      post({ type: "sync", position, at: midiNow() });
     },
     /** Holds cues after song time `cap` and moves the schedule at a planned jump. See `MidiSchedule.plan`. */
     plan(cap: number | null, jump: SchedulerJump | null) {
-      if (active)
-        try {
-          worker.postMessage({ type: "plan", cap, jump });
-        } catch (error) {
-          fault(String(error));
-        }
+      post({ type: "plan", cap, jump });
     },
     /** Adds messages due at fixed clock times (the MIDI click). They are sent by the worker's clock, like cues. */
     addTimed(messages: TimedMessage[]) {
-      if (active)
-        try {
-          worker.postMessage({ type: "clicks", messages });
-        } catch (error) {
-          fault(String(error));
-        }
+      post({ type: "clicks", messages });
     },
     /** The quarter-frame stream last reported by the worker, or null when it sends no timecode. Still readable after `stop()`. */
     timecodeStream(): TimecodeStream | null {
@@ -174,12 +216,7 @@ export function startMidiScheduler(
     },
     /** Stops timecode at clock time `at` (the clock `midiNow` reads), or lifts the stop with null. Used by a hand-over. */
     endTimecode(at: number | null) {
-      if (active)
-        try {
-          worker.postMessage({ type: "timecode-end", at });
-        } catch (error) {
-          fault(String(error));
-        }
+      post({ type: "timecode-end", at });
     },
   };
 }

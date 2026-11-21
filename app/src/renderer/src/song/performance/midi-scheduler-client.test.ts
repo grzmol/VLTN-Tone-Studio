@@ -5,7 +5,10 @@ class FakeWorker {
   static latest: FakeWorker;
   onmessage: ((event: { data: SchedulerReply }) => void) | null = null;
   onerror: (() => void) | null = null;
-  postMessage = vi.fn();
+  autoClock = true;
+  postMessage = vi.fn((message: { type: string; at?: number }) => {
+    if (message.type === "clock" && this.autoClock) this.reply({ type: "clock", at: message.at!, workerNow: performance.now() });
+  });
   terminate = vi.fn();
   constructor() {
     FakeWorker.latest = this;
@@ -27,11 +30,12 @@ function setup() {
   const handle = startMidiScheduler(config, send, fault, undefined, degraded);
   return { handle, send, fault, degraded, worker: FakeWorker.latest };
 }
+const requests = (worker: FakeWorker) => worker.postMessage.mock.calls.map((c) => c[0]).filter((m) => m.type !== "clock");
 it("passes the complete schedule once, forwards audio checkpoints and suppresses obsolete batches after cancellation", () => {
   const f = setup();
-  expect(f.worker.postMessage.mock.calls[0][0].type).toBe("start");
+  expect(requests(f.worker)[0].type).toBe("start");
   f.handle.sync(1);
-  expect(f.worker.postMessage.mock.calls[1][0]).toMatchObject({ type: "sync", position: 1 });
+  expect(requests(f.worker)[1]).toMatchObject({ type: "sync", position: 1 });
   f.handle.stop();
   f.worker.reply({ type: "batch", messages: [{ bytes: [192, 1], due: midiNow(), label: "Old song" }] });
   expect(f.send).not.toHaveBeenCalled();
@@ -93,7 +97,7 @@ it("waits for worker readiness before reuse and bounds failed startup", async ()
   const send = vi.fn();
   const handle = startMidiScheduler({ cues: [], duration: 1, position: 0, origin: midiNow(), bpm: 120, clock: false, tempo: null }, send, vi.fn(), warm.worker);
   expect(FakeWorker.latest).toBe(worker);
-  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  expect(worker.postMessage).toHaveBeenCalledTimes(4);
   handle.stop();
   const failed = prepareMidiScheduler();
   const rejection = expect(failed.ready).rejects.toThrow("did not become ready");
@@ -143,8 +147,58 @@ it("requires start acknowledgement and detects a silent worker after starting", 
 it("hands click messages to the worker, and nothing once stopped", () => {
   const f = setup();
   f.handle.addTimed([{ bytes: [153, 37, 100], due: 5000 }]);
-  expect(f.worker.postMessage.mock.calls[1][0]).toEqual({ type: "clicks", messages: [{ bytes: [153, 37, 100], due: 5000 }] });
+  expect(requests(f.worker)[1]).toEqual({ type: "clicks", messages: [{ bytes: [153, 37, 100], due: 5000 }] });
   f.handle.stop();
   f.handle.addTimed([{ bytes: [153, 37, 100], due: 6000 }]);
-  expect(f.worker.postMessage).toHaveBeenCalledTimes(2);
+  expect(requests(f.worker)).toHaveLength(2);
+});
+
+it("calibrates from the shortest round trip and queues controls until clock delivery is measured", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    "Worker",
+    class extends FakeWorker {
+      constructor() {
+        super();
+        this.autoClock = false;
+      }
+    },
+  );
+  const fault = vi.fn();
+  const handle = startMidiScheduler({ cues: [], duration: 10, position: 0, origin: midiNow() + 200, bpm: 120, clock: false, tempo: null }, vi.fn(), fault);
+  const worker = FakeWorker.latest;
+  handle.plan(4, { at: midiNow() + 4000, position: 1 });
+  expect(requests(worker)).toHaveLength(0);
+  for (const delay of [60, 2, 20]) {
+    const probe = worker.postMessage.mock.calls.at(-1)![0];
+    vi.advanceTimersByTime(delay);
+    worker.reply({ type: "clock", at: probe.at!, workerNow: 1000 + performance.now() });
+  }
+  const start = requests(worker)[0] as unknown as { clock: { rendererAt: number; workerAt: number } };
+  expect(start.clock.rendererAt - start.clock.workerAt).toBeCloseTo(performance.timeOrigin - 1001, 1);
+  expect(requests(worker).map((r) => r.type)).toEqual(["start", "plan"]);
+  expect(fault).not.toHaveBeenCalled();
+  handle.stop();
+});
+
+it("faults a clock that never answers and sends no queued plan after cancellation", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    "Worker",
+    class extends FakeWorker {
+      constructor() {
+        super();
+        this.autoClock = false;
+      }
+    },
+  );
+  const fault = vi.fn();
+  const handle = startMidiScheduler({ cues: [], duration: 1, position: 0, origin: midiNow(), bpm: 120, clock: false, tempo: null }, vi.fn(), fault);
+  const worker = FakeWorker.latest;
+  handle.plan(null, null);
+  vi.advanceTimersByTime(2001);
+  expect(fault).toHaveBeenCalledWith(expect.stringContaining("clock did not respond"));
+  expect(requests(worker)).toHaveLength(0);
+  handle.stop();
+  expect(vi.getTimerCount()).toBe(0);
 });
