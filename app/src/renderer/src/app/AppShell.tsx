@@ -68,7 +68,8 @@ export function AppShell() {
 
 /**
  * Launch parameters (demo builds, screenshots, E2E): `?mock=<device key>` connects that simulated model (`gp5`, `gp50`,
- * `gp200`, `gp200lt`, `gp200jr`), a bare `?mock` the simulated GP-5 with the bundled 100-slot backup;
+ * `gp200`, `gp200lt`, `gp200jr`), `?mock=gp200mod` a simulated GP-200 running the GrooveGurus mod, a bare `?mock` the
+ * simulated GP-5 with the bundled 100-slot backup;
  * `?screen=library` (and `&param=`) opens a screen. The desktop app connects to the
  * real pedal on launch; failures stay in the device store's error state (chip and Device screen show it).
  */
@@ -78,7 +79,8 @@ function useLaunchParams() {
     const screen = q.get("screen");
     if (screen === "rig" || screen === "library" || screen === "tones" || screen === "device" || screen === "capture" || screen === "song" || screen === "setlist") useNav.getState().go(screen, q.get("param"));
     const mock = q.get("mock");
-    if (mock !== null) void useDevice.getState().connect("mock", { mockDevice: isDeviceKey(mock) ? mock : DEFAULT_DEVICE }).catch(() => {});
+    if (mock === "gp200mod") void useDevice.getState().connect("mock", { mockDevice: "gp200", mockMod: true }).catch(() => {});
+    else if (mock !== null) void useDevice.getState().connect("mock", { mockDevice: isDeviceKey(mock) ? mock : DEFAULT_DEVICE }).catch(() => {});
     else if (isElectron) void useDevice.getState().connect("webmidi").catch(() => {});
   }, []);
 }

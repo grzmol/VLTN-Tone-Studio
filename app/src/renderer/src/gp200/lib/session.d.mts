@@ -1,4 +1,5 @@
 // Type declarations for session.mjs (the JS stays the tested source of truth; keep these in sync).
+import type { ModGuest, ModHello, ModSettings, Scene, ScenePre2, SceneListEntry, SceneRecord } from "./mod-service.mjs";
 import type { Bytes, ChainDef, DecodedRecord, ExpSlotDef, GlobalName, Gp200FamilyKey, HeaderRecord, Message } from "./protocol.mjs";
 
 export type { Gp200FamilyKey };
@@ -25,10 +26,12 @@ export interface Gp200Timing {
 }
 export const DEFAULT_TIMING: Readonly<Gp200Timing>;
 
-export type Gp200ErrorCode = "timeout" | "length" | "verify" | "unsafe" | "closed" | "updater";
+export type Gp200ErrorCode = "timeout" | "length" | "verify" | "unsafe" | "closed" | "updater" | "mod";
 export class Gp200Error extends Error {
   constructor(code: Gp200ErrorCode, message: string);
   code: Gp200ErrorCode;
+  /** mod service status (mod-service.mjs STATUS) when code is "mod" and the pedal refused */
+  status?: number;
 }
 
 export type Gp200Globals = Partial<Record<GlobalName, number>>;
@@ -148,4 +151,24 @@ export class Gp200Session extends EventTarget {
   uploadUserIr(slot: number, name: string, samples: ArrayLike<number>, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<UploadResult>;
   /** SnapTone slot 0-9 (0-4 AMP, 5-9 DST): a 0x2288 clone or a 0x1288 GP-200 blob. */
   uploadSnapTone(slot: number, name: string, blob: Bytes, opts: { confirm: true; onProgress?: (done: number, total: number) => void }): Promise<UploadResult>;
+
+  // GrooveGurus mod service (gp-200-re RFC-0030): null / "mod" errors on a stock pedal.
+  /** The mod's last HELLO, or null. */
+  readonly mod: ModHello | null;
+  /** HELLO, or null when the pedal stays silent (one try, no resends). Afterwards the pedal sends "modNotify" messages. */
+  modHello(opts?: { timeoutMs?: number }): Promise<ModHello | null>;
+  readSceneList(): Promise<{ free: number; total: number; records: SceneListEntry[] }>;
+  readScenes(
+    slot: number | null,
+    opts?: { index?: number },
+  ): Promise<{ slot: number | null; owner: number; bytes: Uint8Array | null; record: SceneRecord | null; error?: string }>;
+  writeScenes(
+    slot: number,
+    data: Uint8Array | { scenes: (Partial<Scene> | null)[]; pre2?: ScenePre2 | null },
+    opts: { confirm: true; verify?: boolean },
+  ): Promise<{ slot: number; bytes: Uint8Array }>;
+  deleteScenes(slot: number, opts: { confirm: true }): Promise<void>;
+  readModSettings(): Promise<ModSettings & { stored: boolean }>;
+  writeModSettings(settings: Partial<ModSettings>, opts: { confirm: true }): Promise<void>;
+  modGuests(block: number | string): Promise<ModGuest[]>;
 }

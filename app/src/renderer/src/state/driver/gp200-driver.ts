@@ -7,9 +7,10 @@ import { MockGp200, type MockGp200Options } from "@/gp200/lib/mock-device.mjs";
 import { BUILT_IN_CATALOG } from "@/gp200/lib/catalog-data.mjs";
 import { GLOBAL_EQ_BANDS, PATCH_SETTING, type DecodedMessage } from "@/gp200/lib/protocol.mjs";
 import { buildPrst, imagesMatch, parsePatch } from "@/gp200/lib/prst.mjs";
+import type { ModHello } from "@/gp200/lib/mod-service.mjs";
 import { connectWebMidi } from "@/gp5/lib/transport-webmidi.mjs";
 import { profileFor, type DeviceKey } from "@shared/devices";
-import type { BackupEntry, ConnectionError, DeviceFeature, GlobalEq, GlobalName, Globals, SlotName } from "../device-types";
+import type { BackupEntry, ConnectionError, DeviceFeature, GlobalEq, GlobalName, Globals, ModFirmware, SlotName } from "../device-types";
 import { GP200_EQ_DEFAULTS, clampGp200Eq, clampGp200Global, gp200GlobalRecords, gp200GlobalSpec, type Gp200GlobalName, type Gp200Globals } from "./gp200-globals";
 import type { DeviceDriver, DriverEvent, DriverOptions, GlobalsSnapshot, ProgressOptions, SyncSnapshot } from "./types";
 
@@ -65,12 +66,26 @@ function irSamples(data: Uint8Array): Int32Array {
   return Int32Array.from({ length: data.byteLength / 4 }, (_, i) => view.getInt32(i * 4, true));
 }
 
+const BASE_FEATURES: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified"];
+
+/** The GrooveGurus mod's HELLO → what the store shows ("GrooveGurus C0.7.0"). */
+function modFirmware(h: ModHello): ModFirmware {
+  return { label: `GrooveGurus ${h.letter}${h.version}`, name: h.name, letter: h.letter, version: h.version, base: h.firmwareTag, sceneRecords: { ...h.scenes } };
+}
+
 export class Gp200Driver implements DeviceDriver {
   /**
    * "exportPreset": stored reads never select; "liveBpm": the patch tempo goes out as 0x0006; "globalEq": 0x1005;
    * "modified": the edit buffer differs from its slot (the pedal's 0x1011 report, or at connect the sync's own reads).
    */
-  readonly features: readonly DeviceFeature[] = ["exportPreset", "liveBpm", "globalEq", "modified"];
+  get features(): readonly DeviceFeature[] {
+    const mod = this.#session.mod;
+    const extra: DeviceFeature[] = [];
+    if (mod?.has.SCENES_READ) extra.push("modScenes");
+    if (mod?.has.SETTINGS_READ) extra.push("modSettings");
+    if (mod?.has.GUESTS) extra.push("modGuests");
+    return [...BASE_FEATURES, ...extra];
+  }
   readonly #session: Gp200Session;
   readonly #listeners = new Set<(e: DriverEvent) => void>();
   /** Global EQ as the pedal reported it and as set here, over the editor's factory values (no request reads it). */
@@ -119,7 +134,7 @@ export class Gp200Driver implements DeviceDriver {
     opts: DriverOptions & { timing?: Partial<Gp200Timing>; mock?: Omit<MockGp200Options, "type"> },
   ): Promise<Gp200Driver> {
     // The generated bank loads its models with the built-in catalog's defaults, like the editor would.
-    const mock = new MockGp200({ catalog: BUILT_IN_CATALOG, ...FAST_SIMULATOR.mock, ...opts.mock, type: device });
+    const mock = new MockGp200({ catalog: BUILT_IN_CATALOG, ...FAST_SIMULATOR.mock, ...(opts.simulatedMod ? { mod: true as const } : {}), ...opts.mock, type: device });
     return new Gp200Driver(mock.transport(), `${profileFor(device).name} (simulated)`, { ...opts, timing: { ...FAST_SIMULATOR.timing, ...opts.timing } }, mock);
   }
 
@@ -228,6 +243,8 @@ export class Gp200Driver implements DeviceDriver {
     this.#fxids = parsePatch(image).blocks.map((b) => b.fxid);
     // The sync read the active slot too: an edit buffer that differs from it holds edits made before we connected.
     const stored = snap.presets.find((p) => p.slot === snap.editBuffer.slot)?.image;
+    // Custom firmware (gp-200-re RFC-0030): a stock pedal skips the record silently, one reply timeout, no resends.
+    const hello = await this.#session.modHello();
     return {
       device,
       names: snap.presets.map((p) => ({ slot: p.slot, name: p.name })),
@@ -235,6 +252,7 @@ export class Gp200Driver implements DeviceDriver {
       prst: buildPrst(image),
       globals: snap.globals ? { ...toGlobals(snap.globals, snap.firmware), eq: this.#eq } : null,
       modified: this.#session.dirty || (stored ? !imagesMatch(image, stored) : null),
+      mod: hello ? modFirmware(hello) : null,
     };
   }
 

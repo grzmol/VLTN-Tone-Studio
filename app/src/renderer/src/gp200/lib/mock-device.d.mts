@@ -1,4 +1,5 @@
 // Type declarations for mock-device.mjs (the JS stays the tested source of truth; keep these in sync).
+import type { ModGuest } from "./mod-service.mjs";
 import type { Gp200Catalog } from "./catalog.mjs";
 import type { Bytes, DecodedRecord, GlobalName, Gp200FamilyKey, HeaderRecord } from "./protocol.mjs";
 import type { Gp200Transport } from "./session.mjs";
@@ -27,6 +28,11 @@ export interface MockGp200Options {
   bankPolarity?: "manual" | "inverted";
   /** Record types (e.g. REC.IR_NAME) whose queries get no reply: a pedal that doesn't answer them */
   silentQueries?: number[];
+  /** Answer the GrooveGurus mod service (0x200C); slot n's record number is n + 2. */
+  mod?:
+    | true
+    | null
+    | { name?: string; letter?: string; version?: string; firmwareTag?: string; features?: number; guests?: Record<number, ModGuest[]>; scenes?: Record<number, Bytes>; settings?: Bytes };
 }
 export type MockViolation =
   | { kind: "gap"; gapMs: number }
@@ -76,4 +82,12 @@ export class MockGp200 {
   turnKnob(block: number, paramId: number, value: number): void;
   toggleBlock(block: number, on?: boolean): void;
   tapTempo(bpm: number): void;
+  /** Simulated mod state, or null on a stock pedal. */
+  mod: { sceneMode: boolean; activeScene: number; hello: boolean; writes: number; records: (Uint8Array | null)[]; settings: Uint8Array | null } | null;
+  modOwner(slot: number): number;
+  modScenes(slot: number): Uint8Array | null;
+  /** Scene mode on the pedal -> NOTIFY (after a HELLO). */
+  setSceneMode(on: boolean): void;
+  /** A-D on the pedal in scene mode -> NOTIFY (after a HELLO). */
+  selectScene(k: number): void;
 }

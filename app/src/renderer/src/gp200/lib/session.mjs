@@ -11,6 +11,7 @@
 //  - never send the frames dangerOf() rejects; in updater mode send nothing at all.
 
 import {
+  CMD,
   DEVICE_TYPES,
   GLOBALS,
   PATCH_SETTING,
@@ -32,6 +33,25 @@ import {
 } from "./protocol.mjs";
 import { applyPatchEdits, buildPrst, firstDifference, imageOf, parsePatch, withEightCtrl } from "./prst.mjs";
 import { SNAPTONE, isSnapToneSlot, toGp200SnapTone } from "./snaptone.mjs";
+import {
+  OP as MOD_OP,
+  RECORD_CHUNK,
+  SCENE_RECORD_MAX,
+  STATUS as MOD_STATUS,
+  TARGET_INDEX,
+  decodeGuests,
+  decodeHello,
+  decodeRecordChunk,
+  decodeSceneList,
+  decodeSceneRecord,
+  decodeSettingsRecord,
+  encodeRequest,
+  encodeSceneRecord,
+  encodeSettingsRecord,
+  encodeWriteChunk,
+  statusText,
+  withModService,
+} from "./mod-service.mjs";
 
 export const DEFAULT_TIMING = Object.freeze({
   frameGapMs: 10, // the editor pumps its TX queue with a 10 ms timer, one frame per tick
@@ -52,7 +72,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export class Gp200Error extends Error {
   constructor(code, message) {
     super(message);
-    this.code = code; // "timeout" | "length" | "verify" | "unsafe" | "closed" | "updater"
+    this.code = code; // "timeout" | "length" | "verify" | "unsafe" | "closed" | "updater" | "mod"
   }
 }
 
@@ -80,6 +100,8 @@ export class Gp200Session extends EventTarget {
   #globals = null;
   #current = null;
   #dirty = false;
+  #mod = null;
+  #modSeq = 0;
 
   /** @param opts { timing?: Partial<DEFAULT_TIMING>, log?: (dir, bytes, decoded?) => void } */
   constructor(transport, opts = {}) {
@@ -122,6 +144,10 @@ export class Gp200Session extends EventTarget {
     return this.#dirty;
   }
   /** 256 (GP-200, LT) or 255 (JR); 256 before connect. */
+  /** The GrooveGurus mod's HELLO ({ name, letter, version, firmwareTag, features, has, scenes, ... }), or null. */
+  get mod() {
+    return this.#mod;
+  }
   get slotCount() {
     return DEVICE_TYPES[this.#deviceType]?.slots ?? 256;
   }
@@ -160,6 +186,7 @@ export class Gp200Session extends EventTarget {
     const msg = this.#reasm.push(frame);
     if (!msg) return;
     const decoded = decodeMessage(msg);
+    decoded.records = decoded.records.map(withModService);
     this.#log?.("rx", bytes, decoded);
     this.#observe(decoded);
     this.#deliver(decoded);
@@ -697,5 +724,163 @@ export class Gp200Session extends EventTarget {
       }
       return frames;
     });
+  }
+
+  // ------------------------------------------------------------------------------------------- GrooveGurus mod service
+
+  /** One service request; resolves with the reply (status checked unless `anyStatus`). */
+  async #modQueryNow(op, { arg = 0, payload, what, timeoutMs, resends, anyStatus = false } = {}) {
+    const seq = (this.#modSeq = (this.#modSeq + 1) & 0xffff);
+    const match = kindIs("modService", (r) => r.op === op && r.seq === seq);
+    const msg = { cmd: CMD.QUERY, payload: encodeRequest({ op, seq, arg, payload }) };
+    const m = await this.#query(msg, match, what, { timeoutMs, resends });
+    const r = recordOf(m, "modService");
+    if (!anyStatus && r.status !== MOD_STATUS.OK) throw Object.assign(new Gp200Error("mod", `${what}: ${statusText(r.status)}`), { status: r.status });
+    return r;
+  }
+
+  #needMod(feature) {
+    if (!this.#mod) throw new Gp200Error("mod", "the pedal doesn't run the GrooveGurus mod (no HELLO)");
+    if (feature && !this.#mod.has[feature]) throw new Gp200Error("mod", `the pedal's mod (${this.#mod.version}) can't do ${feature}`);
+  }
+
+  /**
+   * Ask for the GrooveGurus mod service. Resolves with the HELLO, or null when the pedal stays silent (stock firmware,
+   * another mod): one try, no resends, so a stock pedal costs one timeout. After a HELLO the pedal sends "modNotify"
+   * messages (scene changed, scene record written, settings changed).
+   */
+  modHello({ timeoutMs = this.#timing.replyTimeoutMs } = {}) {
+    return this.exclusive(async () => {
+      try {
+        const r = await this.#modQueryNow(MOD_OP.HELLO, { what: "mod HELLO", timeoutMs, resends: 0 });
+        this.#mod = decodeHello(r.payload);
+      } catch (e) {
+        if (e.code !== "timeout") throw e;
+        this.#mod = null;
+      }
+      return this.#mod;
+    });
+  }
+
+  /** Scene records on the pedal: { free, total, records: [{ owner, slot | null, index, format, scenes, size }] }. */
+  readSceneList() {
+    this.#needMod("SCENES_READ");
+    return this.exclusive(async () => decodeSceneList((await this.#modQueryNow(MOD_OP.SCENE_LIST, { what: "scene list" })).payload));
+  }
+
+  async #readRecordNow(target, what) {
+    let bytes = new Uint8Array(0);
+    let size = null;
+    let owner = 0;
+    while (size === null || bytes.length < size) {
+      const r = await this.#modQueryNow(MOD_OP.SCENE_READ, { arg: (target | (bytes.length << 16)) >>> 0, what });
+      const c = decodeRecordChunk(r.payload);
+      size = c.size;
+      owner = c.ref;
+      if (!size) break;
+      if (!c.bytes.length) throw new Gp200Error("length", `${what}: empty chunk at ${bytes.length} of ${size}`);
+      const next = new Uint8Array(bytes.length + c.bytes.length);
+      next.set(bytes);
+      next.set(c.bytes, bytes.length);
+      bytes = next;
+    }
+    return { owner, bytes: size ? bytes : null };
+  }
+
+  /**
+   * The scene record of `slot` (or of record-store index 258 + `index` with { index }), as stored:
+   * { slot, owner, bytes | null, record | null, error? }. `record` is decoded; a record this app can't decode comes
+   * back with `error` and its bytes (read-only).
+   */
+  readScenes(slot, { index } = {}) {
+    this.#needMod("SCENES_READ");
+    if (index === undefined) this.#checkSlot(slot);
+    const target = index === undefined ? slot : TARGET_INDEX + index;
+    const what = index === undefined ? `scenes of ${slotLabel(slot)}` : `scene record ${258 + index}`;
+    return this.exclusive(async () => {
+      const { owner, bytes } = await this.#readRecordNow(target, what);
+      let record = null;
+      let error;
+      if (bytes) {
+        try {
+          record = decodeSceneRecord(bytes);
+        } catch (e) {
+          error = e.message;
+        }
+      }
+      return { slot: index === undefined ? slot : null, owner, bytes, record, ...(error ? { error } : {}) };
+    });
+  }
+
+  /**
+   * Write the scene record of `slot` (bytes, or { scenes, pre2 } encoded with the slot's record number) and read it
+   * back. Writing the active preset sends the pedal back to its base; the new scenes apply on the next scene change.
+   * A record without scenes and without PRE 2 deletes it.
+   */
+  writeScenes(slot, data, { confirm, verify = true } = {}) {
+    this.#guard(confirm, "writeScenes");
+    this.#needMod("SCENES_WRITE");
+    this.#checkSlot(slot);
+    return this.exclusive(async () => {
+      let bytes = data instanceof Uint8Array ? data : null;
+      if (!bytes) {
+        const { owner } = await this.#readRecordNow(slot, `scenes of ${slotLabel(slot)}`);
+        bytes = encodeSceneRecord({ owner, scenes: data.scenes, pre2: data.pre2 ?? null });
+      }
+      if (bytes.length < 16 || bytes.length > SCENE_RECORD_MAX) throw new Gp200Error("length", `scene record of ${bytes.length} B`);
+      let sent;
+      try {
+        sent = decodeSceneRecord(bytes); // the pedal would refuse it anyway; don't send what we can't read back
+      } catch (e) {
+        throw new Gp200Error("length", `scene record: ${e.message}`);
+      }
+      const what = `write scenes of ${slotLabel(slot)}`;
+      for (let off = 0; off < bytes.length; off += RECORD_CHUNK) {
+        const payload = encodeWriteChunk(bytes.length, bytes.subarray(off, off + RECORD_CHUNK));
+        await this.#modQueryNow(MOD_OP.SCENE_WRITE, { arg: (slot | (off << 16)) >>> 0, payload, what });
+      }
+      if (verify) {
+        const back = await this.#readRecordNow(slot, `verify scenes of ${slotLabel(slot)}`);
+        const empty = sent.scenes.every((x) => !x) && !sent.pre2;
+        const same = empty ? back.bytes === null : back.bytes && back.bytes.length === bytes.length && back.bytes.every((b, i) => b === bytes[i]);
+        if (!same) throw new Gp200Error("verify", `${what}: the pedal reads back something else`);
+      }
+      return { slot, bytes };
+    });
+  }
+
+  /** Delete the scene record of `slot` (its scenes and its PRE 2). */
+  deleteScenes(slot, { confirm } = {}) {
+    this.#guard(confirm, "deleteScenes");
+    this.#needMod("SCENES_WRITE");
+    this.#checkSlot(slot);
+    return this.exclusive(async () => {
+      await this.#modQueryNow(MOD_OP.SCENE_DELETE, { arg: slot, what: `delete scenes of ${slotLabel(slot)}` });
+    });
+  }
+
+  /** The mod's global settings: { tapTempo: "preset" | "global", stored: boolean } (factory values when not stored). */
+  readModSettings() {
+    this.#needMod("SETTINGS_READ");
+    return this.exclusive(async () => {
+      const c = decodeRecordChunk((await this.#modQueryNow(MOD_OP.SETTINGS_READ, { what: "mod settings" })).payload);
+      return c.size ? { ...decodeSettingsRecord(c.bytes.subarray(0, c.size)), stored: true } : { tapTempo: "preset", stored: false };
+    });
+  }
+
+  writeModSettings(settings, { confirm } = {}) {
+    this.#guard(confirm, "writeModSettings");
+    this.#needMod("SETTINGS_WRITE");
+    return this.exclusive(async () => {
+      const rec = encodeSettingsRecord(settings);
+      await this.#modQueryNow(MOD_OP.SETTINGS_WRITE, { payload: encodeWriteChunk(rec.length, rec), what: "write mod settings" });
+    });
+  }
+
+  /** Guest effects the mod offers on `block`: [{ fxid, fromBlock, fromPos, sliceKb }]. */
+  modGuests(block) {
+    this.#needMod("GUESTS");
+    const b = blockOf(block);
+    return this.exclusive(async () => decodeGuests((await this.#modQueryNow(MOD_OP.GUESTS, { arg: b, what: `guests of block ${b}` })).payload));
   }
 }

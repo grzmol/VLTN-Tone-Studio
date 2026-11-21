@@ -43,6 +43,24 @@ import {
 import { applyPatchEdits, encodePatchImage, expIndex, imageOf, normalizeStored, parsePatch } from "./prst.mjs";
 import { SNAPTONE, checkGp200SnapTone } from "./snaptone.mjs";
 import { defaultParams } from "./catalog.mjs";
+import {
+  FEATURE,
+  NOTIFY,
+  NO_SCENE,
+  OP as MOD_OP,
+  RECORD_CHUNK,
+  SCENE_RECORD_MAX,
+  SERVICE_TYPE,
+  STATUS as MOD_STATUS,
+  TARGET_INDEX,
+  decodeSceneRecord,
+  decodeServiceData,
+  decodeSettingsRecord,
+  encodeReply,
+} from "./mod-service.mjs";
+
+const MOD_INDICES = 42; // record-store indices 258-299
+const MOD_DEFAULTS = Object.freeze({ name: "cenas", letter: "C", version: "0.7.0", firmwareTag: "V182", features: 0x7f, guests: {} });
 
 /** One fxid per block for generated patches (ids seen in an editor-written patch of the RE vectors). */
 const INIT_FXIDS = Object.freeze([0x00000001, 0x05000001, 0x03000000, 0x0700003a, 0x0000001b, 0x0a000024, 0x0100003c, 0x04000002, 0x0b00001f, 0x0c000001, 0x06000003]);
@@ -87,7 +105,10 @@ export class MockGp200 {
    *   fragmentSysex = 0 (deliver frames in pieces of N bytes), flushAfter = 0 (emit CMD 0x03
    *   after N host frames), ackWaitMs = 200 (chunk gaps above this flag a host waiting for ACKs),
    *   failUploads = false, emitKnobNotify = false, bankPolarity = "manual" | "inverted",
-   *   silentQueries = [] (record types, e.g. REC.IR_NAME, whose queries get no reply: a pedal that doesn't answer them) }
+   *   silentQueries = [] (record types, e.g. REC.IR_NAME, whose queries get no reply: a pedal that doesn't answer them),
+   *   mod = null (true or { version, letter, features, guests: { [block]: [{ fxid, fromBlock, fromPos, sliceKb }] },
+   *   scenes: { [slot]: record bytes }, settings: record bytes }: answer the GrooveGurus mod service, 0x200C, like the
+   *   firmware of gp-200-re RFC-0030; the record number of slot n is n + 2) }
    */
   constructor({
     type = "gp200",
@@ -108,6 +129,7 @@ export class MockGp200 {
     emitKnobNotify = false,
     bankPolarity = "manual",
     silentQueries = [],
+    mod = null,
   } = {}) {
     const dev = typeof type === "number" ? DEVICE_TYPES[type] : deviceByKey(type);
     if (!dev) throw new Error(`MockGp200: unknown type ${type}; use gp200, gp200lt or gp200jr`);
@@ -132,6 +154,7 @@ export class MockGp200 {
     this.pendingMoves = [];
     Object.assign(this, { latencyMs, minGapMs, deafMs, push1007, verifyGlitch, loseWrites, fragmentSysex, flushAfter, ackWaitMs });
     Object.assign(this, { failUploads, emitKnobNotify, bankPolarity, silentQueries });
+    this.mod = mod ? this.#modInit(mod === true ? {} : mod) : null;
     this.log = []; // decoded host messages { cmd, records, header }, newest last
     this.violations = []; // { kind: "gap" | "deaf" | "danger" | "ackWait" | "hostBug", ... }
   }
@@ -358,6 +381,8 @@ export class MockGp200 {
         return cmd === CMD.SET ? this.#refuse("0x1007 write (all globals)", d) : undefined;
       case REC.IDENTITY:
         return this.#reply(rec.identityReply(1, this.type));
+      case SERVICE_TYPE:
+        return this.#modService(d);
       case REC.STATE_DUMP:
         return this.#pushGlobals();
       case REC.DRUM_STATE:
@@ -523,6 +548,193 @@ export class MockGp200 {
   tapTempo(bpm) {
     this.#setBuffer({ tempo: bpm });
     this.#reply(rec.header(0, this.current), rec.patchSetting(PATCH_SETTING.TEMPO, bpm));
+  }
+
+  // ------------------------------------------------------------------------------------------- GrooveGurus mod service
+
+  #modInit(opts) {
+    const m = { ...MOD_DEFAULTS, ...opts, records: new Array(MOD_INDICES).fill(null), settings: opts.settings ?? null };
+    m.sceneMode = false;
+    m.activeScene = NO_SCENE;
+    m.hello = false;
+    m.writes = 0;
+    m.transfer = null;
+    m.notifySeq = 0;
+    for (const [slot, bytes] of Object.entries(opts.scenes ?? {})) m.records[Number(slot)] = Uint8Array.from(bytes);
+    delete m.scenes;
+    return m;
+  }
+
+  /** Record number of a slot (the firmware's preset -> record table; n + 2 on a fresh pedal). */
+  modOwner(slot) {
+    return slot + 2;
+  }
+
+  #modIndexOf(owner) {
+    return this.mod.records.findIndex((r) => r && (r[6] | (r[7] << 8)) === owner);
+  }
+
+  /** Scene record of `slot` in the simulated store, or null. */
+  modScenes(slot) {
+    const i = this.#modIndexOf(this.modOwner(slot));
+    return i < 0 ? null : this.mod.records[i].slice();
+  }
+
+  #modReply(op, seq, status, arg, payload = []) {
+    this.#reply(encodeReply({ op, seq, status, arg, payload }));
+  }
+
+  #modService(d) {
+    const r = decodeServiceData(d);
+    if (!this.mod || !r || r.kind !== "modService") return; // stock firmware: 0x200C is an empty table entry
+    const { op, seq, arg, payload } = r;
+    if (r.version !== 1) return this.#modReply(op, seq, MOD_STATUS.VERSION, arg);
+    const m = this.mod;
+    const u16 = (v) => [v & 0xff, (v >>> 8) & 0xff];
+    const used = () => m.records.filter(Boolean).length;
+    switch (op) {
+      case MOD_OP.HELLO: {
+        m.hello = true;
+        const [maj, min, pat] = m.version.split(".").map(Number);
+        const name = Array.from({ length: 8 }, (_, i) => m.name.charCodeAt(i) || 0);
+        const fw = Array.from({ length: 4 }, (_, i) => m.firmwareTag.charCodeAt(i) || 0);
+        const f = m.features >>> 0;
+        return this.#modReply(op, seq, MOD_STATUS.OK, 0, [...name, m.letter.charCodeAt(0), maj, min, pat, ...fw, f & 0xff, (f >>> 8) & 0xff, (f >>> 16) & 0xff, f >>> 24,
+          used(), MOD_INDICES - used(), MOD_INDICES, 0, ...u16(SCENE_RECORD_MAX), ...u16(3)]);
+      }
+      case MOD_OP.SCENE_LIST: {
+        const out = [];
+        m.records.forEach((rec, i) => {
+          if (!rec) return;
+          const owner = rec[6] | (rec[7] << 8);
+          const slot = owner - 2 < this.slotCount ? owner - 2 : 0xffff;
+          out.push(...u16(owner), ...u16(slot), i, rec[4], rec[10], 0, ...u16(16 + (rec[8] | (rec[9] << 8))), 0, 0);
+        });
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg, [out.length / 12, MOD_INDICES - used(), MOD_INDICES, 0, ...out]);
+      }
+      case MOD_OP.SCENE_READ: {
+        const target = arg & 0xffff;
+        const offset = arg >>> 16;
+        let owner;
+        let i;
+        if (target >= TARGET_INDEX) {
+          i = target - TARGET_INDEX;
+          if (i >= MOD_INDICES) return this.#modReply(op, seq, MOD_STATUS.ARG, arg);
+          owner = m.records[i] ? m.records[i][6] | (m.records[i][7] << 8) : 0;
+        } else {
+          if (target >= this.slotCount) return this.#modReply(op, seq, MOD_STATUS.ARG, arg);
+          owner = this.modOwner(target);
+          i = this.#modIndexOf(owner);
+        }
+        const rec = i >= 0 ? m.records[i] : null;
+        const size = rec ? rec.length : 0;
+        if (offset > size) return this.#modReply(op, seq, MOD_STATUS.ARG, arg);
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg, [...u16(size), ...u16(owner), ...(rec ? rec.subarray(offset, offset + RECORD_CHUNK) : [])]);
+      }
+      case MOD_OP.SCENE_WRITE:
+        return this.#modWrite(seq, arg, payload);
+      case MOD_OP.SCENE_DELETE: {
+        if (arg >= this.slotCount) return this.#modReply(op, seq, MOD_STATUS.ARG, arg);
+        this.#modDelete(arg);
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg);
+      }
+      case MOD_OP.SETTINGS_READ: {
+        const s = m.settings;
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg, [...u16(s ? s.length : 0), ...u16(s ? 299 : 0), ...(s ?? [])]);
+      }
+      case MOD_OP.SETTINGS_WRITE: {
+        const rec = payload.subarray(4);
+        try {
+          decodeSettingsRecord(rec);
+        } catch {
+          return this.#modReply(op, seq, MOD_STATUS.CHECKSUM, arg);
+        }
+        m.settings = Uint8Array.from(rec);
+        this.#modNotify(NOTIFY.SETTINGS);
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg);
+      }
+      case MOD_OP.GUESTS: {
+        if (arg > 10) return this.#modReply(op, seq, MOD_STATUS.ARG, arg);
+        const list = m.guests[arg] ?? [];
+        const out = list.flatMap((g) => [g.fxid & 0xff, (g.fxid >>> 8) & 0xff, (g.fxid >>> 16) & 0xff, g.fxid >>> 24, g.fromBlock, g.fromPos, ...u16(g.sliceKb ?? 0)]);
+        return this.#modReply(op, seq, MOD_STATUS.OK, arg, [list.length, 0, 0, 0, ...out]);
+      }
+      default:
+        return this.#modReply(op, seq, MOD_STATUS.OP, arg);
+    }
+  }
+
+  #modDelete(slot) {
+    const i = this.#modIndexOf(this.modOwner(slot));
+    if (i < 0) return;
+    this.mod.records[i] = null;
+    this.#modWritten(slot);
+  }
+
+  #modWritten(slot) {
+    this.mod.writes++;
+    if (slot === this.current && this.mod.activeScene !== NO_SCENE) this.mod.activeScene = NO_SCENE; // back to the base
+    this.#modNotify(NOTIFY.RECORD | (slot === this.current ? NOTIFY.SCENE : 0));
+  }
+
+  #modWrite(seq, arg, payload) {
+    const m = this.mod;
+    const op = MOD_OP.SCENE_WRITE;
+    const slot = arg & 0xffff;
+    const offset = arg >>> 16;
+    const ack = (status, n) => this.#modReply(op, seq, status, arg, [n & 0xff, n >>> 8, 0, 0]);
+    if (payload.length < 4) return ack(MOD_STATUS.LENGTH, 0);
+    const total = payload[0] | (payload[1] << 8);
+    const piece = payload.subarray(4);
+    if (slot >= this.slotCount) return ack(MOD_STATUS.ARG, 0);
+    if (total < 16 || total > SCENE_RECORD_MAX || offset + piece.length > total) return (m.transfer = null), ack(MOD_STATUS.LENGTH, 0);
+    if (offset === 0) m.transfer = { slot, total, buf: new Uint8Array(total), got: 0 };
+    else if (!m.transfer || m.transfer.slot !== slot || m.transfer.total !== total || m.transfer.got !== offset) return ack(MOD_STATUS.ARG, m.transfer?.got ?? 0);
+    m.transfer.buf.set(piece, offset);
+    m.transfer.got = offset + piece.length;
+    if (m.transfer.got < total) return ack(MOD_STATUS.OK, m.transfer.got);
+    const bytes = m.transfer.buf;
+    m.transfer = null;
+    let rec;
+    try {
+      rec = decodeSceneRecord(bytes);
+    } catch {
+      return ack(MOD_STATUS.CHECKSUM, total);
+    }
+    if (rec.owner !== this.modOwner(slot)) return ack(MOD_STATUS.OWNER, total);
+    if (rec.scenes.every((x) => !x) && !rec.pre2) {
+      this.#modDelete(slot);
+      return ack(MOD_STATUS.OK, total);
+    }
+    let i = this.#modIndexOf(rec.owner);
+    if (i < 0) i = m.records.indexOf(null);
+    if (i < 0) return ack(MOD_STATUS.NO_SPACE, total);
+    m.records[i] = Uint8Array.from(bytes);
+    this.#modWritten(slot);
+    return ack(MOD_STATUS.OK, total);
+  }
+
+  #modNotify(events) {
+    const m = this.mod;
+    if (!m?.hello || !(m.features & FEATURE.NOTIFY)) return;
+    const rec = this.modScenes(this.current);
+    const owner = this.modOwner(this.current);
+    m.notifySeq = (m.notifySeq + 1) & 0xffff;
+    this.#reply(encodeReply({ op: MOD_OP.NOTIFY, seq: m.notifySeq, arg: events,
+      payload: [events, m.sceneMode ? 1 : 0, m.sceneMode ? m.activeScene : NO_SCENE, rec ? rec[10] : 0, this.current & 0xff, this.current >> 8, owner & 0xff, owner >> 8] }));
+  }
+
+  /** Scene mode on the pedal (double tap on CTRL 1) -> NOTIFY. */
+  setSceneMode(on) {
+    this.mod.sceneMode = on;
+    this.mod.activeScene = NO_SCENE;
+    this.#modNotify(NOTIFY.SCENE);
+  }
+
+  /** A-D on the pedal in scene mode -> NOTIFY. */
+  selectScene(k) {
+    this.mod.activeScene = k;
+    this.#modNotify(NOTIFY.SCENE);
   }
 }
 

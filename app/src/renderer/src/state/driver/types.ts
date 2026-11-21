@@ -1,7 +1,7 @@
 // What the device store needs from a pedal, whatever its protocol family. One driver per connection; the store
 // (state/device.ts) talks only to this interface. Gp5Driver adapts Gp5Session; the GP-200 family gets its own driver.
 import { DEVICE_KEYS, profileFor, type DeviceFamily, type DeviceKey } from "@shared/devices";
-import type { BackupEntry, DeviceFeature, ExpEdit, ExpSettings, GlobalEq, GlobalName, GlobalRecord, Globals, SlotName } from "../device-types";
+import type { BackupEntry, DeviceFeature, ExpEdit, ExpSettings, GlobalEq, GlobalName, GlobalRecord, Globals, ModFirmware, SlotName } from "../device-types";
 
 export type { DeviceFeature };
 
@@ -56,6 +56,8 @@ export interface SyncSnapshot {
   globals: GlobalsSnapshot | null;
   /** The active preset has unsaved edits on the pedal (features "modified"); null/absent = unknown */
   modified?: boolean | null;
+  /** Custom firmware that answered (GrooveGurus mod); null/absent = stock or unknown */
+  mod?: ModFirmware | null;
 }
 
 export interface ProgressOptions {
@@ -145,4 +147,6 @@ export interface DriverOptions {
   log: (dir: string, bytes: Uint8Array, decoded?: unknown) => void;
   /** The port went away (unplugged, switched off) */
   onDisconnect: () => void;
+  /** Simulator only: the simulated pedal runs the GrooveGurus mod (GP-200 family) */
+  simulatedMod?: boolean;
 }

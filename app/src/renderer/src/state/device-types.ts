@@ -200,7 +200,27 @@ export type DeviceFeature =
   /** Move a slot in the list, the ones in between shift (GP-50 11 5A) */
   | "movePreset"
   /** Global EQ values set one at a time (GP-200 family 0x1005) */
-  | "globalEq";
+  | "globalEq"
+  /** GrooveGurus mod: the four scenes of each preset, read and written (gp-200-re RFC-0030, record 0x200C) */
+  | "modScenes"
+  /** GrooveGurus mod: its global settings (tap tempo per preset or global) */
+  | "modSettings"
+  /** GrooveGurus mod: guest effects each block offers */
+  | "modGuests";
+
+/** Custom firmware the pedal answered for (the GrooveGurus mod's HELLO, gp-200-re RFC-0030). */
+export interface ModFirmware {
+  /** "GrooveGurus C0.7.0" */
+  label: string;
+  /** mod name in the firmware, e.g. "cenas" */
+  name: string;
+  letter: string;
+  version: string;
+  /** base firmware tag, e.g. "V182" */
+  base: string;
+  /** scene records used / free / total on the pedal */
+  sceneRecords: { used: number; free: number; total: number };
+}
 
 /**
  * Global EQ of the GP-200 family: the 31 values in the order of gp200/lib protocol GLOBAL_EQ_INDEX (ranges:
@@ -293,6 +313,8 @@ export interface DeviceState {
   globalEq: GlobalEq | null;
   /** Firmware the pedal reports in its settings (e.g. "1.1.0"), when known */
   firmware: string | null;
+  /** Custom firmware that answered at connect (GrooveGurus mod), else null */
+  mod: ModFirmware | null;
   /** Optional capabilities usable now (connected model, simulator or the "Experimental pedal commands" setting) */
   features: readonly DeviceFeature[];
   /** Capabilities the connected pedal has but that stay off until "Experimental pedal commands" is turned on */
@@ -336,7 +358,7 @@ export interface DeviceState {
   setGp50Extras(on: boolean): void;
 
   // connection
-  connect(mode?: DeviceMode, opts?: { mockDevice?: DeviceKey }): Promise<void>;
+  connect(mode?: DeviceMode, opts?: { mockDevice?: DeviceKey; mockMod?: boolean }): Promise<void>;
   disconnect(): Promise<void>;
   /** Re-read names, slot and the active preset */
   sync(): Promise<void>;

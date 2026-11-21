@@ -48,6 +48,8 @@ export function deviceLogEntries(p: DeviceState, s: DeviceState): [string, strin
     out.push(["Error", `Connection failed: ${s.error.code}: ${s.error.message}${s.error.ports ? ` (visible ports: ${s.error.ports.join(", ") || "none"})` : ""}`]);
   if (s.lastError && s.lastError !== p.lastError) out.push(["Error", `Request failed: ${s.lastError.code}: ${s.lastError.message}`]);
   if (s.firmware && s.firmware !== p.firmware) out.push(["Event", `Firmware ${s.firmware}`]);
+  if (s.mod && s.mod !== p.mod)
+    out.push(["Event", `Custom firmware: ${s.mod.label} on ${s.mod.base} (scene records ${s.mod.sceneRecords.used}/${s.mod.sceneRecords.total})`]);
   if (s.busy?.kind !== p.busy?.kind) {
     if (p.busy) out.push(["Event", `Finished: ${p.busy.kind}`]);
     if (s.busy) out.push(["Event", `Started: ${s.busy.label}`]);

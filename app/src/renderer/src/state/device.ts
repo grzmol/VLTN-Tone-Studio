@@ -53,6 +53,8 @@ const ECHO_GRACE_MS = 1500;
 let driver: DeviceDriver | null = null;
 /** Model the simulator plays; kept for later `connect("mock")` calls in this session. */
 let mockDevice: DeviceKey = DEFAULT_DEVICE;
+/** The simulated GP-200 runs the GrooveGurus mod (`?mock=gp200mod`); kept like mockDevice. */
+let mockMod = false;
 let reconnects = 0;
 let userDisconnected = false;
 let resyncTimer: number | undefined;
@@ -291,6 +293,7 @@ export const useDevice = create<DeviceState>((set, get) => {
         globalEq: snap.globals?.eq ?? null,
         globalRecords: snap.globals?.records ?? null,
         firmware: snap.globals?.firmware ?? null,
+        mod: snap.mod ?? null,
         snapTones: null,
         userIRs: null,
         connectedAt: now,
@@ -406,6 +409,7 @@ export const useDevice = create<DeviceState>((set, get) => {
     globals: null,
     globalEq: null,
     firmware: null,
+    mod: null,
     features: [],
     lockedFeatures: [],
     gp50Extras: false,
@@ -481,7 +485,8 @@ export const useDevice = create<DeviceState>((set, get) => {
         let d: DeviceDriver;
         if (mode === "mock") {
           if (opts?.mockDevice) mockDevice = opts.mockDevice;
-          d = await simulate(mockDevice, driverOpts);
+          if (opts?.mockDevice || opts?.mockMod !== undefined) mockMod = opts?.mockMod ?? false;
+          d = await simulate(mockDevice, { ...driverOpts, simulatedMod: mockMod });
         } else {
           d = await openPort(settings?.portPattern || undefined, driverOpts);
         }

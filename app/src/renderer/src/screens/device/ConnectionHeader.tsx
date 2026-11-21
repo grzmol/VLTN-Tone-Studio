@@ -24,6 +24,8 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
       lastError: s.lastError,
       connectedAt: s.connectedAt,
       portName: s.portName,
+      mod: s.mod,
+      firmware: s.firmware,
       activeSlot: s.preset?.slot ?? null,
       activeName: s.preset?.name ?? null,
       busy: s.busy,
@@ -64,6 +66,15 @@ export function ConnectionHeader({ view, onShowFix }: { view: ConnectionView; on
           {onUsb && (
             <span>
               USB <b className="font-semibold text-silkscreen">84EF:{profileFor(onUsb).usbPids[0].toString(16).toUpperCase().padStart(4, "0")}</b>
+            </span>
+          )}
+          {connected && d.mod && (
+            <span>
+              Firmware{" "}
+              <b className="font-semibold text-silkscreen">
+                {d.mod.label}
+                {d.firmware ? ` · V${d.firmware}` : ""}
+              </b>
             </span>
           )}
           {(connected || view.kind === "connecting") && d.portName && (

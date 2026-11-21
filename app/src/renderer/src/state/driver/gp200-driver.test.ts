@@ -72,6 +72,26 @@ describe("Gp200Driver sync", () => {
     expect(progress.length).toBeGreaterThan(count);
   });
 
+  it("a stock pedal: no custom firmware, no mod features", async () => {
+    const d = await simulate("gp200");
+    const snap = await d.sync();
+    expect(snap.mod).toBeNull();
+    expect(d.features).not.toContain("modScenes");
+  });
+
+  it("a pedal running the GrooveGurus mod answers HELLO: firmware label and mod features", async () => {
+    const d = await simulate("gp200", { mod: true });
+    const snap = await d.sync();
+    expect(snap.mod).toEqual({ label: "GrooveGurus C0.7.0", name: "cenas", letter: "C", version: "0.7.0", base: "V182", sceneRecords: { used: 0, free: 42, total: 42 } });
+    expect(d.features).toEqual(expect.arrayContaining(["modScenes", "modSettings", "modGuests", "globalEq"]));
+  });
+
+  it("the simulatedMod option runs the mod in the simulator (?mock=gp200mod)", async () => {
+    const d = await Gp200Driver.simulate("gp200", { log: () => {}, onDisconnect: () => {}, simulatedMod: true });
+    open.push(d);
+    expect((await d.sync()).mod?.label).toBe("GrooveGurus C0.7.0");
+  });
+
   it("readNames reads every slot with progress; readPreset reads without selecting", async () => {
     const { d, dev } = await connected("gp200jr");
     let last = "";
