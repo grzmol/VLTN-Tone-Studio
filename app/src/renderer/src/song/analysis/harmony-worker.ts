@@ -10,16 +10,17 @@ export type HarmonyRequest =
   | { kind: "chords"; id: number; harmony: number[]; input: Omit<ChordsInput, "harmony" | "harmonyParts"> };
 export type HarmonyReply = { id: number; result: KeyReading | Chord[] } | { id: number; error: string };
 
-const audios: PcmAudio[] = [];
+// Keyed by the index the client chose; a Map, so a message can never write an arbitrary property.
+const audios = new Map<number, PcmAudio>();
 function audioAt(index: number): PcmAudio {
-  const audio = audios[index];
+  const audio = audios.get(index);
   if (!audio) throw new Error("No harmony audio was supplied.");
   return audio;
 }
 self.onmessage = (event: MessageEvent<HarmonyRequest>) => {
   const request = event.data;
   if (request.kind === "audio") {
-    audios[request.index] = request.audio;
+    if (Number.isInteger(request.index) && request.index >= 0) audios.set(request.index, request.audio);
     return;
   }
   try {

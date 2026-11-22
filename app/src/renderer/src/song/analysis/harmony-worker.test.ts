@@ -50,3 +50,21 @@ it("derives the key stem and the summed chord harmony from stems posted once", a
     vi.unstubAllGlobals();
   }
 });
+
+it("ignores an audio message whose index is not a slot number", async () => {
+  const self = { onmessage: null as null | ((event: { data: HarmonyRequest }) => void), postMessage: vi.fn() };
+  vi.stubGlobal("self", self);
+  vi.resetModules();
+  try {
+    await import("./harmony-worker");
+    const audio = { sampleRate: 8000, channels: [new Float32Array(16)] };
+    for (const index of ["__proto__", -1, 0.5] as unknown as number[]) {
+      self.onmessage!({ data: { kind: "audio", index, audio } });
+    }
+    expect(({} as Record<string, unknown>).sampleRate).toBeUndefined();
+    self.onmessage!({ data: { kind: "key", id: 1, harmony: -1, input: { bass: null, chords: [], sections: [] } } });
+    expect(self.postMessage).toHaveBeenLastCalledWith({ id: 1, error: expect.stringContaining("No harmony audio") });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
