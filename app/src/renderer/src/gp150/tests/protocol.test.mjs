@@ -7,6 +7,9 @@ import {
   P,
   Reassembler,
   crc8,
+  decodeNames,
+  nameField,
+  u32le,
   decodeFrame,
   decodeMessage,
   decodeParam,
@@ -133,4 +136,10 @@ test("Global EQ: the switch is a u32, the rest f32", () => {
   const rec = eqRecord(values);
   assert.deepEqual([...rec.subarray(0, 4)], [1, 0, 0, 0]);
   assert.deepEqual(eqValues(rec), values);
+});
+
+test("preset names: the slot is the list position, not the u32 the pedal sends (#140)", () => {
+  const entries = [114, 121, 1].flatMap((id, i) => [...u32le(id), ...nameField(`Preset ${i}`)]);
+  const names = decodeNames(CMD.PRESET_NAMES, Uint8Array.from([0, 0, 0, 0, ...entries]));
+  assert.deepEqual(names.map((n) => [n.slot, n.name]), [[0, "Preset 0"], [1, "Preset 1"], [2, "Preset 2"]]);
 });
