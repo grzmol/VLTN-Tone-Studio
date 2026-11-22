@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/grzmol/VLTN-Tone-Studio/discussions
+    about: Ask how something works, or talk about ideas before they become an issue.
