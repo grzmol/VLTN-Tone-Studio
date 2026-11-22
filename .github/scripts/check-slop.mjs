@@ -9,6 +9,8 @@ const CONVENTIONAL = new RegExp(`^(${TYPES})(\\([^)]+\\))?!?: \\S`);
 // "fix: update code" says nothing: a subject must name what changed.
 const VAGUE_WORD = "update|updates|updated|change|changes|changed|fix|fixes|fixed|improve|improvements|misc|wip|stuff|code|files?|things?|bugs?";
 const VAGUE = new RegExp(`^(${TYPES})(\\([^)]+\\))?!?: (${VAGUE_WORD})( (${VAGUE_WORD}))?\\.?$`, "i");
+// An assistant as commit author or committer: commits carry the owner's identity.
+const AI_IDENTITY = /\b(claude|anthropic|copilot|codex|chatgpt|openai|gemini|cursor|aider)\b/i;
 const MAX_SUBJECT = 120;
 const EMOJI = /\p{Extended_Pictographic}/u;
 // Chatbot filler and tool footers that end up pasted into messages, descriptions and code.
@@ -26,13 +28,15 @@ const PLACEHOLDER = /(\.\.\.|…)\s*(rest of|remaining|existing|same as before|u
 const AI_FILES = /(^|\/)(\.claude|\.omc|\.omp|\.cursor|\.windsurf|\.aider[^/]*|\.impeccable)(\/|$)|(^|\/)(CLAUDE|GEMINI|COPILOT)\.md$|(^|\/)\.cursorrules$/;
 const SKIP_DIFF = /(^|\/)package-lock\.json$|^\.github\/scripts\/check-slop/;
 
-export function checkCommit({ sha, message }) {
+export function checkCommit({ sha, message, author = "", committer = "" }) {
   const [subject = "", ...rest] = message.split("\n");
   const at = `commit ${sha.slice(0, 7)} "${subject.slice(0, 60)}"`;
   const out = [];
   if (!CONVENTIONAL.test(subject)) out.push(`${at}: subject must read type(scope): what changed (types: ${TYPES.replaceAll("|", ", ")})`);
   else if (VAGUE.test(subject)) out.push(`${at}: subject is too vague, say what changed`);
   if (subject.length > MAX_SUBJECT) out.push(`${at}: subject is ${subject.length} characters, keep it under ${MAX_SUBJECT}`);
+  if (/^co-authored-by:/im.test(rest.join("\n"))) out.push(`${at}: remove the Co-authored-by trailer, commits carry only the owner's identity`);
+  for (const [role, who] of [["author", author], ["committer", committer]]) if (AI_IDENTITY.test(who)) out.push(`${at}: ${role} "${who}" is an assistant, commit as the repository owner`);
   out.push(...prose(at, [subject, ...rest].join("\n")));
   return out;
 }
@@ -94,10 +98,10 @@ function main() {
     const pr = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")).pull_request;
     if (pr) problems.push(...checkPr({ title: pr.title, body: pr.body, bot: pr.user?.type === "Bot" }));
   }
-  const log = git("log", "--no-merges", "--format=%H%x00%B%x01", `${base}..${head}`);
+  const log = git("log", "--no-merges", "--format=%H%x00%an <%ae>%x00%cn <%ce>%x00%B%x01", `${base}..${head}`);
   for (const entry of log.split("\x01").map((e) => e.trim()).filter(Boolean)) {
-    const [sha, message] = entry.split("\0");
-    problems.push(...checkCommit({ sha, message: message.trim() }));
+    const [sha, author, committer, message] = entry.split("\0");
+    problems.push(...checkCommit({ sha, author, committer, message: message.trim() }));
   }
   problems.push(...checkDiff(git("diff", "-U0", "--no-color", `${base}...${head}`)));
   for (const p of problems) console.log(`::error::${p}`);
