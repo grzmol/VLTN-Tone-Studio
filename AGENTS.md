@@ -49,7 +49,7 @@ Work on a branch from `develop`; open pull requests against `develop`. Merging `
 The Slop check (`.github/scripts/check-slop.mjs`) rejects, in commit messages, PR text and added lines:
 
 - subjects that are not `type(scope): subject` (types: feat, fix, docs, test, refactor, chore, perf, style, build, ci, revert), that are vague (`fix: update code`), longer than 120 characters or contain emoji;
-- chatbot filler, tool footers such as "Generated with ...", and placeholders that stand in for omitted code;
+- chatbot filler, tool footers such as "Generated with ...", `Co-authored-by:` trailers and an assistant as commit author or committer, and placeholders that stand in for omitted code;
 - AI tool and instruction files.
 
 Write commit subjects that name what changed, and add no AI attribution footer.
