@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open as openFile, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, posix, win32 } from "node:path";
 import { ALGORITHM_XML, MAX_XML_BYTES, decodeXmlText, parseStoredCatalog, storedCatalogFile, type Gp200XmlFile, type StoredGp200Catalog } from "@shared/host/gp200-catalog";
 import { HostError } from "@shared/ipc";
@@ -66,12 +66,16 @@ export async function findAlgorithmXml(candidates: readonly string[]): Promise<s
 
 /** Read and decode `path` (size-capped). Throws HostError("invalid") when it is too big or no XML text. */
 export async function readAlgorithmXml(path: string): Promise<Gp200XmlFile> {
-  const s = await stat(path);
-  if (s.size > MAX_XML_BYTES) throw new HostError("invalid", `This file is too big to be the GP-200 editor's ${ALGORITHM_XML}.`);
+  const file = await openFile(path, "r");
   try {
-    return { path, text: decodeXmlText(new Uint8Array(await readFile(path))) };
-  } catch (e) {
-    throw new HostError("invalid", e instanceof Error ? e.message : String(e));
+    if ((await file.stat()).size > MAX_XML_BYTES) throw new HostError("invalid", `This file is too big to be the GP-200 editor's ${ALGORITHM_XML}.`);
+    try {
+      return { path, text: decodeXmlText(new Uint8Array(await file.readFile())) };
+    } catch (e) {
+      throw new HostError("invalid", e instanceof Error ? e.message : String(e));
+    }
+  } finally {
+    await file.close();
   }
 }
 
