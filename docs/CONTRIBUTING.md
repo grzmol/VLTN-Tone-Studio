@@ -59,7 +59,7 @@ The **Slop check** (`.github/workflows/pr-hygiene.yml`) must pass. It enforces:
 
 - Conventional Commits: `type(scope): subject`, with `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `perf`, `style`, `build`, `ci` or `revert`.
 - A subject that says what changed (`fix(gp200): read slot flags the right way round`, not `fix: update code`), at most 120 characters, no emoji.
-- No chatbot filler or tool footers in commit messages, PR text or added lines, no placeholders that stand in for omitted code, and no AI tool files or instruction files.
+- No chatbot filler or tool footers in commit messages, no `Co-authored-by:` trailers in commits, PR text or added lines, no placeholders that stand in for omitted code, and no AI tool files or instruction files.
 
 Run it locally with `node .github/scripts/check-slop.mjs <base> <head>`.
 
