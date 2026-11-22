@@ -338,12 +338,16 @@ export const importPatch = (prst) => encodeMessage({ p: P.UPLOAD, cmd: CMD.PATCH
 /** The record data of a reply / report payload ([cmd][len][data…]). */
 export const recordData = (payload) => payload.subarray(4);
 
-/** Name lists: presets (u32 index + name16), IR / SnapTone / NAM (u16 index, u16 flag (1 = empty), name16). */
+/**
+ * Name lists: presets (u32 index + name16), IR / SnapTone / NAM (u16 index, u16 flag (1 = empty), name16).
+ * A preset's slot is its position in the list: after presets were overwritten a GP-150 still lists them in slot order
+ * but with other u32 values (issue #140), so that field is not trusted.
+ */
 export function decodeNames(cmd, payload) {
   const d = recordData(payload);
   const out = [];
   for (let o = 0; o + 20 <= d.length; o += 20) {
-    if (cmd === CMD.PRESET_NAMES) out.push({ slot: readU32(d, o), name: readName(d, o + 4, NAME_FIELD), empty: false });
+    if (cmd === CMD.PRESET_NAMES) out.push({ slot: o / 20, name: readName(d, o + 4, NAME_FIELD), empty: false });
     else out.push({ slot: readU16(d, o), name: readName(d, o + 4, NAME_FIELD), empty: readU16(d, o + 2) === 1 });
   }
   return out;
