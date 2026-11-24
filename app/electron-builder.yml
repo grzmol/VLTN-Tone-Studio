@@ -21,6 +21,11 @@ files:
   - "!node_modules/sharp/**"
   - "!node_modules/@img/**"
   - "!node_modules/onnxruntime-node/**"
+  # Whisper and the stem splitter run in the renderer: Vite bundles their onnxruntime-web and transformers code, and the
+  # wasm they load (the `?url` imports in lyrics-worker.ts and song/stems/worker*.ts) is emitted into out/renderer/assets.
+  # The main process imports neither package, so these node_modules copies (about 100 MB of wasm) are never read.
+  - "!node_modules/onnxruntime-web/**"
+  - "!node_modules/@huggingface/transformers/**"
   # pdf.js is bundled into the renderer by Vite. It also lists an optional native canvas (about 30 MB of Skia) for Node rendering,
   # which the app never uses: charts are drawn in the renderer with the browser's own canvas.
   - "!node_modules/@napi-rs/**"
