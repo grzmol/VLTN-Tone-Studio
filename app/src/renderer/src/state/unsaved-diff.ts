@@ -79,6 +79,8 @@ export function diffPresets(saved: PresetState, now: PresetState): ChangeRow[] {
   if (saved.order.join() !== now.order.join()) rows.push({ block: null, parameter: "Chain order", saved: "", now: "Changed" });
   if (saved.volume !== now.volume) rows.push({ block: null, parameter: "Volume", saved: String(saved.volume), now: String(now.volume) });
   if (saved.bpm !== now.bpm) rows.push({ block: null, parameter: "Tempo", saved: `${saved.bpm} BPM`, now: `${now.bpm} BPM` });
+  if (saved.namMode !== now.namMode)
+    rows.push({ block: null, parameter: "Neural-model mode", saved: saved.namMode === 1 ? "NAM" : "SnapTone", now: now.namMode === 1 ? "NAM" : "SnapTone" });
   if (saved.footswitches.some((list, i) => list.join() !== now.footswitches[i]?.join()))
     rows.push({ block: null, parameter: saved.gp200 ? "CTRL assignments" : "Footswitches", saved: "", now: "Changed" });
   const se = saved.exp;
