@@ -2,6 +2,7 @@
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The IPC handlers run for real; only Electron is replaced. vi.mock is hoisted, so the shared state lives in vi.hoisted.
@@ -21,7 +22,7 @@ vi.mock("electron", () => ({
 
 /** Invoke a registered channel the way the preload does and return its Result. */
 async function call(channel: string, ...args: unknown[]) {
-  return electron.handlers.get(channel)!({}, ...args) as Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }>;
+  return electron.handlers.get(channel)!({ sender: new EventEmitter() }, ...args) as Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }>;
 }
 
 let base: string;
@@ -148,5 +149,35 @@ describe("routeOpenedFile", () => {
     const { routeOpenedFile } = await import("./app");
     expect(routeOpenedFile(null)).toBe("queue");
     expect(routeOpenedFile(window(false, true))).toBe("queue");
+  });
+});
+
+describe("app:setShowRunning", () => {
+  it("sets and clears the flag", async () => {
+    const { isShowRunning } = await import("./app");
+    await call("app:setShowRunning", true);
+    expect(isShowRunning()).toBe(true);
+    await call("app:setShowRunning", false);
+    expect(isShowRunning()).toBe(false);
+  });
+
+  it("clears the flag when the sender is destroyed or its process is gone", async () => {
+    const { isShowRunning } = await import("./app");
+    for (const event of ["destroyed", "render-process-gone"]) {
+      const sender = new EventEmitter();
+      await electron.handlers.get("app:setShowRunning")!({ sender }, true);
+      expect(isShowRunning()).toBe(true);
+      sender.emit(event);
+      expect(isShowRunning()).toBe(false);
+    }
+  });
+});
+
+describe("closeDecision", () => {
+  it("asks about a pedal job first, then a show, else closes", async () => {
+    const { closeDecision } = await import("./app");
+    expect(closeDecision({ job: true, show: true })).toBe("job-prompt");
+    expect(closeDecision({ job: false, show: true })).toBe("show-prompt");
+    expect(closeDecision({ job: false, show: false })).toBe("close");
   });
 });
