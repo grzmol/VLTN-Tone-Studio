@@ -17,6 +17,7 @@ import { useWhatsNewOnLaunch } from "./whats-new";
 import { UpdateDialog } from "./overlays/UpdateDialog";
 import { UnsavedSwitchDialog } from "./overlays/UnsavedSwitchDialog";
 import { FileDropOverlay } from "./overlays/FileDropOverlay";
+import { ScreenBoundary } from "@/components/ScreenBoundary";
 import { RigScreen } from "@/screens/rig/RigScreen";
 import { LibraryScreen } from "@/screens/library/LibraryScreen";
 import { TonesScreen } from "@/screens/tones/TonesScreen";
@@ -51,7 +52,10 @@ export function AppShell() {
       <Rail />
       <main className="flex min-h-0 min-w-0 flex-col">
         <div className="min-h-0 flex-1">
-          <Active />
+          {/* Keyed by screen so a broken screen does not keep its error when the user goes to another one. */}
+          <ScreenBoundary key={screen} name={`${screen} screen`}>
+            <Active />
+          </ScreenBoundary>
         </div>
         <StatusBar />
       </main>

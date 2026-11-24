@@ -72,6 +72,7 @@ import { audienceModel, type AudienceSongInput } from "@/song/performance/audien
 import { useAudienceSettings } from "@/song/performance/audience-settings";
 import { useChartPage } from "@/song/performance/pdf/current-page";
 import { PerformanceViewSwitcher, readPerformanceView, savePerformanceView, type PerformanceView as ViewName } from "./PerformanceViews";
+import { ScreenBoundary } from "@/components/ScreenBoundary";
 
 function readNumber(raw: string, fallback: number, min: number, max: number): number {
   const n = raw === "" ? NaN : Number(raw);
@@ -713,153 +714,165 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
         />
       </div>
       <div style={{ display: shownView("play") }}>
-        <SectionStrip session={session} onSaveDefaults={saveSectionDefaults} />
-        <div className="flex justify-end">
-          <PracticeMuteMenu />
-        </div>
-        <PerformanceMix
-          session={session}
-          stems={stems}
-          tracks={tracks}
-          mix={mix}
-          onMix={setMix}
-          trackBuses={trackBuses}
-          onTrackBus={(name, bus) => setTrackBuses((routes) => ({ ...routes, [name]: bus }))}
-          onTrackInfo={setTrackInfo}
-          partChoices={partChoice}
-          countsAs={countsAs}
-          onCountsAs={(trackKey, value) =>
-            setCountsAs((current) => {
-              const { [trackKey]: _dropped, ...rest } = current;
-              return value === undefined ? rest : { ...rest, [trackKey]: value };
-            })
-          }
-        />
+        <ScreenBoundary name="Performance play">
+          <SectionStrip session={session} onSaveDefaults={saveSectionDefaults} />
+          <div className="flex justify-end">
+            <PracticeMuteMenu />
+          </div>
+          <PerformanceMix
+            session={session}
+            stems={stems}
+            tracks={tracks}
+            mix={mix}
+            onMix={setMix}
+            trackBuses={trackBuses}
+            onTrackBus={(name, bus) => setTrackBuses((routes) => ({ ...routes, [name]: bus }))}
+            onTrackInfo={setTrackInfo}
+            partChoices={partChoice}
+            countsAs={countsAs}
+            onCountsAs={(trackKey, value) =>
+              setCountsAs((current) => {
+                const { [trackKey]: _dropped, ...rest } = current;
+                return value === undefined ? rest : { ...rest, [trackKey]: value };
+              })
+            }
+          />
+        </ScreenBoundary>
       </div>
       <div style={{ display: shownView("song") }}>
-        <p className="text-xs text-silkscreen-3">Saved with this song.</p>
-        <SpeedControls session={session} bpm={bpm} />
-        <SongShapeControls
-          key={key}
-          songKey={key}
-          audio={source?.audio ?? null}
-          silence={silence?.songKey === key ? silence.ends : null}
-          onChange={() => setShapeVersion((v) => v + 1)}
-        />
-        <SongKey
-          stems={stems}
-          original={source?.audio}
-          storageKey={key}
-          shift={shift}
-          libraryKey={savedSong?.key ?? undefined}
-          onSpellingKey={setSpellingKey}
-        />
-        <h3 className="text-sm font-semibold">Solo scale</h3>
-        <SoloScales key={`${key}:${soloVersion}`} songKey={spellingKey} shift={shapeShift} capo={capo} storageKey={key} />
-        <SongMapImport
-          songKey={key}
-          libraryId={source?.libraryId}
-          playing={playing || library.playlistPlaying}
-          title={savedSong?.title || source?.name || ""}
-          durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
-        />
-        <TrackImport playing={playing || library.playlistPlaying} />
-        <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
-        <BandPanelButton sections={sectionList} partChoices={partChoice} />
-        <BandPanel
-          songKey={key}
-          playing={playing || library.playlistPlaying}
-          audioPlaying={playing}
-          chart={chart}
-          chords={chords}
-          sections={sectionList}
-          beats={beats}
-          bpm={bpm}
-          firstBeat={firstBeat}
-          typedTempo={typedTempo}
-          onMetronome={(tempo, first) => {
-            changeTempo(tempo, "detected");
-            setFirstBeat(first);
-          }}
-          getPosition={() => session.position}
-          onPlayFrom={(seconds) => void session.seek(seconds).then(() => session.startPlayback())}
-          partChoices={partChoice}
-          onPartChoice={choosePart}
-          bassLine={bassLine}
-          sectionHints={suggested}
-        />
-        <SectionEditor
-          sections={sectionList}
-          onSections={setSectionList}
-          suggested={suggested}
-          duration={player?.duration ?? 0}
-          bpm={bpm}
-          firstBeat={firstBeat}
-          channels={source?.audio.channels ?? null}
-        />
-        <SongTriggerField songId={source?.libraryId} songs={library.index.songs} inputReady={inputReady} />
+        <ScreenBoundary name="Performance this song">
+          <p className="text-xs text-silkscreen-3">Saved with this song.</p>
+          <SpeedControls session={session} bpm={bpm} />
+          <SongShapeControls
+            key={key}
+            songKey={key}
+            audio={source?.audio ?? null}
+            silence={silence?.songKey === key ? silence.ends : null}
+            onChange={() => setShapeVersion((v) => v + 1)}
+          />
+          <SongKey
+            stems={stems}
+            original={source?.audio}
+            storageKey={key}
+            shift={shift}
+            libraryKey={savedSong?.key ?? undefined}
+            onSpellingKey={setSpellingKey}
+          />
+          <h3 className="text-sm font-semibold">Solo scale</h3>
+          <SoloScales key={`${key}:${soloVersion}`} songKey={spellingKey} shift={shapeShift} capo={capo} storageKey={key} />
+          <SongMapImport
+            songKey={key}
+            libraryId={source?.libraryId}
+            playing={playing || library.playlistPlaying}
+            title={savedSong?.title || source?.name || ""}
+            durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
+          />
+          <TrackImport playing={playing || library.playlistPlaying} />
+          <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />
+          <BandPanelButton sections={sectionList} partChoices={partChoice} />
+          <BandPanel
+            songKey={key}
+            playing={playing || library.playlistPlaying}
+            audioPlaying={playing}
+            chart={chart}
+            chords={chords}
+            sections={sectionList}
+            beats={beats}
+            bpm={bpm}
+            firstBeat={firstBeat}
+            typedTempo={typedTempo}
+            onMetronome={(tempo, first) => {
+              changeTempo(tempo, "detected");
+              setFirstBeat(first);
+            }}
+            getPosition={() => session.position}
+            onPlayFrom={(seconds) => void session.seek(seconds).then(() => session.startPlayback())}
+            partChoices={partChoice}
+            onPartChoice={choosePart}
+            bassLine={bassLine}
+            sectionHints={suggested}
+          />
+          <SectionEditor
+            sections={sectionList}
+            onSections={setSectionList}
+            suggested={suggested}
+            duration={player?.duration ?? 0}
+            bpm={bpm}
+            firstBeat={firstBeat}
+            channels={source?.audio.channels ?? null}
+          />
+          <SongTriggerField songId={source?.libraryId} songs={library.index.songs} inputReady={inputReady} />
+        </ScreenBoundary>
       </div>
       <div style={{ display: stage || view === "play" ? "contents" : "none" }}>
-        <StageView
-          session={session}
-          stage={stage}
-          onExitStage={() => setStage(false)}
-          chart={chart}
-          lyrics={lyrics}
-          chords={chords}
-          shift={shapeShift}
-          songKey={spellingKey}
-          onSaveChart={saveChart}
-          onImportMetadata={applyImportedMetadata}
-          beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
-          speedNote={speedNote(speed)}
-          pdf={pdfState}
-          soloScale={{ storageKey: key, capo, onChange: () => setSoloVersion((v) => v + 1) }}
-        />
+        <ScreenBoundary name="Performance stage">
+          <StageView
+            session={session}
+            stage={stage}
+            onExitStage={() => setStage(false)}
+            chart={chart}
+            lyrics={lyrics}
+            chords={chords}
+            shift={shapeShift}
+            songKey={spellingKey}
+            onSaveChart={saveChart}
+            onImportMetadata={applyImportedMetadata}
+            beat={{ bpm: effectiveBpm(bpm, speed.rate), beats, firstBeat }}
+            speedNote={speedNote(speed)}
+            pdf={pdfState}
+            soloScale={{ storageKey: key, capo, onChange: () => setSoloVersion((v) => v + 1) }}
+          />
+        </ScreenBoundary>
       </div>
       <div style={{ display: shownView("midi") }}>
-        <SessionMidiHealth session={session} firstBeat={firstBeat} />
-        <PerformanceMidiSetup
-          session={session}
-          songKey={key}
-          chart={chart}
-          onSaveChart={saveChart}
-          onShowChart={() => chooseView("lyrics")}
-          midiFile={midiFile}
-          onMidiFile={saveMidiFile}
-          timecodeOffset={timecodeOffset}
-          onTimecodeOffset={saveTimecodeOffset}
-        />
+        <ScreenBoundary name="Performance MIDI">
+          <SessionMidiHealth session={session} firstBeat={firstBeat} />
+          <PerformanceMidiSetup
+            session={session}
+            songKey={key}
+            chart={chart}
+            onSaveChart={saveChart}
+            onShowChart={() => chooseView("lyrics")}
+            midiFile={midiFile}
+            onMidiFile={saveMidiFile}
+            timecodeOffset={timecodeOffset}
+            onTimecodeOffset={saveTimecodeOffset}
+          />
+        </ScreenBoundary>
       </div>
       <div style={{ display: shownView("setup") }}>
-        <p className="text-xs text-silkscreen-3">These settings apply to every song.</p>
-        <PerformanceOutputs player={player} />
-        <AudienceSettings />
-        <BandSyncSettings />
-        <RemoteControlSettings inputReady={inputReady} />
-        <SongTriggerSettings songs={library.index.songs} inputReady={inputReady} />
+        <ScreenBoundary name="Performance setup">
+          <p className="text-xs text-silkscreen-3">These settings apply to every song.</p>
+          <PerformanceOutputs player={player} />
+          <AudienceSettings />
+          <BandSyncSettings />
+          <RemoteControlSettings inputReady={inputReady} />
+          <SongTriggerSettings songs={library.index.songs} inputReady={inputReady} />
+        </ScreenBoundary>
       </div>
       <div style={{ display: shownView("lyrics") }}>
-        <PerformanceAnalysis
-          session={session}
-          stems={stems}
-          storageKey={key}
-          chart={chart}
-          onSaveChart={saveChart}
-          shift={shift}
-          onShift={setShift}
-          songKey={spellingKey}
-          capo={capo}
-          onCapo={(value) => setCapo(clampCapo(value))}
-          onLyrics={setLyrics}
-          chords={chords}
-          analysing={analysing}
-          chordChoice={chordChoice}
-          onChordChoice={setChordChoice}
-          automaticSource={automaticSource}
-          chordSource={harmony?.name ?? ""}
-          onSelectChord={setSelectedChord}
-        />
+        <ScreenBoundary name="Performance lyrics and chords">
+          <PerformanceAnalysis
+            session={session}
+            stems={stems}
+            storageKey={key}
+            chart={chart}
+            onSaveChart={saveChart}
+            shift={shift}
+            onShift={setShift}
+            songKey={spellingKey}
+            capo={capo}
+            onCapo={(value) => setCapo(clampCapo(value))}
+            onLyrics={setLyrics}
+            chords={chords}
+            analysing={analysing}
+            chordChoice={chordChoice}
+            onChordChoice={setChordChoice}
+            automaticSource={automaticSource}
+            chordSource={harmony?.name ?? ""}
+            onSelectChord={setSelectedChord}
+          />
+        </ScreenBoundary>
       </div>
       <div style={{ display: stage ? "none" : "contents" }}>
         <ChordVoicings chord={selectedChord} onClose={() => setSelectedChord(null)} />
