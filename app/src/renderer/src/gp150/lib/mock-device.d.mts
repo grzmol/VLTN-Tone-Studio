@@ -20,6 +20,8 @@ export class MockGp150 {
   irNames: { name: string; empty: boolean }[];
   /** entry 0 "None", slots 1-100 */
   snapToneNames: { name: string; empty: boolean }[];
+  /** Raw wire table: None, usable NAM slots 1-20, then reserved records through 100. */
+  namNames: { name: string; empty: boolean }[];
   uploads: { cmd: number; slot: number; name: string; data: Uint8Array }[];
   received: Message[];
   records: Map<number, Uint8Array>;
@@ -32,5 +34,6 @@ export class MockGp150 {
   switchBlock(block: number, on: boolean): Promise<void>;
   selectOnPedal(slot: number): Promise<void>;
   saveOnPedal(slot?: number): Promise<void>;
+  reportNamNames(): Promise<void>;
   importFile(slot: number): Uint8Array;
 }

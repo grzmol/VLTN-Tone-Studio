@@ -68,7 +68,11 @@ export class MockGp150 {
   snapToneNames = Array.from({ length: SLOTS.SNAPTONES + 1 }, (_, i) =>
     i === 0 ? { name: "None", empty: false } : i <= 50 ? { name: `Factory ${i}`, empty: false } : { name: `Empty ${i - 50}`, empty: true },
   );
-  /** IR and SnapTone uploads: { cmd, slot, name, data } */
+  /** Captured NAM wire layout: None at 0, 20 usable slots, then reserved records through 100. */
+  namNames = Array.from({ length: 101 }, (_, i) =>
+    i === 0 ? { name: "None", empty: true } : i <= 3 ? { name: `NAM ${i}`, empty: false } : { name: `NAM Slot ${i}`, empty: true },
+  );
+  /** IR, SnapTone and NAM uploads: { cmd, slot, name, data } */
   uploads = [];
   /** Every logical message the host sent, decoded */
   received = [];
@@ -204,8 +208,9 @@ export class MockGp150 {
         return this.#edited();
       }
       case CMD.IR_RENAME:
+      case CMD.NAM_RENAME:
       case CMD.SNAPTONE_RENAME: {
-        const list = msg.cmd === CMD.IR_RENAME ? this.irNames : this.snapToneNames;
+        const list = msg.cmd === CMD.IR_RENAME ? this.irNames : msg.cmd === CMD.NAM_RENAME ? this.namNames : this.snapToneNames;
         const slot = readU32(d, 0);
         if (list[slot]) list[slot] = { ...list[slot], name: readName(d, 4, NAME_FIELD) };
         return;
@@ -243,6 +248,8 @@ export class MockGp150 {
         return this.#push(this.#record(cmd, this.#names(this.irNames, 0)));
       case CMD.SNAPTONE_NAMES:
         return this.#push(this.#record(cmd, this.#names(this.snapToneNames, 0)));
+      case CMD.NAM_NAMES:
+        return this.#push(this.#record(cmd, this.#names(this.namNames, 0)));
       case CMD.PATCH: {
         const slot = readU16(args, 0);
         const select = args[2] === 0;
@@ -277,10 +284,10 @@ export class MockGp150 {
       if (slot < SLOTS.PRESETS) this.presets[slot] = prst;
       return result(CMD.PATCH);
     }
-    if (msg.cmd !== CMD.IR_UPLOAD && msg.cmd !== CMD.SNAPTONE_UPLOAD) return;
+    if (msg.cmd !== CMD.IR_UPLOAD && msg.cmd !== CMD.SNAPTONE_UPLOAD && msg.cmd !== CMD.NAM_UPLOAD) return;
     const slot = readU32(d, 0);
     const name = readName(d, 8, NAME_FIELD);
-    const list = msg.cmd === CMD.IR_UPLOAD ? this.irNames : this.snapToneNames;
+    const list = msg.cmd === CMD.IR_UPLOAD ? this.irNames : msg.cmd === CMD.NAM_UPLOAD ? this.namNames : this.snapToneNames;
     if (list[slot]) list[slot] = { name, empty: false };
     this.uploads.push({ cmd: msg.cmd, slot, name, data: d.slice(8 + NAME_FIELD) });
     return result(msg.cmd);
@@ -314,6 +321,11 @@ export class MockGp150 {
     this.#select(slot);
     await this.#push(this.#record(CMD.PATCH_STATE, u32le(0)));
     await this.#push(this.#patch(this.editBuffer));
+  }
+
+  /** Push a NAM list, as an unsolicited pedal-side list change (tests). */
+  async reportNamNames() {
+    await this.#answer(CMD.NAM_NAMES, []);
   }
 
   /** Save the edit buffer into `slot` on the pedal: the saved event and the name list. */

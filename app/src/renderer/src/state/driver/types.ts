@@ -25,9 +25,9 @@ export type DriverEvent =
   /** A block was switched on the pedal */
   | { type: "block"; block: number; enabled: boolean }
   /** A name list changed on the pedal: re-read it (presets 0x40, SnapTones 0x24, User IRs 0x20 on the GP-50) */
-  | { type: "listChanged"; list: "presets" | "snaptones" | "irs" }
+  | { type: "listChanged"; list: "presets" | "snaptones" | "irs" | "nams" }
   /** A preset setting changed on the pedal (tap tempo, EXP, volume) or echoes a host edit */
-  | { type: "patchSetting"; field: "volume" | "bpm" | keyof ExpSettings; value: number }
+  | { type: "patchSetting"; field: "volume" | "bpm" | "namMode" | keyof ExpSettings; value: number }
   /** Footswitch assignments of the active preset changed */
   | { type: "footswitches"; fs1: number[]; fs2: number[] }
   /** Chain order of the active preset changed */
@@ -115,6 +115,12 @@ export interface DeviceDriver {
   // optional capabilities (DeviceFeature); absent features mean the members are absent or reject
   /** Capabilities of the connected model; empty until identified. */
   readonly features?: readonly DeviceFeature[];
+  /** "nam": NAM slots 1-20 (None excluded). */
+  readNams?(): Promise<SlotName[]>;
+  renameNam?(slot: number, name: string): Promise<void>;
+  /** "nam": upload the bytes of an A2 Lite .nam file into slot 1-20 (the replaced model can't be read back); rejects other files. */
+  uploadNam?(slot: number, name: string, file: Uint8Array): Promise<void>;
+  setNamMode?(mode: 0 | 1): Promise<void>;
   /** "modified": the active preset has unsaved edits. */
   readModified?(): Promise<boolean>;
   /** "exportPreset": stored preset of `slot` as a full .prst, without selecting it. */
