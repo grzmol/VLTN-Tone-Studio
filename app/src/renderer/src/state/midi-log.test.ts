@@ -116,6 +116,15 @@ describe("MidiLogDecoder on the GP-200", () => {
     expect(lines.at(-1)).toBe("Write slot 02-B (7 frames)");
   });
 
+  it("counts frames of a message sent in smaller frames (JR and LT uploads)", () => {
+    const d = new MidiLogDecoder();
+    const msg = { cmd: 0x12, payload: new Uint8Array(846) } as Msg;
+    const lines = gp200.encodeFrames(msg, 120).map((f) => d.line("tx", f)!.text);
+    expect(lines[0]).toBe(`Frame 1 of ${lines.length}`);
+    expect(lines.length).toBeGreaterThan(Math.ceil(846 / 183));
+    expect(lines.at(-2)).toBe(`Frame ${lines.length - 1} of ${lines.length}`);
+  });
+
   it("describes what the session decoded from the pedal, and its warnings", () => {
     const d = new MidiLogDecoder();
     const { rec, concat, CMD, STATUS } = gp200;

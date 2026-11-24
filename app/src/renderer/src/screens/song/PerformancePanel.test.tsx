@@ -28,13 +28,14 @@ vi.mock("@/song/performance/midi-scheduler-client", async () => {
         }
       });
       schedule.tick(now());
-      const timer = setInterval(() => schedule.tick(now()), 20);
+      const timer = mocks.firstTickOnly ? undefined : setInterval(() => schedule.tick(now()), 20);
       return {
         stop() {
           schedule.stop();
           clearInterval(timer);
         },
         sync(position: number) {
+          if (mocks.firstTickOnly) return;
           schedule.sync(position, now(), now());
         },
       };
@@ -63,6 +64,7 @@ it.each([0, 10])("preserves cues at the requested %s-second offset after a delay
 });
 it("drops an opening cue that is overdue at start without disarming the session", async () => {
   mocks.playAdvance = 0.3;
+  mocks.firstTickOnly = true;
   mocks.bluetooth = { id: "bluetooth-midi", name: "GP-180 BLE", state: "connected", send: mocks.send, clear: mocks.clear };
   localStorage.setItem("vltn.performance.v1:clock-test.wav:44100:44100", "[00:00] {midi:pc 1 7}");
   render(<PerformancePanel />);
@@ -112,6 +114,9 @@ const mocks = vi.hoisted(() => ({
   bluetooth: null as null | { id: string; name: string; state: string; send: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> },
   position: 0,
   playAdvance: 0,
+  // The mock audio moves only on Play. On a slow runner the scheduler's stall rules would disarm the session before the test reads it,
+  // so a test that only checks the start runs the first tick and stops there.
+  firstTickOnly: false,
   panelRenders: 0,
   source: { name: "clock-test.wav", libraryId: undefined as string | undefined, audio: { sampleRate: 44100, channels: [new Float32Array(44100)] } },
 }));
@@ -233,6 +238,7 @@ afterEach(() => {
   mocks.bluetooth = null;
   mocks.position = 0;
   mocks.playAdvance = 0;
+  mocks.firstTickOnly = false;
   mocks.send.mockClear();
   mocks.clear.mockClear();
   mocks.metronome.mockClear();
