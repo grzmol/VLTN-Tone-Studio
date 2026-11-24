@@ -1,3 +1,4 @@
+import { sharePlaybackPcm } from "./audio/playback-pcm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyLibrary, type LibrarySong } from "@shared/song-library";
 import { useSong } from "./store";
@@ -70,6 +71,78 @@ it("loads a saved song's audio for an analysis without opening it or changing th
   expect(useNav.getState().param).not.toBe("performance");
 });
 
+it("bounds decoder heaps while preserving track order and continuing after one track fails", async () => {
+  const tracks = [...saved.audio, { ...saved.audio[1], name: "bass", file: "bass.flac" }, { ...saved.audio[1], name: "drums", file: "drums.flac" }];
+  api.index.mockResolvedValue({ ...emptyLibrary(), songs: [{ ...saved, audio: tracks }] });
+  api.audioUrls.mockResolvedValue(Object.fromEntries(tracks.map((track) => [track.name, `app://library/rev/${track.file}`])));
+  fetchFile.mockImplementation(async (url: string) => fileFor(tracks.findIndex((track) => track.file !== undefined && url.endsWith(track.file))));
+  function fileFor(index: number) {
+    return new Response(new Uint8Array(8).fill(index));
+  }
+  const pending = new Map<number, { resolve(value: typeof audio): void; reject(error: Error): void }>();
+  let active = 0,
+    peak = 0;
+  codec.decodeTrack.mockImplementation(async (file: ArrayBuffer) => {
+    const index = new Uint8Array(file)[0];
+    active++;
+    peak = Math.max(peak, active);
+    try {
+      return await new Promise<typeof audio>((resolve, reject) => pending.set(index, { resolve, reject }));
+    } finally {
+      active--;
+    }
+  });
+  const loading = loadSongAudio(saved.id);
+  await vi.waitFor(() => expect([...pending.keys()]).toEqual([0, 1]));
+  const pcm = (value: number) => ({ sampleRate: 44100, channels: [new Float32Array([value, 0, 0])] });
+  pending.get(0)!.resolve(pcm(0));
+  await vi.waitFor(() => expect(pending.has(2)).toBe(true));
+  pending.get(1)!.reject(new Error("damaged guitar"));
+  await vi.waitFor(() => expect(pending.has(3)).toBe(true));
+  pending.get(3)!.resolve(pcm(3));
+  pending.get(2)!.resolve(pcm(2));
+  const result = await loading;
+  expect(peak).toBe(2);
+  expect(Object.keys(result.stems)).toEqual(["bass", "drums"]);
+  expect(result.stems.bass!.channels[0][0]).toBe(2);
+  expect(result.stems.drums!.channels[0][0]).toBe(3);
+  expect(useSong.getState().source).toBeNull();
+});
+
+it.each([false, true])("transfers prepared player ownership only for a gapless handover (gapless: %s)", (gapless) => {
+  const dispose = vi.fn(async () => {});
+  const id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const prepared = {
+    id,
+    title: "Next",
+    source: { libraryId: id, name: "next.wav", audio },
+    stems: { guitar: audio },
+    settings: {},
+    tracks: { guitar: { name: "Guitar", kind: "stem" } },
+    skipped: [],
+    player: { dispose },
+  } as unknown as PreparedSong;
+  const handover = { id, player: prepared.player, countInMs: 0, join: 0, unwire: vi.fn() };
+  useSongLibrary.setState({
+    queue: [saved.id, id],
+    position: 0,
+    playlistPlaying: true,
+    prepared,
+    handover: gapless ? handover : null,
+    chainHold: null,
+  });
+  const publish = vi.spyOn(useSong, "setState").mockImplementation(() => {});
+  try {
+    expect(useSongLibrary.getState().advanceToPrepared(id)).toBe(true);
+    expect(dispose).toHaveBeenCalledTimes(gapless ? 0 : 1);
+    expect(useSongLibrary.getState().prepared).toBeNull();
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ source: prepared.source, stems: prepared.stems }));
+    if (gapless) expect(useSongLibrary.getState().claimHandover(id)?.player).toBe(prepared.player);
+  } finally {
+    publish.mockRestore();
+    useSongLibrary.setState({ playlistPlaying: false, handover: null, prepared: null });
+  }
+});
 it("refuses to load audio for a song that is not in the library", async () => {
   await expect(loadSongAudio("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")).rejects.toThrow("Song is missing from the library.");
 });
@@ -951,4 +1024,16 @@ describe("the practice mute on a prepared song", () => {
     applyPracticeMute(song);
     expect(song.player.setMix.mock.calls.at(-1)?.[0].t1?.mute).toBe(true);
   });
+});
+
+it("validates canonical saved-track metadata without materializing sample arrays", async () => {
+  const getChannelData = vi.fn(() => {
+    throw new Error("metadata requested samples");
+  });
+  const pcm = { sampleRate: 44100, channels: [] as Float32Array[] };
+  sharePlaybackPcm(pcm, { numberOfChannels: 1, length: 3, sampleRate: 44100, getChannelData } as unknown as AudioBuffer);
+  codec.decodeTrack.mockResolvedValue(pcm);
+  const loaded = await loadSongAudio(saved.id);
+  expect(loaded.source).toBe(pcm);
+  expect(getChannelData).not.toHaveBeenCalled();
 });

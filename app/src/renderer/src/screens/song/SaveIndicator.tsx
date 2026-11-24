@@ -30,20 +30,22 @@ export const defaultTitle = (name: string): string => name.replace(/\.[^.]+$/, "
 
 /** The save state next to the song's name: Saved, Saving…, Not saved, or Couldn't save, with a button where there is something to do. */
 export function SaveIndicator() {
-  const source = useSong((s) => s.source);
-  const stems = useSong(selectWholeSongStems);
+  // React keeps a previous selector snapshot. Keep only header metadata/status here, so it cannot retain the previous song's PCM.
+  const name = useSong((s) => s.source?.name ?? null);
+  const libraryId = useSong((s) => s.source?.libraryId);
   const saveStep = useSongLibrary((s) => s.saveStep);
   const saveError = useSongLibrary((s) => s.saveError);
-  const saved = useSongLibrary((s) => s.index.songs.find((song) => song.id === source?.libraryId));
+  const saved = useSongLibrary((s) => s.index.songs.find((song) => song.id === libraryId));
+  const unsaved = useSong((s) => audioUnsaved(s.source, selectWholeSongStems(s), saved));
   const state = saveIndicator({
-    hasSong: !!source,
-    inLibrary: !!source?.libraryId,
-    audioUnsaved: audioUnsaved(source, stems, saved),
+    hasSong: name !== null,
+    inLibrary: !!libraryId,
+    audioUnsaved: unsaved,
     saveStep,
     saveError,
   });
-  if (!state || !source) return null;
-  const save = () => void useSongLibrary.getState().save(saved?.title ?? defaultTitle(source.name), saved?.artist ?? "");
+  if (!state || name === null) return null;
+  const save = () => void useSongLibrary.getState().save(saved?.title ?? defaultTitle(name), saved?.artist ?? "");
   return (
     <span role="status" className="flex items-center gap-2 text-[12px]">
       {state.kind === "saved" && <span className="text-silkscreen-3">Saved</span>}

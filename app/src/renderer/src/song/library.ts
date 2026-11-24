@@ -1,3 +1,4 @@
+import { pcmMemoryShape } from "./audio/playback-pcm";
 import { create } from "zustand";
 import { effectiveMute, practiceSet, readCountsAs, usePracticeMute } from "./performance/practice-mute";
 import { host } from "@/host";
@@ -19,7 +20,14 @@ import {
 } from "@shared/song-library";
 import { songsFromHistory } from "@shared/library-history";
 import type { TimecodeTail } from "./performance/midi-scheduler";
-import { playNext, addToQueue as queueAdd, removeFromQueue as queueRemove, moveInQueue as queueMove, setEntryOverride as queueOverride, type QueueEdit } from "./queue";
+import {
+  playNext,
+  addToQueue as queueAdd,
+  removeFromQueue as queueRemove,
+  moveInQueue as queueMove,
+  setEntryOverride as queueOverride,
+  type QueueEdit,
+} from "./queue";
 import { overridesFor, type EntryOverride } from "@shared/entry-overrides";
 import { decodeTrack, encodeTrack } from "./codec/flac-client";
 import { storedBits } from "@shared/flac";
@@ -229,7 +237,11 @@ function libraryAudioUnsaved(): boolean {
   const state = useSong.getState(),
     { source } = state,
     stems = selectWholeSongStems(state);
-  return audioUnsaved(source, stems, useSongLibrary.getState().index.songs.find((song) => song.id === source?.libraryId));
+  return audioUnsaved(
+    source,
+    stems,
+    useSongLibrary.getState().index.songs.find((song) => song.id === source?.libraryId),
+  );
 }
 
 /**
@@ -242,7 +254,10 @@ export async function confirmLeave(): Promise<boolean> {
   const { source } = useSong.getState();
   const saved = library.index.songs.find((song) => song.id === source?.libraryId);
   const title = saved?.title ?? source?.name.replace(/\.[^.]+$/, "") ?? "this song";
-  const choice = await askLeave(`Save ${title} first?`, "The audio changes for this song, such as generated drums and bass or imported tracks, aren't saved yet.");
+  const choice = await askLeave(
+    `Save ${title} first?`,
+    "The audio changes for this song, such as generated drums and bass or imported tracks, aren't saved yet.",
+  );
   if (choice === "cancel") return false;
   if (choice === "discard") return true;
   await library.save(title, saved?.artist ?? "");
@@ -274,14 +289,17 @@ const storedTrack = new WeakMap<PcmAudio, { songId: string; track: LibraryAudio 
  */
 const unreadTracks = new Map<string, LibraryAudio[]>();
 
+const LIBRARY_DECODE_JOBS = 2;
+
 /** Fetches a saved track straight from the app protocol and decodes it in a worker; nothing is copied through IPC. */
 async function loadTrack(url: string, track: LibraryAudio, songId: string): Promise<PcmAudio> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Missing or damaged ${track.name} audio.`);
   const file = await response.arrayBuffer();
   if (track.bytes !== undefined && file.byteLength !== track.bytes) throw new Error(`Missing or damaged ${track.name} audio.`);
-  const audio = await decodeTrack(file);
-  if (audio.channels.length !== track.channels || audio.channels[0].length !== track.frames || audio.sampleRate !== track.sampleRate)
+  const audio = await decodeTrack(file, { playback: track });
+  const shape = pcmMemoryShape(audio);
+  if (shape.channels !== track.channels || shape.frames !== track.frames || audio.sampleRate !== track.sampleRate)
     throw new Error(`Missing or damaged ${track.name} audio.`);
   storedTrack.set(audio, { songId, track });
   return audio;
@@ -296,20 +314,31 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
   const settings = savedSongSettings(id, song.settings);
   const urls = await api().audioUrls(id);
   const skipped: string[] = [];
-  const loaded = await Promise.all(
-    song.audio.map(async (track) => {
-      try {
-        return [track, await loadTrack(urls[trackKey(track)], track, id)] as const;
-      } catch (e) {
-        // The song still plays without this track, so the reason is kept for the console rather than shown in the notice.
-        console.error(`Could not read the ${track.name} audio of ${song.title}`, e);
-        skipped.push(track.name);
-        return null;
+  // Each track starts a FLAC worker with its own decoder heap. Bound those temporary heaps while retaining track order and
+  // per-track failure handling; preloading still starts immediately, so early manual crossfades remain available.
+  const loaded: ([LibraryAudio, PcmAudio] | null)[] = new Array(song.audio.length);
+  let nextTrack = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(LIBRARY_DECODE_JOBS, song.audio.length) }, async () => {
+      while (nextTrack < song.audio.length) {
+        const at = nextTrack++;
+        const track = song.audio[at];
+        try {
+          loaded[at] = [track, await loadTrack(urls[trackKey(track)], track, id)];
+        } catch (e) {
+          // The song still plays without this track, so the reason is kept for the console rather than shown in the notice.
+          console.error(`Could not read the ${track.name} audio of ${song.title}`, e);
+          skipped.push(track.name);
+          loaded[at] = null;
+        }
       }
     }),
   );
   const found = loaded.filter((entry) => entry !== null);
-  unreadTracks.set(id, song.audio.filter((track) => !found.some(([read]) => read === track)));
+  unreadTracks.set(
+    id,
+    song.audio.filter((track) => !found.some(([read]) => read === track)),
+  );
   const sourceEntry = found.find(([track]) => trackKindOf(track) === "source");
   const playable = found.filter(([track]) => trackKindOf(track) !== "source");
   if (!sourceEntry && !playable.length) throw new Error("Missing or damaged audio: none of this song's tracks can be read.");
@@ -317,7 +346,13 @@ async function fetchSong(index: SongLibrary, id: string): Promise<Omit<PreparedS
   if (sourceEntry) source = sourceEntry[1];
   else {
     const frames = Math.max(...playable.map(([, pcm]) => pcm.channels[0].length));
-    source = { sampleRate: playable[0][1].sampleRate, channels: mixDown(playable.map(([, pcm]) => pcm.channels), frames) };
+    source = {
+      sampleRate: playable[0][1].sampleRate,
+      channels: mixDown(
+        playable.map(([, pcm]) => pcm.channels),
+        frames,
+      ),
+    };
   }
   const stems: Record<string, PcmAudio> = {};
   const tracks: Record<string, TrackInfo> = {};
@@ -496,7 +531,9 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
           stems = (await new RenderQueue().render(playable, speed)) ?? playable;
           renderedAhead.add(next.id);
         }
-        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShapeFromOptions(options), yieldToMain, speed.rate);
+        const player = await StemPlayer.create(stems, sharedPlaybackEngine(), playerShapeFromOptions(options), yieldToMain, speed.rate, {
+          sharePcm: true,
+        });
         if (generation !== prefetchGeneration) {
           if (import.meta.env.DEV) console.debug(`[prefetch] ${id} dropped: superseded while loading`);
           await player.dispose();
@@ -802,6 +839,9 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
       seedSettings(prepared.id, prepared.settings);
       useSong.getState().cancel();
       set({ position: position + 1, prepared: null, notice: readyNotice(prepared.title, prepared.skipped) });
+      // A stopped transition uses the prepared PCM but creates a new session/player. Only a gapless handover takes the prepared
+      // player itself; otherwise its engine warning listener would keep it and all of its buffers alive for the rest of the set.
+      if (get().handover?.player !== prepared.player) void prepared.player.dispose();
       useSong.setState({
         source: prepared.source,
         stems: Object.keys(prepared.stems).length ? prepared.stems : null,
@@ -1019,7 +1059,9 @@ export const useSongLibrary = create<LibraryState>((set, get) => {
         const changed = await api().applyTrackSettings(id);
         set({
           index: await api().index(),
-          notice: changed ? `Applied the track settings to ${changed} similar song${changed === 1 ? "" : "s"}.` : "No other saved song has the same imported tracks.",
+          notice: changed
+            ? `Applied the track settings to ${changed} similar song${changed === 1 ? "" : "s"}.`
+            : "No other saved song has the same imported tracks.",
         });
       }),
     remove: (id) =>

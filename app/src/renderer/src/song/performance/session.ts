@@ -322,6 +322,7 @@ export class PerformanceSession {
   private batchDepth = 0;
   /** Stop and end messages waiting for the effects that the stop caused to finish (see `sendTriggers`). */
   private heldTriggers: { bytes: number[]; kind: MidiTrigger }[] = [];
+  private unloadCurrentSong: (() => void) | null = null;
   private unsubscribe: (() => void) | null = null;
   private unsubscribeResume: (() => void) | null = null;
   /** Set when the remembered system port was lost while armed. Its return re-acquires it, since the object from before is not trusted. */
@@ -551,7 +552,7 @@ export class PerformanceSession {
     this.renders.clear();
     this.pendingRender = null;
     this.renderSwap = null;
-    const player = handover?.player ?? new StemPlayer(this.baseStems, sharedPlaybackEngine(), shape);
+    const player = handover?.player ?? new StemPlayer(this.baseStems, sharedPlaybackEngine(), shape, "now", 1, { sharePcm: true });
     // The song is now the playing entry, so its end behaviour is the entry's override, when it has one.
     player.setEndBehaviour(this.behaviourOf(player));
     const stopWiring = this.wirePlayer(player, source);
@@ -568,7 +569,12 @@ export class PerformanceSession {
       if (!isPlainSpeed(speed)) void this.renderSpeed(speed);
     }
     this.playedTimer = setInterval(this.checkPlayed, PLAYED_CHECK_MS);
-    return () => {
+    const id = source.libraryId;
+    let unloaded = false;
+    const unload = () => {
+      if (unloaded) return;
+      unloaded = true;
+      if (this.unloadCurrentSong === unload) this.unloadCurrentSong = null;
       this.dropChained();
       if (this.playedTimer) clearInterval(this.playedTimer);
       this.playedTimer = null;
@@ -579,14 +585,25 @@ export class PerformanceSession {
         this.terminateWorker();
       }
       void player.dispose();
+      // React callbacks and a consumed handover can outlive this song. They may keep the session object, but must not keep its audio.
+      if (this.state.player === player) {
+        this.view = NO_VIEW;
+        this.baseStems = null;
+        this.renders.clear();
+        this.renderRequest++;
+        this.pendingRender = null;
+        this.renderSwap = null;
+        this.set({ player: null, playing: false, rendering: null });
+      }
       // Leaving Performance pauses the set. Checked later, so that a remount on the same screen (StrictMode's re-run, an advance) is not
       // taken for leaving: the screen is still Performance, and the set is still on this song or has moved on.
-      const id = source.libraryId;
       setTimeout(() => {
         const library = useSongLibrary.getState();
         if (leftPerformance() && library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
       }, 0);
     };
+    this.unloadCurrentSong = unload;
+    return unload;
   }
 
   /** Connects a song's player to the outputs and to the session. Returns the function that disconnects it. */
@@ -717,6 +734,7 @@ export class PerformanceSession {
       effect.last = undefined;
     }
     this.bound = false;
+    this.view = NO_VIEW;
   }
 
   /** Pushes values owned by other stores. Only changed values cause effects to re-run. */
@@ -1466,7 +1484,8 @@ export class PerformanceSession {
     });
     // The outgoing scheduler is torn down with this view, so its quarter frames are carried to the join by the incoming scheduler.
     library.setHandover({ ...chained, timecodeTail: this.outgoingTimecode(chained.join) });
-
+    // End this owner before the library starts allocating the following song. The player preserves any outgoing audio tail.
+    this.unloadCurrentSong?.();
     library.advanceToPrepared(chained.id);
   };
 

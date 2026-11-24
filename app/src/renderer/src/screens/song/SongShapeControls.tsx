@@ -1,3 +1,4 @@
+import { pcmMemoryShape } from "@/song/audio/playback-pcm";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { PcmAudio } from "@/song/types";
@@ -48,7 +49,7 @@ export function SongShapeControls({
     setNote("");
     save({ trimStart: range.start, trimEnd: range.end });
   };
-  const duration = audio ? (audio.channels[0]?.length ?? 0) / audio.sampleRate : 0;
+  const duration = audio ? pcmMemoryShape(audio).frames / audio.sampleRate : 0;
   const trailing = silence ? duration - silence.end : 0;
   const offer = silence && trailing > 0 && shape.trimEnd === undefined ? silence : null;
   const fade = (text: string) => Math.max(0, Math.min(CROSSFADE_MAX_S, Number(text) || 0));
@@ -57,10 +58,7 @@ export function SongShapeControls({
   return (
     <div aria-label="Song shape" className="flex flex-wrap items-end gap-3 rounded border border-seam p-3">
       {offer && (
-        <Button
-          variant="outline"
-          onClick={() => save({ trimEnd: offer.end })}
-        >
+        <Button variant="outline" onClick={() => save({ trimEnd: offer.end })}>
           Trim end silence ({trailing.toFixed(1)} s)
         </Button>
       )}
@@ -106,11 +104,27 @@ export function SongShapeControls({
       </Button>
       <label className="flex flex-col gap-1">
         Fade in (s)
-        <input type="number" min={0} max={CROSSFADE_MAX_S} step={0.5} className={field} value={shape.fadeIn} onChange={(e) => save({ fadeIn: fade(e.target.value) })} />
+        <input
+          type="number"
+          min={0}
+          max={CROSSFADE_MAX_S}
+          step={0.5}
+          className={field}
+          value={shape.fadeIn}
+          onChange={(e) => save({ fadeIn: fade(e.target.value) })}
+        />
       </label>
       <label className="flex flex-col gap-1">
         Fade out (s)
-        <input type="number" min={0} max={CROSSFADE_MAX_S} step={0.5} className={field} value={shape.fadeOut} onChange={(e) => save({ fadeOut: fade(e.target.value) })} />
+        <input
+          type="number"
+          min={0}
+          max={CROSSFADE_MAX_S}
+          step={0.5}
+          className={field}
+          value={shape.fadeOut}
+          onChange={(e) => save({ fadeOut: fade(e.target.value) })}
+        />
       </label>
       <label className="flex flex-col gap-1">
         At the end

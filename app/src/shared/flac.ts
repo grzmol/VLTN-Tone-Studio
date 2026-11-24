@@ -148,6 +148,27 @@ export function loadFlacWasm(wasmUrl: string): Promise<FlacBuild> {
 }
 /** Decodes a FLAC file with the given libflac build (asm.js by default). Both builds give the same samples. */
 export async function decodeFlac(bytes: Uint8Array, build: Promise<FlacBuild> = loadFlac()): Promise<FlacAudio> {
+  return decodeFlacData(bytes, build);
+}
+
+export interface FlacStreamInfo {
+  sampleRate: number;
+  frames: number;
+  channels: number;
+  bits: FlacBits;
+}
+export interface FlacSink {
+  init(info: FlacStreamInfo): Promise<void>;
+  /** At most 65,536 frames, consumed before decoding continues. The sink may transfer these buffers. */
+  write(channels: Float32Array[], offset: number): Promise<Float32Array[] | void>;
+}
+
+/** Decodes into a bounded, backpressured sink instead of holding a second full track beside its destination. */
+export async function decodeFlacTo(bytes: Uint8Array, sink: FlacSink, build: Promise<FlacBuild> = loadFlac()): Promise<void> {
+  await decodeFlacData(bytes, build, sink);
+}
+
+async function decodeFlacData(bytes: Uint8Array, build: Promise<FlacBuild>, sink?: FlacSink): Promise<FlacAudio> {
   const flac = await build;
   const decoder = flac.create_libflac_decoder(false);
   if (!decoder) throw new Error("Could not start the FLAC decoder.");
@@ -159,6 +180,26 @@ export async function decodeFlac(bytes: Uint8Array, build: Promise<FlacBuild> = 
     written = 0,
     position = 0,
     failure = "";
+  let streamInfo: FlacStreamInfo | null = null;
+  let initialized = false;
+  let chunk: Float32Array[] = [];
+  let chunkFrames = 0;
+  let chunkStart = 0;
+  const ready: { channels: Float32Array[]; offset: number }[] = [];
+  const recycled: Float32Array[][] = [];
+  const flush = async () => {
+    for (const part of ready.splice(0)) {
+      const returned = await sink!.write(part.channels, part.offset);
+      if (returned) recycled.push(returned);
+    }
+  };
+  const finishChunk = () => {
+    if (!chunkFrames) return;
+    ready.push({ channels: chunk.map((channel) => channel.subarray(0, chunkFrames)), offset: chunkStart });
+    chunkStart += chunkFrames;
+    chunkFrames = 0;
+    chunk = [];
+  };
   try {
     const status = flac.init_decoder_stream(
       decoder,
@@ -171,14 +212,28 @@ export async function decodeFlac(bytes: Uint8Array, build: Promise<FlacBuild> = 
       },
       (data) => {
         // libflac hands out each channel as little-endian integers: 16-bit streams as 16-bit values, deeper ones as 32-bit.
-        const samples = data.map((d) => (bits > 16 ? new Int32Array(d.buffer, d.byteOffset, d.byteLength >> 2) : new Int16Array(d.buffer, d.byteOffset, d.byteLength >> 1)));
+        const samples = data.map((d) =>
+          bits > 16 ? new Int32Array(d.buffer, d.byteOffset, d.byteLength >> 2) : new Int16Array(d.buffer, d.byteOffset, d.byteLength >> 1),
+        );
         const frames = samples[0].length;
         if (written + frames > total) {
           failure = "The FLAC stream is longer than its header says.";
           return;
         }
         const scale = scaleOf(bits as FlacBits);
-        for (let c = 0; c < channelCount; c++) for (let i = 0; i < frames; i++) channels[c][written + i] = samples[c][i] / scale;
+        if (sink) {
+          let at = 0;
+          while (at < frames) {
+            if (!chunk.length) chunk = recycled.pop() ?? Array.from({ length: channelCount }, () => new Float32Array(BLOCK_FRAMES));
+            const count = Math.min(frames - at, BLOCK_FRAMES - chunkFrames);
+            for (let c = 0; c < channelCount; c++) for (let i = 0; i < count; i++) chunk[c][chunkFrames + i] = samples[c][at + i] / scale;
+            chunkFrames += count;
+            at += count;
+            if (chunkFrames === BLOCK_FRAMES) finishChunk();
+          }
+        } else {
+          for (let c = 0; c < channelCount; c++) for (let i = 0; i < frames; i++) channels[c][written + i] = samples[c][i] / scale;
+        }
         written += frames;
       },
       (_code, description) => {
@@ -194,15 +249,30 @@ export async function decodeFlac(bytes: Uint8Array, build: Promise<FlacBuild> = 
           failure = "Unsupported FLAC stream.";
           return;
         }
-        channels = Array.from({ length: channelCount }, () => new Float32Array(total));
+        streamInfo = { sampleRate, frames: total, channels: channelCount, bits: bits as FlacBits };
+        if (!sink) channels = Array.from({ length: channelCount }, () => new Float32Array(total));
       },
     );
     if (status !== 0) throw new Error("This is not a FLAC file.");
-    if (!flac.FLAC__stream_decoder_process_until_end_of_stream(decoder) || failure) throw new Error(failure || "The FLAC stream is damaged.");
+    if (sink) {
+      while (flac.FLAC__stream_decoder_get_state(decoder) !== 4) {
+        // FLAC__STREAM_DECODER_END_OF_STREAM
+        if (!flac.FLAC__stream_decoder_process_single(decoder) || failure) throw new Error(failure || "The FLAC stream is damaged.");
+        if (streamInfo && !initialized) {
+          await sink.init(streamInfo);
+          initialized = true;
+        }
+        await flush();
+      }
+      finishChunk();
+      await flush();
+    } else if (!flac.FLAC__stream_decoder_process_until_end_of_stream(decoder) || failure) {
+      throw new Error(failure || "The FLAC stream is damaged.");
+    }
     flac.FLAC__stream_decoder_finish(decoder);
   } finally {
     flac.FLAC__stream_decoder_delete(decoder);
   }
-  if (!channels.length || written !== total) throw new Error("The FLAC stream is truncated.");
+  if ((!sink && !channels.length) || (sink && !initialized) || written !== total) throw new Error("The FLAC stream is truncated.");
   return { sampleRate, channels, bits: bits as FlacBits };
 }

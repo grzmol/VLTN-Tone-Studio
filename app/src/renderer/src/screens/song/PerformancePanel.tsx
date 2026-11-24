@@ -1,3 +1,4 @@
+import { pcmMemoryShape } from "@/song/audio/playback-pcm";
 import { useSongSettingsRevision } from "@/song/performance/use-song-settings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -128,7 +129,10 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
     setTrackInfo = useSong((s) => s.setTrackInfo),
     missingParts = useSong((s) => s.missingParts);
   // A split of only part of the song is for Tone Match; Performance plays the whole song and says why the stems are missing.
-  const partNote = partSplitNote(useSong((s) => s.lastSplit), formatTime);
+  const partNote = partSplitNote(
+    useSong((s) => s.lastSplit),
+    formatTime,
+  );
   const key = performanceKey(source);
   const settingsVersion = useSongSettingsRevision(key);
   const library = useSongLibrary();
@@ -761,7 +765,7 @@ function PerformanceView({ stage, setStage, shown }: { stage: boolean; setStage:
           libraryId={source?.libraryId}
           playing={playing || library.playlistPlaying}
           title={savedSong?.title || source?.name || ""}
-          durationSeconds={source ? source.audio.channels[0].length / source.audio.sampleRate : 0}
+          durationSeconds={source ? pcmMemoryShape(source.audio).frames / source.audio.sampleRate : 0}
         />
         <TrackImport playing={playing || library.playlistPlaying} />
         <SongLoudnessControl audio={source?.audio ?? null} storageKey={key} value={loudness} onChange={setLoudness} />

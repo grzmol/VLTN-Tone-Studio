@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { HarmonyRequest } from "../analysis/harmony-worker";
 import type { PcmAudio } from "../types";
 import { startChordDetection } from "./chord-detect-client";
 
@@ -10,14 +11,19 @@ class FakeWorker {
   static reply: { chords?: unknown[]; error?: string } | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: (() => void) | null = null;
-  posted: unknown = null;
+  posted: HarmonyRequest[] = [];
   terminated = false;
   constructor() {
     FakeWorker.last = this;
   }
-  postMessage(message: unknown) {
-    this.posted = message;
-    if (FakeWorker.reply) queueMicrotask(() => this.onmessage?.({ data: FakeWorker.reply } as MessageEvent));
+  postMessage(message: HarmonyRequest) {
+    this.posted.push(message);
+    if (message.kind === "chords" && FakeWorker.reply) {
+      const reply = FakeWorker.reply;
+      queueMicrotask(() =>
+        this.onmessage?.({ data: "error" in reply ? { id: message.id, error: reply.error } : { id: message.id, result: reply.chords } } as MessageEvent),
+      );
+    }
   }
   terminate() {
     this.terminated = true;
@@ -35,7 +41,10 @@ describe("chord detection client", () => {
     FakeWorker.reply = { chords: [{ time: 0, name: "Am", confidence: 0.9 }] };
     const job = startChordDetection({ harmony: audio, bass: null, beats: null });
     await expect(job.done).resolves.toEqual([{ time: 0, name: "Am", confidence: 0.9 }]);
-    expect(FakeWorker.last?.posted).toEqual({ harmony: audio, bass: null, beats: null });
+    expect(FakeWorker.last?.posted).toEqual([
+      { kind: "audio", audio },
+      { kind: "chords", id: expect.any(Number), input: { bass: null, beats: null } },
+    ]);
     expect(FakeWorker.last?.terminated).toBe(true);
   });
 

@@ -6,7 +6,7 @@ import { ANALYSIS_VERSION, songAudioId } from "@/song/analysis/song-analysis";
 const workers: FakeWorker[] = [];
 class FakeWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
-  onerror: (() => void) | null = null;
+  onerror: ((event: ErrorEvent) => void) | null = null;
   postMessage = vi.fn();
   terminate = vi.fn();
   constructor() {
@@ -14,7 +14,13 @@ class FakeWorker {
   }
   done(name = "C major") {
     this.onmessage?.({
-      data: { estimate: { name, tonic: 0, mode: "major", confidence: "tentative", correlation: 0.7, margin: 0.04, alternatives: ["A minor", "G major"] } },
+      data: {
+        id: this.postMessage.mock.calls.find(([message]) => message.kind === "key")![0].id,
+        result: {
+          estimate: { name, tonic: 0, mode: "major", confidence: "tentative", correlation: 0.7, margin: 0.04, alternatives: ["A minor", "G major"] },
+          keySections: [],
+        },
+      },
     } as MessageEvent);
   }
 }
@@ -28,22 +34,23 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it("analyses the preferred stem and shows its estimate, alternatives and display transposition", () => {
+it("analyses the preferred stem and shows its estimate, alternatives and display transposition", async () => {
   render(<SongKey stems={{ guitar: audio }} original={audio} storageKey="song" shift={2} />);
-  expect(workers[0].postMessage).toHaveBeenCalledWith({ harmony: audio, bass: null, chords: [], sections: [] });
-  act(() => workers[0].done());
+  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "audio", audio });
+  expect(workers[0].postMessage).toHaveBeenCalledWith({ kind: "key", id: expect.any(Number), input: { bass: null, chords: [], sections: [] } });
+  await act(async () => workers[0].done());
   expect(screen.getByText("Song key: C major")).toBeTruthy();
   expect(screen.getByText(/Estimated C major from guitar/)).toBeTruthy();
   expect(screen.getByText(/Displayed chords: D major/)).toBeTruthy();
 });
-it("persists manual key through reopening and saved-song settings without changing chart or MIDI", () => {
+it("persists manual key through reopening and saved-song settings without changing chart or MIDI", async () => {
   const source = { name: "test.wav", audio },
     key = performanceKey(source);
   localStorage.setItem(key, "[00:01] {midi:pc 1 2}");
   const props = { stems: null, original: audio, storageKey: key };
   const view = render(<SongKey {...props} />);
   fireEvent.change(screen.getByLabelText("Song key override"), { target: { value: "E minor" } });
-  act(() => workers[0].done());
+  await act(async () => workers[0].done());
   expect(screen.getByText("Song key: E minor")).toBeTruthy();
   const settings = readSettings(key);
   writeSettings("vltn.song:saved", settings);
@@ -52,25 +59,25 @@ it("persists manual key through reopening and saved-song settings without changi
   expect((screen.getByLabelText("Song key override") as HTMLSelectElement).value).toBe("E minor");
   expect(localStorage.getItem(key)).toBe("[00:01] {midi:pc 1 2}");
 });
-it("rejects late results after the audio source changes and reports unavailable audio", () => {
+it("rejects late results after the audio source changes and reports unavailable audio", async () => {
   const view = render(<SongKey stems={{ guitar: audio }} original={audio} storageKey="song" />);
   view.rerender(<SongKey stems={{ piano: audio }} original={audio} storageKey="song" />);
   expect(workers[0].terminate).toHaveBeenCalled();
-  act(() => workers[0].done("G major"));
+  await act(async () => workers[0].done("G major"));
   expect(screen.queryByText("Song key: G major")).toBeNull();
-  act(() => workers[1].done());
+  await act(async () => workers[1].done());
   expect(screen.getByText(/from piano/)).toBeTruthy();
   view.rerender(<SongKey stems={null} storageKey="song" />);
   expect(screen.getByText("Song key: Unknown")).toBeTruthy();
 });
 
-it("keeps the saved estimate while the same source is reanalysed or the worker fails", () => {
+it("keeps the saved estimate while the same source is reanalysed or the worker fails", async () => {
   const estimate = { name: "C major", tonic: 0, mode: "major", confidence: "tentative", correlation: 0.7, margin: 0.04, alternatives: ["A minor"] };
   localStorage.setItem("song:options", JSON.stringify({ detectedKey: estimate, keyAudioSource: "guitar" }));
   render(<SongKey stems={{ guitar: audio }} original={audio} storageKey="song" />);
   expect(screen.getByText("Song key: C major")).toBeTruthy();
   expect(JSON.parse(localStorage.getItem("song:options")!).detectedKey.name).toBe("C major");
-  act(() => workers[0].onerror?.());
+  await act(async () => workers[0].onerror?.(new ErrorEvent("error", { message: "Analysis failed" })));
   expect(screen.getByText("Song key: C major")).toBeTruthy();
   expect(screen.getByRole("alert")).toBeTruthy();
 });
@@ -94,11 +101,17 @@ it("names a modal flavour after the key, and leaves the key itself to the transp
   expect(screen.getByText("Song key: G major (Mixolydian)")).toBeTruthy();
 });
 
-it("leaves out the alternatives when the estimate has none", () => {
+it("leaves out the alternatives when the estimate has none", async () => {
   render(<SongKey stems={{ guitar: audio }} original={audio} storageKey="song" shift={0} />);
-  act(() => {
+  await act(async () => {
     workers[0].onmessage?.({
-      data: { estimate: { name: "A major", tonic: 9, mode: "major", confidence: "strong", correlation: 0.8, margin: 0.2, alternatives: [] } },
+      data: {
+        id: workers[0].postMessage.mock.calls.find(([message]) => message.kind === "key")![0].id,
+        result: {
+          estimate: { name: "A major", tonic: 9, mode: "major", confidence: "strong", correlation: 0.8, margin: 0.2, alternatives: [] },
+          keySections: [],
+        },
+      },
     } as MessageEvent);
   });
   expect(screen.getByRole("status").textContent).toBe("Estimated A major from guitar · clearer match");
