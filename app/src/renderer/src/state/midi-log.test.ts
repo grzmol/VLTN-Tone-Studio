@@ -91,6 +91,12 @@ describe("MidiLogDecoder on the GP-200", () => {
   /** A pedal message as the GP-200 session logs it: the last frame, with what it decoded. */
   const rx = (d: MidiLogDecoder, msg: Msg) => d.line("rx", gp200.encodeFrames(msg, gp200.CHUNK.DEVICE).at(-1)!, gp200.decodeMessage(msg))!.text;
 
+  it("names every chunk of a multi-frame pedal reply, not only the last (#136)", () => {
+    const frames = gp200.encodeFrames({ cmd: 0x12, payload: new Uint8Array(846) }, gp200.CHUNK.DEVICE);
+    const d = new MidiLogDecoder();
+    expect(frames.map((f) => d.line("rx", f)!.text)).toEqual([1, 2, 3, 4, 5].map((n) => `Pedal: frame ${n} of 5`));
+  });
+
   it("decodes outgoing selects, reads, edits and settings, naming the param when known", () => {
     const d = new MidiLogDecoder((block, index) => (block === 3 && index === 0 ? "Gain" : undefined), () => "gp200");
     const { encode: e, PATCH_SETTING, GLOBALS } = gp200;
@@ -108,6 +114,15 @@ describe("MidiLogDecoder on the GP-200", () => {
     expect(lines).toHaveLength(7);
     expect(lines[0]).toBe("Frame 1 of 7");
     expect(lines.at(-1)).toBe("Write slot 02-B (7 frames)");
+  });
+
+  it("counts frames of a message sent in smaller frames (JR and LT uploads)", () => {
+    const d = new MidiLogDecoder();
+    const msg = { cmd: 0x12, payload: new Uint8Array(846) } as Msg;
+    const lines = gp200.encodeFrames(msg, 120).map((f) => d.line("tx", f)!.text);
+    expect(lines[0]).toBe(`Frame 1 of ${lines.length}`);
+    expect(lines.length).toBeGreaterThan(Math.ceil(846 / 183));
+    expect(lines.at(-2)).toBe(`Frame ${lines.length - 1} of ${lines.length}`);
   });
 
   it("describes what the session decoded from the pedal, and its warnings", () => {

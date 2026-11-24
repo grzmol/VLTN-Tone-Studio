@@ -251,7 +251,7 @@ function describeGp200Record(r: Gp200Frame, out: boolean, paramName?: ParamNamer
     case "globalEq":
       return `Global EQ value ${r.index} ${num(r.value)}`;
     case "globals":
-      return `Settings, firmware ${r.firmware}`;
+      return "Settings";
     case "stateDump":
       return "Read pedal settings";
     case "drumState":
@@ -413,6 +413,7 @@ export class MidiLogDecoder {
   #tx = new Reassembler();
   // Host queries may declare more bytes than they carry: a short chunk ends the message (as the simulator reads them).
   #tx200 = new Gp200Reassembler({ shortChunkEnds: CHUNK.HOST });
+  #txChunk: number = CHUNK.HOST;
   #id = 0;
   constructor(
     private paramName?: ParamNamer,
@@ -464,11 +465,17 @@ export class MidiLogDecoder {
 
   /** A GP-200 frame: incoming ones come with the session's decoding, outgoing ones are reassembled here. */
   #gp200(frame: NonNullable<ReturnType<typeof decodeGp200Frame>>, d: "out" | "in", decoded: unknown): string {
+    if (d === "in" && !decoded && frame.kind === "data") return `Pedal: frame ${Math.floor(frame.off / CHUNK.DEVICE) + 1} of ${Math.ceil(frame.len / CHUNK.DEVICE)}`;
     if (d === "in") return describeGp200(decoded as Gp200Message | Gp200Frame | undefined, false, this.paramName);
     if (frame.kind !== "data") return frame.kind === "address" && frame.address === "softwareState" ? "Read pedal mode" : "SysEx";
+    // The first frame of a message sets the frame size: 183 B for the GP-200, 120 B for a JR or LT upload.
+    if (frame.off === 0 && frame.len > frame.data.length) {
+      this.#txChunk = frame.data.length;
+      this.#tx200 = new Gp200Reassembler({ shortChunkEnds: this.#txChunk });
+    }
     const msg = this.#tx200.push(frame);
-    const chunk = Math.floor(frame.off / CHUNK.HOST) + 1;
-    if (!msg) return `Frame ${chunk} of ${Math.ceil(frame.len / CHUNK.HOST)}`;
+    const chunk = Math.floor(frame.off / this.#txChunk) + 1;
+    if (!msg) return `Frame ${chunk} of ${Math.ceil(frame.len / this.#txChunk)}`;
     return describeGp200(decodeGp200Message(msg), true, this.paramName) + (chunk > 1 ? ` (${chunk} frames)` : "");
   }
 }

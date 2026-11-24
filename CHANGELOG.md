@@ -5,6 +5,9 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 ## [Unreleased]
 
 ### Fixed
+- **GP-200JR: SnapTone uploads time out** (#136, reported by [@ilygomzzz](https://github.com/ilygomzzz)). The JR drops frames sent 10 ms apart, so a SnapTone upload got no reply. The app now waits 50 ms between the frames of a multi-frame message on a JR and an LT; single-frame reads and the GP-200 keep 10 ms or less. The JR owner confirmed 50 ms by replaying the same frames. On Linux, Chromium also cuts every SysEx above 256 bytes into two writes, and a pedal can lose a message it gets in two pieces (seen on a GP-5 with a split read request), so a SnapTone or User IR upload to a JR or LT now sends 254-byte frames (120 data bytes) instead of 380-byte ones. The editor's frame size is the other choice and the JR with the smaller frames is not checked on a real pedal yet.
+- **No made-up firmware version on the GP-200 family** (#136). The first bytes of the settings record, shown as "firmware 1.6.0", are the same on a GP-200 and a JR on 1.8.0, so they are not a version. The app no longer shows one.
+- **The session log shows every frame of a multi-frame reply** (#136), as "Pedal: frame 1 of 5", not only the last one.
 - **GP-150 preset numbers after overwriting presets** (#140). The Library and the preset bar showed the right names under the wrong slot numbers, so the arrows in the Rig jumped to other presets. Slots now follow the order of the pedal's list.
 
 ## [1.0.0] - 2026-11-20
