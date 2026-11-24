@@ -4,6 +4,9 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 ## [Unreleased]
 
+### Added
+- **RC-10R rhythms.** Export native six-part rhythms or MIDI, plan song/playlist rhythm cues, track export and explicit transfer revisions, and prepare memory/tempo before playback.
+
 ### Fixed
 - **GP-150 preset numbers after overwriting presets** (#140). The Library and the preset bar showed the right names under the wrong slot numbers, so the arrows in the Rig jumped to other presets. Slots now follow the order of the pedal's list.
 

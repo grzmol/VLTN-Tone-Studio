@@ -6,6 +6,7 @@ import { useSession, type PerformanceSession } from "@/song/performance/session"
 import { followsPitch } from "@/song/performance/speed";
 import { clickStretchWarning, setSolo, silenceGroupmates, type TrackInfo } from "@/song/tracks";
 import { ORIGINAL_PARTS, partKeysOf, silencedByChoice, type PartChoices } from "@/song/band/part-choice";
+import { usePedalDrums } from "@/song/performance/pedal-drums";
 import { PRACTICE_KINDS, PRACTICE_LABEL, kindOfTrack, practiceMutedKeys, practiceSet, usePracticeMute, type CountsAs } from "@/song/performance/practice-mute";
 import { STEM_LABEL } from "./stems/StemMixer";
 import type { StemName } from "@/song/types";
@@ -67,10 +68,16 @@ export function PerformanceMix({
   onCountsAs?: (key: string, value: CountsAs | undefined) => void;
 }) {
   const practiceKinds = usePracticeMute((s) => s.kinds);
+  const pedalDrums = usePedalDrums((s) => s.enabled);
   const player = useSession(session, (s) => s.player);
   const speed = useSession(session, (s) => s.speed);
   if (!player) return null;
-  const practiceMuted = practiceMutedKeys(practiceSet(practiceKinds), { keys: player.names, info: tracks, split: !!stems && Object.keys(stems).length > 0, countsAs });
+  const practiceMuted = practiceMutedKeys(practiceSet(practiceKinds), {
+    keys: player.names,
+    info: tracks,
+    split: !!stems && Object.keys(stems).length > 0,
+    countsAs,
+  });
   const groups = groupsOf(tracks);
   const busOf = (name: string): BusName => trackBuses[name] ?? tracks[name]?.bus ?? "main";
   const warning = clickStretchWarning(
@@ -119,6 +126,7 @@ export function PerformanceMix({
           const info = tracks[name];
           const off = silenced[name];
           const byPractice = practiceMuted.has(name);
+          const byPedal = pedalDrums && kindOfTrack(name, info, countsAs[name]) === "drums";
           return (
             <div
               key={name}
@@ -132,7 +140,8 @@ export function PerformanceMix({
                   <input
                     type="checkbox"
                     aria-label={`${label(name)} enabled`}
-                    checked={!entry.mute && !byPractice}
+                    checked={!entry.mute && !byPractice && !byPedal}
+                    disabled={byPedal}
                     onChange={(e) => {
                       // Read the input now: an updater runs after React has put a controlled input back, so its value would be stale.
                       const enabled = e.target.checked;
@@ -147,6 +156,7 @@ export function PerformanceMix({
                   />
                   <span className="truncate">{label(name)}</span>
                 </label>
+                {byPedal && <span className="text-xs text-led-warn">Pedal drums</span>}
                 {byPractice && <span className="shrink-0 rounded-md border border-led-warn px-1.5 py-0.5 text-xs text-led-warn">Practice</span>}
                 {info?.kind === "user" && onCountsAs && (
                   <select

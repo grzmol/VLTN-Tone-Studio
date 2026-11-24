@@ -1,8 +1,8 @@
+import { ArrangementAdvice } from "./ArrangementAdvice";
+import { PlaylistPreflightIssues } from "./PlaylistPreflightIssues";
 import { PreparationSequenceDetails, preparationSeconds } from "./PreparationSequenceDetails";
 import { usePreparationDefaults } from "@/song/performance/start-preparation";
 import { readLeadInDefaults } from "@/song/performance/lead-in";
-import { ArrangementAdvice } from "./ArrangementAdvice";
-import { PlaylistPreflightIssues } from "./PlaylistPreflightIssues";
 import { useEffect, useRef, useState } from "react";
 import { isRenderedAhead } from "@/song/library";
 import { host } from "@/host";
@@ -12,6 +12,7 @@ import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-libr
 import { playlistPreflight, type PlaylistCheck } from "@/song/performance/playlist-preflight";
 import { songEntries } from "@/song/performance/song-triggers";
 import type { LibrarySong } from "@shared/song-library";
+import { rhythmControlOverrides } from "@/song/performance/rhythm-automation";
 import { flushSettings, onSettingsChange, LIBRARY_PREFIX } from "@/song/performance/settings";
 export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: string[]; disabled: boolean; revision: unknown; songs: readonly LibrarySong[] }) {
   const preparationDefaults = usePreparationDefaults((state) => state.settings);
@@ -76,6 +77,7 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
           songs: songEntries(songs),
           bindings: config.bindings,
           pedals: configuredPedals(pedals),
+          rhythmControls: rhythmControlOverrides(pedals),
         }),
       );
     } catch (e) {
@@ -105,12 +107,12 @@ export function PlaylistPreflight({ ids, disabled, revision, songs }: { ids: str
             Snapshot of saved files and current MIDI preferences. Recheck after external file changes. File presence and size are checked, not audio contents or
             physical pedal response. Warnings are advisory.
           </p>
+          <PlaylistPreflightIssues report={report} />
           <p aria-label="Playlist preparation total">
             Configured preparation waits: {preparationSeconds(report.reduce((total, result) => total + (result.preparation?.totalWaitMs ?? 0), 0))} s across{" "}
             {report.filter((result) => result.preparation).length} entries. Fresh song loads with Send cues enabled are assumed. Audio loading, MIDI delivery,
             start delay and count-in can add time; entries with errors need fixing first.
           </p>
-          <PlaylistPreflightIssues report={report} />
           <ol className="max-h-80 space-y-2 overflow-auto">
             {report.map((r) => (
               <li key={r.entry} className="rounded border border-seam p-2">
