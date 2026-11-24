@@ -6,7 +6,7 @@ import { useSong } from "@/song/store";
 import { useSongLibrary } from "@/song/library";
 import type { Chord } from "@/song/performance/chords";
 import { selectArmed, selectOutput, useSession, type PerformanceSession } from "@/song/performance/session";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useStagePower } from "./use-stage-power";
 import { BeatIndicator, EdgeFlash, type BeatGrid } from "./BeatIndicator";
 import { PerformanceReader, type PdfReaderState } from "./PerformanceReader";
@@ -31,6 +31,7 @@ export function StageView({
   speedNote,
   pdf,
   soloScale,
+  drumsChip,
 }: {
   session: PerformanceSession;
   stage: boolean;
@@ -50,6 +51,8 @@ export function StageView({
   pdf?: PdfReaderState;
   /** For the reader's Solo scale button */
   soloScale?: { storageKey: string; capo: number; onChange?: () => void };
+  /** Which drums play, shown beside the beat light. */
+  drumsChip?: ReactNode;
 }) {
   const library = useSongLibrary();
   const source = useSong((s) => s.source);
@@ -125,6 +128,7 @@ export function StageView({
             </Button>
             <BeatIndicator large {...beat} />
             {speedNote && <span className="rounded-md border border-seam px-2 py-1 text-sm tabular-nums">{speedNote}</span>}
+            {drumsChip}
             {stage && (
               <Button variant="outline" aria-pressed={edgeFlash} onClick={() => setEdgeFlash(!edgeFlash)}>
                 {edgeFlash ? "Edge flash on" : "Edge flash off"}

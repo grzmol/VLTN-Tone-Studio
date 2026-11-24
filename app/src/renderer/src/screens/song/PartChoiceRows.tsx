@@ -1,11 +1,16 @@
 import { Button } from "@/components/ui/button";
-import { effectiveChoice, PART_KINDS, type PartChoice, type PartChoices, type PartKeys, type PartKind } from "@/song/band/part-choice";
+import { effectiveChoice, PART_KINDS, pedalFallbackOf, type DrumFallback, type PartChoice, type PartChoices, type PartKeys, type PartKind } from "@/song/band/part-choice";
 
 /** The three choices, in the order the buttons show them. */
 const OPTIONS: { choice: PartChoice; label: string }[] = [
   { choice: "original", label: "Original" },
   { choice: "generated", label: "Generated" },
   { choice: "both", label: "Both" },
+];
+/** What plays when the pedal cannot be reached. */
+const FALLBACKS: { choice: DrumFallback; label: string }[] = [
+  { choice: "generated", label: "Generated" },
+  { choice: "original", label: "Original" },
 ];
 const LABEL: Record<PartKind, string> = { drums: "Drums", bass: "Bass" };
 
@@ -18,6 +23,8 @@ export function PartChoiceRows({
   keys,
   disabled,
   onChange,
+  pedalCues = false,
+  onOpenMidi,
 }: {
   /** The saved choices. They are not changed by showing them, so a choice comes back when its generated track does. */
   choices: PartChoices;
@@ -26,6 +33,10 @@ export function PartChoiceRows({
   /** True while a Band action runs. Playback does not disable the rows: switching only changes mute levels. */
   disabled: boolean;
   onChange(patch: Partial<PartChoices>): void;
+  /** True when the song has automatic RC-10R cues. The pedal button for drums is shown only then, or when it is already chosen. */
+  pedalCues?: boolean;
+  /** Opens the MIDI view, where the automatic RC-10R drums are set up. */
+  onOpenMidi?: () => void;
 }) {
   return (
     <section aria-label="What plays" className="flex flex-col gap-2">
@@ -53,6 +64,47 @@ export function PartChoiceRows({
                 </Button>
               );
             })}
+            {kind === "drums" && (pedalCues || choices.drums === "pedal") && (
+              <Button
+                size="sm"
+                variant={shown === "pedal" ? "default" : "outline"}
+                aria-pressed={shown === "pedal"}
+                disabled={disabled}
+                onClick={() => onChange({ drums: "pedal" })}
+              >
+                RC-10R pedal
+              </Button>
+            )}
+            {kind === "drums" && shown === "pedal" && (
+              <div role="group" aria-label="If the pedal isn't there" className="flex basis-full flex-wrap items-center gap-2 pl-16">
+                <span className="text-muted-foreground">If the pedal isn’t there, play:</span>
+                {FALLBACKS.map(({ choice, label }) => {
+                  const selected = pedalFallbackOf(choices, hasGenerated) === choice && (choice === "original" || hasGenerated);
+                  return (
+                    <Button
+                      key={choice}
+                      size="sm"
+                      variant={selected ? "default" : "outline"}
+                      aria-pressed={selected}
+                      disabled={disabled || (choice === "generated" && !hasGenerated)}
+                      onClick={() => onChange({ pedalFallback: choice })}
+                    >
+                      {label}
+                    </Button>
+                  );
+                })}
+                {!pedalCues && (
+                  <span className="basis-full text-amber-400">
+                    This song has no automatic RC-10R drums yet, so the fallback plays.{" "}
+                    {onOpenMidi && (
+                      <button type="button" className="underline" onClick={onOpenMidi}>
+                        Set them up in the MIDI view
+                      </button>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
             {!hasGenerated && <span className="text-muted-foreground">Generate the {LABEL[kind].toLowerCase()} first.</span>}
           </div>
         );

@@ -1,4 +1,5 @@
 import { ArrangementAdvice } from "./ArrangementAdvice";
+import type { PreparationSettings } from "@/song/performance/start-preparation";
 import { useEffect, useMemo, useState } from "react";
 import type { Cue } from "@/song/performance/chart";
 import { midiPreflight } from "@/song/performance/midi-preflight";
@@ -18,6 +19,7 @@ export function MidiHealth({
   duration,
   range,
   playbackStart,
+  preparation,
   bpm,
   beats,
   firstBeat,
@@ -26,6 +28,7 @@ export function MidiHealth({
   outputName,
   parseError,
   timecode,
+  pedalDrums,
 }: {
   cues: Cue[];
   /** The song's sections, which the cues on a section are placed on */
@@ -34,6 +37,7 @@ export function MidiHealth({
   /** The part of a trimmed song that plays, when the song is trimmed */
   range?: { start: number; end: number };
   playbackStart?: number;
+  preparation?: PreparationSettings;
   bpm?: number;
   beats?: number;
   firstBeat?: number;
@@ -43,6 +47,8 @@ export function MidiHealth({
   parseError: string;
   /** Set only while MIDI timecode is on */
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
+  /** The song chose RC-10R drums, and whether the cues are armed */
+  pedalDrums?: { chosen: boolean; armed: boolean };
 }) {
   const library = usePedalLibrary();
   const report = useMemo(
@@ -52,6 +58,7 @@ export function MidiHealth({
         sections,
         range,
         playbackStart,
+        preparation,
         bpm,
         beats,
         firstBeat,
@@ -59,6 +66,7 @@ export function MidiHealth({
         tempoChannel,
         outputName,
         timecode,
+        pedalDrums,
         pedals: configuredPedals(library),
       }),
     [
@@ -67,6 +75,7 @@ export function MidiHealth({
       duration,
       range,
       playbackStart,
+      preparation,
       bpm,
       beats,
       firstBeat,
@@ -74,6 +83,8 @@ export function MidiHealth({
       tempoChannel,
       outputName,
       timecode,
+      pedalDrums?.chosen,
+      pedalDrums?.armed,
       library.channels,
       library.profiles,
       library.assignments,
