@@ -8,6 +8,7 @@ import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-libr
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
 import { useBluetooth, resetBluetoothTiming } from "@/bluetooth/connection";
 import { HelpNote } from "@/components/ui/help-note";
+import { PedalSettings } from "./PedalSettings";
 
 /** How often the counters on screen may refresh. The scheduler and Bluetooth writes update their stores far more often than that. */
 const REFRESH_MS = 500;
@@ -115,6 +116,7 @@ export function MidiHealth({
             routing and receive channels before the set.
           </p>
         </HelpNote>
+        <PedalSettings clock={clock} />
         {parseError ? (
           <p className="text-red-400">{parseError}</p>
         ) : report.warnings.length ? (
