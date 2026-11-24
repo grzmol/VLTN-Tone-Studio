@@ -17,6 +17,8 @@ export interface Chord {
  */
 export interface ChordsInput {
   harmony: PcmAudio;
+  /** The audio `harmony` is the sum of, in order. Background analysis reads these instead, so they can share copies with a key estimate. */
+  harmonyParts?: readonly PcmAudio[];
   bass: PcmAudio | null;
   beats: number[] | null;
   key?: string | null;

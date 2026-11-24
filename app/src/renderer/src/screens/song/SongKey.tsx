@@ -1,6 +1,7 @@
+import { startKeyReading, type HarmonyJob } from "@/song/analysis/harmony-client";
 import { useEffect, useMemo, useState } from "react";
 import type { PcmAudio, Stems } from "@/song/types";
-import { KEY_NAMES, SONG_KEYS, effectiveSongKey, keyAudio, type KeyEstimate, type KeyInput } from "@/song/performance/key";
+import { KEY_NAMES, SONG_KEYS, effectiveSongKey, keyAudio, type KeyEstimate, type KeyReading } from "@/song/performance/key";
 import { readOptions, setSetting } from "@/song/performance/settings";
 import { generatedTrackKeysIn, isCurrent, songAudioId } from "@/song/analysis/song-analysis";
 import { storedAnalysis } from "./use-song-analysis";
@@ -80,36 +81,31 @@ export function SongKey({
       setBusy(false);
       return;
     }
-    let active = true,
-      worker: Worker | undefined;
+    let active = true;
+    let job: HarmonyJob<KeyReading> | undefined;
     setBusy(true);
     try {
-      worker = new Worker(new URL("../../song/performance/key-worker.ts", import.meta.url), { type: "module" });
-      worker.onmessage = (event: MessageEvent<{ estimate?: KeyEstimate | null; error?: string }>) => {
-        if (!active) return;
-        setEstimate(event.data.estimate ?? null);
-        setError(event.data.error ?? "");
-        setBusy(false);
-        worker?.terminate();
-      };
-      worker.onerror = () => {
-        if (active) {
-          setBusy(false);
-          setError("Key analysis could not finish. You can choose the key manually.");
-          worker?.terminate();
-        }
-      };
       // The panel reads one stem on its own: no bass, chords or sections, so the key is the harmony's alone.
-      const request: KeyInput = { harmony: input.audio, bass: null, chords: [], sections: [] };
-      worker.postMessage(request);
-    } catch (e) {
+      job = startKeyReading({ harmony: input.audio, bass: null, chords: [], sections: [] });
+      void job.done
+        .then((result) => {
+          if (!active) return;
+          setEstimate(result.estimate ?? null);
+          setError("");
+          setBusy(false);
+        })
+        .catch((error) => {
+          if (!active) return;
+          setBusy(false);
+          setError(error instanceof Error ? error.message : "Key analysis could not finish. You can choose the key manually.");
+        });
+    } catch (error) {
       setBusy(false);
-      setError(String(e));
-      worker?.terminate();
+      setError(String(error));
     }
     return () => {
       active = false;
-      worker?.terminate();
+      job?.cancel();
     };
   }, [input]);
   useEffect(() => {
