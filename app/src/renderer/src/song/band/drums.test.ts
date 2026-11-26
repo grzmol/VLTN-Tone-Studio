@@ -444,3 +444,41 @@ describe("generateDrums by section loud", () => {
     for (const [key] of ghosts) expect(at5.get(key), key).toBeLessThan(50);
   });
 });
+
+describe("generateDrums with the 3/4 style", () => {
+  const threeFour = findStyle("three-four")!;
+  const grid = steady(60, 0, 3);
+
+  it("puts every hit on a twelfth-step position and a kick on every bar's beat 1 in a 16-bar section", () => {
+    const notes = generateDrums(grid, [plan(0, 48, { style: "three-four", energy: 3 })], settingsFor(), 4);
+    expect(threeFour.meter).toEqual({ beatsPerBar: 3, stepsPerBeat: 4 });
+    for (const note of notes) {
+      const { beat, fraction } = positionOf(grid.beats, note.time);
+      expect(beat).toBeLessThan(48);
+      expect(Math.abs(fraction * 4 - Math.round(fraction * 4))).toBeLessThan(1e-9);
+    }
+    // The last bar is the song's ending only when it is the last bar of the grid; here the grid goes on past the section.
+    for (let bar = 0; bar < 15; bar++) {
+      expect(notes.some((note) => note.pitch === KICK && note.time === grid.beats[bar * 3])).toBe(true);
+    }
+  });
+});
+
+describe("generateDrums with a section that starts near a bar line", () => {
+  const grid = steady(64);
+  const settings = settingsFor({ crashOnSections: true });
+  /** Two sections that meet `offset` seconds after the bar line at 8 s. */
+  const withSplit = (offset: number) => {
+    const plans = [plan(0, 16, { fill: true, energy: 4, end: 8 + offset }), plan(16, 32, { energy: 4, start: 8 + offset })];
+    return generateDrums(grid, plans, settings, 6);
+  };
+
+  it.each([0.04, -0.04])("fills the bar before the bar line and crashes on it when the section starts %f s after it", (offset) => {
+    const notes = withSplit(offset);
+    expect(notes.some((note) => note.pitch === CRASH && note.time === 8)).toBe(true);
+    // The bar from 6 s to 8 s is the fill: it plays the section's bar fill, which has toms.
+    expect(notes.some((note) => note.time >= 6 && note.time < 8 && [45, 47, 50].includes(note.pitch))).toBe(true);
+    // The same notes as for a section that starts exactly on the bar line.
+    expect(notes).toEqual(withSplit(0));
+  });
+});
