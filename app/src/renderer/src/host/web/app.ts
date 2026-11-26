@@ -27,6 +27,7 @@ export const webApp: AppApi = {
   },
   setProgress: async () => {},
   takeOpenedFiles: async () => [],
+  memory: async () => null,
   pathForFile: () => null,
   onEvent: () => () => {},
 };

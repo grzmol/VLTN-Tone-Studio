@@ -551,7 +551,7 @@ export class PerformanceSession {
     this.renders.clear();
     this.pendingRender = null;
     this.renderSwap = null;
-    const player = handover?.player ?? new StemPlayer(this.baseStems, sharedPlaybackEngine(), shape);
+    const player = handover?.player ?? new StemPlayer(this.baseStems, sharedPlaybackEngine(), shape, "now", 1, { sharePcm: true });
     // The song is now the playing entry, so its end behaviour is the entry's override, when it has one.
     player.setEndBehaviour(this.behaviourOf(player));
     const stopWiring = this.wirePlayer(player, source);
