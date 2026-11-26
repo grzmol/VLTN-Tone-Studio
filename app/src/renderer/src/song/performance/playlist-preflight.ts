@@ -1,3 +1,4 @@
+import type { MissingToneFile } from "../band/tone-check";
 import { expandSectionCues } from "./chart";
 import { PreparationHistory } from "./preparation-repeat";
 import { preparationSequence, type PreparationSequence } from "./preparation-sequence";
@@ -37,6 +38,7 @@ export interface PlaylistCheck {
   advice: string[];
   /** Information only, shown without the warning label */
   notes: string[];
+  missingTones?: MissingToneFile[];
   /** Fresh-load preparation from the saved playable beginning, with no live repeat history. */
   preparation?: PreparationSequence;
 }

@@ -1,5 +1,6 @@
 // Ballad: slow and soft. Sidestick or light snare on 3, a ride on the beat, and kicks that move only with more energy.
 
+import { figure } from "../bass-figures";
 import { CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -125,6 +126,13 @@ export const BALLAD: Style = {
   bass: {
     walking: false,
     techniques: { slides: true, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . ."), figure(16, "1 . . . . . 5 3"), figure(16, "1 . . . . . . .", "1 . . . 5 . . .")],
+      2: [figure(16, "1 . . . 1 . . ."), figure(16, "1 . . . . . 5 ."), figure(16, "1 . . . . . 5 3")],
+      3: [figure(16, "1 . . . 5 . . ."), figure(16, "1 . . . 1 . 5 ."), figure(16, "1 . . . . . 5 3", "1 . . . . . 5 app")],
+      4: [figure(16, "1 . 5 . 1 . 5 ."), figure(16, "1 . . . 1 . 5 3"), figure(16, "1 . 1 . 5 . 3 5", "1 . 1 . 5 . 3 app")],
+      5: [figure(16, "1 . 1 . 5 . 1 ."), figure(16, "1 . 5 . 8 . 5 ."), figure(16, "1 . 1 5 1 . 5 3")],
+    },
     rhythms: {
       1: [[0], [0, 8]],
       2: [[0], [0, 8]],

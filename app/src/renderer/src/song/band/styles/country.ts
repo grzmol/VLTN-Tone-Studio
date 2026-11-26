@@ -1,6 +1,7 @@
 // Country: the train beat. Kick on the one, backbeat on 2 and 4, and steady eighths on the hat, with busier energies adding kicks
 // and a ride.
 
+import { figure } from "../bass-figures";
 import { CLOSED_HAT, CRASH, HIGH_TOM, KICK, LOW_TOM, MID_TOM, OPEN_HAT, RIDE, SIDE_STICK, SNARE } from "../note";
 import { VEL, bar, groove, lane, EIGHTHS, ODD_SIXTEENTHS, QUARTERS } from "./notation";
 import type { Style } from "./types";
@@ -127,6 +128,13 @@ export const COUNTRY: Style = {
   bass: {
     walking: false,
     techniques: { slides: false, deadNotes: false, pickups: true },
+    figures: {
+      1: [figure(16, "1 . . . . . . ."), figure(16, "1 . . . 5 . . ."), figure(16, "1 . . . . . . .", "1 . . . 5 . . .")],
+      2: [figure(16, "1 . . . 5 . . ."), figure(16, "1 . 5 . 1 . 5 ."), figure(16, "1 . . . 5 . . .")],
+      3: [figure(16, "1 . 5 . 1 . 5 ."), figure(16, "1 . . 5 1 . . 5"), figure(16, "1 . 5 . 1 . 5 .", "1 . 5 . 1 . 3 5")],
+      4: [figure(16, "1 . 5 . 1 . 5 .", "1 . 5 . 1 . 3 app"), figure(16, "1 . 3 . 5 . 3 ."), figure(16, "1 . 5 5 1 . 5 .")],
+      5: [figure(16, "1 . 5 . 1 . 5 5"), figure(16, "1 . 3 5 1 . 3 5"), figure(16, "1 5 1 5 1 5 3 5")],
+    },
     rhythms: {
       1: [[0], [0, 8]],
       2: [
