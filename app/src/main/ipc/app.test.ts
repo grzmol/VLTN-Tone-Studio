@@ -8,11 +8,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const electron = vi.hoisted(() => ({
   userData: "",
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>(),
+  metrics: vi.fn((): unknown[] => []),
   shell: { openPath: vi.fn(async () => ""), showItemInFolder: vi.fn(), openExternal: vi.fn(async () => {}) },
 }));
 
 vi.mock("electron", () => ({
-  app: { getPath: () => electron.userData, getVersion: () => "0.0.0-test" },
+  app: { getPath: () => electron.userData, getVersion: () => "0.0.0-test", getAppMetrics: () => electron.metrics() },
   BrowserWindow: class {},
   dialog: {},
   shell: electron.shell,
@@ -148,5 +149,29 @@ describe("routeOpenedFile", () => {
     const { routeOpenedFile } = await import("./app");
     expect(routeOpenedFile(null)).toBe("queue");
     expect(routeOpenedFile(window(false, true))).toBe("queue");
+  });
+});
+describe("app:memory", () => {
+  const sender = (pid: number) => ({ getOSProcessId: () => pid });
+  const metric = (pid: number, ws: number, peak: number) => ({ pid, memory: { workingSetSize: ws, peakWorkingSetSize: peak } });
+  const ask = (pid: number) => electron.handlers.get("app:memory")!({ sender: sender(pid) }) as Promise<{ ok: boolean; data?: unknown }>;
+
+  it("returns the asking renderer's working set with the machine's memory", async () => {
+    electron.metrics.mockReturnValue([metric(1, 10, 11), metric(42, 2_000_000, 2_600_000)]);
+    vi.stubGlobal("process", Object.assign(Object.create(process), { getSystemMemoryInfo: () => ({ total: 16_000_000, free: 3_200_000 }) }));
+    const res = await ask(42);
+    vi.unstubAllGlobals();
+    expect(res).toEqual({ ok: true, data: { workingSetKb: 2_000_000, peakWorkingSetKb: 2_600_000, totalKb: 16_000_000, freeKb: 3_200_000 } });
+  });
+
+  it("gives null when the renderer is not in the list, and when Electron throws", async () => {
+    vi.stubGlobal("process", Object.assign(Object.create(process), { getSystemMemoryInfo: () => ({ total: 1, free: 1 }) }));
+    electron.metrics.mockReturnValue([metric(1, 10, 11)]);
+    expect(await ask(42)).toEqual({ ok: true, data: null });
+    electron.metrics.mockImplementation(() => {
+      throw new Error("no metrics");
+    });
+    expect(await ask(42)).toEqual({ ok: true, data: null });
+    vi.unstubAllGlobals();
   });
 });
