@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Cue } from "../performance/chart";
 import type { Section } from "../performance/sections";
 import type { PcmAudio } from "../types";
-import { DEFAULT_BAND_SETTINGS } from "./arrangement";
+import { DEFAULT_BAND_SETTINGS, planSections } from "./arrangement";
 import type { BandResult } from "./band-job";
 import { fixedBeatGrid } from "./beat-grid";
-import { bandHarmony, bandRequest, beatSources, gridThroughSections, levelStems, previewMix, sumAudio } from "./request";
+import { bandHarmony, bandKeys, extendedRangeNote, bandRequest, keysFromOptions, beatSources, gridThroughSections, levelStems, playsThreeFourDefault, plansForMeter, previewMix, sumAudio } from "./request";
 
 const audio = (values: number[], rate = 44100): PcmAudio => ({ sampleRate: rate, channels: [Float32Array.from(values)] });
 
@@ -69,6 +69,16 @@ describe("bandRequest", () => {
     expect(request.plans.map((plan) => plan.sectionId)).toEqual(["v"]);
     expect(request.seed).toBe(DEFAULT_BAND_SETTINGS.seed);
     expect(request.parts).toEqual({ drums: true, bass: true });
+  });
+
+  it("plans the parts to the trim end and tells the generator, keeping the audio the song's length", () => {
+    const grid = fixedBeatGrid(120, 0, 4, 8);
+    const input = { grid, cues: [], chords: [], sections: [], settings: DEFAULT_BAND_SETTINGS, songEnd: 8, lengthFrames: 8 * 44100, sampleUrls: {} };
+    const request = bandRequest({ ...input, trimEnd: 5 });
+    expect(request.trimEnd).toBe(5);
+    expect(request.plans.at(-1)?.end).toBe(5);
+    expect(request.lengthFrames).toBe(8 * 44100);
+    expect(bandRequest(input).trimEnd).toBeUndefined();
   });
 
   it("sends the song's mix and the split's original stems for the level match, with or without follow", () => {
@@ -173,5 +183,96 @@ describe("gridThroughSections", () => {
     });
     expect(request.grid.beats).toHaveLength(24);
     expect(request.harmony).toHaveLength(24);
+  });
+});
+
+describe("plansForMeter", () => {
+  const sections: Section[] = [
+    { id: "a", name: "Verse", start: 0, end: 6, mode: "continue" },
+    { id: "b", name: "Chorus", start: 6, end: 12, mode: "continue" },
+  ];
+  const settings = { ...DEFAULT_BAND_SETTINGS, sections: { b: { style: "funk" as const } } };
+
+  it("gives a 3/4 song's sections the 3/4 style unless the section chose its own", () => {
+    const plans = plansForMeter(fixedBeatGrid(120, 0, 3, 24), planSections(sections, 12, settings), settings);
+    expect(plans.map((plan) => plan.style)).toEqual(["three-four", "funk"]);
+    const request = bandRequest({
+      grid: fixedBeatGrid(120, 0, 3, 24),
+      cues: [],
+      chords: [],
+      sections,
+      settings,
+      songEnd: 12,
+      lengthFrames: 44100,
+      sampleUrls: {},
+    });
+    expect(playsThreeFourDefault(request)).toBe(true);
+  });
+
+  it("leaves a 4/4 song's plans alone", () => {
+    const plans = plansForMeter(fixedBeatGrid(120, 0, 4, 24), planSections(sections, 12, settings), settings);
+    expect(plans.map((plan) => plan.style)).toEqual(["rock", "funk"]);
+  });
+});
+
+describe("bandKeys", () => {
+  it("gives no keys when none is known, and one key over the whole song when the song has one", () => {
+    expect(bandKeys(undefined, [], 100)).toEqual([]);
+    expect(bandKeys("A major", [], 100)).toEqual([{ start: 0, end: 100, tonic: 9, mode: "major" }]);
+  });
+
+  it("lets a section in another key cover its own span, and the song's key the rest", () => {
+    const keys = bandKeys("A major", [{ start: 40, end: 60, key: "F# minor" }], 100);
+    expect(keys).toEqual([
+      { start: 0, end: 40, tonic: 9, mode: "major" },
+      { start: 40, end: 60, tonic: 6, mode: "minor" },
+      { start: 60, end: 100, tonic: 9, mode: "major" },
+    ]);
+  });
+
+  it("reaches the request", () => {
+    const grid = fixedBeatGrid(120, 0, 4, 8);
+    const request = bandRequest({ grid, cues: [], chords: [], sections: [], settings: DEFAULT_BAND_SETTINGS, songEnd: 8, lengthFrames: 44100, sampleUrls: {}, songKey: "D minor" });
+    expect(request.keys).toEqual([{ start: 0, end: 8, tonic: 2, mode: "minor" }]);
+  });
+});
+
+describe("keysFromOptions", () => {
+  it("takes the performer's override over a strong estimate, and ignores a tentative one", () => {
+    const estimate = { name: "E major", confidence: "strong" };
+    expect(keysFromOptions({ songKey: "C major", detectedKey: estimate }).songKey).toBe("C major");
+    expect(keysFromOptions({ detectedKey: estimate }).songKey).toBe("E major");
+    expect(keysFromOptions({ detectedKey: { ...estimate, confidence: "tentative" } }).songKey).toBeUndefined();
+  });
+});
+
+describe("keysFromOptions: where the song's key comes from", () => {
+  const estimate = { name: "E major", confidence: "strong" };
+  const analysisOnly = { detectedKey: estimate };
+
+  it("goes performer override, then song analysis, then the library entry, then none", () => {
+    expect(keysFromOptions({ songKey: "C major", ...analysisOnly }, "A minor").songKey).toBe("C major");
+    expect(keysFromOptions(analysisOnly, "A minor").songKey).toBe("E major");
+    expect(keysFromOptions({}, "A minor").songKey).toBe("A minor");
+    expect(keysFromOptions({}, undefined).songKey).toBeUndefined();
+    expect(keysFromOptions({}).songKey).toBeUndefined();
+    // A tentative analysis key is not used, so the library entry's key is.
+    expect(keysFromOptions({ detectedKey: { ...estimate, confidence: "tentative" } }, "A minor").songKey).toBe("A minor");
+  });
+
+  it("reads the library entry's key however it is written, and ignores text that is not a key", () => {
+    expect(keysFromOptions({}, "F#m").songKey).toBe("F# minor");
+    expect(keysFromOptions({}, "Bb").songKey).toBe("Bb major");
+    expect(keysFromOptions({}, "not a key").songKey).toBeUndefined();
+  });
+});
+
+describe("extendedRangeNote", () => {
+  it("says the range is extended for a song in a low key, and nothing otherwise", () => {
+    const keys = (tonic: number) => [{ start: 0, end: 60, tonic, mode: "major" as const }];
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(2) })).toBe("Bass range: extended low, for a song in D");
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(3) })).toBe("Bass range: extended low, for a song in Eb");
+    expect(extendedRangeNote({ settings: DEFAULT_BAND_SETTINGS, keys: keys(9) })).toBeNull();
+    expect(extendedRangeNote({ settings: { ...DEFAULT_BAND_SETTINGS, bassRange: "low" }, keys: keys(2) })).toBeNull();
   });
 });

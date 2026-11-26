@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, planSections, type BandSettings, type SectionOverride } from "./arrangement";
 import type { BeatGrid } from "./beat-grid";
-import { generateBass } from "./bass";
-import { chooseVariation, isPhraseEnd, leadSteps, phraseBars, variationSeed, variationSteps, walkDown } from "./bass-phrases";
+import { BASS_NOTE_RANGES, generateBass, melodicApproach } from "./bass";
+import { chooseVariation, chordScale, fillScale, scaleNeighbours, isPhraseEnd, leadSteps, phraseBars, variationSeed, variationSteps, walkDown } from "./bass-phrases";
 import type { Feel } from "./feel";
 import { parseChordName, withBassOverrides, type ChordAtBeat } from "./harmony";
 import { createRandom } from "./random";
@@ -44,6 +44,31 @@ function generate(sections: Section[], names: readonly string[], overrides: Reco
   const plans = planSections(sections, bars * 2, settings);
   return generateBass(gridOf(bars), harmonyOf(names), plans, settings, [], 9, extra.feel);
 }
+
+describe("approach notes in a known key", () => {
+  const cMajor = { start: 0, end: 100, tonic: 0, mode: "major" as const };
+  /** E is 40 in the normal range, and the note before it is a G (43), so F sharp and F are both close. */
+  const into = (key: typeof cMajor | null, semitones: number): number | null => melodicApproach(key, 40, 43, BASS_NOTE_RANGES.normal, semitones);
+
+  it("takes the scale note below or above the target instead of a whole tone: F, not F sharp, into E in C major", () => {
+    expect(into(null, 2)).toBe(42);
+    expect(into(cMajor, 2)).toBe(41);
+  });
+
+  it("keeps the semitone approach at complexity 2/3 and up, and outside the key", () => {
+    expect(into(cMajor, 1)).toBe(41);
+    // E flat is not in C major, so the whole tone applies: D flat or F, and F is the nearer to the G.
+    expect(melodicApproach(cMajor, 39, 43, BASS_NOTE_RANGES.normal, 2)).toBe(41);
+  });
+
+  it("ignores the key at engine 1", () => {
+    const settings = { ...settingsWith({ a: { bassPart: "melodic", fills: 0 } }), complexity: 0.4, engine: 1 };
+    const names = ["G", "G", "G", "G", "E", "E", "E", "E", "E"];
+    const plans = planSections([section("a", "Verse", 0, 16)], 18, settings);
+    const notes = generateBass(gridOf(names.length), harmonyOf(names), plans, settings, [], 9, undefined, undefined, [{ start: 0, end: 18, tonic: 0, mode: "major" }]);
+    expect(barOf(notes, 3).at(-1)!.pitch % 12).toBe(6);
+  });
+});
 
 describe("phrase rules", () => {
   it("makes a phrase four bars, or two in a section under four bars", () => {
@@ -92,14 +117,41 @@ describe("phrase rules", () => {
   });
 
   it("walks a run down to the next root: chromatic at busy 4 and up, and by the chord's scale below", () => {
-    expect(walkDown(60, 1, "major", true)).toBe(59);
-    expect(walkDown(60, 2, "major", true)).toBe(58);
+    expect(walkDown(60, 1, chordScale(60, "major"), true)).toBe(59);
+    expect(walkDown(60, 2, chordScale(60, "major"), true)).toBe(58);
     // The major scale from C: B is in it, B flat is not, so the step below C is B and the one below that A.
-    expect(walkDown(60, 1, "major", false)).toBe(59);
-    expect(walkDown(60, 2, "major", false)).toBe(57);
+    expect(walkDown(60, 1, chordScale(60, "major"), false)).toBe(59);
+    expect(walkDown(60, 2, chordScale(60, "major"), false)).toBe(57);
     // The minor scale from C has B flat.
-    expect(walkDown(60, 1, "minor", false)).toBe(58);
-    expect(walkDown(60, 0, "major", false)).toBe(60);
+    expect(walkDown(60, 1, chordScale(60, "minor"), false)).toBe(58);
+    expect(walkDown(60, 0, chordScale(60, "major"), false)).toBe(60);
+  });
+
+  it("keeps a run in the song's key: in C major a run into F plays C, D, E and a run into G plays D, E, F", () => {
+    const cMajor = { tonic: 0, mode: "major" as const };
+    const run = (target: number, count: number, key: typeof cMajor | null): number[] =>
+      Array.from({ length: count }, (_, k) => walkDown(target, count - k, fillScale(target, "major", key), false));
+    // F is 53. A three-note run is C, D, E either way; a fourth note shows the difference: B in the key, B flat in F major.
+    expect(run(53, 3, cMajor)).toEqual([48, 50, 52]);
+    expect(run(53, 4, cMajor)).toEqual([47, 48, 50, 52]);
+    expect(run(53, 4, null)).toEqual([46, 48, 50, 52]);
+    // G is 55: the key gives F natural, G major would give F sharp.
+    expect(run(55, 3, cMajor)).toEqual([50, 52, 53]);
+    expect(run(55, 3, null)).toEqual([50, 52, 54]);
+  });
+
+  it("walks the minor scale in a minor key, and falls back to the chord's quality outside the key", () => {
+    const aMinor = { tonic: 9, mode: "minor" as const };
+    // Into E (a major V chord in A minor) the key's natural minor scale applies, not E major: D, not D sharp, is below E.
+    expect(walkDown(52, 1, fillScale(52, "major", aMinor), false)).toBe(50);
+    expect(walkDown(52, 1, fillScale(52, "major", null), false)).toBe(51);
+    // E flat is outside A minor, so a fill into it uses the chord's own quality.
+    expect(fillScale(51, "major", aMinor)).toEqual(chordScale(51, "major"));
+  });
+
+  it("finds the scale notes a step below and above a target", () => {
+    expect(scaleNeighbours(53, fillScale(53, "major", { tonic: 0, mode: "major" }))).toEqual([52, 55]);
+    expect(scaleNeighbours(52, fillScale(52, "major", { tonic: 0, mode: "major" }))).toEqual([50, 53]);
   });
 
   it("ends a lead-in on the target root, with the notes before it walking up to it", () => {
