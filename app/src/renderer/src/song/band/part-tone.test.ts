@@ -526,7 +526,7 @@ describe("the drum tone's files, presets and estimate", () => {
   it("leaves clean drums alone and reads no files", async () => {
     const drums = kit(100);
     const result = await applyPartTone(drums, { kind: "clean" }, noFiles(), identity, "drums");
-    expect(result).toEqual({ audio: drums, notice: null });
+    expect(result).toEqual({ audio: drums, notice: null, tone: "clean" });
   });
 });
 
@@ -704,5 +704,27 @@ describe("renderPartTone lines the part up with the beat", () => {
     const out = await renderPartTone(silence, loaded({ blocks: [amp()] }), delaying(ms(21, CHAIN_RATE)));
     expect(out.channels[0]).toHaveLength(RATE);
     expect(Math.max(...out.channels[0].map(Math.abs))).toBe(0);
+  });
+});
+
+describe("what a tone was rendered with", () => {
+  const audio: PcmAudio = { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5, 0.25])] };
+  const chain = async (_blocks: unknown, input: Float32Array) => input;
+
+  it("is clean for a clean tone, and a built-in tone is processed", async () => {
+    expect((await applyPartTone(audio, { kind: "clean" }, noFiles(), chain, "bass")).tone).toBe("clean");
+    const warm = await applyPartTone(audio, { kind: "builtin", id: "warm" }, noFiles(), chain, "bass");
+    expect(warm.tone).toBe("chain");
+    expect(warm.notice).toBeNull();
+    expect(warm.audio.channels[0]).toHaveLength(4);
+    expect(warm.audio).not.toBe(audio);
+  });
+
+  it("is clean, with a notice, when a chain's file is missing", async () => {
+    const tone: BassTone = { kind: "chain", blocks: presetBlocks([{ role: "amp" }]), dryWet: 1, fast: false };
+    tone.blocks[0].file = { source: "tone3000", toneId: 1, modelId: 2, name: "Amp" };
+    const result = await applyPartTone(audio, tone, noFiles(), chain, "bass");
+    expect(result.tone).toBe("clean");
+    expect(result.notice).toContain("plays clean");
   });
 });

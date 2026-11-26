@@ -5,13 +5,20 @@ import type { Cue } from "../performance/chart";
 import type { Chord } from "../performance/chords";
 import type { Section } from "../performance/sections";
 import type { PcmAudio, Stems } from "../types";
-import { planSections, type BandSettings, type SectionBandHint } from "./arrangement";
+import { WHOLE_SONG_ID, planSections, type BandSettings, type SectionBandHint, type SectionPlan } from "./arrangement";
 import type { BandFollow, BandRequest, BandResult } from "./band-job";
 import type { BassLineBeat } from "../analysis/bass-line";
+import { parseKey } from "../analysis/chord-hmm";
+import { parseSongKey } from "../songmap/songmap";
+import { parseAnalysis } from "../analysis/song-analysis";
+import { bassRangeFor } from "./bass";
+import type { BandKey } from "./bass-phrases";
 import type { BeatGrid } from "./beat-grid";
 import { FOLLOW_STEMS, resolveFollowSource } from "./feel";
 import { chartChordEvents, harmonyForSong, type ChordAtBeat } from "./harmony";
+import { findStyle } from "./styles";
 import { barBeats, barStarts } from "./timing";
+import { KEY_NAMES } from "../performance/key";
 
 /**
  * The audio the beat tracker reads. The drums stem when there is one. Otherwise the pitched stems (everything but drums and vocals,
@@ -51,11 +58,17 @@ export interface BandInputs {
   settings: BandSettings;
   /** The song's length in seconds, at the song's own rate. */
   songEnd: number;
+  /** The song's trim end in seconds, when it has one. The parts end there: the ending goes on the last full bar before it. */
+  trimEnd?: number;
   /** The song's length in samples. The parts are rendered to exactly this length. */
   lengthFrames: number;
   sampleUrls: Record<string, string>;
   /** The follow-my-playing audio, from followFor. Absent when the setting is off. */
   follow?: BandFollow;
+  /** The song's key as a name such as "A major": the performer's override, else a strong estimate (keysFromOptions). Unknown when absent. */
+  songKey?: string;
+  /** Spans of the song in another key than `songKey`, in seconds, with the key as a name. */
+  keySections?: readonly { start: number; end: number; key: string }[];
   /** The bass note the song's bass stem plays on each beat (analysis/bass-line.ts), when the song has a bass stem and it was read. */
   bassLine?: readonly BassLineBeat[] | null;
   /** What the song's own band does in each detected section (where its drums or bass stop, and how loud), as defaults for the plans. */
@@ -98,6 +111,59 @@ export function bandHarmony(input: Pick<BandInputs, "grid" | "cues" | "chords" |
   return harmonyForSong(input.grid, [...input.cues], [...input.chords], input.songEnd, original, input.settings.bassOverrides);
 }
 
+/**
+ * The song's keys for the bass, in song seconds. The song's key covers the song, and each section in another key covers its own span.
+ * Where no key is known the span has no entry, and with none known at all the list is empty.
+ */
+export function bandKeys(songKey: string | undefined, keySections: BandInputs["keySections"], songEnd: number): BandKey[] {
+  const song = parseKey(songKey);
+  const own = (keySections ?? [])
+    .flatMap((span): BandKey[] => {
+      const key = parseKey(span.key);
+      return key && span.end > span.start ? [{ start: Math.max(0, span.start), end: Math.min(songEnd, span.end), ...key }] : [];
+    })
+    .filter((span) => span.end > span.start)
+    .sort((a, b) => a.start - b.start);
+  const keys: BandKey[] = [];
+  let at = 0;
+  for (const span of own) {
+    if (span.start < at) continue;
+    if (song && span.start > at) keys.push({ start: at, end: span.start, ...song });
+    keys.push(span);
+    at = span.end;
+  }
+  if (song && at < songEnd) keys.push({ start: at, end: songEnd, ...song });
+  return keys;
+}
+
+/**
+ * The key inputs of a song from its saved options: the performer's key override wins, then a strong estimate from the song analysis (the
+ * key the chord names are spelled by, SongKey.tsx), then the key on the song's library entry, and the sections of the song analysis that
+ * read as another key. With none of them the song has no key.
+ */
+export function keysFromOptions(options: Record<string, unknown>, libraryKey?: string | null): Pick<BandInputs, "songKey" | "keySections"> {
+  const override = typeof options.songKey === "string" && options.songKey ? options.songKey : undefined;
+  const estimate = options.detectedKey as { name?: unknown; confidence?: unknown } | null | undefined;
+  const detected = estimate?.confidence === "strong" && typeof estimate.name === "string" ? estimate.name : undefined;
+  const analysis = parseAnalysis(options.analysis);
+  const keySections = (analysis?.keySections ?? []).flatMap((entry) => {
+    const section = analysis?.sections?.[Number(entry.sectionId)];
+    return section ? [{ start: section.start, end: section.end, key: entry.key.name }] : [];
+  });
+  // The key saved on the library entry (an import or the song details) is the last resort, read as a key name such as "F#m" or "Bb".
+  const fromLibrary = libraryKey ? parseSongKey(libraryKey)?.name : undefined;
+  return { songKey: override ?? detected ?? fromLibrary, keySections };
+}
+
+/**
+ * The line the Band panel shows when the bass plans with the extended range because the song's key is low, such as "Bass range: extended
+ * low, for a song in D". Null when the range is the performer's own or the key is not low.
+ */
+export function extendedRangeNote(request: Pick<BandRequest, "settings" | "keys">): string | null {
+  const { tonic } = bassRangeFor(request.settings, request.keys);
+  return tonic === null ? null : `Bass range: extended low, for a song in ${KEY_NAMES[tonic]}`;
+}
+
 /** The beat intervals the end of a grid is continued with: the median of its last few. */
 const END_INTERVALS = 4;
 
@@ -115,7 +181,10 @@ function median(values: readonly number[]): number {
 export function gridThroughSections(grid: BeatGrid, sections: readonly Section[], songEnd: number): BeatGrid {
   if (grid.beats.length < 2) return grid;
   const lastBeat = grid.beats[grid.beats.length - 1];
-  const intervals = grid.beats.slice(-END_INTERVALS - 1).map((beat, i, beats) => (i === 0 ? 0 : beat - beats[i - 1])).slice(1);
+  const intervals = grid.beats
+    .slice(-END_INTERVALS - 1)
+    .map((beat, i, beats) => (i === 0 ? 0 : beat - beats[i - 1]))
+    .slice(1);
   const interval = median(intervals);
   if (!(interval > 0)) return grid;
   const later = sections.filter((section) => section.start > lastBeat + interval / 2);
@@ -149,23 +218,47 @@ export function gridThroughSections(grid: BeatGrid, sections: readonly Section[]
   return regular ? { ...grid, beats } : { ...grid, beats, barStarts: [...kept, ...added.filter((start) => start < beats.length)] };
 }
 
+/** The line the Band panel shows when a 3/4 song's plans were given the 3/4 style. */
+export const THREE_FOUR_NOTE = "3/4 song: playing the 3/4 style";
+
+/**
+ * The plans of a song with three beats to the bar. A section whose style the user did not choose, and whose style has four beats,
+ * plays the 3/4 style instead, so the four-beat groove is not squeezed into three beats. A section with a style of its own keeps it.
+ */
+export function plansForMeter(grid: BeatGrid, plans: readonly SectionPlan[], settings: BandSettings): SectionPlan[] {
+  if (barBeats(grid) !== 3) return [...plans];
+  return plans.map((plan) => {
+    const chosen = settings.sections[plan.sectionId ?? WHOLE_SONG_ID]?.style !== undefined;
+    return !chosen && findStyle(plan.style)?.meter.beatsPerBar === 4 ? { ...plan, style: "three-four" } : plan;
+  });
+}
+
+/** Whether the plans play the 3/4 style where the song's own style has four beats, so the panel can say so. */
+export function playsThreeFourDefault(request: BandRequest): boolean {
+  return request.plans.some((plan) => plan.style === "three-four") && findStyle(request.settings.style)?.meter.beatsPerBar === 4;
+}
+
 /**
  * The request for the whole song: the harmony snapped to the grid, the plans from the sections, and the settings' seed. The grid is
  * continued through any section after its last beat (see gridThroughSections), so those sections get their parts too.
  */
 export function bandRequest(input: BandInputs): BandRequest {
   const grid = gridThroughSections(input.grid, input.sections, input.songEnd);
-  const harmony = bandHarmony({ ...input, grid });
+  // The parts are planned to the trim end, so nothing is generated after the place the song is cut. The audio keeps the song's length.
+  const songEnd = input.trimEnd === undefined ? input.songEnd : Math.min(input.songEnd, input.trimEnd);
+  const harmony = bandHarmony({ ...input, grid, songEnd });
   const request: BandRequest = {
     grid,
     harmony,
-    plans: planSections(input.sections, input.songEnd, input.settings, input.hints ?? []),
+    keys: bandKeys(input.songKey, input.keySections, songEnd),
+    plans: plansForMeter(grid, planSections(input.sections, songEnd, input.settings, input.hints ?? []), input.settings),
     settings: input.settings,
     seed: input.settings.seed,
     lengthFrames: input.lengthFrames,
     parts: { ...input.settings.parts },
     sampleUrls: input.sampleUrls,
   };
+  if (input.trimEnd !== undefined) request.trimEnd = input.trimEnd;
   if (input.follow) request.follow = input.follow;
   if (input.mix) request.mix = input.mix;
   if (input.originals) request.originals = input.originals;
