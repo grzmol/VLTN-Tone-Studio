@@ -10,13 +10,16 @@ import { sharedPlaybackEngine } from "@/song/audio/playback-engine";
 import { useSongLibrary, type HandedOverSong, type PreparedSong } from "@/song/library";
 import { playableStems } from "@/song/stems/playable";
 import { useNav } from "@/state/nav";
+import { setStageBusy } from "@/state/stage-activity";
+import { clearResumePoint, saveResumePoint } from "./resume-point";
+import { useResumeOffer } from "./resume-offer";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { showToast } from "@/app/notify";
 import { practiceSet, toggleNotice, usePracticeMute } from "./practice-mute";
 import { host } from "@/host";
 import type { SongSource, Stems } from "@/song/types";
 import { parseChart, expandSectionCues, type Cue, type MidiTrigger } from "@/song/performance/chart";
-import { setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
+import { clockPosition, setClockPosition, startPlaybackClock } from "@/song/performance/playback-clock";
 import { beatSeconds, countInBeats, preRollStart } from "@/song/performance/rhythm";
 import { HANDOVER_LEAD_S, planTransition, type Transition } from "@/song/performance/transition";
 import { readCrossfade } from "@/song/performance/crossfade";
@@ -96,6 +99,8 @@ export const BLUETOOTH_PORT_ID = "bluetooth-midi";
 
 /** How often the session checks whether the next playlist song can be chained onto this one */
 const CHAIN_CHECK_MS = 250;
+/** How often the place in the song is kept for a renderer crash while it plays (spec 120). */
+const RESUME_SAVE_MS = 2000;
 /** The next song is chained this far before its join, so that a pause in between has time to undo it */
 const CHAIN_AHEAD_S = 5;
 /** How often the playing song is checked for having reached its halfway point, to count it as played. */
@@ -584,7 +589,10 @@ export class PerformanceSession {
       const id = source.libraryId;
       setTimeout(() => {
         const library = useSongLibrary.getState();
-        if (leftPerformance() && library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
+        if (!leftPerformance()) return;
+        if (library.playlistPlaying && library.queue[library.position] === id) library.pausePlaylist();
+        // Leaving the screen stopped the music, so there is nothing to resume after a crash. A resume still on offer keeps its point.
+        if (!useResumeOffer.getState().point) clearResumePoint();
       }, 0);
     };
   }
@@ -707,6 +715,7 @@ export class PerformanceSession {
   dispose() {
     this.dropSectionPlan();
     this.dropChained();
+    setStageBusy(false, this);
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.unsubscribeResume?.();
@@ -1107,6 +1116,29 @@ export class PerformanceSession {
     });
   };
 
+  /** Keeps the place in the song for a renderer crash: the playlist entry, the time, and whether cues are armed. Library songs only. */
+  private saveResume = (): void => {
+    const { player, queued } = this.state;
+    const library = useSongLibrary.getState();
+    const songId = library.queue[library.position];
+    if (!player || !queued || !songId) return;
+    // A song that stopped at its end is a finished set or song, not a place to come back to.
+    if (!this.state.playing && player.duration > 0 && clockPosition() >= player.duration) return;
+    saveResumePoint({
+      version: 1,
+      savedAt: Date.now(),
+      playlistId: library.playingSet,
+      queue: [...library.queue],
+      position: library.position,
+      songId,
+      songTime: clockPosition(),
+      playing: this.state.playing,
+      sendCues: this.armed,
+      stageMode: this.locked,
+      overrides: [...library.queueOverrides],
+    });
+  };
+
   /** Prepare the pedals and stop at Ready, without count-in, audio or Play triggers. */
   preparePedals = () => this.start(true);
   play = () => this.start(false);
@@ -1249,6 +1281,19 @@ export class PerformanceSession {
     this.pause();
     await this.state.player?.seek(value);
     setClockPosition(value);
+    this.saveResume();
+  };
+
+  /** Start the selected song again after the performer accepts the recovery offer. */
+  playFromBeginning = async () => {
+    this.pause();
+    if (this.locked) {
+      this.fail("Leave stage mode to restart from the beginning.");
+      return;
+    }
+    await this.seek(this.state.player?.start ?? 0);
+    if (this.state.queued) useSongLibrary.getState().resumePlaylist();
+    await this.play();
   };
 
   /** Play, or start the whole playlist when the queue is at its end. */
@@ -2030,6 +2075,22 @@ export class PerformanceSession {
   private createEffects(): Effect[] {
     const armedOf = (s: SessionState) => selectArmed(s);
     return [
+      // While a song plays or prepares, or a playlist runs between its songs, the editor leaves the pedal alone (see state/stage-activity.ts).
+      {
+        deps: (s) => [s.playing, s.starting, s.playlistPlaying],
+        run: (s) => setStageBusy(s.playing || s.starting || s.playlistPlaying, this),
+      },
+      // The place in the song is kept every two seconds while it plays, and at once when a song loads, plays or pauses.
+      {
+        deps: (s) => [s.playing, s.player],
+        run: (s) => {
+          if (!s.player) return;
+          this.saveResume();
+          if (!s.playing) return;
+          const timer = setInterval(this.saveResume, RESUME_SAVE_MS);
+          return () => clearInterval(timer);
+        },
+      },
       // A song a MIDI trigger loaded starts once its player is ready and the library is no longer loading.
       {
         deps: (s) => [s.player, s.busy],

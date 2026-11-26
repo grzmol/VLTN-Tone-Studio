@@ -15,6 +15,10 @@ import { useMidiDiagnostics } from "./midi-diagnostics";
 import { useOutputSettings } from "@/song/audio/output-settings";
 import { DEFAULT_OUTPUTS } from "@/song/audio/outputs";
 import { useNav } from "@/state/nav";
+import { STAGE_IDLE_DEBOUNCE_MS, resetStageActivity, useStageActivity } from "@/state/stage-activity";
+import { clearResumePoint, holdResumePoint, loadResumePoint } from "./resume-point";
+import { useResumeOffer } from "./resume-offer";
+import { setClockPosition } from "./playback-clock";
 
 const mocks = vi.hoisted(() => ({
   warm: [] as { cancel: () => void }[],
@@ -2157,6 +2161,155 @@ describe("Send cues stays on", () => {
     session.bind();
     await vi.waitFor(() => expect(selectArmed(session.state)).toBe(true));
     expect(session.state.midiStatus).toBe("MIDI output reconnected. Send cues is on.");
+  });
+});
+it("tells the device store a song is playing, and that it stopped once the debounce has passed", async () => {
+  resetStageActivity();
+  const { session, unload } = armedSession(output(), { cues: parseChart("[00:01] {midi:pc 1 2}") });
+  vi.useFakeTimers();
+  try {
+    await session.play();
+    expect(useStageActivity.getState().busy).toBe(true);
+    session.pause();
+    vi.advanceTimersByTime(STAGE_IDLE_DEBOUNCE_MS);
+    expect(useStageActivity.getState().busy).toBe(false);
+  } finally {
+    vi.useRealTimers();
+    unload();
+    session.dispose();
+    resetStageActivity();
+  }
+});
+
+it("does not stay busy after the session is disposed mid-song", async () => {
+  resetStageActivity();
+  const { session, unload } = armedSession(output(), { cues: parseChart("[00:01] {midi:pc 1 2}") });
+  vi.useFakeTimers();
+  try {
+    await session.play();
+    unload();
+    session.dispose();
+    vi.advanceTimersByTime(STAGE_IDLE_DEBOUNCE_MS);
+    expect(useStageActivity.getState().busy).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+describe("resume point", () => {
+  const saved = () => loadResumePoint(Date.now());
+  beforeEach(() => {
+    clearResumePoint();
+    useNav.getState().go("song", "performance");
+    mocks.library.queue = ["a", "b", "c"];
+    mocks.library.position = 0;
+    mocks.library.playingSet = "set-1";
+    mocks.library.queueOverrides = [];
+  });
+  afterEach(() => {
+    clearResumePoint();
+    mocks.library.playingSet = null;
+  });
+
+  it("is written as soon as a song plays, and again every two seconds", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      expect(saved()).toMatchObject({ playlistId: "set-1", queue: ["a", "b", "c"], position: 0, songId: "a", playing: true, sendCues: true });
+      clearResumePoint();
+      await new Promise((resolve) => setTimeout(resolve, 2100));
+      expect(saved()?.songId).toBe("a");
+    } finally {
+      session.pause();
+      unload();
+      session.dispose();
+    }
+  });
+
+  it("follows the song when the set moves on", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    await session.play();
+    unload();
+    mocks.library.position = 1;
+    const next = joinedSession(output(), session.state.access as MIDIAccess, {});
+    try {
+      await next.session.play();
+      await vi.waitFor(() => expect(next.session.state.playing).toBe(true));
+      expect(saved()).toMatchObject({ position: 1, songId: "b", playing: true });
+    } finally {
+      next.session.pause();
+      next.unload();
+      next.session.dispose();
+      session.dispose();
+    }
+  });
+
+  it("is not replaced while a resume is on offer", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      const before = saved();
+      holdResumePoint(true);
+      session.pause();
+      expect(saved()).toEqual(before);
+    } finally {
+      unload();
+      session.dispose();
+    }
+  });
+
+  it("is forgotten when the performer leaves the Performance tab", async () => {
+    vi.useFakeTimers();
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      expect(saved()).not.toBeNull();
+      useNav.getState().go("rig");
+      unload();
+      vi.advanceTimersByTime(1);
+      expect(saved()).toBeNull();
+    } finally {
+      useNav.getState().go("song", "performance");
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the point of a resume on offer when the performer leaves the tab", async () => {
+    vi.useFakeTimers();
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      const before = saved();
+      expect(before).not.toBeNull();
+      useResumeOffer.setState({ point: before });
+      useNav.getState().go("rig");
+      unload();
+      vi.advanceTimersByTime(1);
+      expect(saved()).toEqual(before);
+    } finally {
+      useResumeOffer.setState({ point: null });
+      useNav.getState().go("song", "performance");
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not save a song that stopped at its end", async () => {
+    const { session, unload } = armedSession(output(), { queued: true, playlistPlaying: true });
+    try {
+      await session.play();
+      await vi.waitFor(() => expect(session.state.playing).toBe(true));
+      clearResumePoint();
+      setClockPosition(60);
+      session.pause();
+      expect(saved()).toBeNull();
+    } finally {
+      setClockPosition(0);
+      unload();
+      session.dispose();
+    }
   });
 });
 
