@@ -6,6 +6,7 @@ import type { Section } from "@/song/performance/sections";
 import type { TimecodeRate } from "@/song/performance/timecode";
 import { configuredPedals, usePedalLibrary } from "@/song/performance/pedal-library";
 import { useMidiDiagnostics } from "@/song/performance/midi-diagnostics";
+import { useKnownPresetNames } from "./use-preset-names";
 import { useBluetooth, resetBluetoothTiming } from "@/bluetooth/connection";
 import { HelpNote } from "@/components/ui/help-note";
 
@@ -45,6 +46,7 @@ export function MidiHealth({
   timecode?: { fps: TimecodeRate; offset: string; bluetooth: boolean };
 }) {
   const library = usePedalLibrary();
+  const presetNames = useKnownPresetNames();
   const report = useMemo(
     () =>
       midiPreflight(cues, {
@@ -59,6 +61,7 @@ export function MidiHealth({
         tempoChannel,
         outputName,
         timecode,
+        presetNames,
         pedals: configuredPedals(library),
       }),
     [
@@ -74,6 +77,7 @@ export function MidiHealth({
       tempoChannel,
       outputName,
       timecode,
+      presetNames,
       library.channels,
       library.profiles,
       library.assignments,
