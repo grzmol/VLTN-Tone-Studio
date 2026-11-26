@@ -3,7 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { buildMenu } from "./menu";
-import { isJobRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
+import { closeDecision, isJobRunning, isShowRunning, queueOpenedFiles, registerAppIpc, routeOpenedFile } from "./ipc/app";
 import { sendTo } from "./ipc/handle";
 import { registerFilesIpc } from "./ipc/files";
 import { writeJsonAtomicSync } from "./ipc/fs-atomic";
@@ -202,7 +202,8 @@ async function createWindow() {
   win.on("close", (e) => {
     if (!win) return;
     // overlays.md › Electron notes: don't drop a backup or write by closing the window by accident.
-    if (isJobRunning()) {
+    const decision = closeDecision({ job: isJobRunning(), show: isShowRunning() && !quitConfirmed });
+    if (decision === "job-prompt") {
       const choice = dialog.showMessageBoxSync(win, {
         type: "warning",
         buttons: ["Keep open", "Close anyway"],
@@ -211,7 +212,15 @@ async function createWindow() {
         message: "Tone Studio is still writing to or backing up the pedal",
         detail: "Close after it finishes? If you close now, an unfinished write is discarded by the pedal and that slot keeps its old preset.",
       });
-      if (choice === 0) return e.preventDefault();
+      if (choice === 0) {
+        quitConfirmed = false;
+        return e.preventDefault();
+      }
+    }
+    // With a pedal job and a show both running, the show is asked about after the job.
+    if ((decision === "show-prompt" || (decision === "job-prompt" && isShowRunning() && !quitConfirmed)) && askKeepPlaying(win) === 0) {
+      quitConfirmed = false;
+      return e.preventDefault();
     }
     saveBounds(win);
   });
@@ -227,7 +236,11 @@ async function createWindow() {
       message: "The open song has audio that isn't saved yet",
       detail: "Generated or imported tracks are lost if you close now. Keep the window open, then save the song from the Song screen.",
     });
-    if (choice === 1) e.preventDefault();
+    if (choice === 1) {
+      // Keeping the window open also cancels a quit that was already confirmed.
+      quitConfirmed = false;
+      e.preventDefault();
+    }
   });
   win.on("focus", () => sendEvent({ type: "window-focus", focused: true }));
   win.on("blur", () => sendEvent({ type: "window-focus", focused: false }));
@@ -238,6 +251,26 @@ async function createWindow() {
 
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadURL(RENDERER_URL);
+}
+
+// Cmd+Q does not always pass through the window's close event first on macOS, so quitting asks here too, once.
+let quitConfirmed = false;
+app.on("before-quit", (e) => {
+  const win = getWindow();
+  if (quitConfirmed || !win || win.isDestroyed() || !isShowRunning()) return;
+  if (askKeepPlaying(win) === 0) return e.preventDefault();
+  quitConfirmed = true;
+});
+
+function askKeepPlaying(win: BrowserWindow): number {
+  return dialog.showMessageBoxSync(win, {
+    type: "warning",
+    buttons: ["Keep playing", "Stop and close"],
+    defaultId: 0,
+    cancelId: 0,
+    message: "A song is playing",
+    detail: "Closing now stops the music and the pedal cues.",
+  });
 }
 
 app.on("second-instance", (_e, argv) => {
