@@ -15,7 +15,16 @@ describe("stored band options", () => {
   });
 
   it("reads the defaults from a song with nothing saved", () => {
-    expect(readStoredBand(KEY)).toEqual({ settings: DEFAULT_BAND_SETTINGS, grid: null, outOfDate: false, noticeDismissed: false });
+    expect(readStoredBand(KEY).settings).toEqual({ ...DEFAULT_BAND_SETTINGS, bassTone: { kind: "builtin", id: "warm" } });
+    expect(readStoredBand(KEY)).toMatchObject({ grid: null, outOfDate: false, noticeDismissed: false });
+  });
+
+  it("starts a song that never had band settings on the Warm bass tone, and keeps the tone of one that did", () => {
+    expect(readStoredBand(KEY).settings.bassTone).toEqual({ kind: "builtin", id: "warm" });
+    localStorage.setItem(`${KEY}:options`, JSON.stringify({ band: { style: "rock" } }));
+    expect(readStoredBand(KEY).settings.bassTone).toEqual({ kind: "clean" });
+    localStorage.setItem(`${KEY}:options`, JSON.stringify({ band: { bassTone: { kind: "builtin", id: "warm" } } }));
+    expect(readStoredBand(KEY).settings.bassTone).toEqual({ kind: "builtin", id: "warm" });
   });
 
   it("keeps the other options when a field is written", () => {
@@ -35,5 +44,16 @@ describe("stored band options", () => {
     expect(stored.settings.seed).toBe(DEFAULT_BAND_SETTINGS.seed);
     expect(stored.grid).toBeNull();
     expect(stored.noticeDismissed).toBe(true);
+  });
+
+  it("reads the saved notes, and none for a song generated before they were kept or a damaged entry", () => {
+    expect(readStoredBand(KEY).notes).toBeNull();
+    const notes = { engine: 2, seed: 3, drums: [[0, 36, 100, 100, 0]], bass: [] };
+    writeStoredBand(KEY, { bandNotes: notes as never });
+    expect(readStoredBand(KEY).notes).toEqual(notes);
+    writeStoredBand(KEY, { bandNotes: undefined });
+    expect(readStoredBand(KEY).notes).toBeNull();
+    localStorage.setItem(`${KEY}:options`, JSON.stringify({ bandNotes: { engine: 2, seed: 3, drums: "x", bass: [] } }));
+    expect(readStoredBand(KEY).notes).toBeNull();
   });
 });

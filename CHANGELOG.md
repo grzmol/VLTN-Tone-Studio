@@ -4,6 +4,9 @@ All notable changes to VLTN Tone Studio. Versions match `app/package.json` and t
 
 ## [Unreleased]
 
+### Added
+- Generated drums use section grooves, phrase turnarounds and fills shaped by the next section.
+
 ### Fixed
 - **GP-150 preset numbers after overwriting presets** (#140). The Library and the preset bar showed the right names under the wrong slot numbers, so the arrows in the Rig jumped to other presets. Slots now follow the order of the pedal's list.
 

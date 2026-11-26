@@ -16,6 +16,7 @@ const LABEL: Record<PartKind, string> = { drums: "Drums", bass: "Bass" };
 export function PartChoiceRows({
   choices,
   keys,
+  notes,
   disabled,
   onChange,
 }: {
@@ -23,6 +24,8 @@ export function PartChoiceRows({
   choices: PartChoices;
   /** The track keys of each part. Generated and Both need a generated track. */
   keys: PartKeys;
+  /** A line after a part that has a generated track, such as that its tone is missing. Only a line that is not plain "Generated" is shown. */
+  notes?: Partial<Record<PartKind, string>>;
   /** True while a Band action runs. Playback does not disable the rows: switching only changes mute levels. */
   disabled: boolean;
   onChange(patch: Partial<PartChoices>): void;
@@ -53,6 +56,7 @@ export function PartChoiceRows({
                 </Button>
               );
             })}
+            {hasGenerated && notes?.[kind] && notes[kind] !== "Generated" && <span className="text-amber-400">{notes[kind]}</span>}
             {!hasGenerated && <span className="text-muted-foreground">Generate the {LABEL[kind].toLowerCase()} first.</span>}
           </div>
         );

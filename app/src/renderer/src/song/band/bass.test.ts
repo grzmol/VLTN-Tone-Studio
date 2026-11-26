@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BAND_SETTINGS, type BandSettings, type BassMode, type BassRange, type SectionPlan } from "./arrangement";
-import { generateBass } from "./bass";
+import { bassRangeFor, generateBass } from "./bass";
+import { chooseFigure, type Figure } from "./bass-figures";
+import { findStyle } from "./styles";
+import type { EndingSettings } from "./ending";
 import type { BeatGrid } from "./beat-grid";
 import type { Feel } from "./feel";
+import type { BarMark } from "./marks";
 import { parseChordName, type ChordAtBeat } from "./harmony";
 import type { NoteEvent } from "./note";
 
@@ -49,7 +53,8 @@ function planFor(endBeat: number, overrides: Partial<SectionPlan> = {}): Section
 
 /** Settings with every choice fixed: roots, normal range, no kick lock, full complexity, no swing. */
 function settingsFor(overrides: Partial<BandSettings> = {}): BandSettings {
-  return { ...DEFAULT_BAND_SETTINGS, complexity: 1, swing: 0, lockToKick: false, bassMode: "roots", bassRange: "normal", ...overrides };
+  // The tests here are for the earlier bass (engine 1) unless one sets engine 2: a groove or melodic section plays a figure at engine 2.
+  return { ...DEFAULT_BAND_SETTINGS, engine: 1, complexity: 1, swing: 0, lockToKick: false, bassMode: "roots", bassRange: "normal", ...overrides };
 }
 
 /** The pitch class of a MIDI note. */
@@ -74,7 +79,7 @@ describe("generateBass", () => {
   });
 
   it("keeps every note inside the range, for each range and mode", () => {
-    const ranges: Record<BassRange, [number, number]> = { low: [28, 40], normal: [28, 55], high: [33, 60] };
+    const ranges: Record<BassRange, [number, number]> = { low: [28, 40], normal: [28, 55], high: [33, 60], extended: [23, 50] };
     const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
     const grid = gridOf(progression.length);
     const modes: [BassMode, string][] = [
@@ -461,5 +466,392 @@ describe("generateBass with the performer's bass notes (spec 87)", () => {
     const plain = generateBass(grid, withBass(2), plans, settingsFor(), [], 3);
     const up = generateBass(grid, withBass(2, 1), plans, settingsFor(), [], 3);
     expect(firstOf(up, 1).pitch - firstOf(plain, 1).pitch).toBe(12);
+  });
+});
+
+describe("generateBass with a section that starts near a bar line", () => {
+  const chords = barsOf("C", "C", "C", "C", "F", "F", "F", "F");
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  /** Two sections that meet `offset` seconds after the bar line at 8 s, the second hitting the one. */
+  const withSplit = (offset: number) => {
+    const plans = [planFor(16, { end: 8 + offset, fills: 1 }), planFor(32, { start: 8 + offset, hitTheOne: true })];
+    return generateBass(grid, harmony, plans, settingsFor(), [], 4);
+  };
+
+  it.each([0.04, -0.04])("plays the hit-the-one note on the bar line when the section starts %f s after it", (offset) => {
+    const notes = withSplit(offset);
+    const first = notes.find((note) => note.time >= 8 - 1e-9);
+    expect(first?.time).toBeCloseTo(8, 9);
+    expect(notes).toEqual(withSplit(0));
+  });
+});
+
+describe("generateBass endings", () => {
+  // Four bars of two seconds, C F G C. The song's own end is at 8 s.
+  const names = barsOf("C", "F", "G", "C");
+  const bass = (ending: EndingSettings, endTime?: number, plans = [planFor(names.length)]) =>
+    generateBass(gridOf(names.length), harmonyFor(names), plans, settingsFor({ ending }), [], 1, undefined, endTime);
+
+  it("holds one note on the last downbeat for a hit, and nothing after", () => {
+    const notes = bass({ kind: "hit" });
+    const last = notes.filter((note) => note.time >= 6);
+    expect(last).toHaveLength(1);
+    expect(last[0].duration).toBeCloseTo(2, 9);
+  });
+
+  it("plays the last bar and then a root that rings for two bars for a hold", () => {
+    const notes = bass({ kind: "hold" });
+    expect(notes.filter((note) => note.time >= 6 && note.time < 8).length).toBeGreaterThan(0);
+    const last = notes.filter((note) => note.time >= 8);
+    expect(last).toHaveLength(1);
+    expect(last[0].time).toBe(8);
+    expect(pc(last[0].pitch)).toBe(0);
+    // Two bars of two seconds.
+    expect(last[0].duration).toBeCloseTo(4, 9);
+  });
+
+  it("plays three roots on the last bar's beats and a last one on the next downbeat for three hits", () => {
+    const notes = bass({ kind: "hits" });
+    expect(notes.filter((note) => note.time >= 6).map((note) => note.time)).toEqual([6, 6.5, 7, 8]);
+    expect(notes.filter((note) => note.time >= 6).every((note) => pc(note.pitch) === 0)).toBe(true);
+  });
+
+  it("plays a root on each bar of a slow-down and a last note after it", () => {
+    const notes = bass({ kind: "slow", bars: 1 });
+    const after = notes.filter((note) => note.time >= 8);
+    expect(after).toHaveLength(2);
+    expect(after[0].time).toBe(8);
+    // The bar of the slow-down is longer than a normal bar of two seconds.
+    expect(after[1].time).toBeGreaterThan(10);
+  });
+
+  it("plays to the end of the last section with no special ending for none", () => {
+    const notes = bass({ kind: "none" });
+    expect(notes.filter((note) => note.time >= 6).length).toBeGreaterThan(1);
+    expect(notes.every((note) => note.time < 8)).toBe(true);
+  });
+
+  it("puts the ending at the end of the section it is asked for", () => {
+    const plans = [planFor(8, { sectionId: "verse" }), { ...planFor(16, { sectionId: "outro" }), start: 4 }];
+    const notes = bass({ kind: "hit", atSection: "verse" }, undefined, plans);
+    expect(notes.filter((note) => note.time >= 2)).toHaveLength(1);
+    expect(notes.filter((note) => note.time >= 2)[0].time).toBe(2);
+  });
+
+  it("puts the ending on the last full bar before the trim end", () => {
+    const notes = bass({ kind: "hit" }, 6.9);
+    expect(notes.filter((note) => note.time >= 4)).toHaveLength(1);
+    expect(notes.filter((note) => note.time >= 4)[0].time).toBe(4);
+  });
+});
+
+describe("generateBass with a figure (engine 2)", () => {
+  const rock = findStyle("rock")!;
+  /** The first seed whose figure for `name` has the shape the test needs, so a test does not depend on which figure a seed happens to pick. */
+  const seedFor = (figures: readonly Figure[], part: "groove" | "melodic", name: string, wanted: (figure: Figure) => boolean): number => {
+    const seed = Array.from({ length: 200 }, (_, i) => i + 1).find((candidate) => wanted(chooseFigure(figures, part, candidate, name)));
+    if (seed === undefined) throw new Error("no seed gives the figure the test needs");
+    return seed;
+  };
+  const engine2 = (overrides: Partial<BandSettings> = {}): BandSettings => settingsFor({ engine: 2, ...overrides });
+  /** A bar as (step, interval above its first note's pitch class), so a bar on another chord with the same figure compares equal. */
+  const shapeOf = (notes: readonly NoteEvent[], bar: number): [number, number][] => {
+    const own = inBar(notes, bar);
+    return own.map((note) => [Math.round(((note.time - bar * 2) / 2) * 16), (note.pitch - own[0].pitch + 120) % 12]);
+  };
+  const stepsOf = (notes: readonly NoteEvent[], bar: number): number[] => shapeOf(notes, bar).map(([step]) => step);
+
+  it("plays the same figure in bars 1 to 3 of each phrase and changes the fourth", () => {
+    const chords = barsOf(...["C", "G", "Am", "F"].flatMap((name) => [name, name, name, name]));
+    const figures = rock.bass.figures[4];
+    const seed = seedFor(figures, "groove", "Chorus", (figure) => figure.bars === 1);
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Chorus", energy: 4, fills: 3 })],
+      engine2(),
+      [],
+      seed,
+    );
+    for (let phrase = 0; phrase < 4; phrase++) {
+      const first = phrase * 4;
+      expect(shapeOf(notes, first + 1)).toEqual(shapeOf(notes, first));
+      expect(shapeOf(notes, first + 2)).toEqual(shapeOf(notes, first));
+    }
+    // The last bar of a phrase varies, in at least all but the phrase that leads into the ending.
+    const varied = [0, 1, 2].filter((phrase) => JSON.stringify(shapeOf(notes, phrase * 4 + 3)) !== JSON.stringify(shapeOf(notes, phrase * 4)));
+    expect(varied.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("plays the same figure in Chorus 1 and Chorus 2", () => {
+    const chords = barsOf(...Array<string>(12).fill("A"));
+    const plans = [
+      planFor(16, { name: "Chorus", energy: 4, end: 8 }),
+      planFor(32, { name: "Verse", energy: 4, start: 8, end: 16 }),
+      planFor(48, { name: "Chorus", energy: 4, start: 16, end: 24 }),
+    ];
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), plans, engine2(), [], 7);
+    expect(shapeOf(notes, 0)).toEqual(shapeOf(notes, 8));
+    expect(stepsOf(notes, 0).length).toBeGreaterThan(1);
+  });
+
+  it("plays the key's third above a power chord that has none: A, not A sharp, over F sharp in A major", () => {
+    const ballad = findStyle("ballad")!;
+    const seed = seedFor(ballad.bass.figures[4], "melodic", "Verse", (figure) => figure.notes.some((bar) => bar.some((note) => note.degree === "3")));
+    const chords = barsOf(...Array<string>(4).fill("F#5"));
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Verse", style: "ballad", energy: 4, bassPart: "melodic" })],
+      engine2(),
+      [],
+      seed,
+      undefined,
+      undefined,
+      [{ start: 0, end: 8, tonic: 9, mode: "major" }],
+    );
+    const classes = new Set(notes.slice(0, -1).map((note) => pc(note.pitch)));
+    expect(classes.has(9)).toBe(true);
+    expect(classes.has(10)).toBe(false);
+  });
+
+  it("keeps every figure note when the kick is locked, and gives every kick a bass note within two steps", () => {
+    const chords = barsOf("C", "C", "C", "C");
+    const seed = seedFor(rock.bass.figures[4], "groove", "Verse", (figure) => figure.bars === 1);
+    const figure = chooseFigure(rock.bass.figures[4], "groove", seed, "Verse");
+    // A step is an eighth of a half-second beat: 0.125 s. These kicks are on steps 0, 5 (one from a figure note on 6 or 4), 10 and 14.
+    const kickSteps = [0, 5, 10, 14];
+    const kick: NoteEvent[] = [0, 1, 2, 3].flatMap((bar) =>
+      kickSteps.map((step) => ({ time: bar * 2 + step * 0.125, pitch: 36, velocity: 100, duration: 0.1 })),
+    );
+    const notes = generateBass(
+      gridOf(chords.length),
+      harmonyFor(chords),
+      [planFor(chords.length, { name: "Verse", energy: 4 })],
+      engine2({ lockToKick: true }),
+      kick,
+      seed,
+    );
+    for (let bar = 0; bar < 3; bar++) {
+      const played = stepsOf(notes, bar);
+      for (const note of figure.notes[0]) expect(played.some((step) => Math.abs(step - note.step) <= 1)).toBe(true);
+      for (const step of kickSteps) expect(played.some((at) => Math.abs(at - step) <= 2)).toBe(true);
+    }
+  });
+
+  it("plays a note the performer set by hand as set, whatever the figure", () => {
+    const grid = gridOf(16);
+    const harmony = harmonyFor(barsOf("C", "C", "C", "C"));
+    const set = harmony.map((entry) => ({ ...entry, chord: { ...entry.chord!, bass: 4, byHand: true } }));
+    const notes = generateBass(grid, set, [planFor(16, { name: "Chorus", energy: 4, bassPart: "melodic" })], engine2(), [], 3);
+    for (const note of notes.slice(0, -1)) expect(pc(note.pitch)).toBe(4);
+  });
+
+  it("plays each root at the same pitch both times round an intro of D, A, E and F sharp", () => {
+    const chords = barsOf("D", "A", "E", "F#", "D", "A", "E", "F#", "D");
+    for (const part of ["ring", "pulse", "groove", "melodic"] as const) {
+      const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { name: "Intro", bassPart: part })], engine2(), [], 3);
+      const roots = [0, 1, 2, 3, 4, 5, 6, 7].map((bar) => inBar(notes, bar)[0].pitch);
+      expect(roots.slice(0, 4)).toEqual(roots.slice(4));
+      // The four roots sit within an octave of one another, instead of E and F sharp dropping a ninth below D and A.
+      expect(Math.max(...roots) - Math.min(...roots)).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it("moves a section's roots by its octave shift, and keeps a note that would leave the range in it", () => {
+    const chords = barsOf("C", "C", "A", "A");
+    const plan = (octave: -1 | 0 | 1) => [planFor(chords.length, { bassPart: "pulse", octave })];
+    const rootsOf = (octave: -1 | 0 | 1) => {
+      const notes = generateBass(gridOf(chords.length), harmonyFor(chords), plan(octave), engine2(), [], 3);
+      return [inBar(notes, 0)[0].pitch, inBar(notes, 2)[0].pitch];
+    };
+    expect(rootsOf(0)).toEqual([36, 33]);
+    // The shift is all or nothing at engine 1. At engine 2 C moves up and A, which has no room above, stays in the range.
+    expect(rootsOf(1)[0]).toBe(48);
+    for (const pitch of rootsOf(1)) expect(pitch).toBeLessThanOrEqual(55);
+    // An octave down would put C at 24, below the range, so it stays at 36.
+    expect(rootsOf(-1)).toEqual([36, 33]);
+  });
+
+  it("plays a root of D at D1 (26) in the extended range, a seventh above the low E in the normal one", () => {
+    const chords = barsOf("D", "D", "D", "D");
+    const rootOf = (settings: BandSettings, keys: { start: number; end: number; tonic: number; mode: "major" | "minor" }[] = []) =>
+      generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { bassPart: "pulse" })], settings, [], 3, undefined, undefined, keys)[0].pitch;
+    expect(rootOf(engine2({ bassRange: "extended" }))).toBe(26);
+    expect(rootOf(engine2())).toBe(38);
+  });
+
+  it("plans a song in C, C sharp, D or E flat with the extended range while the range is still the default", () => {
+    const keyOf = (tonic: number) => [{ start: 0, end: 60, tonic, mode: "major" as const }];
+    for (const tonic of [0, 1, 2, 3]) expect(bassRangeFor(engine2(), keyOf(tonic))).toEqual({ range: "extended", tonic });
+    expect(bassRangeFor(engine2(), keyOf(4))).toEqual({ range: "normal", tonic: null });
+    expect(bassRangeFor(engine2(), [])).toEqual({ range: "normal", tonic: null });
+    // A range the performer chose, and the earlier engine, keep their own.
+    expect(bassRangeFor(engine2({ bassRange: "high" }), keyOf(2))).toEqual({ range: "high", tonic: null });
+    expect(bassRangeFor(settingsFor({ engine: 1 }), keyOf(2))).toEqual({ range: "normal", tonic: null });
+    // The song's key is the one covering most of it.
+    const mixed = [
+      { start: 0, end: 20, tonic: 2, mode: "major" as const },
+      { start: 20, end: 60, tonic: 7, mode: "major" as const },
+    ];
+    expect(bassRangeFor(engine2(), mixed).range).toBe("normal");
+    const chords = barsOf("D", "D", "D", "D");
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { bassPart: "pulse" })], engine2(), [], 3, undefined, undefined, keyOf(2));
+    expect(notes[0].pitch).toBe(26);
+  });
+
+  it("plays a short figure note for a third of its step, and the other notes for their usual share", () => {
+    const funk = findStyle("funk")!;
+    const hasShort = (figure: Figure): boolean => figure.notes[0].some((note) => note.short);
+    const seed = seedFor(funk.bass.figures[3], "melodic", "Verse", hasShort);
+    const figure = chooseFigure(funk.bass.figures[3], "melodic", seed, "Verse");
+    const chords = barsOf("C", "C");
+    const notes = generateBass(gridOf(chords.length), harmonyFor(chords), [planFor(chords.length, { name: "Verse", style: "funk", energy: 3, bassPart: "melodic" })], engine2(), [], seed);
+    const bar = notes.filter((note) => note.time < 2 - 1e-9);
+    let checked = 0;
+    for (const note of figure.notes[0]) {
+      const at = bar.findIndex((played) => Math.abs(played.time - note.step * 0.125) < 1e-6);
+      expect(at).toBeGreaterThanOrEqual(0);
+      const gap = (bar[at + 1]?.time ?? 2) - bar[at].time;
+      if (note.short) {
+        expect(bar[at].duration).toBeCloseTo(gap / 3, 6);
+        checked++;
+      } else expect(bar[at].duration).toBeGreaterThan(gap / 3);
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("keeps every note inside the range, for every style and energy", () => {
+    const progression = harmonyFor(barsOf("C", "Am", "F", "G/B", "Dm7", "Bdim", "E7", "Aaug"));
+    for (const id of ["rock", "pop", "ballad", "funk", "shuffle", "country", "reggae", "metal", "half-time"] as const) {
+      for (const energy of [1, 3, 5] as const) {
+        for (const part of ["groove", "melodic"] as const) {
+          const notes = generateBass(
+            gridOf(progression.length),
+            progression,
+            [planFor(progression.length, { style: id, energy, bassPart: part })],
+            engine2({ complexity: 0.5 }),
+            [],
+            4,
+          );
+          expect(notes.length).toBeGreaterThan(0);
+          for (const note of notes) {
+            expect(note.pitch).toBeGreaterThanOrEqual(28);
+            expect(note.pitch).toBeLessThanOrEqual(55);
+          }
+        }
+      }
+    }
+  });
+});
+
+describe("generateBass with marks", () => {
+  const chords = barsOf("C", "Am", "F", "G", "C", "Am", "F", "G");
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  const plans = [planFor(chords.length, { name: "Verse", fills: 3, busy: 4 })];
+  const generate = (marks: BarMark[], withHarmony: ChordAtBeat[] = harmony, settings: Partial<BandSettings> = {}) =>
+    generateBass(grid, withHarmony, plans, settingsFor({ engine: 2, bassMode: "melodic", ...settings, marks }), [], 3);
+  // A song with no marks keeps the jitter it always had, so the unmarked notes are read from a song with a mark that falls on no bar.
+  const plain = generate([{ time: 500, kind: "fill" }]);
+  /** Every note outside the given bars. */
+  // Lengths are left out: the note before a changed bar is cut at the next note, which has moved.
+  const outside = (notes: readonly NoteEvent[], bars: number[]) =>
+    notes.filter((note) => !bars.includes(Math.floor(note.time / 2 + 1e-9))).map((note) => [note.time, note.pitch, note.velocity]);
+
+  it("gives the notes it always gave when there are no marks", () => {
+    const noMarks = generateBass(grid, harmony, plans, settingsFor({ engine: 2, bassMode: "melodic" }), [], 3);
+    expect(noMarks.map((note) => [note.time, note.pitch])).toEqual(plain.map((note) => [note.time, note.pitch]));
+  });
+
+  it("stop silences the last beats of its bar and plays a note on the next downbeat, and changes nothing else", () => {
+    const marked = generate([{ time: 4, kind: "stop", beats: 2 }]);
+    expect(inBar(marked, 2).filter((note) => note.time >= 5)).toEqual([]);
+    // The last note before the stop is now the bar's last note, so it rings; the notes before it are the same.
+    expect(inBar(marked, 2).filter((note) => note.time < 4.5)).toEqual(inBar(plain, 2).filter((note) => note.time < 4.5));
+    expect(inBar(marked, 3).some((note) => note.time === 6)).toBe(true);
+    expect(outside(marked, [2, 3])).toEqual(outside(plain, [2, 3]));
+    // No note rings into the stop.
+    expect(inBar(marked, 2).every((note) => note.time + note.duration <= 5 + 1e-9)).toBe(true);
+  });
+
+  it("bass-out rests the bass for one bar and leaves every other bar as it was", () => {
+    const marked = generate([{ time: 4, kind: "bass-out" }]);
+    expect(inBar(marked, 2)).toEqual([]);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("a note set by hand still plays in a bar marked bass-out", () => {
+    const byHand = harmony.map((entry) => (entry.beat === 9 && entry.chord ? { ...entry, chord: { ...entry.chord, byHand: true } } : entry));
+    const marked = generate([{ time: 4, kind: "bass-out" }], byHand);
+    expect(inBar(marked, 2).length).toBeGreaterThan(0);
+    expect(inBar(marked, 2).every((note) => note.time >= 4.5 && note.time < 5)).toBe(true);
+  });
+
+  it("hit plays one note on the downbeat, held for the bar, and changes nothing else", () => {
+    const marked = generate([{ time: 4, kind: "hit" }]);
+    expect(inBar(marked, 2)).toHaveLength(1);
+    expect(inBar(marked, 2)[0].time).toBe(4);
+    expect(inBar(marked, 2)[0].duration).toBeGreaterThan(1);
+    expect(outside(marked, [2])).toEqual(outside(plain, [2]));
+  });
+
+  it("no-fill takes the phrase variation out of its bar and leaves the other phrases as they were", () => {
+    // Bars 3 and 7 end the phrases of an eight-bar section.
+    const marked = generate([{ time: 6, kind: "no-fill" }]);
+    const without = generateBass(grid, harmony, [planFor(chords.length, { name: "Verse", fills: 0, busy: 4 })], settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 500, kind: "fill" }] }), [], 3);
+    expect(inBar(plain, 3)).not.toEqual(inBar(without, 3));
+    expect(inBar(marked, 3)).toEqual(inBar(without, 3));
+    expect(outside(marked, [3])).toEqual(outside(plain, [3]));
+  });
+
+  it("fill gives a bar a variation of its own and changes no other bar", () => {
+    const quiet = [planFor(chords.length, { name: "Verse", fills: 0, busy: 4 })];
+    const base = generateBass(grid, harmony, quiet, settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 500, kind: "fill" }] }), [], 3);
+    const marked = generateBass(grid, harmony, quiet, settingsFor({ engine: 2, bassMode: "melodic", marks: [{ time: 4, kind: "fill" }] }), [], 3);
+    expect(inBar(marked, 2)).not.toEqual(inBar(base, 2));
+    expect(outside(marked, [2])).toEqual(outside(base, [2]));
+  });
+});
+
+describe("generateBass with a seed for one section", () => {
+  // Three sections of 16 bars (32 s each), each over its own two chords.
+  const chords = [...Array.from({ length: 8 }, () => barsOf("C", "G")).flat(), ...Array.from({ length: 8 }, () => barsOf("Am", "F")).flat(), ...Array.from({ length: 8 }, () => barsOf("D", "A")).flat()];
+  const harmony = harmonyFor(chords);
+  const grid = gridOf(chords.length);
+  const plansWith = (seed?: number) => [
+    planFor(64, { name: "Verse", fills: 3, busy: 4 }),
+    { ...planFor(128, { name: "Chorus", fills: 3, busy: 4 }), start: 32, ...(seed === undefined ? {} : { seed }) },
+    { ...planFor(192, { name: "Bridge", fills: 3, busy: 4 }), start: 64 },
+  ];
+  const settings = settingsFor({ engine: 2, bassMode: "melodic" });
+  const generate = (seed: number, sectionSeed?: number) => generateBass(grid, harmony, plansWith(sectionSeed), settings, [], seed);
+  const inSection = (notes: readonly NoteEvent[], index: number) =>
+    notes.filter((note) => note.time >= index * 32 && note.time < (index + 1) * 32).map((note) => [note.time, note.pitch, note.velocity]);
+
+  it("a new seed for the song leaves a section with its own seed alone and changes the others", () => {
+    const first = generate(1, 9);
+    const second = generate(2, 9);
+    expect(inSection(second, 1)).toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).not.toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).not.toEqual(inSection(first, 2));
+  });
+
+  it("a new seed for one section changes only that section", () => {
+    const first = generate(1, 9);
+    const second = generate(1, 10);
+    expect(inSection(second, 1)).not.toEqual(inSection(first, 1));
+    expect(inSection(second, 0)).toEqual(inSection(first, 0));
+    expect(inSection(second, 2)).toEqual(inSection(first, 2));
+  });
+
+  it("a section without a seed of its own plays what it played before", () => {
+    const without = generate(1);
+    expect(generate(1, undefined)).toEqual(without);
+    // The first seed of a song moves every velocity once (jitter is then drawn by place), but no note's time or pitch.
+    const timesAndPitches = (notes: readonly NoteEvent[], index: number) => inSection(notes, index).map(([time, pitch]) => [time, pitch]);
+    expect(timesAndPitches(generate(1, 9), 0)).toEqual(timesAndPitches(without, 0));
+    expect(timesAndPitches(generate(1, 9), 2)).toEqual(timesAndPitches(without, 2));
   });
 });
