@@ -87,20 +87,21 @@ export type SchedulerReply =
   | { type: "resync"; position: number }
   | { type: "fault"; error: string }
   | { type: "ready" }
+  | { type: "clock"; at: number; workerNow: number }
   | { type: "started" }
   | { type: "heartbeat" };
 /**
- * The worker's clock on the renderer's timeline. `at` is the renderer's clock (`midiNow`) when playback was requested, and `perfNow` is the
- * worker's own monotonic clock. Only the difference between them is kept, so the worker's time origin plays no part: a worker created before
- * a sleep, or after the wall clock moved, reads the same time as the renderer. Reading `timeOrigin + now` directly would put it hours away.
+ * The worker's clock on the renderer's timeline. `at` and `observedAt` describe the same calibrated instant on the renderer and worker
+ * clocks. Keeping that observation, rather than the time a start message arrives, includes delivery time without trusting either epoch.
  */
-export function alignedClock(at: number, perfNow: () => number): () => number {
-  const offset = at - perfNow();
+export function alignedClock(at: number, perfNow: () => number, observedAt = perfNow()): () => number {
+  const offset = at - observedAt;
   return () => perfNow() + offset;
 }
 
 export type SchedulerRequest =
-  | { type: "start"; config: SchedulerConfig; at: number }
+  | { type: "clock"; at: number }
+  | { type: "start"; config: SchedulerConfig; at: number; clock: { rendererAt: number; workerAt: number } }
   | { type: "sync"; position: number; at: number }
   | { type: "plan"; cap: number | null; jump: SchedulerJump | null }
   | { type: "timecode-end"; at: number | null }
@@ -206,6 +207,8 @@ export class MidiSchedule {
   /** Cues from this song time on are held back. A planned jump sets it so the old passage stops at the boundary. */
   private cap = Infinity;
   private pendingJump: SchedulerJump | null = null;
+  /** Opening messages timestamped for an irreversible jump's boundary, before the worker tick reaches it. */
+  private jumpOpening: { at: number; position: number; keys: Set<string> } | null = null;
   /** Checkpoints taken before this clock time were taken before the last jump, so they describe the old passage. */
   private jumpAt = -Infinity;
   /** The timecode stream: quarter frame `next` is due at `anchor.time` plus its share of a quarter at the current rate. */
@@ -277,6 +280,7 @@ export class MidiSchedule {
   plan(cap: number | null, jump: SchedulerJump | null, now: number) {
     if (this.stopped) return;
     if (this.pendingJump && now >= this.pendingJump.at) this.jump();
+    if (!jump || jump.at !== this.jumpOpening?.at || jump.position !== this.jumpOpening?.position) this.jumpOpening = null;
     this.cap = cap ?? Infinity;
     this.pendingJump = jump;
   }
@@ -364,7 +368,9 @@ export class MidiSchedule {
   /** Moves the schedule to the planned position. The audio jumped at the same boundary, so the audio checkpoint restarts here too. */
   private jump() {
     const jump = this.pendingJump!;
-    if (!jump.keepsPosition) this.prepared = null;
+    const opening = this.jumpOpening;
+    if (!jump.keepsPosition) this.prepared = opening ? { position: opening.position, keys: opening.keys } : null;
+    this.jumpOpening = null;
     this.pendingJump = null;
     // A new rate re-anchors the clock on the last pulse already sent, so the spacing changes after it. Pulses sent in the lookahead
     // keep the old spacing, and none is sent twice or bunched up.
@@ -384,7 +390,7 @@ export class MidiSchedule {
     this.driftChecks = 0;
     this.driftSign = 0;
     // A jump that moves the song chases the state at its new position. A speed swap at the same position does not.
-    if (!jump.keepsPosition) this.chasePending = true;
+    if (!jump.keepsPosition) this.chasePending = !opening;
     // Timecode follows song time, so a jump, loop wrap or rate change starts it again: a full frame at the new position, then piece 0.
     this.restartTimecode(jump.at, jump.position);
     // A seek moves the song away from the hand-over, so the outgoing song's quarter frames stop there.
@@ -462,6 +468,23 @@ export class MidiSchedule {
     const holdAt = this.audioReported && !this.started ? this.config.position : Infinity;
     const until = Math.min(this.config.duration, position + lookahead * this.rate, holdAt),
       candidates: ScheduledMessage[] = [];
+    const jump = this.pendingJump;
+    // Audio jumps cannot be cancelled inside 150 ms (player.ts). Queue only inside 100 ms, so a cancellable plan never changes pedal
+    // state. Timestamp the destination's chase and boundary cues at the jump itself; waiting for the next 20 ms tick makes them late.
+    if (jump && !jump.keepsPosition && !this.jumpOpening && jump.at - now <= Math.min(100, lookahead * 1000)) {
+      const cues = this.cues.filter((cue) => Math.abs(cue.time - jump.position) <= 0.001);
+      const opening = [
+        ...computeChaseState(this.cues, jump.position, this.chaseTriggers, settledAt(this.cues, jump.position)).map((m) => ({
+          bytes: m.bytes,
+          due: jump.at,
+          label: "Chase state",
+          time: m.time,
+        })),
+        ...cues.flatMap((cue) => cue.messages.map((bytes) => ({ bytes, due: jump.at, label: cue.label || "Song cue", time: cue.time }))),
+      ];
+      candidates.push(...opening);
+      this.jumpOpening = { at: jump.at, position: jump.position, keys: new Set(opening.map((m) => m.bytes.join(","))) };
+    }
     // The cap is exclusive: a cue on the boundary waits for the plan, so a jump at that boundary never sends the passage after it.
     while (this.next < this.cues.length && this.cues[this.next].time <= until && this.cues[this.next].time < this.cap - 0.001) {
       const cue = this.cues[this.next++];

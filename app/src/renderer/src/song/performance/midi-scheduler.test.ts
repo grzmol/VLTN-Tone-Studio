@@ -807,3 +807,51 @@ it("does not replay prepared presets at audio start but keeps notes and restores
       .map((message) => message.bytes),
   ).toEqual([[0xc0, 5]]);
 });
+
+it("keeps a calibrated worker clock current when start delivery is delayed, independent of epochs", () => {
+  let workerTime = 500;
+  const clock = alignedClock(1000, () => workerTime, 450);
+  expect(clock()).toBe(1050);
+  workerTime += 30;
+  expect(clock()).toBe(1080);
+});
+
+it("timestamps an irreversible jump's chase and destination cues ahead of the boundary, exactly once", () => {
+  const f = fixture({
+    cues: parseChart("[00:00] {midi:pc 1 5}\n[00:01] {midi:note 2 60 100}"),
+    origin: 1000,
+    position: 0,
+    duration: 20,
+    lookahead: SYSTEM_LOOKAHEAD,
+  });
+  f.schedule.tick(1000);
+  f.schedule.plan(4, { at: 5000, position: 1 }, 4000);
+  f.schedule.sync(3.88, 4880, 4880);
+  f.schedule.tick(4880); // still outside the irreversible queue window
+  expect(f.messages().filter((m) => m.due === 5000)).toHaveLength(0);
+  f.schedule.tick(4910);
+  const opening = f.messages().filter((m) => m.due === 5000);
+  expect(opening.map((m) => m.bytes)).toEqual([
+    [0xc0, 5],
+    [0x91, 60, 100],
+  ]);
+  f.schedule.tick(4990);
+  f.schedule.tick(5015); // a tick after the actual boundary must not send a second chase or note
+  expect(
+    f
+      .messages()
+      .filter((m) => m.due >= 5000)
+      .map((m) => m.bytes),
+  ).toEqual(opening.map((m) => m.bytes));
+});
+
+it("does not emit a cancelled jump's future opening", () => {
+  const f = fixture({ cues: parseChart("[00:00] {midi:pc 1 5}"), origin: 1000, duration: 20 });
+  f.schedule.tick(1000);
+  f.schedule.plan(4, { at: 5000, position: 1 }, 4000);
+  f.schedule.sync(3.8, 4800, 4800);
+  f.schedule.tick(4800);
+  f.schedule.plan(null, null, 4820);
+  f.schedule.tick(4930);
+  expect(f.messages().filter((m) => m.due === 5000)).toHaveLength(0);
+});
