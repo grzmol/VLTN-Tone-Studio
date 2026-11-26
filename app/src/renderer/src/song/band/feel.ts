@@ -7,7 +7,7 @@ import type { BeatGrid, OnsetStrength } from "./beat-grid";
 import { KICK, SNARE } from "./note";
 import { findStyle } from "./styles";
 import { BUSY_FROM, playsAt, type DrumGroove } from "./styles/types";
-import { barBeats, barStarts, beatSpan, planIndexAt, stepAt } from "./timing";
+import { barBeats, barSpans, beatSpan, planOfBar, stepAt, stepsForBar } from "./timing";
 
 /** A step takes the strongest onset within this many seconds of its time, since a strum lands a little before or after the grid. */
 export const ACCENT_WINDOW_SECONDS = 0.025;
@@ -130,19 +130,19 @@ function consistency(bars: readonly Float64Array[], sums: Float64Array): number 
 export function accentProfile(onset: ArrayLike<number>, frameRate: number, grid: BeatGrid, plans: readonly SectionPlan[]): AccentProfile[] {
   const beats = grid.beats;
   const perBar = barBeats(grid);
-  const starts = barStarts(grid);
-  const planOf = starts.map((start) => planIndexAt(plans, beats[start]));
+  const spans = barSpans(grid);
+  const planOf = spans.map((span) => planOfBar(plans, beats, span));
   return plans.map((plan, index) => {
     const style = findStyle(plan.style);
-    const steps = perBar * (style?.meter.stepsPerBeat ?? 4);
+    const steps = style ? stepsForBar(style, perBar) : perBar * 4;
     const sums = new Float64Array(steps);
     const bars: Float64Array[] = [];
     if (style) {
-      starts.forEach((start, k) => {
+      spans.forEach(({ start }, k) => {
         if (planOf[k] !== index) return;
         const bar = new Float64Array(steps);
         for (let step = 0; step < steps; step++) {
-          const point = stepAt(beats, style, start, step, steps, perBar, 0);
+          const point = stepAt(beats, style, start, step, style.meter.beatsPerBar, 0);
           if (point.beat < beats.length) bar[step] = peakNear(onset, frameRate, point.time);
           sums[step] += bar[step];
         }
@@ -227,32 +227,36 @@ export function isAccented(profile: AccentProfile | undefined): profile is Accen
   return profile !== undefined && profile.weights.some((weight) => weight > 0);
 }
 
-/** The steps of one bar that open a hit beat, on the bar's step grid. `start` is the bar's first beat. */
-export function hitSteps(feel: Feel, start: number, perBar: number, steps: number): number[] {
+/** The steps of one bar that open a hit beat, on the style's step grid. `stepsPerBeat` is per grid beat (see stepsPerGridBeat). `start` is the bar's first beat. */
+export function hitSteps(feel: Feel, start: number, perBar: number, stepsPerBeat: number): number[] {
   const out: number[] = [];
   for (let beat = 0; beat < perBar; beat++) {
-    if (!feel.hits.has(start + beat)) continue;
-    const step = (beat * steps) / perBar;
-    if (Number.isInteger(step)) out.push(step);
+    const step = beat * stepsPerBeat;
+    if (feel.hits.has(start + beat) && Number.isInteger(step)) out.push(step);
   }
   return out;
 }
 
 /**
- * How well a groove fits the accents: the weight of the steps where its kick or snare plays, less the weight of each strong accent that
- * nothing covers. Only hits that play at this complexity count.
+ * How well a set of steps fits the accents: the weight of the steps that play, less the weight of each strong accent that nothing covers.
+ * A groove's covered steps are where its kick or snare plays; a bass figure's are where it has a note.
  */
-function grooveScore(groove: DrumGroove, weights: ArrayLike<number>, complexity: number): number {
-  const covered = new Set<number>();
-  for (const hit of groove.hits) {
-    if ((hit.pitch === KICK || hit.pitch === SNARE) && playsAt(hit, complexity)) covered.add(hit.step);
-  }
+export function rhythmScore(covered: ReadonlySet<number>, weights: ArrayLike<number>): number {
   let score = 0;
   for (const step of covered) score += weights[step] ?? 0;
   for (let step = 0; step < weights.length; step++) {
     if (weights[step] >= STRONG_ACCENT && !covered.has(step)) score -= UNCOVERED_PENALTY * weights[step];
   }
   return score;
+}
+
+/** How well a groove fits the accents. Only hits that play at this complexity count. */
+function grooveScore(groove: DrumGroove, weights: ArrayLike<number>, complexity: number): number {
+  const covered = new Set<number>();
+  for (const hit of groove.hits) {
+    if ((hit.pitch === KICK || hit.pitch === SNARE) && playsAt(hit, complexity)) covered.add(hit.step);
+  }
+  return rhythmScore(covered, weights);
 }
 
 /** The indices of the grooves, best fit first. Ties keep the groove's own order. */

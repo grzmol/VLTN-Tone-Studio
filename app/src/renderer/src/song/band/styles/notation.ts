@@ -40,3 +40,13 @@ export function bar(steps: number, ...lanes: DrumHit[][]): DrumPattern {
 export function groove(name: string, steps: number, ...lanes: DrumHit[][]): DrumGroove {
   return { name, ...bar(steps, ...lanes) };
 }
+
+/** The hits of one voice on the given steps, with velocities that rise evenly from `from` to `to`. One step plays at `to`. Fills use it, so no fill is flat. */
+export function ramp(pitch: number, steps: readonly number[], from: number, to: number, flags: HitFlags = {}): DrumHit[] {
+  return steps.map((step, i) => ({
+    step,
+    pitch,
+    velocity: Math.round(steps.length === 1 ? to : from + ((to - from) * i) / (steps.length - 1)),
+    ...flags,
+  }));
+}

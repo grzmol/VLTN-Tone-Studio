@@ -4,6 +4,7 @@ import { decodeSong } from "./decode";
 import { separateStems, type Separation, type SeparationProgress, type SplitSettings } from "./stems/engine";
 import { audioSeconds, clampRange, sliceAudio } from "./range";
 import { detectMissingParts, type MissingParts } from "./band/detect";
+import { EXTRAS_NAMES, EXTRAS_RECORD_KEY, packExtras, type ExtrasManifest, type PartExtras } from "./band/extras";
 import { GENERATED_PART_NAMES } from "./band/generated-names";
 import { findQuality, loadSplitChoice, saveSplitChoice, type SplitChoice } from "./stems/options";
 import { freeTrackKeys, importTracks, type ImportOutcome, type ImportOptions } from "./import/import-tracks";
@@ -60,6 +61,11 @@ export interface SongStore extends SongState {
 export interface GeneratedAudio {
   drums?: PcmAudio;
   bass?: PcmAudio;
+  /**
+   * The short buffers that go with a part: the drummer's count-in, and a vamp's exit bar (band/extras.ts). They are saved beside the part
+   * as one track and replace the part's earlier ones, so a part given without extras loses them. Ignored for a part not given.
+   */
+  extras?: Partial<Record<PartKind, PartExtras>>;
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -79,7 +85,7 @@ const PART_TRACK: Record<PartKind, { name: string; transpose: boolean }> = {
  * The track key of each generated part. A user track's key must be `track<n>` to be saved in the library, so the key cannot say
  * which part a track is. The song's options keep that record instead (`generatedParts`).
  */
-type GeneratedKeys = Partial<Record<PartKind, string>>;
+type GeneratedKeys = Partial<Record<PartKind | "drumsExtras" | "bassExtras", string>>;
 
 function optionsOf(key: string): Record<string, unknown> {
   try {
@@ -105,6 +111,8 @@ function generatedKeysOf(options: Record<string, unknown>, tracks: Record<string
     if (typeof value !== "string") continue;
     const track = tracks[value];
     if (track?.kind === "user" && track.name === PART_TRACK[kind].name) keys[kind] = value;
+    const extra = (saved as Record<string, unknown>)[EXTRAS_RECORD_KEY[kind]];
+    if (typeof extra === "string" && tracks[extra]?.kind === "user" && tracks[extra].name === EXTRAS_NAMES[kind]) keys[EXTRAS_RECORD_KEY[kind]] = extra;
   }
   return keys;
 }
@@ -121,6 +129,19 @@ function saveGeneratedKeys(key: string, removed: readonly string[], tracks: Reco
   if (Object.keys(generated).length) next.generatedParts = generated;
   else delete next.generatedParts;
   setSetting(key, ":options", mergeTrackDefaults(JSON.stringify(next), tracks));
+}
+/** Writes where each part's extras sit in their track (`bandExtras`), or drops the entry of a part that has none now. */
+function saveExtrasManifests(key: string, manifests: Partial<Record<PartKind, ExtrasManifest | null>>): void {
+  const options = optionsOf(key);
+  const saved = options.bandExtras && typeof options.bandExtras === "object" ? { ...(options.bandExtras as Record<string, unknown>) } : {};
+  for (const [kind, manifest] of Object.entries(manifests)) {
+    if (manifest) saved[kind] = manifest;
+    else delete saved[kind];
+  }
+  const next = { ...options };
+  if (Object.keys(saved).length) next.bandExtras = saved;
+  else delete next.bandExtras;
+  setSetting(key, ":options", JSON.stringify(next));
 }
 /** The imported tracks of a song's stems, with their info, so a split can keep them. */
 const userTracksOf = (stems: Stems | null, tracks: Record<string, TrackInfo>): [string, PcmAudio][] =>
@@ -323,8 +344,8 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
       const kinds = new Set<PartKind>([...pending.map(({ kind }) => kind), ...turnedOff]);
       const removed: string[] = [];
       for (const kind of kinds) {
-        const old = previous[kind];
-        if (old) {
+        for (const old of [previous[kind], previous[EXTRAS_RECORD_KEY[kind]]]) {
+          if (!old) continue;
           delete nextStems[old];
           delete nextTracks[old];
           removed.push(old);
@@ -332,18 +353,35 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
       }
       // Nothing to add and nothing to take away: the song stays as it is.
       if (!pending.length && !removed.length) return [];
-      const keys = freeTrackKeys(Object.keys(nextStems), pending.length);
-      if (keys.length < pending.length) return [`A song can hold up to ${USER_TRACKS_MAX} imported tracks, so the generated parts were not added.`];
+      // A part's extras are packed into one more track beside it.
+      const packed = pending.map(({ kind }) => (parts.extras?.[kind] ? packExtras(parts.extras[kind]) : null));
+      const wanted = pending.length + packed.filter((entry) => entry !== null).length;
+      const keys = freeTrackKeys(Object.keys(nextStems), wanted);
+      if (keys.length < wanted) return [`A song can hold up to ${USER_TRACKS_MAX} imported tracks, so the generated parts were not added.`];
 
       const generated: GeneratedKeys = { ...previous };
-      for (const kind of kinds) delete generated[kind];
+      for (const kind of kinds) {
+        delete generated[kind];
+        delete generated[EXTRAS_RECORD_KEY[kind]];
+      }
+      const manifests: Partial<Record<PartKind, ExtrasManifest | null>> = {};
+      for (const kind of kinds) manifests[kind] = null;
+      let extraAt = pending.length;
       pending.forEach(({ kind, part }, index) => {
         const trackKey = keys[index];
         nextStems[trackKey] = part;
         nextTracks[trackKey] = { kind: "user", name: PART_TRACK[kind].name, bus: "main", transpose: PART_TRACK[kind].transpose };
         generated[kind] = trackKey;
+        const extras = packed[index];
+        if (!extras) return;
+        const extrasKey = keys[extraAt++];
+        nextStems[extrasKey] = extras.audio;
+        nextTracks[extrasKey] = { kind: "user", name: EXTRAS_NAMES[kind], bus: "main", transpose: false };
+        generated[EXTRAS_RECORD_KEY[kind]] = extrasKey;
+        manifests[kind] = extras.manifest;
       });
       saveGeneratedKeys(key, removed, nextTracks, generated);
+      saveExtrasManifests(key, manifests);
       // Taking away the last generated part of a song that was never split leaves it as it was before the parts were added, as removeGeneratedParts does.
       const remaining = Object.keys(nextStems);
       if (!pending.length && (remaining.length === 0 || (remaining.length === 1 && remaining[0] === "source"))) set({ stems: null, tracks: {} });
@@ -372,6 +410,7 @@ export function createSongStore(deps: SongDeps): UseBoundStore<StoreApi<SongStor
         delete nextTracks[track];
       }
       saveGeneratedKeys(key, generated, nextTracks, {});
+      saveExtrasManifests(key, { drums: null, bass: null });
       // A song whose only track left is its source goes back to the unsplit state it had before the parts were added.
       const remaining = Object.keys(nextStems);
       if (remaining.length === 0 || (remaining.length === 1 && remaining[0] === "source")) set({ stems: null, tracks: {} });
