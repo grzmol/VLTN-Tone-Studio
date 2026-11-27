@@ -8,7 +8,7 @@
 // unsolicited, with the pedal's own seq, and only after a HELLO on the open port.
 //
 // Scene and settings records travel exactly as stored in the pedal's record store; this module also encodes and
-// decodes them (format of gp-200-re src/gp200/cenas.py and mods/cenas/src/registro.c, versions 1-3).
+// decodes them (format of gp-200-re src/gp200/cenas.py and mods/cenas/src/registro.c, versions 1-4).
 
 import { concat, readU16, readU32, tlv, u16le, u32le } from "./protocol.mjs";
 
@@ -190,14 +190,17 @@ export function crc32(bytes) {
 // ------------------------------------------------------------------------------------------- scene record
 
 export const SCENE_MAGIC = "GPSC";
-export const SCENE_FORMAT_MAX = 3;
+export const SCENE_FORMAT_MAX = 4;
 export const SCENE_RECORD_MAX = 0x54c;
 export const SCENE_COUNT = 4;
 export const SCENE_NAME = 16;
 const BLOCKS = 11;
 const SLOTS = 15;
 const RESERVE_BLOCKS = new Set([0, 3, 5]); // PRE, AMP, CAB
-const F = Object.freeze({ MASK: 1, VOLUME: 2, BPM: 4, RESERVE: 8, PRE2: 16 });
+const F = Object.freeze({ MASK: 1, VOLUME: 2, BPM: 4, RESERVE: 8, PRE2: 16, CTRL: 64 });
+/** CTRL 1-4 of a scene (BANK-, BANK+, CTRL1 and TAP in scene mode, gp-200-re RFC-0034). */
+export const SCENE_CTRLS = 4;
+const BLOCK_MASK = 0x7ff;
 const P2 = Object.freeze({ EXISTS: 1, ENABLED: 2 });
 
 export class SceneRecordError extends Error {}
@@ -208,7 +211,8 @@ export const defaultSceneName = (k) => `CENA ${"ABCD"[k]}`;
 /**
  * Scene record bytes -> { format, owner, scenes: [scene | null] x 4, pre2: { fxid, enabled, params } | null }.
  * scene: { name, mask, volume, bpm (null = as the base), params: [{ block, slot, bits }], reserve: { [block]: { fxid,
- * params } }, pre2: boolean | null }. Values are raw f32 bits (u32), as stored. Throws SceneRecordError.
+ * params } }, pre2: boolean | null, ctrl: [u16 x 4] | null }. Values are raw f32 bits (u32), as stored. Throws
+ * SceneRecordError.
  */
 export function decodeSceneRecord(data) {
   const d = Uint8Array.from(data);
@@ -235,7 +239,7 @@ export function decodeSceneRecord(data) {
   const u32s = (n) => Array.from({ length: n }, u32);
   const rec = { format, owner, scenes: [null, null, null, null], pre2: null };
   const reserves = {};
-  if (format === 3) {
+  if (format >= 3) {
     const flags = u8();
     if (flags & ~(P2.EXISTS | P2.ENABLED)) fail("unknown PRE 2 flags");
     if (flags & P2.EXISTS) rec.pre2 = { fxid: u32(), enabled: (flags & P2.ENABLED) !== 0, params: u32s(SLOTS) };
@@ -256,8 +260,8 @@ export function decodeSceneRecord(data) {
     o += SCENE_NAME;
     const flags = u8();
     const n = u8();
-    if (flags & ~(F.MASK | F.VOLUME | F.BPM | F.RESERVE | F.PRE2)) fail("unknown scene fields");
-    const s = { name, mask: null, volume: null, bpm: null, params: [], reserve: {}, pre2: null };
+    if (flags & ~(F.MASK | F.VOLUME | F.BPM | F.RESERVE | F.PRE2 | F.CTRL)) fail("unknown scene fields");
+    const s = { name, mask: null, volume: null, bpm: null, params: [], reserve: {}, pre2: null, ctrl: null };
     if (flags & F.MASK) s.mask = u16();
     if (flags & F.VOLUME) s.volume = u16();
     if (flags & F.BPM) s.bpm = u16();
@@ -278,10 +282,15 @@ export function decodeSceneRecord(data) {
       }
     }
     if (flags & F.PRE2) {
-      if (format !== 3 || !rec.pre2) fail("scene PRE 2 without the preset's PRE 2");
+      if (format < 3 || !rec.pre2) fail("scene PRE 2 without the preset's PRE 2");
       const v = u8();
       if (v > 1) fail("scene PRE 2 out of range");
       s.pre2 = v === 1;
+    }
+    if (flags & F.CTRL) {
+      if (format < 4) fail("scene CTRL in a record before format 4");
+      s.ctrl = Array.from({ length: SCENE_CTRLS }, u16);
+      if (s.ctrl.some((m) => m & ~BLOCK_MASK)) fail("CTRL mask outside the 11 blocks");
     }
     rec.scenes[k] = s;
   }
@@ -289,11 +298,12 @@ export function decodeSceneRecord(data) {
   return rec;
 }
 
-const isEmptyScene = (s) => s.mask == null && s.volume == null && s.bpm == null && !s.params?.length && !Object.keys(s.reserve ?? {}).length && s.pre2 == null;
+const isEmptyScene = (s) =>
+  s.mask == null && s.volume == null && s.bpm == null && !s.params?.length && !Object.keys(s.reserve ?? {}).length && s.pre2 == null && s.ctrl == null;
 
 /**
- * Scene record -> bytes, in the lowest format that holds it (1: plain; 2: reserves; 3: PRE 2), byte-identical to the
- * pedal's writer. Empty scenes are left out (saving a scene equal to the base deletes it).
+ * Scene record -> bytes, in the lowest format that holds it (1: plain; 2: reserves; 3: PRE 2; 4: CTRL 1-4 per scene),
+ * byte-identical to the pedal's writer. Empty scenes are left out (saving a scene equal to the base deletes it).
  */
 export function encodeSceneRecord({ owner, scenes = [], pre2 = null }) {
   if (!Number.isInteger(owner) || owner < 2 || owner > 257) throw new RangeError(`owner ${owner} is not a preset record (2-257)`);
@@ -309,12 +319,14 @@ export function encodeSceneRecord({ owner, scenes = [], pre2 = null }) {
   }
   const scenePre2 = scenes.some((s) => s && s.pre2 != null);
   if (scenePre2 && !pre2) throw new SceneRecordError("a scene turns PRE 2 on or off, but the preset has no PRE 2");
-  const v3 = !!pre2 || scenePre2;
+  const v4 = scenes.slice(0, SCENE_COUNT).some((s) => s && !isEmptyScene(s) && s.ctrl != null);
+  const v3 = !!pre2 || scenePre2 || v4;
   const reserveBlocks = Object.keys(reserves).map(Number).sort((a, b) => a - b);
   const body = [];
   const p16 = (v) => body.push(...u16le(v));
   const p32 = (v) => body.push(...u32le(v >>> 0));
-  if (v3) {
+  if (v3 && !pre2) body.push(0);
+  else if (v3) {
     if (pre2.params.length !== SLOTS) throw new SceneRecordError(`PRE 2 needs ${SLOTS} parameters`);
     body.push(P2.EXISTS | (pre2.enabled ? P2.ENABLED : 0));
     p32(pre2.fxid);
@@ -332,7 +344,7 @@ export function encodeSceneRecord({ owner, scenes = [], pre2 = null }) {
     const name = Array.from(s.name || defaultSceneName(k), (c) => (c.charCodeAt(0) < 128 ? c.charCodeAt(0) : 0x3f)).slice(0, SCENE_NAME);
     body.push(...name, ...Array(SCENE_NAME - name.length).fill(0));
     const rb = Object.keys(s.reserve ?? {}).map(Number).sort((a, b) => a - b);
-    const flags = (s.mask != null ? F.MASK : 0) | (s.volume != null ? F.VOLUME : 0) | (s.bpm != null ? F.BPM : 0) | (rb.length ? F.RESERVE : 0) | (s.pre2 != null ? F.PRE2 : 0);
+    const flags = (s.mask != null ? F.MASK : 0) | (s.volume != null ? F.VOLUME : 0) | (s.bpm != null ? F.BPM : 0) | (rb.length ? F.RESERVE : 0) | (s.pre2 != null ? F.PRE2 : 0) | (s.ctrl != null ? F.CTRL : 0);
     body.push(flags, params.length);
     if (s.mask != null) p16(s.mask);
     if (s.volume != null) p16(s.volume);
@@ -343,26 +355,36 @@ export function encodeSceneRecord({ owner, scenes = [], pre2 = null }) {
       for (const b of rb) s.reserve[b].params.forEach(p32);
     }
     if (s.pre2 != null) body.push(s.pre2 ? 1 : 0);
+    if (s.ctrl != null) {
+      if (s.ctrl.length !== SCENE_CTRLS || s.ctrl.some((m) => !Number.isInteger(m) || m & ~BLOCK_MASK)) throw new SceneRecordError(`a scene needs ${SCENE_CTRLS} CTRL masks of 11 bits`);
+      s.ctrl.forEach(p16);
+    }
     present |= 1 << k;
   });
   if (16 + body.length > SCENE_RECORD_MAX) throw new SceneRecordError(`the scenes take ${16 + body.length} B; a record holds ${SCENE_RECORD_MAX} B`);
-  const format = v3 ? 3 : reserveBlocks.length ? 2 : 1;
+  const format = v4 ? 4 : v3 ? 3 : reserveBlocks.length ? 2 : 1;
   const b = Uint8Array.from(body);
   return concat([Uint8Array.from([0x47, 0x50, 0x53, 0x43, ...u16le(format), ...u16le(owner), ...u16le(b.length), present, 0, ...u32le(crc32(b))]), b]);
 }
 
 // ------------------------------------------------------------------------------------------- settings record
 
-/** Mod settings record ("GPAJ", gp-200-re ADR-0030): { tapTempo: "preset" | "global" }. */
+/** Tap tempo of the mod's settings, byte 16 of "GPAJ": 0 per preset, 1 global, 2 off (TAP is CTRL 4; cenas 0.8.3+). */
+const TAP_TEMPO = Object.freeze(["preset", "global", "disabled"]);
+
+/** Mod settings record ("GPAJ", gp-200-re ADR-0030): { tapTempo: "preset" | "global" | "disabled" }. */
 export function decodeSettingsRecord(data) {
   const d = Uint8Array.from(data);
   if (d.length < 20 || ascii(d.subarray(0, 4)) !== "GPAJ" || readU16(d, 4) !== 1 || readU16(d, 8) !== 4) throw new SceneRecordError("not a settings record");
   if (crc32(d.subarray(16, 20)) !== readU32(d, 12)) throw new SceneRecordError("settings checksum mismatch");
-  return { tapTempo: d[16] === 1 ? "global" : "preset" };
+  if (d[16] >= TAP_TEMPO.length) throw new SceneRecordError(`unknown tap tempo ${d[16]}`); // the mod refuses it too
+  return { tapTempo: TAP_TEMPO[d[16]] };
 }
 
 export function encodeSettingsRecord({ tapTempo = "preset" } = {}) {
-  const body = Uint8Array.from([tapTempo === "global" ? 1 : 0, 0, 0, 0]);
+  const tap = TAP_TEMPO.indexOf(tapTempo);
+  if (tap < 0) throw new RangeError(`tap tempo "${tapTempo}" is not one of ${TAP_TEMPO.join(", ")}`);
+  const body = Uint8Array.from([tap, 0, 0, 0]);
   return concat([Uint8Array.from([0x47, 0x50, 0x41, 0x4a, 1, 0, 0, 0, 4, 0, 0, 0, ...u32le(crc32(body))]), body]);
 }
 

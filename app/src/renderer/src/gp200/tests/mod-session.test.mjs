@@ -40,7 +40,7 @@ test("HELLO, list and read the scenes the pedal holds", async () => {
   const scene0 = fromHex(V.records[2]); // owner 2 = slot 0
   const { dev, s } = await setup({ mod: { scenes: { 0: scene0 } } });
   const h = await s.modHello();
-  assert.deepEqual([h.name, h.letter, h.version, h.firmwareTag], ["cenas", "C", "0.7.0", "V182"]);
+  assert.deepEqual([h.name, h.letter, h.version, h.firmwareTag], ["cenas", "C", "0.8.4", "V182"]);
   assert.deepEqual(h.scenes, { used: 1, free: 41, total: 42 });
   const list = await s.readSceneList();
   assert.deepEqual(list.records.map((r) => [r.slot, r.owner, r.format]), [[0, 2, 3]]);
@@ -82,7 +82,11 @@ test("the pedal's refusals come back as mod errors with the status", async () =>
 test("notifications after HELLO: scene changes and writes on the pedal", async () => {
   const { dev, s } = await setup({ mod: true });
   dev.setSceneMode(true); // before HELLO: silent
+  const first = nextMessage(s, "modNotify");
   await s.modHello();
+  // right after HELLO the pedal says where it is: scene mode on, the base playing
+  const hello = await first;
+  assert.deepEqual([hello.events, hello.sceneMode, hello.activeScene], [NOTIFY.SCENE, true, null]);
   const got = nextMessage(s, "modNotify");
   dev.selectScene(2);
   const n = await got;

@@ -49,6 +49,8 @@ export interface ModelInfo {
   type: string;
   /** Real-world gear it models, when known */
   origin?: string;
+  /** A guest of the GrooveGurus mod: the effect of block `from`, played in this block (its knobs are the origin's) */
+  guest?: { from: BlockCode };
   params: ParamInfo[];
 }
 

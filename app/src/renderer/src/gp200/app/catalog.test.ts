@@ -177,3 +177,26 @@ describe("useGp200Catalog", () => {
     expect(useGp200Catalog.getState()).toMatchObject({ catalog: BUILT_IN_CATALOG, loaded: true, error: expect.stringMatching(/damaged/) });
   });
 });
+
+describe("guest effects of the GrooveGurus mod in the catalog adapter", () => {
+  const green = modelByFxid(BUILT_IN_CATALOG, gp200ModelsForBlock(BUILT_IN_CATALOG, "DST").find((m) => m.name === "Green OD")!.fxid, "DST")!;
+
+  it("an fxid of another block is a guest, titled like the pedal, with the origin's knobs", () => {
+    const g = gp200ModelByFxid(BUILT_IN_CATALOG, green.code, "MOD")!;
+    expect(g).toMatchObject({ fxid: green.code, block: "MOD", title: "DST Green OD", guest: { from: "DST" } });
+    expect(g.params).toEqual(gp200ModelByFxid(BUILT_IN_CATALOG, green.code, "DST")!.params);
+    expect(gp200ModelByFxid(BUILT_IN_CATALOG, green.code, "DST")!.guest).toBeUndefined(); // the block's own model wins
+    expect(gp200ModelByFxid(BUILT_IN_CATALOG, 0x7fffffff, "MOD")).toBeUndefined(); // unknown stays unknown
+  });
+
+  it("the block's list adds the mod's guests after its own models, never a native id twice", () => {
+    const own = gp200ModelsForBlock(BUILT_IN_CATALOG, "MOD");
+    const list = gp200ModelsForBlock(BUILT_IN_CATALOG, "MOD", [
+      { fxid: green.code, fromBlock: 2, fromPos: 0, sliceKb: 0 },
+      { fxid: own[0].fxid, fromBlock: 0, fromPos: 0, sliceKb: 0 },
+      { fxid: 0x7fffffff, fromBlock: 2, fromPos: 1, sliceKb: 0 },
+    ]);
+    expect(list.slice(0, own.length)).toEqual(own);
+    expect(list.slice(own.length).map((m) => m.title)).toEqual(["DST Green OD"]);
+  });
+});

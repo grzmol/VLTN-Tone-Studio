@@ -83,7 +83,8 @@ export function encodeWriteChunk(total: number, bytes: Bytes): Uint8Array;
 export function crc32(bytes: ArrayLike<number>): number;
 
 export const SCENE_MAGIC: "GPSC";
-export const SCENE_FORMAT_MAX: 3;
+export const SCENE_FORMAT_MAX: 4;
+export const SCENE_CTRLS: 4;
 export const SCENE_RECORD_MAX: 0x54c;
 export const SCENE_COUNT: 4;
 export const SCENE_NAME: 16;
@@ -107,6 +108,8 @@ export interface Scene {
   reserve: Record<number, { fxid: number; params: number[] }>;
   /** PRE 2 on/off in this scene; null = as the base */
   pre2: boolean | null;
+  /** Blocks of CTRL 1-4 in this scene (bit i = block i; format 4, cenas 0.8.3+); null = as the base */
+  ctrl: number[] | null;
 }
 export interface ScenePre2 {
   fxid: number;
@@ -123,7 +126,8 @@ export function decodeSceneRecord(data: Bytes): SceneRecord;
 export function encodeSceneRecord(rec: { owner: number; scenes?: (Partial<Scene> | null)[]; pre2?: ScenePre2 | null }): Uint8Array;
 
 export interface ModSettings {
-  tapTempo: "preset" | "global";
+  /** "disabled": TAP doesn't tap, it is CTRL 4 (cenas 0.8.3+) */
+  tapTempo: "preset" | "global" | "disabled";
 }
 export function decodeSettingsRecord(data: Bytes): ModSettings;
 export function encodeSettingsRecord(settings?: Partial<ModSettings>): Uint8Array;

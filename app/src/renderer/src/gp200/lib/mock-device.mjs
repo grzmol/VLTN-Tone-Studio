@@ -43,6 +43,7 @@ import {
 import { applyPatchEdits, encodePatchImage, expIndex, imageOf, normalizeStored, parsePatch } from "./prst.mjs";
 import { SNAPTONE, checkGp200SnapTone } from "./snaptone.mjs";
 import { defaultParams } from "./catalog.mjs";
+import { MOD_GUEST_TABLE } from "./mock-guests.mjs";
 import {
   FEATURE,
   NOTIFY,
@@ -61,7 +62,9 @@ import {
 } from "./mod-service.mjs";
 
 const MOD_INDICES = 42; // record-store indices 258-299
-const MOD_DEFAULTS = Object.freeze({ name: "cenas", letter: "C", version: "0.7.0", firmwareTag: "V182", features: 0x7f, guests: {} });
+/** The mod's guest list per destination block, as cenas 0.8.x answers GUESTS. */
+const MOD_GUESTS = Object.fromEntries(Object.entries(MOD_GUEST_TABLE).map(([b, rows]) => [b, rows.map(([fxid, fromBlock, fromPos, sliceKb]) => ({ fxid, fromBlock, fromPos, sliceKb }))]));
+const MOD_DEFAULTS = Object.freeze({ name: "cenas", letter: "C", version: "0.8.4", firmwareTag: "V182", features: 0x7f, guests: MOD_GUESTS });
 
 /** One fxid per block for generated patches (ids seen in an editor-written patch of the RE vectors). */
 const INIT_FXIDS = Object.freeze([0x00000001, 0x05000001, 0x03000000, 0x0700003a, 0x0000001b, 0x0a000024, 0x0100003c, 0x04000002, 0x0b00001f, 0x0c000001, 0x06000003]);
@@ -600,8 +603,10 @@ export class MockGp200 {
         const name = Array.from({ length: 8 }, (_, i) => m.name.charCodeAt(i) || 0);
         const fw = Array.from({ length: 4 }, (_, i) => m.firmwareTag.charCodeAt(i) || 0);
         const f = m.features >>> 0;
-        return this.#modReply(op, seq, MOD_STATUS.OK, 0, [...name, m.letter.charCodeAt(0), maj, min, pat, ...fw, f & 0xff, (f >>> 8) & 0xff, (f >>> 16) & 0xff, f >>> 24,
-          used(), MOD_INDICES - used(), MOD_INDICES, 0, ...u16(SCENE_RECORD_MAX), ...u16(3)]);
+        this.#modReply(op, seq, MOD_STATUS.OK, 0, [...name, m.letter.charCodeAt(0), maj, min, pat, ...fw, f & 0xff, (f >>> 8) & 0xff, (f >>> 16) & 0xff, f >>> 24,
+          used(), MOD_INDICES - used(), MOD_INDICES, 0, ...u16(SCENE_RECORD_MAX), ...u16(3)]); // cenas 0.8.4 still says 3 here, though it writes format 4
+        // the firmware's next tick tells the new editor where the pedal is (scene mode, active scene)
+        return this.#modNotify(NOTIFY.SCENE);
       }
       case MOD_OP.SCENE_LIST: {
         const out = [];
@@ -767,7 +772,8 @@ export class MockGp200 {
 
   /** A-D on the pedal in scene mode -> NOTIFY. */
   selectScene(k) {
-    this.mod.activeScene = k;
+    // the scene that plays, pressed again: the base (the fifth scene, cenas 0.8.4)
+    this.mod.activeScene = this.mod.activeScene === k ? NO_SCENE : k;
     this.#modPlay();
     this.#modNotify(NOTIFY.SCENE);
   }

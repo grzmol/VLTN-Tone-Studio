@@ -180,7 +180,9 @@ export function defaultValue(knob) {
 /** f32[15] the editor sends for a fresh model: declared controls at their defaults, hidden floats 0. */
 export function defaultParams(catalog, fxid, block) {
   const out = new Array(PARAM_COUNT).fill(0);
-  for (const k of modelByFxid(catalog, fxid, block)?.knobs ?? []) out[k.id] = defaultValue(k);
+  // An fxid of another block is a guest of the GrooveGurus mod: it loads with its origin's knobs
+  const model = modelByFxid(catalog, fxid, block) ?? (block === undefined ? undefined : modelByFxid(catalog, fxid));
+  for (const k of model?.knobs ?? []) out[k.id] = defaultValue(k);
   return out;
 }
 

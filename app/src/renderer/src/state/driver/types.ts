@@ -1,7 +1,7 @@
 // What the device store needs from a pedal, whatever its protocol family. One driver per connection; the store
 // (state/device.ts) talks only to this interface. Gp5Driver adapts Gp5Session; the GP-200 family gets its own driver.
 import { DEVICE_KEYS, profileFor, type DeviceFamily, type DeviceKey } from "@shared/devices";
-import type { Scene, ScenePre2, SceneRecord } from "@/gp200/lib/mod-service.mjs";
+import type { ModGuest, ModSettings, Scene, ScenePre2, SceneRecord } from "@/gp200/lib/mod-service.mjs";
 import type { BackupEntry, DeviceFeature, ExpEdit, ExpSettings, GlobalEq, GlobalName, GlobalRecord, Globals, ModFirmware, SlotName } from "../device-types";
 
 export type { DeviceFeature };
@@ -177,6 +177,10 @@ export interface DeviceDriver {
    * No scene and no PRE 2 deletes the record. Writing the active slot sends the pedal back to the base.
    */
   writeScenes?(slot: number, scenes: (Scene | null)[], pre2: ScenePre2 | null): Promise<SlotScenes>;
+  /** "modSettings": the mod's own settings (factory values when the pedal never stored them). */
+  readModSettings?(): Promise<ModSettings>;
+  /** "modGuests": the effects of other blocks the mod offers in `block` (0-10). */
+  readModGuests?(block: number): Promise<ModGuest[]>;
 }
 
 /** What the factory needs to open a driver. */

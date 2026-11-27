@@ -93,6 +93,8 @@ export function tilesFor(block: number, device: DeviceKey, snapTones: SlotName[]
       const name = userIRs?.find((s) => s.slot === n)?.name;
       return { model: m, title: name && !/^User IR \d+$/.test(name) ? `IR ${n + 1} ${name}` : m.title, sub: "User IR slot", ir: true };
     }
+    // A guest of the GrooveGurus mod says where it comes from
+    if (m.guest) return { model: m, title: m.title, sub: `Guest from ${m.guest.from}` };
     // GP-200 models carry only their block's category: nothing to add under the title
     return { model: m, title: m.title, sub: m.origin ?? (isGp5Family(device) ? m.type : "") };
   });

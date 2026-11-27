@@ -7,7 +7,7 @@ import { MockGp200, type MockGp200Options } from "@/gp200/lib/mock-device.mjs";
 import { BUILT_IN_CATALOG } from "@/gp200/lib/catalog-data.mjs";
 import { GLOBAL_EQ_BANDS, PATCH_SETTING, type DecodedMessage } from "@/gp200/lib/protocol.mjs";
 import { buildPrst, imagesMatch, parsePatch } from "@/gp200/lib/prst.mjs";
-import { STATUS as MOD_STATUS, type ModHello, type Scene, type ScenePre2 } from "@/gp200/lib/mod-service.mjs";
+import { STATUS as MOD_STATUS, type ModGuest, type ModHello, type ModSettings, type Scene, type ScenePre2 } from "@/gp200/lib/mod-service.mjs";
 import { connectWebMidi } from "@/gp5/lib/transport-webmidi.mjs";
 import { profileFor, type DeviceKey } from "@shared/devices";
 import type { BackupEntry, ConnectionError, DeviceFeature, GlobalEq, GlobalName, Globals, ModFirmware, SlotName } from "../device-types";
@@ -451,6 +451,15 @@ export class Gp200Driver implements DeviceDriver {
       }
     }
     return this.readScenes(slot);
+  }
+
+  async readModSettings(): Promise<ModSettings> {
+    const { tapTempo } = await this.#session.readModSettings();
+    return { tapTempo };
+  }
+
+  readModGuests(block: number): Promise<ModGuest[]> {
+    return this.#session.modGuests(block);
   }
 
   subscribe(listener: (event: DriverEvent) => void): () => void {

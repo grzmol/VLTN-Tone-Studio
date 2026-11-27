@@ -93,6 +93,23 @@ test("scene records of formats 1-3 match the reference serializer", () => {
   assert.deepEqual([r3.scenes[0].pre2, r3.scenes[2].pre2], [true, false]);
 });
 
+test("format 4 records (CTRL 1-4 per scene) match the reference serializer", () => {
+  for (const h of V.records4) {
+    const bytes = hex(h);
+    assert.equal(decodeSceneRecord(bytes).format, 4);
+    assert.deepEqual(encodeSceneRecord(decodeSceneRecord(bytes)), bytes);
+  }
+  const [a, b] = V.records4.map((h) => decodeSceneRecord(hex(h)));
+  assert.equal(a.pre2, null); // format 3 layout with an empty PRE 2
+  assert.deepEqual(a.scenes[0].ctrl, [0x004, 0x080, 0, 0x200]);
+  assert.equal(a.scenes[2].ctrl, null);
+  assert.deepEqual([b.pre2.fxid, b.scenes[1].pre2, b.scenes[1].reserve[3].fxid], [5, true, 0x0700003a]);
+  assert.deepEqual(b.scenes[3].ctrl, [0, 0x100, 0, 0]);
+  // a scene with CTRL alone is format 4; masks must be 4 x 11 bits
+  assert.equal(decodeSceneRecord(encodeSceneRecord({ owner: 9, scenes: [{ ctrl: [1, 0, 0, 0] }] })).format, 4);
+  assert.throws(() => encodeSceneRecord({ owner: 9, scenes: [{ ctrl: [0x800, 0, 0, 0] }] }), SceneRecordError);
+});
+
 test("encoder picks the lowest format, drops empty scenes, refuses what the pedal would", () => {
   const plain = decodeSceneRecord(encodeSceneRecord({ owner: 9, scenes: [{ name: "A", volume: 50 }, { name: "EMPTY" }] }));
   assert.equal(plain.format, 1);
@@ -111,4 +128,7 @@ test("settings record", () => {
   assert.equal(b.length, 20);
   assert.deepEqual(decodeSettingsRecord(b), { tapTempo: "global" });
   assert.deepEqual(decodeSettingsRecord(encodeSettingsRecord()), { tapTempo: "preset" });
+  const off = encodeSettingsRecord({ tapTempo: "disabled" });
+  assert.equal(off[16], 2);
+  assert.deepEqual(decodeSettingsRecord(off), { tapTempo: "disabled" });
 });

@@ -10,6 +10,7 @@ import { BLOCKS as GP200_BLOCKS } from "@/gp200/lib/protocol.mjs";
 import { defaultParams as gp200DefaultParams, type Gp200Catalog } from "@/gp200/lib/catalog.mjs";
 import { gp200ModelByFxid, gp200ModelsForBlock } from "@/gp200/app/catalog-adapter";
 import { useGp200Catalog } from "@/gp200/app/catalog-store";
+import { guestsOf } from "@/gp200/app/guest-store";
 import * as gp150 from "@/gp150/lib/prst.mjs";
 import { gp150DefaultParams, gp150ModelByFxid, gp150ModelsForBlock } from "@/gp150/app/catalog-adapter";
 import { profileFor, type DeviceKey } from "@shared/devices";
@@ -41,11 +42,11 @@ export function modelFor(device: DeviceKey, block: number, fxid: number, params?
   return gp200ModelByFxid(catalog, fxid, block);
 }
 
-/** Every model block `block` of `device` can hold, in catalog order. */
+/** Every model block `block` of `device` can hold, in catalog order (then the GrooveGurus mod's guests for it). */
 export function modelsFor(device: DeviceKey, block: number, catalog = currentCatalog()): ModelInfo[] {
   if (isGp5Family(device)) return modelsForBlock(block, device) as ModelInfo[];
   if (isGp150(device)) return gp150ModelsForBlock(block);
-  return gp200ModelsForBlock(catalog, block);
+  return gp200ModelsForBlock(catalog, block, guestsOf(block));
 }
 
 /** Param values the pedal loads with model `fxid` in block `block` (8 on the GP-5 family, 15 on the GP-200 family and the GP-150). */

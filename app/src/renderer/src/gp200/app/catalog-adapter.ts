@@ -1,8 +1,9 @@
 // The GP-200 catalog in use (built in, or built from the user's algorithm.xml: gp200/lib/catalog.mjs) in the app's
 // ModelInfo/ParamInfo shape, so GP-200 blocks render like the GP-5 family's. Param index = the XML control ID (0..14,
 // the f32[15] slot and the 0x0005 param byte); values are wire values (Combox TrueIDs included).
-import type { BlockName } from "@/gp200/lib/protocol.mjs";
+import { BLOCKS, type BlockName } from "@/gp200/lib/protocol.mjs";
 import { defaultValue, modelByFxid, modelsForBlock, optionValues, tempoSyncBinding, type CatalogKnob, type CatalogModel, type Gp200Catalog } from "@/gp200/lib/catalog.mjs";
+import type { ModGuest } from "@/gp200/lib/mod-service.mjs";
 import type { ModelInfo, ParamInfo } from "@/state/device-types";
 
 export type Gp200BlockCode = BlockName;
@@ -16,8 +17,9 @@ export interface Gp200ParamInfo extends ParamInfo {
   offAtMin?: boolean;
 }
 
-export interface Gp200ModelInfo extends Omit<ModelInfo, "block" | "params"> {
+export interface Gp200ModelInfo extends Omit<ModelInfo, "block" | "params" | "guest"> {
   block: Gp200BlockCode;
+  guest?: { from: Gp200BlockCode };
   params: Gp200ParamInfo[];
   /** Cab model Auto CAB Match picks for this amp */
   cabFxid?: number;
@@ -84,13 +86,47 @@ export function toModelInfo(model: CatalogModel): Gp200ModelInfo {
   return info;
 }
 
-/** The model of `fxid` in `block` (index or code; some fxids sit in two blocks, e.g. boosts in PRE and DST). */
-export function gp200ModelByFxid(catalog: Gp200Catalog, fxid: number, block: number | Gp200BlockCode): Gp200ModelInfo | undefined {
-  const model = modelByFxid(catalog, fxid, block);
-  return model ? toModelInfo(model) : undefined;
+const codeOf = (block: number | Gp200BlockCode): Gp200BlockCode => (typeof block === "number" ? (BLOCKS[block] as Gp200BlockCode) : block);
+
+/** Blocks that take guests in the mod (gp-200-re mods/cenas/src/convidados_tab.h, CONV_DEST): PRE DST EQ MOD DLY RVB. */
+export const GUEST_BLOCKS: ReadonlySet<Gp200BlockCode> = new Set<Gp200BlockCode>(["PRE", "DST", "EQ", "MOD", "DLY", "RVB"]);
+
+const GUESTS = new WeakMap<CatalogModel, Map<Gp200BlockCode, Gp200ModelInfo>>();
+
+/** The origin `model` as a guest of block `dest` (GrooveGurus mod): titled like the pedal ("DST Green OD"), with the
+ * origin's knobs and its family as the category (the picker's tabs). Memoized per model and destination. */
+export function toGuestInfo(model: CatalogModel, dest: number | Gp200BlockCode): Gp200ModelInfo {
+  const block = codeOf(dest);
+  const byDest = GUESTS.get(model) ?? new Map<Gp200BlockCode, Gp200ModelInfo>();
+  GUESTS.set(model, byDest);
+  const hit = byDest.get(block);
+  if (hit) return hit;
+  const origin = toModelInfo(model);
+  const info: Gp200ModelInfo = { ...origin, block, title: `${origin.block} ${origin.title}`, guest: { from: origin.block } };
+  byDest.set(block, info);
+  return info;
 }
 
-/** Every model of `block` (index or code), in the editor's list order. */
-export function gp200ModelsForBlock(catalog: Gp200Catalog, block: number | Gp200BlockCode): Gp200ModelInfo[] {
-  return modelsForBlock(catalog, block).map(toModelInfo);
+/**
+ * The model of `fxid` in `block` (index or code; some fxids sit in two blocks, e.g. boosts in PRE and DST). An fxid
+ * missing from the block's list but found in another block is a guest of the GrooveGurus mod (the preset stores the
+ * origin's id) in the blocks that take guests; the block's own model always wins (the mod adds no guest with a native id).
+ */
+export function gp200ModelByFxid(catalog: Gp200Catalog, fxid: number, block: number | Gp200BlockCode): Gp200ModelInfo | undefined {
+  const model = modelByFxid(catalog, fxid, block);
+  if (model) return toModelInfo(model);
+  if (!GUEST_BLOCKS.has(codeOf(block))) return undefined;
+  const origin = modelByFxid(catalog, fxid, undefined);
+  return origin ? toGuestInfo(origin, block) : undefined;
+}
+
+/** Every model of `block` (index or code), in the editor's list order; then the mod's `guests` for it, in its order. */
+export function gp200ModelsForBlock(catalog: Gp200Catalog, block: number | Gp200BlockCode, guests: readonly ModGuest[] = []): Gp200ModelInfo[] {
+  const native = modelsForBlock(catalog, block).map(toModelInfo);
+  const own = new Set(native.map((m) => m.fxid));
+  const extra = guests.flatMap((g) => {
+    const origin = own.has(g.fxid) ? undefined : modelByFxid(catalog, g.fxid, g.fromBlock);
+    return origin ? [toGuestInfo(origin, block)] : [];
+  });
+  return [...native, ...extra];
 }
