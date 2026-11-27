@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { decodeSceneRecord, floatToBits } from "@/gp200/lib/mod-service.mjs";
 import { getDriver, useDevice } from "./device";
 import type { Gp200Driver } from "./driver/gp200-driver";
-import { editPrst, toPresetState } from "./preset-codec";
+import { defaultParamsFor, editPrst, modelsFor, toPresetState } from "./preset-codec";
+import { useModGuests } from "@/gp200/app/guest-store";
 import { applyScene, captureScene, sceneName, sceneNameError, sceneRows, withScene } from "./scenes-model";
 import { useScenes } from "./scenes";
 
@@ -71,6 +72,40 @@ describe("scene capture and compose (the firmware's rules)", () => {
   });
 });
 
+describe("guest effects of the mod (cenas 0.8.x)", () => {
+  beforeAll(async () => {
+    await dev().connect("mock", { mockDevice: "gp200", mockMod: true });
+  }, 30_000);
+  afterAll(async () => {
+    await dev().disconnect();
+  });
+
+  it("reads each block's guests on connect; the picker lists them after the block's own models", async () => {
+    await until(() => expect(useModGuests.getState().byBlock?.[7]).toHaveLength(96));
+    expect(useModGuests.getState().byBlock?.[3]).toEqual([]); // AMP takes none
+    const mod = modelsFor("gp200", 7);
+    const own = mod.filter((m) => !m.guest);
+    const guests = mod.filter((m) => m.guest);
+    expect(own.length).toBeGreaterThan(0);
+    expect(mod.slice(0, own.length)).toEqual(own); // natives first
+    expect(guests.length).toBeGreaterThan(80);
+    expect(guests.every((m) => m.block === "MOD" && m.guest!.from !== "MOD" && m.title.startsWith(`${m.guest!.from} `))).toBe(true);
+    expect(new Set(mod.map((m) => m.fxid)).size).toBe(mod.length); // no guest repeats a native id
+  });
+
+  it("a guest in a block shows as the pedal names it, with its origin's knobs and defaults", async () => {
+    const green = modelsFor("gp200", 7).find((m) => m.guest?.from === "DST" && m.name === "Green OD")!;
+    expect(green).toBeDefined();
+    await dev().setModel(7, green.fxid);
+    const b = dev().preset!.blocks[7];
+    expect(b.model).toMatchObject({ title: "DST Green OD", guest: { from: "DST" } });
+    expect(b.model!.params.map((p) => p.name)).toEqual(modelsFor("gp200", 2).find((m) => m.fxid === green.fxid)!.params.map((p) => p.name));
+    expect(defaultParamsFor("gp200", 7, green.fxid)).toEqual(defaultParamsFor("gp200", 2, green.fxid));
+    await until(async () => expect((await onPedal()).blocks[7].fxid).toBe(green.fxid));
+    await dev().discard();
+  });
+});
+
 describe("scenes store on a modded pedal", () => {
   beforeAll(async () => {
     await dev().connect("mock", { mockDevice: "gp200", mockMod: true });
@@ -84,6 +119,8 @@ describe("scenes store on a modded pedal", () => {
     expect(dev().features).toContain("modScenesWrite");
     expect(scenes().current).toMatchObject({ record: null, bytes: null });
     expect(scenes().list).toMatchObject({ free: 42, total: 42 });
+    // Right after HELLO the pedal says where it is: scene mode off, the base playing.
+    expect(scenes().pedal).toEqual({ sceneMode: false, activeScene: null });
   });
 
   it("saves what the Rig plays as a scene; the pedal stores it and goes back to the base", async () => {
@@ -109,8 +146,49 @@ describe("scenes store on a modded pedal", () => {
     expect((await onPedal()).blocks[7].enabled).toBe(!base.blocks[7].enabled);
     dev().setBpm(150);
     await scenes().save(1);
-    expect(scenes().editing).toBeNull();
     expect(decodeSceneRecord(pedal().modScenes(dev().slot!)!).scenes[1]).toMatchObject({ volume: base.volume + 5, bpm: 150 });
+    // The pedal went back to the base after the write; the scene stays selected and plays again on the Rig.
+    expect(scenes().editing).toBe(1);
+    await until(async () => expect((await onPedal()).volume).toBe(base.volume + 5));
+    await until(() => expect(dev().preset).toMatchObject({ volume: base.volume + 5, bpm: 150 }));
+    expect(scenes().editing).toBe(1);
+    expect(dev().saved?.volume).toBe(base.volume);
+    await scenes().leave();
+  });
+
+  it("CTRL 1-4 of a scene: the Rig takes them, the footswitch on screen switches the blocks, the save undoes it", { timeout: 20_000 }, async () => {
+    const base = dev().saved!;
+    await scenes().edit(3);
+    dev().setFootswitches(base.footswitches.map((l, n) => (n === 0 ? [7] : l))); // CTRL 1 (BANK−) on DLY
+    const dly = dev().preset!.blocks[7].enabled;
+    scenes().toggleCtrl(0);
+    expect(scenes().ctrlOn).toEqual([true, false, false, false]);
+    expect(dev().preset!.blocks[7].enabled).toBe(!dly);
+    await scenes().save(3);
+    const saved = decodeSceneRecord(pedal().modScenes(dev().slot!)!);
+    expect(saved.format).toBe(4);
+    expect(saved.scenes[3]?.ctrl?.[0]).toBe(1 << 7);
+    expect(saved.scenes[3]?.mask ?? null).toBeNull(); // the CTRL switched on doesn't go into the scene's sound
+    // Playing it again puts its CTRLs on the Rig, all off.
+    await until(() => expect(scenes().ctrlOn).toEqual([false, false, false, false]));
+    expect(dev().preset?.footswitches[0]).toEqual([7]);
+    expect(dev().preset!.blocks[7].enabled).toBe(dly);
+    await scenes().leave();
+    expect(dev().preset?.footswitches[0]).toEqual(base.footswitches[0]);
+    await scenes().remove(3);
+  });
+
+  it("edit mode: playing a scene switches to scenes; back to preset plays the base; the pedal's scene mode leads", async () => {
+    const base = dev().saved!;
+    await scenes().edit(1);
+    expect(scenes().mode).toBe("scene");
+    await scenes().setMode("preset");
+    expect(scenes()).toMatchObject({ mode: "preset", editing: null });
+    await until(async () => expect((await onPedal()).volume).toBe(base.volume));
+    pedal().setSceneMode(true);
+    await until(() => expect(scenes().mode).toBe("scene"));
+    pedal().setSceneMode(false);
+    await until(() => expect(scenes().mode).toBe("preset"));
   });
 
   it("back to the base plays the saved preset again", async () => {

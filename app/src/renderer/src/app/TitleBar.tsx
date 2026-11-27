@@ -2,6 +2,7 @@ import { Cable } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { host } from "@/host";
 import { PresetSwitcher } from "./PresetSwitcher";
+import { EditModeSelect } from "./EditModeSelect";
 import { DeviceChip } from "./DeviceChip";
 import { SearchButton } from "./SearchButton";
 
@@ -30,6 +31,7 @@ export function TitleBar({ className }: { className?: string }) {
         <b className="text-[15px] font-semibold tracking-[-0.01em] max-[900px]:hidden">Tone Studio</b>
       </div>
       <PresetSwitcher />
+      <EditModeSelect />
       <span className="flex-1" />
       <div className="no-drag flex items-center gap-3">
         <SearchButton />

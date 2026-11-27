@@ -18,7 +18,7 @@ import { ModelPicker } from "./ModelPicker";
 import { GROUPS, groupOf, nudge } from "./order";
 import { Pedalboard } from "./Pedalboard";
 import { RigHeader } from "./RigHeader";
-import { SceneEditBar } from "./Scenes";
+import { SceneFootswitches } from "./Scenes";
 import { useRig } from "./rig-store";
 
 const HINTS = [
@@ -97,7 +97,7 @@ export function RigScreen() {
     <div className={cn("flex h-full min-h-0 flex-col", readOnly && "[--rig-banner:136px] [@media(max-height:820px)]:[--rig-banner:52px]")}>
       {readOnly && <DisconnectedBanner />}
       <RigHeader preset={preset} connected={connected} />
-      {connected && <SceneEditBar />}
+      {connected && preset.gp200 && <SceneFootswitches preset={preset} disabled={readOnly} />}
       <div inert={readOnly} className="flex min-h-0 flex-1 flex-col">
         <ChainOverview preset={preset} readOnly={readOnly} />
         <div className="relative flex min-h-0 flex-1 flex-col">

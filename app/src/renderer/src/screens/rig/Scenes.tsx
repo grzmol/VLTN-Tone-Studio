@@ -1,5 +1,5 @@
-import { useState, type CSSProperties } from "react";
-import { ListIcon, PencilIcon, PlayIcon, SaveIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import { useRef, useState, type CSSProperties } from "react";
+import { ChevronDownIcon, Layers2Icon, PencilIcon, PlayIcon, SaveIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import { notifyError, notifySuccess, showToast } from "@/app/notify";
 import {
   AlertDialog,
@@ -10,17 +10,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { keyLabel } from "@/app/keys";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { Scene } from "@/gp200/lib/mod-service.mjs";
+import { defaultSceneName, type Scene } from "@/gp200/lib/mod-service.mjs";
 import { useDevice, usePedalName } from "@/state/device";
 import type { PresetState } from "@/state/device-types";
 import { useScenes } from "@/state/scenes";
-import { SCENE_COLORS, SCENE_LETTERS, sceneNameError, sceneRows, scenesOf } from "@/state/scenes-model";
+import { useCommand } from "@/state/ui";
+import { SCENE_COLORS, SCENE_CTRL_SWITCHES, SCENE_LETTERS, ctrlLabel, sceneName, sceneNameError, sceneRows, scenesOf } from "@/state/scenes-model";
 import type { ChangeRow } from "@/state/unsaved-diff";
 
 const letter = (k: number) => SCENE_LETTERS[k];
@@ -35,7 +40,7 @@ const EMPTY = "text-silkscreen-4 shadow-[inset_0_0_0_1px_var(--seam-strong)]";
 async function saveScene(k: number) {
   try {
     const { dropped, scene } = await useScenes.getState().save(k);
-    const body = `The pedal went back to the base; the scene plays when you select ${letter(k)} on it.`;
+    const body = `It stays on the Rig; on the pedal it plays when you select ${letter(k)}.`;
     if (dropped.length) showToast({ tone: "info", sticky: true, title: `Saved scene ${letter(k)} without some changes`, body: `A scene can't hold: ${dropped.join(", ")}. ${body}` });
     else notifySuccess(`Saved scene ${letter(k)} · ${scene.name}`, body);
   } catch (e) {
@@ -116,38 +121,17 @@ export function ScenesControl({ preset, disabled }: { preset: PresetState; disab
   return (
     <>
       <Sheet open={open} onOpenChange={setOpen}>
-        <div role="group" aria-label="Scenes" className="flex shrink-0 items-center gap-1 rounded-[10px] p-1 shadow-[inset_0_0_0_1px_var(--seam-strong)]">
-          <SceneChip
-            label="Base"
-            title={`Base · ${preset.name} as saved`}
-            active={editing === null}
-            playing={!!pedalState?.sceneMode && pedalState.activeScene === null}
-            disabled={disabled || writing || editing === null}
-            onClick={() => void leaveScene()}
-          />
-          {SCENE_LETTERS.map((l, k) => {
-            const scene = scenes[k];
-            return (
-              <SceneChip
-                key={l}
-                label={l}
-                title={!ready ? `Scene ${l}` : scene ? `Scene ${l} · ${scene.name}${base ? ` · ${sceneRows(base, scene).length} changes` : ""}` : `Scene ${l} · empty, starts from the base`}
-                saved={!!scene}
-                k={k}
-                active={editing === k}
-                playing={!!pedalState?.sceneMode && pedalState.activeScene === k}
-                disabled={!ready || readOnly || editing === k}
-                onClick={() => startEdit(k)}
-              />
-            );
-          })}
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="xs" className="ml-0.5 h-8 gap-1.5 px-2 text-xs font-normal text-silkscreen-3" aria-label={ready ? `Scenes: ${saved} of 4 saved` : "Scenes"}>
-              <ListIcon aria-hidden />
-              <span className="max-[1320px]:hidden">Scenes</span>
-            </Button>
-          </SheetTrigger>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SheetTrigger asChild>
+              <Button variant="outline" aria-label={ready ? `Scenes: ${saved} of 4 saved` : "Scenes"} className="max-[1320px]:w-[34px] max-[1320px]:px-0">
+                <Layers2Icon aria-hidden />
+                <span className="max-[1320px]:hidden">Scenes</span>
+              </Button>
+            </SheetTrigger>
+          </TooltipTrigger>
+          <TooltipContent className="min-[1321px]:hidden">Scenes{ready ? ` · ${saved} of 4 saved` : ""}</TooltipContent>
+        </Tooltip>
         <SheetContent side="right" className="w-[480px] gap-0 p-0 sm:max-w-[480px]">
           <SheetHeader className="border-b border-border py-5 pr-12 pl-6">
             <SheetTitle className="text-lg">Scenes of {preset.name}</SheetTitle>
@@ -235,54 +219,6 @@ export function ScenesControl({ preset, disabled }: { preset: PresetState; disab
         </AlertDialogContent>
       </AlertDialog>
     </>
-  );
-}
-
-interface ChipProps {
-  label: string;
-  title: string;
-  saved?: boolean;
-  /** Scene index for its colour; undefined = the base */
-  k?: number;
-  /** The Rig plays (and edits) it */
-  active: boolean;
-  /** The pedal plays it (scene mode) */
-  playing: boolean;
-  disabled: boolean;
-  onClick(): void;
-}
-
-/** One scene (or the base) next to the preset name: click to play it on the Rig and edit it. */
-function SceneChip({ label, title, saved = true, k, active, playing, disabled, onClick }: ChipProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span tabIndex={disabled ? 0 : -1} className="rounded-md">
-          <button
-            type="button"
-            aria-label={title}
-            aria-pressed={active}
-            disabled={disabled}
-            onClick={onClick}
-            style={k === undefined ? { "--scene": "var(--silkscreen)" } as CSSProperties : sceneColor(k)}
-            className={cn(
-              "relative grid h-8 min-w-8 place-items-center rounded-md px-2 text-sm font-bold transition-colors",
-              active ? FILLED : saved ? (k === undefined ? "text-silkscreen-2 shadow-[inset_0_0_0_1px_var(--seam-strong)]" : OUTLINED) : EMPTY,
-              !active && "enabled:hover:bg-[color-mix(in_srgb,var(--scene)_28%,transparent)] enabled:hover:text-silkscreen",
-              label === "Base" && "text-xs font-semibold",
-              disabled && !active && "opacity-60",
-            )}
-          >
-            {label}
-            {playing && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-[var(--scene)] ring-2 ring-background" aria-hidden />}
-          </button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        {title}
-        {playing ? " · playing on the pedal" : ""}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -423,35 +359,400 @@ function ChangesTable({ rows }: { rows: ChangeRow[] }) {
   );
 }
 
-/** Under the Rig header while a scene is being edited: what the edits go into, Save and Back to the base. */
-export function SceneEditBar() {
+/**
+ * In the Rig title, after the preset name in scene mode: the scene the Rig plays (edited here, or the one the pedal
+ * plays), as "Preset | Scene name" in the scene's colour.
+ */
+export function SceneTitle({ preset }: { preset: PresetState }) {
+  const mode = useScenes((s) => s.mode);
   const editing = useScenes((s) => s.editing);
-  const writing = useScenes((s) => s.writing);
+  const pedalState = useScenes((s) => s.pedal);
   const current = useScenes((s) => s.current);
-  const changes = useDevice((s) => s.unsavedChanges);
+  const k = editing ?? (pedalState?.sceneMode ? pedalState.activeScene : null);
+  if (mode !== "scene" || k === null) return null;
+  const scene = current?.slot === preset.slot ? scenesOf(current.record)[k] : null;
+  return (
+    <>
+      <Separator orientation="vertical" className="mx-4 inline-block align-middle data-[orientation=vertical]:h-[0.8em] data-[orientation=vertical]:w-0.5" />
+      <span style={sceneColor(k)} className="text-[var(--scene)]">
+        {scene?.name ?? defaultSceneName(k)}
+      </span>
+    </>
+  );
+}
+
+/** The pedal's LED colours for the CTRL footswitches in scene mode (cenas 0.8.4) and the TAP footswitch. */
+const LED = { on: "#ffc400", off: "#ff1f4b", tap: "#2a72ee" } as const;
+
+/**
+ * Under the Rig header while the pedal is in scene mode (or a scene is edited here): the footswitches as on the pedal.
+ * Top row: BANK−, BANK+, CTRL 1 and TAP are CTRL 1-4 of the scene (TAP only with Tap Tempo Disabled), lit yellow when
+ * on and red when off. Bottom row: scenes A-D; click one to play it on the Rig and edit it, click it again for the base
+ * (the pedal's fifth scene). On the right: what the edits go into and Back to the base (Save is the header's button).
+ */
+export function SceneFootswitches({ preset, disabled }: { preset: PresetState; disabled: boolean }) {
+  const current = useScenes((s) => s.current);
+  const editing = useScenes((s) => s.editing);
+  const pedalState = useScenes((s) => s.pedal);
+  const writing = useScenes((s) => s.writing);
+  const ctrlOn = useScenes((s) => s.ctrlOn);
+  const tapTempo = useScenes((s) => s.tapTempo);
+  const canWrite = useDevice((s) => s.features.includes("modScenesWrite"));
+  const unsaved = useDevice((s) => s.unsavedChanges);
   const busy = useDevice((s) => s.busy);
-  if (editing === null) return null;
-  const scene = scenesOf(current?.record ?? null)[editing];
+  const pedal = usePedalName();
+  const [confirm, setConfirm] = useState<number | null>(null);
+
+  const mode = useScenes((s) => s.mode);
+  if (mode !== "scene") return null;
+
+  const ready = current !== null && current.slot === preset.slot;
+  const scenes = scenesOf(current?.record ?? null);
+  const unreadable = ready && current.bytes !== null && current.record === null;
+  const readOnly = disabled || !canWrite || unreadable || writing || !!busy;
+  /** What the Rig plays: the scene edited here, else the one the pedal plays; null = the base. */
+  const selected = editing ?? (pedalState?.sceneMode ? pedalState.activeScene : null);
+  const scene = editing === null ? null : scenes[editing];
+
+  const pick = (k: number) => {
+    if (selected === k) return void leaveScene(); // the scene that plays again: the base, like the pedal
+    // Unsaved edits of the base would turn into the scene's: ask first (not when another scene is being edited).
+    if (editing === null && unsaved > 0) return setConfirm(k);
+    void editScene(k);
+  };
+
   return (
     <div
-      role="status"
-      style={sceneColor(editing)}
-      className="mx-7 mb-2 flex items-center gap-3 rounded-lg bg-[color-mix(in_srgb,var(--scene)_12%,transparent)] px-3.5 py-2 text-sm shadow-[inset_0_0_0_1px_var(--scene)]"
+      role="group"
+      aria-label="Footswitches"
+      className="mx-7 mb-2 flex items-center gap-6 rounded-lg px-4 py-2.5 shadow-[inset_0_0_0_1px_var(--seam-strong)] max-[1320px]:gap-4 [@media(max-height:820px)]:py-1.5"
     >
-      <span className={cn("grid size-6 shrink-0 place-items-center rounded-md text-xs font-bold", FILLED)}>{letter(editing)}</span>
-      <span className="min-w-0 flex-1 truncate text-silkscreen-2">
-        <b className="font-semibold text-silkscreen">Editing scene {letter(editing)}{scene ? ` · ${scene.name}` : ""}.</b>{" "}
-        {changes === 0 ? "It plays like the saved preset so far." : changes === 1 ? "1 difference from the saved preset goes into the scene." : `${changes} differences from the saved preset go into the scene.`}
-      </span>
-      <Button size="sm" variant="ghost" disabled={writing || !!busy} onClick={() => void leaveScene()}>
-        <Undo2Icon aria-hidden />
-        Back to the base
-      </Button>
-      <Button size="sm" disabled={writing || !!busy} onClick={() => void saveScene(editing)}>
-        {writing ? <Spinner /> : <SaveIcon aria-hidden />}
-        Save scene {letter(editing)}
-      </Button>
+      <div className="grid min-w-0 flex-1 grid-cols-4 gap-x-4 gap-y-1.5">
+        {SCENE_CTRL_SWITCHES.map((sw, n) => {
+          const tap = n === 3 && tapTempo !== "disabled";
+          const label = tap ? null : ctrlLabel(preset, n);
+          const on = !!ctrlOn[n];
+          return tap ? (
+            <Footswitch
+              key={sw}
+              caption="TAP"
+              label="Tap tempo"
+              color={LED.tap}
+              lit="dim"
+              disabled
+              title={`TAP taps the tempo. It becomes CTRL 4 when the mod's Tap Tempo is set to Disabled (GLOBAL › Footswitch on the ${pedal}).`}
+            />
+          ) : (
+            <Footswitch
+              key={sw}
+              caption={`${sw} · CTRL ${n + 1}`}
+              label={label ?? "No blocks"}
+              color={label ? (on ? LED.on : LED.off) : undefined}
+              lit={label ? "full" : "off"}
+              pressed={on}
+              disabled={disabled || !label}
+              title={label ? `CTRL ${n + 1} on ${sw}: ${on ? "on" : "off"}. Click to switch its blocks, like the footswitch.` : `CTRL ${n + 1} has no blocks in this scene (CTRL Settings).`}
+              onClick={() => useScenes.getState().toggleCtrl(n)}
+            />
+          );
+        })}
+        {SCENE_LETTERS.map((l, k) => {
+          const s = scenes[k];
+          const active = selected === k;
+          const playing = !!pedalState?.sceneMode && pedalState.activeScene === k;
+          return (
+            <Footswitch
+              key={l}
+              caption={`Scene ${l}${playing && editing !== k ? " · on the pedal" : ""}`}
+              label={s?.name ?? (ready ? "Empty" : defaultSceneName(k))}
+              color={SCENE_COLORS[k]}
+              lit={active ? "full" : s ? "ring" : "off"}
+              pressed={active}
+              disabled={!ready || readOnly}
+              title={active ? `Scene ${l} plays. Click again for the base.` : s ? `Play scene ${l} · ${s.name} and edit it` : `Scene ${l} is empty: start it from the base`}
+              onClick={() => pick(k)}
+            />
+          );
+        })}
+      </div>
+
+      <div className="flex w-[360px] shrink-0 flex-col items-end gap-1.5 border-l border-seam pl-6 max-[1320px]:w-[280px] max-[1320px]:pl-4">
+        <span role="status" className="w-full truncate text-right text-sm text-silkscreen-2">
+          {editing !== null ? (
+            <>
+              <b className="font-semibold text-silkscreen" style={sceneColor(editing)}>
+                <span className="text-[var(--scene)]">●</span> Editing scene {letter(editing)}
+                {scene ? ` · ${scene.name}` : ""}
+              </b>
+              <span className="block text-xs text-silkscreen-3">
+                {unsaved === 0 ? "Plays like the saved preset so far" : unsaved === 1 ? "1 difference from the saved preset" : `${unsaved} differences from the saved preset`}
+              </span>
+            </>
+          ) : (
+            <>
+              <b className="font-semibold text-silkscreen">{selected === null ? "Base" : `Scene ${letter(selected)} on the ${pedal}`}</b>
+              <span className="block text-xs text-silkscreen-3">Click a scene to play and edit it here</span>
+            </>
+          )}
+        </span>
+        {editing !== null && (
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" disabled={writing || !!busy} onClick={() => void leaveScene()}>
+              <Undo2Icon aria-hidden />
+              Back to the base
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
+        <AlertDialogContent className="w-[480px] max-w-[calc(100vw-48px)] sm:max-w-[480px]">
+          {confirm !== null && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-lg font-semibold text-balance">Play scene {letter(confirm)} over your unsaved changes?</AlertDialogTitle>
+                <AlertDialogDescription className="text-[13px] text-pretty text-silkscreen-2">
+                  The {unsaved === 1 ? "unsaved change" : `${unsaved} unsaved changes`} to {preset.name} stop playing, and whatever you keep different from the
+                  saved preset goes into the scene when you save it.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <Button
+                  onClick={() => {
+                    const k = confirm;
+                    setConfirm(null);
+                    void editScene(k);
+                  }}
+                >
+                  Play scene {letter(confirm)}
+                </Button>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
+interface FootswitchProps {
+  /** The footswitch on the pedal (small, above) */
+  caption: string;
+  /** What it does now: the CTRL's effect, the scene's name */
+  label: string;
+  /** LED colour; undefined = unlit grey */
+  color?: string;
+  /** full: lit in its colour; ring: outlined in it (a saved scene); dim: faint; off: unlit */
+  lit: "full" | "ring" | "dim" | "off";
+  pressed?: boolean;
+  disabled?: boolean;
+  title: string;
+  onClick?(): void;
+}
+
+/** One footswitch: the round LED and what it does, side by side. */
+function Footswitch({ caption, label, color, lit, pressed, disabled, title, onClick }: FootswitchProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={disabled ? 0 : -1} className="min-w-0 rounded-md">
+          <button
+            type="button"
+            aria-label={`${caption}: ${label}`}
+            aria-pressed={onClick ? !!pressed : undefined}
+            disabled={disabled}
+            onClick={onClick}
+            style={{ "--led": color ?? "var(--led-off)" } as CSSProperties}
+            className="group flex w-full min-w-0 items-center gap-2.5 rounded-md py-0.5 pr-1.5 text-left enabled:cursor-pointer"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "size-6 shrink-0 rounded-full transition-[background-color,box-shadow,transform] duration-150 group-enabled:group-active:scale-95 motion-reduce:transition-none [@media(max-height:820px)]:size-5",
+                lit === "full" && "bg-[var(--led)] shadow-[0_0_10px_color-mix(in_srgb,var(--led)_55%,transparent)]",
+                lit === "ring" && "bg-[color-mix(in_srgb,var(--led)_18%,transparent)] shadow-[inset_0_0_0_2px_var(--led)]",
+                lit === "dim" && "bg-[color-mix(in_srgb,var(--led)_35%,transparent)]",
+                lit === "off" && "bg-led-off",
+                "group-enabled:group-hover:ring-2 group-enabled:group-hover:ring-[color-mix(in_srgb,var(--led)_40%,transparent)]",
+              )}
+            />
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-[11px] text-silkscreen-3">{caption}</span>
+              <span className={cn("block truncate text-sm font-semibold", lit === "off" || disabled ? "text-silkscreen-3" : "text-silkscreen")}>{label}</span>
+            </span>
+          </button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[320px] text-pretty">{title}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * The Rig header's Save split button while a scene is edited: save the Rig's sound into the scene (Mod S), rename it
+ * (F2) or delete it. Replaces "Save to slot", which would store the scene as the base.
+ */
+export function SceneSaveSplit({ preset, disabled }: { preset: PresetState; disabled: boolean }) {
+  const editing = useScenes((s) => s.editing);
+  const current = useScenes((s) => s.current);
+  const writing = useScenes((s) => s.writing);
+  const canWrite = useDevice((s) => s.features.includes("modScenesWrite"));
+  const busy = useDevice((s) => s.busy);
+  const pedal = usePedalName();
+  const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  /** A menu item opens a dialog: the menu must not take the focus back when it closes, or the dialog closes with it. */
+  const opensDialog = useRef(false);
+  const ready = current !== null && current.slot === preset.slot;
+  const unreadable = ready && current.bytes !== null && current.record === null;
+  const readOnly = disabled || !ready || !canWrite || unreadable || writing || !!busy;
+  const k = editing ?? 0;
+  const scene = scenesOf(current?.record ?? null)[k];
+
+  useCommand("save-to-slot", () => void saveScene(k), editing !== null && !readOnly);
+  useCommand("rename-slot", () => setRenaming(true), editing !== null && !readOnly && !!scene);
+  if (editing === null) return null;
+
+  const remove = async () => {
+    setDeleting(false);
+    try {
+      await useScenes.getState().remove(k);
+      notifySuccess(`Deleted scene ${letter(k)}`, "The scene stays selected and plays the base until you save it again.");
+    } catch (e) {
+      notifyError(`Couldn't delete scene ${letter(k)}`, e);
+    }
+  };
+
+  return (
+    <div className="flex" style={sceneColor(k)}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={readOnly ? 0 : -1}>
+            <Button disabled={readOnly} onClick={() => void saveScene(k)} className="rounded-r-none pr-3">
+              {writing ? <Spinner /> : <SaveIcon aria-hidden />}
+              {writing ? `Saving scene ${letter(k)}` : `Save scene ${letter(k)}`}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          {unreadable ? "These scenes were saved by a newer mod" : !canWrite ? "This version of the mod can't write scenes" : `What the Rig plays now goes into scene ${letter(k)} · ${keyLabel(["Mod", "S"])}`}
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button aria-label="More scene options" className="rounded-l-none border-l border-black/15 px-2.5">
+            <ChevronDownIcon aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onCloseAutoFocus={(e) => {
+            if (opensDialog.current) e.preventDefault();
+            opensDialog.current = false;
+          }}
+        >
+          <DropdownMenuItem disabled={readOnly} onSelect={() => void saveScene(k)}>
+            Save scene {letter(k)}
+            <DropdownMenuShortcut>{keyLabel(["Mod", "S"])}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={readOnly || !scene}
+            onSelect={() => {
+              opensDialog.current = true;
+              setRenaming(true);
+            }}
+          >
+            Rename scene {letter(k)}…
+            <DropdownMenuShortcut>F2</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={readOnly || !scene}
+            onSelect={() => {
+              opensDialog.current = true;
+              setDeleting(true);
+            }}
+          >
+            Delete scene {letter(k)}…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={renaming} onOpenChange={setRenaming}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename scene {letter(k)}</DialogTitle>
+            <DialogDescription>The {pedal} shows it on the scene footswitch, up to 16 characters.</DialogDescription>
+          </DialogHeader>
+          {renaming && scene && <RenameSceneForm k={k} name={scene.name} onDone={() => setRenaming(false)} />}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent className="w-[480px] max-w-[calc(100vw-48px)] sm:max-w-[480px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-lg font-semibold text-balance">
+              Delete scene {letter(k)}
+              {scene ? ` · ${scene.name}` : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-pretty text-silkscreen-2">
+              The {pedal} forgets this scene. The preset and the other scenes stay as they are.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="destructive" onClick={() => void remove()}>
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/** The rename dialog's form: Enter or Save writes the name, Esc or Cancel leaves it (no commit on blur, unlike the card). */
+function RenameSceneForm({ k, name, onDone }: { k: number; name: string; onDone(): void }) {
+  const [value, setValue] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const problem = sceneNameError(value);
+  const submit = async () => {
+    if (problem || saving) return;
+    if (value.trim() === name) return onDone();
+    setSaving(true);
+    try {
+      await useScenes.getState().rename(k, value);
+      notifySuccess(`Renamed scene ${letter(k)}`, sceneName(value, k));
+      onDone();
+    } catch (e) {
+      notifyError(`Couldn't rename scene ${letter(k)}`, e);
+      setSaving(false);
+    }
+  };
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="flex flex-col gap-1">
+        <Input autoFocus aria-label={`Name of scene ${letter(k)}`} aria-invalid={!!problem} value={value} maxLength={16} disabled={saving} onChange={(e) => setValue(e.target.value)} />
+        <span className={cn("text-xs", problem ? "text-led-fault" : "text-silkscreen-3")}>{problem ?? `${value.length} of 16`}</span>
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" disabled={saving} onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!!problem || saving}>
+          {saving && <Spinner />}
+          Rename
+        </Button>
+      </div>
+    </form>
+  );
+}

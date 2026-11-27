@@ -19,7 +19,7 @@ import { playPreset, redo, undo } from "./edits";
 import { ExpControl } from "./ExpControl";
 import { FootswitchControl } from "./FootswitchControl";
 import { PatchPanel } from "./PatchPanel";
-import { ScenesControl } from "./Scenes";
+import { SceneSaveSplit, ScenesControl, SceneTitle } from "./Scenes";
 import { TempoControl } from "./TempoControl";
 import { Tuner } from "./Tuner";
 import { VariationMenu } from "./Variation";
@@ -133,9 +133,9 @@ export function RigHeader({ preset, connected }: Props) {
             >
               <span className="mr-3 font-semibold text-silkscreen-4">{profile.slotLabel(preset.slot)}</span>
               {preset.name}
+              {scenes && <SceneTitle preset={preset} />}
             </h1>
           )}
-          {scenes && <ScenesControl preset={preset} disabled={!editable} />}
         </div>
         <div className="mt-2 flex items-center gap-[18px] text-sm whitespace-nowrap text-silkscreen-3 max-[1320px]:gap-3.5">
           {shownChanges > 0 ? (
@@ -168,6 +168,7 @@ export function RigHeader({ preset, connected }: Props) {
           </Button>
         </IconTip>
         <Tuner />
+        {scenes && <ScenesControl preset={preset} disabled={!editable} />}
         <VariationMenu preset={preset} disabled={!editable} />
         <Tooltip>
           <TooltipTrigger asChild>
@@ -200,7 +201,10 @@ export function RigHeader({ preset, connected }: Props) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <div className="flex">
+        {sceneEditing ? (
+          <SceneSaveSplit preset={preset} disabled={!editable} />
+        ) : (
+          <div className="flex">
           <Tooltip>
             <TooltipTrigger asChild>
               <span tabIndex={connected ? -1 : 0}>
@@ -211,7 +215,7 @@ export function RigHeader({ preset, connected }: Props) {
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              {!connected ? `Connect the ${pedal} to save` : compare ? "Go back to your edits to save" : sceneEditing ? "Save the scene or go back to the base first" : keyLabel(["Mod", "S"])}
+              {!connected ? `Connect the ${pedal} to save` : compare ? "Go back to your edits to save" : keyLabel(["Mod", "S"])}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu>
@@ -236,7 +240,8 @@ export function RigHeader({ preset, connected }: Props) {
               <DropdownMenuItem onSelect={() => void exportPrst()}>Export .prst…</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
+          </div>
+        )}
       </div>
 
       <CommandDialog open={slotPicker} onOpenChange={setSlotPicker} title="Save to another slot" description="Pick the slot to write this preset to">
